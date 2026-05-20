@@ -219,6 +219,20 @@ $mediatype_form_grid->addItem([
 	]))->setId('oauth-token-field')
 ]);
 
+$oauth_profile_select = (new CSelect('oauthprofileid'))
+	->setId('oauthprofileid')
+	->addOption(new CSelectOption(0, _('None')))
+	->setValue((string) $data['oauthprofileid']);
+
+foreach ($data['oauth_profiles'] as $oauthprofileid => $profile_name) {
+	$oauth_profile_select->addOption(new CSelectOption($oauthprofileid, $profile_name));
+}
+
+$mediatype_form_grid->addItem([
+	(new CLabel(_('OAuth profile'), 'oauthprofileid'))->setId('oauth-profile-label'),
+	(new CFormField($oauth_profile_select))->setId('oauth-profile-field')
+]);
+
 // MEDIA_TYPE_EXEC
 $parameters_exec_table = (new CTable())
 	->setId('exec_params_table')

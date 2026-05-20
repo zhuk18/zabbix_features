@@ -606,17 +606,17 @@ window.mediatype_edit_popup = new class {
 				break;
 
 			case <?= MEDIA_TYPE_EXEC ?>:
-				show_fields = ['#exec-path-label', '#exec-path-field', '#row_exec_params_label',
-					'#row_exec_params_field'
+				show_fields = ['#oauth-profile-label', '#oauth-profile-field', '#exec-path-label', '#exec-path-field',
+					'#row_exec_params_label', '#row_exec_params_field'
 				];
 				break;
 
 			case <?= MEDIA_TYPE_WEBHOOK ?>:
-				show_fields = ['#webhook_parameters_label', '#webhook_parameters_field', '#webhook_script_label',
-					'#webhook_script_field', '#webhook_timeout_label', '#webhook_timeout_field', '#webhook_tags_label',
-					'#webhook_tags_field', '#webhook_event_menu_label', '#webhook_event_menu_field',
-					'#webhook_url_name_label', '#webhook_url_name_field', '#webhook_event_menu_url_label',
-					'#webhook_event_menu_url_field'
+				show_fields = ['#oauth-profile-label', '#oauth-profile-field', '#webhook_parameters_label',
+					'#webhook_parameters_field', '#webhook_script_label', '#webhook_script_field',
+					'#webhook_timeout_label', '#webhook_timeout_field', '#webhook_tags_label', '#webhook_tags_field',
+					'#webhook_event_menu_label', '#webhook_event_menu_field', '#webhook_url_name_label',
+					'#webhook_url_name_field', '#webhook_event_menu_url_label', '#webhook_event_menu_url_field'
 				];
 				break;
 		}
@@ -900,7 +900,8 @@ window.mediatype_edit_popup = new class {
 				'#webhook_script_field', '#webhook_timeout_label', '#webhook_timeout_field', '#webhook_tags_label',
 				'#webhook_tags_field', '#webhook_event_menu_label', '#webhook_event_menu_field',
 				'#webhook_url_name_label', '#webhook_url_name_field', '#webhook_event_menu_url_label',
-				'#webhook_event_menu_url_field', '#oauth-token-label', '#oauth-token-field'
+				'#webhook_event_menu_url_field', '#oauth-token-label', '#oauth-token-field', '#oauth-profile-label',
+				'#oauth-profile-field'
 			];
 		}
 

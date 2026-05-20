@@ -57,8 +57,9 @@ class CControllerMediatypeEdit extends CController {
 					'exec_path', 'gsm_modem', 'username', 'status', 'smtp_security', 'smtp_verify_peer',
 					'smtp_verify_host', 'smtp_authentication', 'maxsessions', 'maxattempts', 'attempt_interval',
 					'message_format', 'script', 'timeout', 'process_tags', 'show_event_menu', 'event_menu_url',
-					'event_menu_name', 'parameters', 'description', 'provider', 'redirection_url', 'client_id',
-					'authorization_url', 'token_url', 'tokens_status', 'access_token_updated', 'access_expires_in'
+					'event_menu_name', 'parameters', 'description', 'provider', 'oauthprofileid', 'redirection_url',
+					'client_id', 'authorization_url', 'token_url', 'tokens_status', 'access_token_updated',
+					'access_expires_in'
 				],
 				'selectMessageTemplates' => ['eventsource', 'recovery', 'subject', 'message'],
 				'mediatypeids' => $this->getInput('mediatypeid')
@@ -119,7 +120,9 @@ class CControllerMediatypeEdit extends CController {
 			'message_format' => $email_defaults['message_format'],
 			'message_templates' => [],
 			'providers' => CMediatypeHelper::getEmailProviders(),
-			'tokens_status' => 0
+			'tokens_status' => 0,
+			'oauthprofileid' => 0,
+			'oauth_profiles' => []
 		];
 
 		$message_templates = [];
@@ -177,6 +180,17 @@ class CControllerMediatypeEdit extends CController {
 
 		if ($curl_status['result'] != CFrontendSetup::CHECK_OK) {
 			$data['curl_error'] = $curl_status['error'];
+		}
+
+		$db_oauth_profiles = DBselect(
+			'SELECT oauthprofileid,profile_name'.
+			' FROM oauth_profile'.
+			' WHERE status='.MEDIA_TYPE_STATUS_ACTIVE.
+			' ORDER BY profile_name'
+		);
+
+		while ($row = DBfetch($db_oauth_profiles)) {
+			$data['oauth_profiles'][$row['oauthprofileid']] = $row['profile_name'];
 		}
 
 		$data['js_validation_rules'] = $data['mediatypeid'] == null

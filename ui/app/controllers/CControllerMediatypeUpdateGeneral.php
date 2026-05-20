@@ -77,6 +77,13 @@ abstract class CControllerMediatypeUpdateGeneral extends CController {
 			$mediatype['provider'] = CMediatypeHelper::EMAIL_PROVIDER_SMTP;
 		}
 
+		if (!in_array($mediatype['type'], [MEDIA_TYPE_WEBHOOK, MEDIA_TYPE_EXEC], true)) {
+			$mediatype['oauthprofileid'] = 0;
+		}
+		else {
+			$mediatype['oauthprofileid'] = (int) ($mediatype['oauthprofileid'] ?? 0);
+		}
+
 		unset($mediatype['parameters_exec']);
 		unset($mediatype['parameters_webhook']);
 

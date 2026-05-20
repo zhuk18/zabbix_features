@@ -221,6 +221,9 @@ class CControllerMediatypeUpdate extends CControllerMediatypeUpdateGeneral {
 				]
 			],
 			'description' => ['db media_type.description'],
+			'oauthprofileid' => ['db media_type.oauthprofileid',
+				'when' => ['type', 'in' => [MEDIA_TYPE_WEBHOOK, MEDIA_TYPE_EXEC]]
+			],
 			'status' =>	['db media_type.status', 'in' => [MEDIA_TYPE_STATUS_ACTIVE, MEDIA_TYPE_STATUS_DISABLED]],
 			'message_templates' => ['objects', 'uniq' => ['eventsource', 'recovery'], 'fields' => [
 				'eventsource' => ['db media_type_message.eventsource', 'required',

@@ -39,7 +39,7 @@ class CMediatype extends CApiService {
 		'exec_path', 'gsm_modem', 'username', 'passwd', 'status', 'smtp_port', 'smtp_security', 'smtp_verify_peer',
 		'smtp_verify_host', 'smtp_authentication', 'maxsessions', 'maxattempts', 'attempt_interval', 'message_format',
 		'script', 'timeout', 'process_tags', 'show_event_menu', 'event_menu_url', 'event_menu_name', 'description',
-		'provider', 'parameters',
+		'provider', 'oauthprofileid', 'parameters',
 
 		// OAuth output fields.
 		'redirection_url', 'client_id', 'client_secret', 'authorization_url', 'token_url', 'tokens_status',
@@ -880,6 +880,7 @@ class CMediatype extends CApiService {
 		return [
 			'maxsessions' =>	['type' => API_ANY],
 			'parameters' =>		['type' => API_ANY],
+			'oauthprofileid' =>	['type' => API_ID],
 			'exec_path' =>		['type' => API_STRING_UTF8, 'flags' => $api_required | API_NOT_EMPTY, 'length' => DB::getFieldLength('media_type', 'exec_path')]
 		];
 	}
@@ -890,6 +891,7 @@ class CMediatype extends CApiService {
 		return [
 			'maxsessions' =>		['type' => API_ANY],
 			'parameters' =>			['type' => API_ANY],
+			'oauthprofileid' =>		['type' => API_ID],
 			'script' =>				['type' => API_STRING_UTF8, 'flags' => $api_required | API_NOT_EMPTY, 'length' => DB::getFieldLength('media_type', 'script')],
 			'timeout' =>			['type' => API_TIME_UNIT, 'flags' => API_NOT_EMPTY, 'in' => '1:'.SEC_PER_MIN, 'length' => DB::getFieldLength('media_type', 'timeout')],
 			'process_tags' =>		['type' => API_INT32, 'in' => implode(',', [ZBX_MEDIA_TYPE_TAGS_DISABLED, ZBX_MEDIA_TYPE_TAGS_ENABLED])],
