@@ -2259,8 +2259,8 @@ function getTypeItemFieldNames(array $input): array {
 			return $input['templateid'] == 0
 				? ['url', 'query_fields', 'request_method', 'post_type', 'posts', 'headers', 'status_codes',
 					'follow_redirects', 'retrieve_mode', 'output_format', 'http_proxy', 'interfaceid', 'authtype',
-					'username', 'password', 'verify_peer', 'verify_host', 'ssl_cert_file', 'ssl_key_file',
-					'ssl_key_password', 'timeout', 'delay', 'allow_traps', 'trapper_hosts'
+					'username', 'password', 'oauthprofileid', 'verify_peer', 'verify_host', 'ssl_cert_file',
+					'ssl_key_file', 'ssl_key_password', 'timeout', 'delay', 'allow_traps', 'trapper_hosts'
 				]
 				: ['interfaceid', 'delay', 'allow_traps', 'trapper_hosts'];
 
@@ -2332,6 +2332,10 @@ function getConditionalItemFieldNames(array $field_names, array $input): array {
 				return $input['type'] != ITEM_TYPE_HTTPAGENT || in_array($input['authtype'],
 					[ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS, ZBX_HTTP_AUTH_DIGEST]
 				);
+
+			case 'oauthprofileid':
+				return $input['type'] != ITEM_TYPE_HTTPAGENT || $input['authtype'] == ZBX_HTTP_AUTH_OAUTH
+						|| $input['oauthprofileid'] == 0;
 
 			case 'timeout':
 				return ($input['type'] != ITEM_TYPE_SIMPLE || (strncmp($input['key_'], 'icmpping', 8) != 0
