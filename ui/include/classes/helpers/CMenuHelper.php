@@ -387,6 +387,15 @@ class CMenuHelper {
 				? (new CMenuItem(_('Macros')))
 					->setAction('macros.edit')
 				: null,
+				CWebUser::checkAccess(CRoleHelper::UI_ADMINISTRATION_MEDIA_TYPES)
+					? (new CMenuItem(_('OAuth profiles')))
+						->setAction('oauth.profiles')
+						->setUrl(
+							(new CUrl('zabbix.php'))
+								->setArgument('action', 'oauth.profiles'),
+							'zabbix.php?action=oauth.profiles'
+						)
+					: null,				
 			CWebUser::checkAccess(CRoleHelper::UI_ADMINISTRATION_QUEUE)
 				? (new CMenuItem(_('Queue')))
 					->setSubMenu(new CMenu([

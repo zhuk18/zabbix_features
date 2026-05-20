@@ -232,6 +232,7 @@ class CRouter {
 		'notifications.snooze'						=> [CControllerNotificationsSnooze::class,							'layout.json',			null],
 		'oauth.authorize'							=> [CControllerOauthAuthorize::class,								'layout.htmlpage',		'oauth.authorize'],
 		'oauth.edit'								=> [CControllerOauthEdit::class,									'layout.json',			'oauth.edit'],
+		'oauth.profiles'                            => [CControllerOauthProfilesList::class,                            'layout.htmlpage',        'oauth.profiles'],
 		'oauth.check'								=> [CControllerOauthCheck::class,									'layout.json',			null],
 		'popup'										=> [CControllerPopup::class,										'layout.htmlpage',		'popup.view'],
 		'popup.acknowledge.create'					=> [CControllerPopupAcknowledgeCreate::class,						'layout.json',			null],
