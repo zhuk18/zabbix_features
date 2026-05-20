@@ -92,8 +92,13 @@ $view_url = (new CUrl('zabbix.php'))
 	->setArgument('action', 'oauth.profiles')
 	->getUrl();
 
+$form = (new CForm())->setName('oauth_profiles');
+$header_checkbox = (new CCheckBox('all_oauth_profiles'))
+	->onClick("checkAll('".$form->getName()."', 'all_oauth_profiles', 'oauthprofileids');");
+
 $oauth_profiles_table = (new CTableInfo())
 	->setHeader([
+		(new CColHeader($header_checkbox))->addClass(ZBX_STYLE_CELL_WIDTH),
 		make_sorting_header(_('Profile name'), 'profile_name', $data['sort'], $data['sortorder'], $view_url),
 		_('Mode'),
 		_('Expires in'),
@@ -129,6 +134,7 @@ foreach ($data['oauth_profiles'] as $oauth_profile) {
 		: _('N/A');
 
 	$oauth_profiles_table->addRow([
+		new CCheckBox('oauthprofileids['.$oauth_profile['oauthprofileid'].']', $oauth_profile['oauthprofileid']),
 		(new CCol($oauth_profile['profile_name']))->addClass(ZBX_STYLE_WORDBREAK),
 		(new CCol($oauth_profile['mode'] === 'client_credentials'
 			? _('Client credentials')
@@ -142,7 +148,31 @@ foreach ($data['oauth_profiles'] as $oauth_profile) {
 	]);
 }
 
-$html_page->addItem($oauth_profiles_table)->show();
+$form->addItem([
+	$oauth_profiles_table,
+	new CActionButtonList('action', 'oauthprofileids', [
+		'oauth.profile.enable' => [
+			'content' => (new CSimpleButton(_('Enable')))
+				->addClass(ZBX_STYLE_BTN_ALT)
+				->addClass('js-massenable-oauth-profile')
+				->addClass('js-no-chkbxrange')
+		],
+		'oauth.profile.disable' => [
+			'content' => (new CSimpleButton(_('Disable')))
+				->addClass(ZBX_STYLE_BTN_ALT)
+				->addClass('js-massdisable-oauth-profile')
+				->addClass('js-no-chkbxrange')
+		],
+		'oauth.profile.massdelete' => [
+			'content' => (new CSimpleButton(_('Delete')))
+				->addClass(ZBX_STYLE_BTN_ALT)
+				->addClass('js-massdelete-oauth-profile')
+				->addClass('js-no-chkbxrange')
+		]
+	], $form->getName())
+]);
+
+$html_page->addItem($form)->show();
 
 (new CScriptTag('
 	view.init('.json_encode([

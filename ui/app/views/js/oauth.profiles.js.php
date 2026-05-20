@@ -29,6 +29,8 @@
 			if (create !== null) {
 				create.addEventListener('click', () => this.openCreatePopup());
 			}
+
+			this.initMassActions();
 		},
 
 		openCreatePopup() {
@@ -76,6 +78,71 @@
 				.catch(() => {
 					clearMessages();
 					addMessage(makeMessageBox('bad', [<?= json_encode(_('Unexpected server error.')) ?>]));
+				});
+		},
+
+		initMassActions() {
+			const form = document.forms['oauth_profiles'];
+
+			if (!form) {
+				return;
+			}
+
+			form.querySelector('.js-massenable-oauth-profile')?.addEventListener('click', (e) => {
+				this.massAction(e.target, 'oauth.profile.enable', <?= json_encode(_('Enable selected OAuth profiles?')) ?>);
+			});
+
+			form.querySelector('.js-massdisable-oauth-profile')?.addEventListener('click', (e) => {
+				this.massAction(e.target, 'oauth.profile.disable', <?= json_encode(_('Disable selected OAuth profiles?')) ?>);
+			});
+
+			form.querySelector('.js-massdelete-oauth-profile')?.addEventListener('click', (e) => {
+				this.massAction(e.target, 'oauth.profile.massdelete', <?= json_encode(_('Delete selected OAuth profiles?')) ?>);
+			});
+		},
+
+		massAction(button, action, confirm_text) {
+			const ids = Object.keys(chkbxRange.getSelectedIds());
+
+			if (!ids.length) {
+				return;
+			}
+
+			if (!confirm(confirm_text)) {
+				return;
+			}
+
+			button.classList.add('is-loading');
+
+			const curl = new Curl('zabbix.php');
+			curl.setArgument('action', action);
+			curl.setArgument(CSRF_TOKEN_NAME, this.csrf_token);
+
+			fetch(curl.getUrl(), {
+				method: 'POST',
+				headers: {'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'},
+				body: urlEncodeData({oauthprofileids: ids})
+			})
+				.then((response) => response.json())
+				.then((response) => {
+					clearMessages();
+
+					if ('error' in response) {
+						addMessage(makeMessageBox('bad', response.error.messages ?? [], response.error.title));
+					}
+					else if ('success' in response) {
+						postMessageOk(response.success.title);
+					}
+
+					uncheckTableRows('oauth_profiles', response.keepids ?? []);
+					location.href = location.href;
+				})
+				.catch(() => {
+					clearMessages();
+					addMessage(makeMessageBox('bad', [<?= json_encode(_('Unexpected server error.')) ?>]));
+				})
+				.finally(() => {
+					button.classList.remove('is-loading');
 				});
 		}
 	};
