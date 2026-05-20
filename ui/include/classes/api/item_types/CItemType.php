@@ -116,7 +116,7 @@ abstract class CItemType {
 			case 'authtype':
 				switch (static::TYPE) {
 					case ITEM_TYPE_HTTPAGENT:
-						return ['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_AUTH_NONE, ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS, ZBX_HTTP_AUTH_DIGEST]), 'default' => DB::getDefault('items', 'authtype')];
+						return ['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_AUTH_NONE, ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS, ZBX_HTTP_AUTH_DIGEST, ZBX_HTTP_AUTH_OAUTH]), 'default' => DB::getDefault('items', 'authtype')];
 
 					case ITEM_TYPE_SSH:
 						return ['type' => API_INT32, 'in' => implode(',', [ITEM_AUTHTYPE_PASSWORD, ITEM_AUTHTYPE_PUBLICKEY]), 'default' => DB::getDefault('items', 'authtype')];
@@ -389,6 +389,12 @@ abstract class CItemType {
 						return ['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'password')];
 				}
 
+			case 'oauthprofileid':
+				switch (static::TYPE) {
+					case ITEM_TYPE_HTTPAGENT:
+						return ['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED];
+				}
+
 			case 'params':
 				switch (static::TYPE) {
 					case ITEM_TYPE_CALCULATED:
@@ -447,6 +453,7 @@ abstract class CItemType {
 			case 'authtype':
 			case 'username':
 			case 'password':
+			case 'oauthprofileid':
 			case 'params':
 			case 'timeout':
 			case 'delay':

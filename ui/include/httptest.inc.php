@@ -37,6 +37,22 @@ function httptest_authentications($type = null) {
 	}
 }
 
+function item_http_authentications($type = null) {
+	$authentication_types = httptest_authentications() + [
+		ZBX_HTTP_AUTH_OAUTH => _('OAuth')
+	];
+
+	if (is_null($type)) {
+		return $authentication_types;
+	}
+	elseif (isset($authentication_types[$type])) {
+		return $authentication_types[$type];
+	}
+	else {
+		return _('Unknown');
+	}
+}
+
 function httptest_status2str($status = null) {
 	$statuses = [
 		HTTPTEST_STATUS_ACTIVE => _('Enabled'),

@@ -26,7 +26,7 @@ class CControllerPopupItemTestGetValue extends CControllerPopupItemTest {
 			'hostid'				=> 'db hosts.hostid',
 			'test_with'				=> 'in '.implode(',', [self::TEST_WITH_SERVER, self::TEST_WITH_PROXY]),
 			'proxyid'				=> 'id',
-			'http_authtype'			=> 'in '.implode(',', [ZBX_HTTP_AUTH_NONE, ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS, ZBX_HTTP_AUTH_DIGEST, ITEM_AUTHTYPE_PASSWORD, ITEM_AUTHTYPE_PUBLICKEY]),
+			'http_authtype'			=> 'in '.implode(',', [ZBX_HTTP_AUTH_NONE, ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS, ZBX_HTTP_AUTH_DIGEST, ZBX_HTTP_AUTH_OAUTH, ITEM_AUTHTYPE_PASSWORD, ITEM_AUTHTYPE_PUBLICKEY]),
 			'http_password'			=> 'string',
 			'http_proxy'			=> 'string',
 			'http_username'			=> 'string',

@@ -1347,6 +1347,12 @@ return [
 				'length' => 10,
 				'default' => '0'
 			],
+			'oauthprofileid' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20,
+				'default' => '0'
+			],
 			'discover' => [
 				'null' => false,
 				'type' => DB::FIELD_TYPE_INT,

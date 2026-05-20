@@ -133,7 +133,22 @@ class CControllerItemPrototypeEdit extends CControllerItemPrototype {
 			$item['discoveryData']['lldruleid'] = $parent_lld['itemid'];
 		}
 
+		$oauth_profiles = CItemGeneralHelper::getOauthProfiles();
+
+		if ($item['oauthprofileid'] != 0 && !array_key_exists($item['oauthprofileid'], $oauth_profiles)) {
+			$db_profile = DBfetch(DBselect(
+				'SELECT oauthprofileid,profile_name'.
+				' FROM oauth_profile'.
+				' WHERE oauthprofileid='.zbx_dbstr($item['oauthprofileid'])
+			));
+
+			if ($db_profile) {
+				$oauth_profiles[$db_profile['oauthprofileid']] = $db_profile['profile_name'];
+			}
+		}
+
 		$data = [
+			'oauth_profiles' => $oauth_profiles,
 			'js_test_validation_rules' => (new CFormValidator(
 				CControllerPopupItemTestSend::getValidationRules(allow_lld_macro: true)
 			))->getRules(),
@@ -285,7 +300,7 @@ class CControllerItemPrototypeEdit extends CControllerItemPrototype {
 					'description', 'jmx_endpoint', 'master_itemid', 'timeout', 'url', 'query_fields', 'parameters', 'posts',
 					'status_codes', 'follow_redirects', 'post_type', 'http_proxy', 'headers', 'retrieve_mode',
 					'request_method', 'output_format', 'ssl_cert_file', 'ssl_key_file', 'ssl_key_password', 'verify_peer',
-					'verify_host', 'allow_traps', 'discover'
+					'verify_host', 'allow_traps', 'oauthprofileid', 'discover'
 				],
 				'selectDiscoveryRule' => ['itemid', 'name', 'templateid'],
 				'selectDiscoveryRulePrototype' => ['itemid', 'name', 'templateid'],

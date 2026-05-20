@@ -51,6 +51,7 @@ JAVASCRIPT;
 			'http_password' => '',
 			'http_proxy' => DB::getDefault('items', 'http_proxy'),
 			'http_username' => '',
+			'oauthprofileid' => 0,
 			'interfaceid' => 0,
 			'ipmi_sensor' => DB::getDefault('items', 'ipmi_sensor'),
 			'itemid' => 0,
@@ -558,6 +559,14 @@ JAVASCRIPT;
 			$field_map['http_username'] = 'username';
 			$field_map['http_password'] = 'password';
 
+			$http_authtype = array_key_exists('http_authtype', $input)
+				? $input['http_authtype']
+				: ($input['authtype'] ?? ZBX_HTTP_AUTH_NONE);
+
+			if ($http_authtype != ZBX_HTTP_AUTH_OAUTH) {
+				$input['oauthprofileid'] = 0;
+			}
+
 			$input['query_fields'] = prepareItemQueryFields($input['query_fields']);
 			$input['headers'] = prepareItemHeaders($input['headers']);
 		}
@@ -606,6 +615,28 @@ JAVASCRIPT;
 		}
 
 		return CArrayHelper::renameKeys($input, $field_map);
+	}
+
+	/**
+	 * Get enabled OAuth profiles for select controls.
+	 *
+	 * @return array  OAuth profile ID to profile name map.
+	 */
+	public static function getOauthProfiles(): array {
+		$oauth_profiles = [];
+
+		$db_oauth_profiles = DBselect(
+			'SELECT oauthprofileid,profile_name'.
+			' FROM oauth_profile'.
+			' WHERE status='.MEDIA_TYPE_STATUS_ACTIVE.
+			' ORDER BY profile_name'
+		);
+
+		while ($row = DBfetch($db_oauth_profiles)) {
+			$oauth_profiles[$row['oauthprofileid']] = $row['profile_name'];
+		}
+
+		return $oauth_profiles;
 	}
 
 	/**

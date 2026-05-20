@@ -963,6 +963,11 @@ final class CItemData {
 					'js-item-http-username-field',
 					'js-item-http-password-label',
 					'js-item-http-password-field'
+				],
+				ZBX_HTTP_AUTH_OAUTH => [
+					'js-item-oauth-profile-label',
+					'js-item-oauth-profile-field',
+					'oauthprofileid'
 				]
 			],
 			'for_traps' => [

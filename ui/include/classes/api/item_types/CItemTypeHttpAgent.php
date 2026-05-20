@@ -25,8 +25,8 @@ class CItemTypeHttpAgent extends CItemType {
 	 */
 	const FIELD_NAMES = ['url', 'query_fields', 'request_method', 'post_type', 'posts', 'headers', 'status_codes',
 		'follow_redirects', 'retrieve_mode', 'output_format', 'http_proxy', 'interfaceid', 'authtype', 'username',
-		'password', 'verify_peer', 'verify_host', 'ssl_cert_file', 'ssl_key_file', 'ssl_key_password', 'timeout',
-		'delay', 'allow_traps', 'trapper_hosts'
+		'password', 'oauthprofileid', 'verify_peer', 'verify_host', 'ssl_cert_file', 'ssl_key_file',
+		'ssl_key_password', 'timeout', 'delay', 'allow_traps', 'trapper_hosts'
 	];
 
 	/**
@@ -66,6 +66,10 @@ class CItemTypeHttpAgent extends CItemType {
 			'authtype' =>			self::getCreateFieldRule('authtype', $item),
 			'username' =>			self::getCreateFieldRule('username', $item),
 			'password' =>			self::getCreateFieldRule('password', $item),
+			'oauthprofileid' =>		['type' => API_MULTIPLE, 'rules' => [
+										['if' => ['field' => 'authtype', 'in' => ZBX_HTTP_AUTH_OAUTH], 'type' => API_ID],
+										['else' => true, 'type' => API_ID, 'in' => '0']
+									]],
 			'verify_peer' =>		['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_VERIFY_PEER_OFF, ZBX_HTTP_VERIFY_PEER_ON])],
 			'verify_host' =>		['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_VERIFY_HOST_OFF, ZBX_HTTP_VERIFY_HOST_ON])],
 			'ssl_cert_file' =>		['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'ssl_cert_file')],
@@ -115,6 +119,10 @@ class CItemTypeHttpAgent extends CItemType {
 			'authtype' =>			self::getUpdateFieldRule('authtype', $db_item),
 			'username' =>			self::getUpdateFieldRule('username', $db_item),
 			'password' =>			self::getUpdateFieldRule('password', $db_item),
+			'oauthprofileid' =>		['type' => API_MULTIPLE, 'rules' => [
+										['if' => ['field' => 'authtype', 'in' => ZBX_HTTP_AUTH_OAUTH], 'type' => API_ID],
+										['else' => true, 'type' => API_ID, 'in' => '0']
+									]],
 			'verify_peer' =>		['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_VERIFY_PEER_OFF, ZBX_HTTP_VERIFY_PEER_ON])],
 			'verify_host' =>		['type' => API_INT32, 'in' => implode(',', [ZBX_HTTP_VERIFY_HOST_OFF, ZBX_HTTP_VERIFY_HOST_ON])],
 			'ssl_cert_file' =>		['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'ssl_cert_file')],
@@ -147,6 +155,7 @@ class CItemTypeHttpAgent extends CItemType {
 			'authtype' =>			self::getUpdateFieldRuleInherited('authtype', $db_item),
 			'username' =>			self::getUpdateFieldRuleInherited('username', $db_item),
 			'password' =>			self::getUpdateFieldRuleInherited('password', $db_item),
+			'oauthprofileid' =>		self::getUpdateFieldRuleInherited('oauthprofileid', $db_item),
 			'verify_peer' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
 			'verify_host' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
 			'ssl_cert_file' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
@@ -179,6 +188,7 @@ class CItemTypeHttpAgent extends CItemType {
 			'authtype' =>			self::getUpdateFieldRuleDiscovered('authtype'),
 			'username' =>			self::getUpdateFieldRuleDiscovered('username'),
 			'password' =>			self::getUpdateFieldRuleDiscovered('password'),
+			'oauthprofileid' =>		self::getUpdateFieldRuleDiscovered('oauthprofileid'),
 			'verify_peer' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_DISCOVERED],
 			'verify_host' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_DISCOVERED],
 			'ssl_cert_file' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_DISCOVERED],

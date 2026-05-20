@@ -162,6 +162,7 @@ $tabs = (new CTabView(['id' => $tabsid]))
 			'host' => $data['host'],
 			'inventory_fields' => $data['inventory_fields'],
 			'item' => $item,
+			'oauth_profiles' => $data['oauth_profiles'],
 			'source' => 'item',
 			'types' => $data['types'],
 			'value_types' => $value_types,

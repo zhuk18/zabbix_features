@@ -1505,6 +1505,7 @@ abstract class CItemGeneral extends CApiService {
 			'ssl_key_file' => DB::getDefault('items', 'ssl_key_file'),
 			'ssl_key_password' => DB::getDefault('items', 'ssl_key_password'),
 			'allow_traps' => DB::getDefault('items', 'allow_traps'),
+			'oauthprofileid' => 0,
 
 			// IPMI item type specific fields.
 			'ipmi_sensor' => DB::getDefault('items', 'ipmi_sensor'),
@@ -1589,6 +1590,10 @@ abstract class CItemGeneral extends CApiService {
 							$item += array_intersect_key($type_field_defaults, array_flip(['username', 'password']));
 						}
 
+						if ($item['authtype'] == ZBX_HTTP_AUTH_OAUTH) {
+							$item += array_intersect_key($type_field_defaults, array_flip(['username', 'password']));
+						}
+
 						if (!array_key_exists('allow_traps', $item)
 								|| $item['allow_traps'] == HTTPCHECK_ALLOW_TRAPS_OFF) {
 							$item += array_intersect_key($type_field_defaults, array_flip(['trapper_hosts']));
@@ -1601,9 +1606,18 @@ abstract class CItemGeneral extends CApiService {
 							$item += ['retrieve_mode' => HTTPTEST_STEP_RETRIEVE_MODE_HEADERS];
 						}
 
-						if (array_key_exists('authtype', $item) && $item['authtype'] != $db_item['authtype']
-								&& $item['authtype'] == ZBX_HTTP_AUTH_NONE) {
-							$item += array_intersect_key($type_field_defaults, array_flip(['username', 'password']));
+						if (array_key_exists('authtype', $item) && $item['authtype'] != $db_item['authtype']) {
+							if ($item['authtype'] == ZBX_HTTP_AUTH_NONE) {
+								$item += array_intersect_key($type_field_defaults, array_flip(['username', 'password']));
+							}
+
+							if ($item['authtype'] == ZBX_HTTP_AUTH_OAUTH) {
+								$item += array_intersect_key($type_field_defaults, array_flip(['username', 'password']));
+							}
+
+							if ($db_item['authtype'] == ZBX_HTTP_AUTH_OAUTH) {
+								$item += array_intersect_key($type_field_defaults, array_flip(['oauthprofileid']));
+							}
 						}
 
 						if (array_key_exists('allow_traps', $item) && $item['allow_traps'] != $db_item['allow_traps']

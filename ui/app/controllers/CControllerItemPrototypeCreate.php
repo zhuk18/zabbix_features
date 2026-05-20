@@ -204,9 +204,15 @@ class CControllerItemPrototypeCreate extends CControllerItemPrototype {
 			'http_proxy' => ['db items.http_proxy', 'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]],
 			'http_authtype' => ['db items.authtype',
 				'in' => [ZBX_HTTP_AUTH_NONE, ZBX_HTTP_AUTH_BASIC, ZBX_HTTP_AUTH_NTLM, ZBX_HTTP_AUTH_KERBEROS,
-					ZBX_HTTP_AUTH_DIGEST
+					ZBX_HTTP_AUTH_DIGEST, ZBX_HTTP_AUTH_OAUTH
 				],
 				'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]
+			],
+			'oauthprofileid' => ['db items.oauthprofileid', 'required',
+				'when' => [
+					['type', 'in' => [ITEM_TYPE_HTTPAGENT]],
+					['http_authtype', 'in' => [ZBX_HTTP_AUTH_OAUTH]]
+				]
 			],
 			'http_username' => ['db items.username', 'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]],
 			'http_password' => ['db items.password', 'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]],

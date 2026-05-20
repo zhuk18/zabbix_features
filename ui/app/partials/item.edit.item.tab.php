@@ -368,9 +368,21 @@ $formgrid = (new CFormGrid())
 				->setValue($item['http_authtype'])
 				->setId('http_authtype')
 				->setFocusableElementId('label-http-authtype')
-				->addOptions(CSelect::createOptionsFromArray(httptest_authentications()))
+				->addOptions(CSelect::createOptionsFromArray(item_http_authentications()))
 				->setReadonly($readonly)
 		))->setId('js-item-http-authtype-field')
+	])
+	->addItem([
+		(new CLabel(_('OAuth profile'), 'oauthprofileid'))->setId('js-item-oauth-profile-label'),
+		(new CFormField(
+			(new CSelect('oauthprofileid'))
+				->setId('oauthprofileid')
+				->setFocusableElementId('label-oauthprofileid')
+				->setValue((string) $item['oauthprofileid'])
+				->addOption(new CSelectOption('0', _('None')))
+				->addOptions(CSelect::createOptionsFromArray($data['oauth_profiles']))
+				->setReadonly($readonly)
+		))->setId('js-item-oauth-profile-field')
 	])
 	->addItem([
 		(new CLabel(_('User name'), 'http_username'))->setId('js-item-http-username-label'),
