@@ -63,7 +63,7 @@ class CControllerOauthProfilesList extends CController {
 		$limit = CSettingsHelper::get(CSettingsHelper::SEARCH_LIMIT) + 1;
 
 		$db_result = DBselect(
-			'SELECT profileid, profile_name, mode, status, tokens_status, access_expires_in, access_token_updated'.
+			'SELECT oauthprofileid, profile_name, mode, status, tokens_status, access_expires_in, access_token_updated'.
 				' FROM oauth_profile'.
 				' ORDER BY '.$order_by.' '.$order_dir,
 			$limit

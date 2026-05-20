@@ -23,6 +23,10 @@ class CControllerOauthCheck extends CController {
 
 	public static function getValidationRules(): array {
 		return ['object', 'fields' => [
+			// Extra fields used by OAuth profiles UI (optional here, validated on save).
+			'profile_name' => ['db oauth_profile.profile_name'],
+			'mode' => ['db oauth_profile.mode'],
+			'status' => ['db oauth_profile.status'],
 			'mediatypeid' => ['db media_type_oauth.mediatypeid'],
 			'redirection_url' => ['db media_type_oauth.redirection_url', 'required', 'not_empty'],
 			'client_id' => ['db media_type_oauth.client_id', 'required', 'not_empty'],
@@ -74,13 +78,16 @@ class CControllerOauthCheck extends CController {
 
 	public function doAction() {
 		$oauth = [
+			'profile_name' => '',
+			'mode' => '',
+			'status' => 0,
 			'redirection_url' => '',
 			'client_id' => '',
 			'authorization_url' => '',
 			'token_url' => ''
 		];
-		$this->getInputs($oauth, ['redirection_url', 'client_id', 'authorization_url', 'token_url', 'client_secret',
-			'mediatypeid'
+		$this->getInputs($oauth, ['profile_name', 'mode', 'status', 'redirection_url', 'client_id',
+			'authorization_url', 'token_url', 'client_secret', 'mediatypeid'
 		]);
 
 		$authorization_url = new CUrl($oauth['authorization_url']);

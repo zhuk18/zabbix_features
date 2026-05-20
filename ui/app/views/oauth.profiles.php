@@ -17,6 +17,8 @@
  * @var array $data
  */
 
+$this->includeJsFile('oauth.profiles.js.php');
+
 
 $html_page = (new CHtmlPage())
 	->setTitle(_('OAuth profiles'))
@@ -26,20 +28,6 @@ $html_page = (new CHtmlPage())
 			->addItem(
 				(new CSimpleButton(_('Create OAuth profile')))
 					->setId('js-create')
-					->onClick(
-					'PopUp("oauth.edit", {
-						advanced_form: 1,
-						authorization_url: "https://accounts.google.com/o/oauth2/v2/auth?scope=https%3A%2F%2Fmail.google.com&access_type=offline&prompt=consent&response_type=code",
-						token_url: "https://oauth2.googleapis.com/token?grant_type=authorization_code",
-								mode: "authorization_code",
-								create_profile: 1,
-							rules_preset: "oauthprofile", '.
-							CSRF_TOKEN_NAME.': "'.CCsrfTokenHelper::get('import').
-						'"},{
-							dialogueid: "popup_import",
-							dialogue_class: "modal-popup-generic"
-						});'
-					)
 					->setEnabled((bool) CMediatypeHelper::getSupportedMediaTypes())
 					//->setEnabled((bool) COauthProfileHelper::getSupportedOAuthProfiles())
 			)
@@ -155,3 +143,11 @@ foreach ($data['oauth_profiles'] as $oauth_profile) {
 }
 
 $html_page->addItem($oauth_profiles_table)->show();
+
+(new CScriptTag('
+	view.init('.json_encode([
+		'csrf_token' => CCsrfTokenHelper::get('oauth')
+	]).');
+'))
+	->setOnDocumentReady()
+	->show();

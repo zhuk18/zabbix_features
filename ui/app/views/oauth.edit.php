@@ -24,6 +24,8 @@ $form = (new CForm('post'))
 	->addVar('advanced_form', $data['advanced_form'])
 	->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('oauth'))
 	->addVar('update', $data['update'])
+	->addVar('mode', $data['mode'])
+	->addVar('status', $data['status'])
 	->addItem(getMessages());
 
 // Enable form submitting on Enter.
@@ -39,6 +41,16 @@ $buttons = [
 ];
 
 $form_grid = (new CFormGrid())
+	->addItem([
+		(new CLabel(_('Profile name'), 'profile_name'))
+			->setAsteriskMark(),
+		(new CFormField(
+			(new CTextBox('profile_name', $data['profile_name']))
+				->setAttribute('maxlength', DB::getFieldLength('oauth_profile', 'profile_name'))
+				->setWidth(ZBX_TEXTAREA_STANDARD_WIDTH)
+				->setAriaRequired()
+		))
+	])
 	->addItem([
 		(new CLabel([
 			_('Redirection endpoint'),

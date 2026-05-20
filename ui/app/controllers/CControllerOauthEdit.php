@@ -22,6 +22,9 @@ class CControllerOauthEdit extends CController {
 
 	protected function checkInput(): bool {
 		$fields = [
+			'profile_name' =>		'db oauth_profile.profile_name',
+			'mode' =>				'db oauth_profile.mode',
+			'status' =>				'db oauth_profile.status',
 			'mediatypeid' =>		'id',
 			'redirection_url' =>	'db media_type_oauth.redirection_url',
 			'client_id' => 			'db media_type_oauth.client_id',
@@ -62,6 +65,9 @@ class CControllerOauthEdit extends CController {
 		$data = [
 			'update' => 0,
 			'advanced_form' => 0,
+			'profile_name' => '',
+			'mode' => '',
+			'status' => MEDIA_TYPE_STATUS_ACTIVE,
 			'mediatypeid' => null,
 			'redirection_url' => '',
 			'client_id' => '',
@@ -70,8 +76,8 @@ class CControllerOauthEdit extends CController {
 			'tokens_status' => 0,
 			'js_validation_rules' => (new CFormValidator(CControllerOauthCheck::getValidationRules()))->getRules()
 		];
-		$this->getInputs($data, ['update', 'advanced_form', 'mediatypeid', 'redirection_url', 'client_id',
-			'client_secret', 'authorization_url', 'token_url', 'tokens_status'
+		$this->getInputs($data, ['update', 'advanced_form', 'profile_name', 'mode', 'status', 'mediatypeid',
+			'redirection_url', 'client_id', 'client_secret', 'authorization_url', 'token_url', 'tokens_status'
 		]);
 
 		$data['user'] = [
