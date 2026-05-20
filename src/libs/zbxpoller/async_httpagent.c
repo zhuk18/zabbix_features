@@ -63,7 +63,7 @@ int	zbx_async_check_httpagent(zbx_dc_httpagent_item_t *item, AGENT_RESULT *resul
 			item->url, item->query_fields, item->headers, httpagent_context->item_context.posts,
 			item->retrieve_mode, item->http_proxy, item->follow_redirects, item->timeout, 1,
 			item->ssl_cert_file, item->ssl_key_file, item->ssl_key_password, item->verify_peer,
-			item->verify_host, item->authtype, item->username, item->password, NULL, item->post_type,
+			item->verify_host, item->authtype, item->username, item->password, oauth_token, item->post_type,
 			item->output_format, config_source_ip, config_ssl_ca_location, config_ssl_cert_location,
 			config_ssl_key_location, &error))
 	{
