@@ -8,10 +8,8 @@ libzbxalerter_a_SOURCES = \
 	alert_syncer.c \
 	alerter.c \
 	alerter_defs.h \
-	alerter_internal.h \
 	alerter_protocol.c \
-	alerter_protocol.h \
-	oauth.c
+	alerter_protocol.h
 
 libzbxalerter_a_CFLAGS = \
 	$(LIBXML2_CFLAGS) \

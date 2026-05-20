@@ -58,6 +58,7 @@ struct zbx_es_env
 	int		logged_msgs;
 
 	const char	*config_source_ip;
+	char		*oauth_bearer;
 
 	char		*browser_endpoint;
 

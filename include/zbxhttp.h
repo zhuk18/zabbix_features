@@ -72,6 +72,13 @@ int	zbx_http_prepare_ssl(CURL *easyhandle, const char *ssl_cert_file, const char
 		const char *config_ssl_key_location, char **error);
 int	zbx_http_prepare_auth(CURL *easyhandle, unsigned char authtype, const char *username, const char *password,
 		const char *token, char **error);
+
+int	zbx_oauth_get(zbx_uint64_t mediatypeid, const char *mediatype_name, int timeout, int maxattempts,
+		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
+		char **oauthbearer, int *expires, char **error);
+int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name, int timeout, int maxattempts,
+		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
+		char **oauthbearer, int *expires, char **error);
 char	*zbx_http_parse_header(char **headers);
 
 int	zbx_http_req(const char *url, const char *header, long timeout, const char *ssl_cert_file,

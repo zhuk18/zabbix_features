@@ -173,6 +173,7 @@ typedef struct
 	unsigned char		output_format;
 	unsigned char		verify_peer;
 	unsigned char		verify_host;
+	zbx_uint64_t		oauthprofileid;
 	char			key_orig[ZBX_ITEM_KEY_LEN * ZBX_MAX_BYTES_IN_UTF8_CHAR + 1], *key;
 	char			*delay;
 	int			mtime;
@@ -273,6 +274,7 @@ typedef struct
 	unsigned char		output_format;
 	unsigned char		verify_peer;
 	unsigned char		verify_host;
+	zbx_uint64_t		oauthprofileid;
 	char			*key_orig, *key;
 	char			username_orig[ZBX_ITEM_USERNAME_LEN_MAX], *username;
 	char			password_orig[ZBX_ITEM_PASSWORD_LEN_MAX], *password;

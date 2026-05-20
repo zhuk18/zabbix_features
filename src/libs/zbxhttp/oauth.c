@@ -12,9 +12,8 @@
 ** If not, see <https://www.gnu.org/licenses/>.
 **/
 
-#include "alerter_internal.h"
-
 #include "zbxdb.h"
+#include "zbxlog.h"
 #include "zbxhttp.h"
 #include "audit/zbxaudit.h"
 #include "zbxalgo.h"
@@ -135,12 +134,12 @@ out1:
 #undef SET_ERROR
 }
 
-static int	oauth_access_refresh(zbx_oauth_data_t *data, const char *mediatype_name, long timeout,
+static int	oauth_access_refresh(zbx_oauth_data_t *data, const char *context_name, long timeout,
 		const char *config_source_ip, const char *config_ssl_ca_location, char **error)
 {
 #ifndef HAVE_LIBCURL
 	ZBX_UNUSED(data);
-	ZBX_UNUSED(mediatype_name);
+	ZBX_UNUSED(context_name);
 	ZBX_UNUSED(timeout);
 	ZBX_UNUSED(config_source_ip);
 	ZBX_UNUSED(config_ssl_ca_location);
@@ -154,8 +153,8 @@ static int	oauth_access_refresh(zbx_oauth_data_t *data, const char *mediatype_na
 #define SET_ERROR(format, ...)											\
 	do													\
 	{													\
-		*error = zbx_dsprintf(NULL, "Access token retrieval failed: mediatype \"%s\": " format,		\
-				mediatype_name, __VA_ARGS__);							\
+		*error = zbx_dsprintf(NULL, "Access token retrieval failed: %s: " format,			\
+				context_name, __VA_ARGS__);							\
 	}													\
 	while (0)
 
@@ -412,6 +411,190 @@ int	zbx_oauth_get(zbx_uint64_t mediatypeid, const char *mediatype_name, int time
 
 		oauth_db_update(mediatypeid, &data, ret);
 		oauth_audit(ZBX_AUDIT_ALL_CONTEXT, mediatypeid, mediatype_name, &data, ret);
+
+		if (SUCCEED != ret)
+		{
+			*error = suberror;
+			goto out;
+		}
+	}
+
+	*oauthbearer = zbx_strdup(*oauthbearer, data.access_token);
+	*expires = (int)data.access_token_updated + data.access_expires_in;
+out:
+	oauth_clean(&data);
+
+	zabbix_log(LOG_LEVEL_DEBUG, "End of %s() ret:%s expires:%d", __func__, zbx_result_string(ret),
+			(NULL != expires ? *expires : 0));
+
+	return ret;
+}
+
+static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *context_name, zbx_oauth_data_t *data,
+		char **error)
+{
+#define SET_ERROR(message) 										\
+	do 												\
+	{												\
+		*error = zbx_dsprintf(NULL, "Access token fetch failed: %s \"%s\": "			\
+			message, "OAuth profile", context_name);					\
+	}												\
+	while(0)
+#define CHECK_FOR_NULL(index, message)									\
+	do												\
+	{												\
+		if (SUCCEED == zbx_db_is_null(row[index]) || 0 == strlen(row[index]))			\
+		{											\
+			SET_ERROR(message);								\
+			goto out;									\
+		}											\
+	}												\
+	while(0)
+
+	int		ret = FAIL;
+	zbx_db_result_t	result;
+	zbx_db_row_t	row;
+
+	zabbix_log(LOG_LEVEL_DEBUG, "In %s()", __func__);
+
+	result = zbx_db_select("select token_url,client_id,client_secret,refresh_token,access_token,"
+			"access_token_updated,access_expires_in,tokens_status"
+			" from oauth_profile"
+			" where oauthprofileid="ZBX_FS_UI64, oauthprofileid);
+
+	if ((zbx_db_result_t)ZBX_DB_DOWN == result)
+	{
+		*error = zbx_dsprintf(NULL, "cannot fetch access token: database not available");
+		goto out1;
+	}
+
+	if (NULL == (row = zbx_db_fetch(result)))
+	{
+		*error = zbx_dsprintf(NULL, "Access token fetch failed: %s \"%s\" requires"
+				" OAuth2 to be configured in frontend", "OAuth profile", context_name);
+		goto out;
+	}
+
+	CHECK_FOR_NULL(0, "token URL is missing");
+	CHECK_FOR_NULL(1, "client ID is missing");
+	CHECK_FOR_NULL(2, "client secret is missing");
+	CHECK_FOR_NULL(3, "refresh token is missing");
+	CHECK_FOR_NULL(4, "access token is missing");
+
+	if (0 == atoi(row[5]))
+	{
+		SET_ERROR("access token update time is zero");
+		goto out;
+	}
+
+	if (0 == atoi(row[6]))
+	{
+		SET_ERROR("access token expire time is zero");
+		goto out;
+	}
+
+	data->token_url = zbx_strdup(NULL, row[0]);
+	data->client_id = zbx_strdup(NULL, row[1]);
+	data->client_secret = zbx_strdup(NULL, row[2]);
+	data->refresh_token = zbx_strdup(NULL, row[3]);
+	data->access_token = zbx_strdup(NULL, row[4]);
+	data->access_token_updated = (time_t)atoi(row[5]);
+	data->access_expires_in = (time_t)atoi(row[6]);
+	data->tokens_status = (unsigned char)atoi(row[7]);
+	data->old_tokens_status = data->tokens_status;
+
+	ret = SUCCEED;
+out:
+	zbx_db_free_result(result);
+out1:
+	zabbix_log(LOG_LEVEL_DEBUG, "End of %s(): error:%s", __func__, ZBX_NULL2STR(*error));
+
+	return ret;
+#undef CHECK_FOR_NULL
+#undef SET_ERROR
+}
+
+static void	oauth_profile_db_update(zbx_uint64_t oauthprofileid, zbx_oauth_data_t *data, int fetch_result)
+{
+	if (SUCCEED != fetch_result)
+	{
+		data->tokens_status &= ZBX_OAUTH_TOKEN_REFRESH_VALID;
+
+		zbx_db_execute("update oauth_profile set tokens_status=%hhu"
+				" where oauthprofileid="ZBX_FS_UI64, data->tokens_status, oauthprofileid);
+	}
+	else
+	{
+		data->tokens_status |= (ZBX_OAUTH_TOKEN_ACCESS_VALID | ZBX_OAUTH_TOKEN_REFRESH_VALID);
+
+		if (NULL != data->old_refresh_token)
+		{
+			zbx_db_execute("update oauth_profile set"
+					" access_token='%s',access_token_updated=" ZBX_FS_TIME_T ","
+					"access_expires_in=%d,refresh_token='%s',tokens_status=%hhu"
+					" where oauthprofileid="ZBX_FS_UI64,
+					data->access_token, data->access_token_updated, data->access_expires_in,
+					data->refresh_token, data->tokens_status,
+					oauthprofileid);
+		}
+		else
+		{
+			zbx_db_execute("update oauth_profile set"
+					" access_token='%s',access_token_updated=" ZBX_FS_TIME_T ","
+					"access_expires_in=%d,tokens_status=%hhu"
+					" where oauthprofileid="ZBX_FS_UI64,
+					data->access_token, data->access_token_updated, data->access_expires_in,
+					data->tokens_status,
+					oauthprofileid);
+		}
+	}
+}
+
+/*****************************************************************************************
+ *                                                                                       *
+ * Purpose: get OAuth authorization bearer token from OAuth profile                      *
+ *                                                                                       *
+ * Parameters: oauthprofileid         - [IN]                                             *
+ *             context_name           - [IN] profile or media type name for errors       *
+ *             timeout                - [IN] refresh request timeout                     *
+ *             maxattempts            - [IN] max attempts on refresh request             *
+ *             expire_offset          - [IN] offset before renew access token for OAuth2 *
+ *             config_source_ip       - [IN]                                             *
+ *             config_ssl_ca_location - [IN]                                             *
+ *             oauthbearer            - [OUT]                                            *
+ *             expires                - [OUT]                                            *
+ *             error                  - [IN/OUT]                                         *
+ *                                                                                       *
+ * Return value: SUCCEED - function got valid access token successfully                  *
+ *               FAIL    - otherwise                                                     *
+ *                                                                                       *
+ *****************************************************************************************/
+int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name, int timeout, int maxattempts,
+		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
+		char **oauthbearer, int *expires, char **error)
+{
+	int			ret;
+	zbx_oauth_data_t	data = {0};
+
+	zabbix_log(LOG_LEVEL_DEBUG, "In %s()", __func__);
+
+	if (SUCCEED != (ret = oauth_profile_fetch_from_db(oauthprofileid, context_name, &data, error)))
+		goto out;
+
+	if (data.access_token_updated + data.access_expires_in - expire_offset < time(NULL))
+	{
+		char	*suberror = NULL;
+
+		do
+		{
+			zbx_free(suberror);
+
+			ret = oauth_access_refresh(&data, context_name, timeout, config_source_ip,
+					config_ssl_ca_location, &suberror);
+		}
+		while (0 < --maxattempts && NETWORK_ERROR == ret);
+
+		oauth_profile_db_update(oauthprofileid, &data, ret);
 
 		if (SUCCEED != ret)
 		{

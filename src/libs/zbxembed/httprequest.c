@@ -362,6 +362,8 @@ static duk_ret_t	es_httprequest_query(duk_context *ctx, const char *http_request
 
 	if (0 == request->custom_header)
 	{
+		char	*auth_header = NULL;
+
 		if (NULL != request->headers)
 		{
 			curl_slist_free_all(request->headers);
@@ -369,15 +371,25 @@ static duk_ret_t	es_httprequest_query(duk_context *ctx, const char *http_request
 			request->headers_sz = 0;
 		}
 
+		if (NULL != env->oauth_bearer && '\0' != *env->oauth_bearer)
+		{
+			auth_header = zbx_dsprintf(NULL, "Authorization: Bearer %s", env->oauth_bearer);
+			request->headers = curl_slist_append(request->headers, auth_header);
+			request->headers_sz += strlen(auth_header) + 1;
+			zbx_free(auth_header);
+		}
+
 		/* the post parameter will be converted to string and have terminating zero */
 		/* unless it had buffer or object type                                      */
 		switch (content_type)
 		{
 			case CONTENT_TYPE_APPLICATION_JSON:
-				request->headers = curl_slist_append(NULL, "Content-Type: application/json");
+				request->headers = curl_slist_append(request->headers, "Content-Type: application/json");
+				request->headers_sz += strlen("Content-Type: application/json") + 1;
 				break;
 			case CONTENT_TYPE_TEXT_PLAIN:
-				request->headers = curl_slist_append(NULL, "Content-Type: text/plain");
+				request->headers = curl_slist_append(request->headers, "Content-Type: text/plain");
+				request->headers_sz += strlen("Content-Type: text/plain") + 1;
 				break;
 			default:
 				break;

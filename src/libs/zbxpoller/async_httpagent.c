@@ -14,6 +14,8 @@
 
 #include "async_httpagent.h"
 
+#include "checks_http.h"
+
 #ifdef HAVE_LIBCURL
 static void	httpagent_context_create(zbx_httpagent_context *httpagent_context)
 {
@@ -31,7 +33,7 @@ int	zbx_async_check_httpagent(zbx_dc_httpagent_item_t *item, AGENT_RESULT *resul
 		const char *config_ssl_ca_location, const char *config_ssl_cert_location,
 		const char *config_ssl_key_location, CURLM *curl_handle)
 {
-	char			*error = NULL;
+	char			*error = NULL, *oauth_token = NULL;
 	zbx_httpagent_context	*httpagent_context = zbx_malloc(NULL, sizeof(zbx_httpagent_context));
 	CURLcode		err;
 	CURLMcode		merr;
@@ -46,6 +48,16 @@ int	zbx_async_check_httpagent(zbx_dc_httpagent_item_t *item, AGENT_RESULT *resul
 	httpagent_context->item_context.status_codes = item->status_codes;
 	item->status_codes = NULL;
 	httpagent_context->item_context.preprocessing = item->preprocessing;
+
+	if (HTTPTEST_AUTH_OAUTH == item->authtype)
+	{
+		if (SUCCEED != zbx_http_get_oauth_bearer(item->oauthprofileid, item->key_orig, item->timeout,
+				config_source_ip, config_ssl_ca_location, &oauth_token, &error))
+		{
+			SET_MSG_RESULT(result, error);
+			goto fail;
+		}
+	}
 
 	if (SUCCEED != zbx_http_request_prepare(&httpagent_context->http_context, item->request_method,
 			item->url, item->query_fields, item->headers, httpagent_context->item_context.posts,
@@ -80,6 +92,7 @@ int	zbx_async_check_httpagent(zbx_dc_httpagent_item_t *item, AGENT_RESULT *resul
 	/* httpagent_context is associated with this curl handle and will be freed when handle is freed */
 	return SUCCEED;
 fail:
+	zbx_free(oauth_token);
 	zbx_async_check_httpagent_clean(httpagent_context);
 	zbx_free(httpagent_context);
 

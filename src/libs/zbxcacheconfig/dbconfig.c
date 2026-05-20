@@ -3044,7 +3044,7 @@ static void	dc_item_type_update(int found, ZBX_DC_ITEM *item, zbx_item_type_t *o
 			if (1 == found && NULL != item->itemtype.calcitem->formula_bin)
 				__config_shmem_free_func((void *)item->itemtype.calcitem->formula_bin);
 
-			item->itemtype.calcitem->formula_bin = config_decode_serialized_expression(row[49]);
+			item->itemtype.calcitem->formula_bin = config_decode_serialized_expression(row[50]);
 			break;
 		case ITEM_TYPE_JMX:
 			if (0 == found)
@@ -3380,7 +3380,7 @@ static void	DCsync_items(zbx_dbsync_t *sync, zbx_uint64_t revision, zbx_synced_n
 		ZBX_STR2UINT64(hostid, row[1]);
 		ZBX_STR2UCHAR(status, row[2]);
 		ZBX_STR2UCHAR(type, row[3]);
-		ZBX_DBROW2UINT64(templateid, row[48]);
+		ZBX_DBROW2UINT64(templateid, row[49]);
 
 		if (SUCCEED == zbx_db_is_null(row[12]))
 		{
@@ -3427,7 +3427,8 @@ static void	DCsync_items(zbx_dbsync_t *sync, zbx_uint64_t revision, zbx_synced_n
 		item = (ZBX_DC_ITEM *)DCfind_id_ext(&config->items, itemid, sizeof(ZBX_DC_ITEM), &found, uniq);
 
 		/* template item */
-		ZBX_DBROW2UINT64(item->templateid, row[48]);
+		ZBX_DBROW2UINT64(item->oauthprofileid, row[48]);
+		ZBX_DBROW2UINT64(item->templateid, row[49]);
 
 		if (0 != found && ITEM_TYPE_SNMPTRAP == item->type)
 			dc_interface_snmpitems_remove(item);
@@ -9822,6 +9823,7 @@ static void	DCget_item(zbx_dc_item_t *dst_item, const ZBX_DC_ITEM *src_item)
 
 	dst_item->itemid = src_item->itemid;
 	dst_item->flags = src_item->flags;
+	dst_item->oauthprofileid = src_item->oauthprofileid;
 	dst_item->key = NULL;
 	dst_item->timeout = 0;
 
@@ -10154,6 +10156,7 @@ static void	DCget_httpagent_item(zbx_dc_httpagent_item_t *dst_item, const ZBX_DC
 	dst_item->verify_peer = src_item->itemtype.httpitem->verify_peer;
 	dst_item->verify_host = src_item->itemtype.httpitem->verify_host;
 	dst_item->authtype = src_item->itemtype.httpitem->authtype;
+	dst_item->oauthprofileid = src_item->oauthprofileid;
 	zbx_strscpy(dst_item->username_orig, src_item->itemtype.httpitem->username);
 	zbx_strscpy(dst_item->password_orig, src_item->itemtype.httpitem->password);
 	dst_item->posts = zbx_strdup(NULL, src_item->itemtype.httpitem->posts);

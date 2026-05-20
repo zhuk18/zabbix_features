@@ -309,6 +309,7 @@ typedef struct
 	ZBX_DC_ITEMTYPE		itemtype;
 	ZBX_DC_ITEMVALUETYPE	itemvaluetype;
 	zbx_uint64_t		revision;
+	zbx_uint64_t		oauthprofileid;
 	zbx_uint64_t		templateid;
 	ZBX_DC_PREPROCITEM	*preproc_item;
 	ZBX_DC_MASTERITEM	*master_item;

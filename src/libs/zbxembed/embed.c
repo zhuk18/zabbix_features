@@ -465,6 +465,7 @@ int	zbx_es_destroy_env(zbx_es_t *es, char **error)
 	zbx_es_debug_disable(es);
 
 	zbx_free(es->env->browser_endpoint);
+	zbx_free(es->env->oauth_bearer);
 	zbx_free(es->env->error);
 	zbx_free(es->env);
 
@@ -773,6 +774,14 @@ size_t	zbx_es_total_alloc(const zbx_es_t *es)
 void	zbx_es_set_timeout(zbx_es_t *es, int timeout)
 {
 	es->env->timeout = timeout;
+}
+
+void	zbx_es_set_oauth_bearer(zbx_es_t *es, const char *oauth_bearer)
+{
+	zbx_free(es->env->oauth_bearer);
+
+	if (NULL != oauth_bearer && '\0' != *oauth_bearer)
+		es->env->oauth_bearer = zbx_strdup(NULL, oauth_bearer);
 }
 
 void	zbx_es_debug_enable(zbx_es_t *es)

@@ -72,6 +72,7 @@
 #define ZBX_PROTO_TAG_COMMAND			"command"
 #define ZBX_PROTO_TAG_EXECUTE_ON		"execute_on"
 #define ZBX_PROTO_TAG_AUTHTYPE			"authtype"
+#define ZBX_PROTO_TAG_OAUTHPROFILEID		"oauthprofileid"
 #define ZBX_PROTO_TAG_PUBLICKEY			"publickey"
 #define ZBX_PROTO_TAG_PRIVATEKEY		"privatekey"
 #define ZBX_PROTO_TAG_PARENT_TASKID		"parent_taskid"

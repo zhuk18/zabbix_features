@@ -17,7 +17,6 @@
 
 #include "alerter_defs.h"
 #include "alerter_protocol.h"
-#include "alerter_internal.h"
 
 #include "zbxtimekeeper.h"
 #include "zbxlog.h"
@@ -468,17 +467,19 @@ static void	alerter_process_exec(zbx_ipc_socket_t *socket, zbx_ipc_message_t *ip
 static void	alerter_process_webhook(zbx_ipc_socket_t *socket, zbx_ipc_message_t *ipc_message,
 		const char *config_source_ip)
 {
-	char		*script_bin = NULL, *params = NULL, *error = NULL, *output = NULL;
+	char		*script_bin = NULL, *params = NULL, *oauth_bearer = NULL, *error = NULL, *output = NULL;
 	int		script_bin_sz, ret, timeout;
 	zbx_es_t	es_engine;
 	unsigned char	debug;
 
-	zbx_alerter_deserialize_webhook(ipc_message->data, &script_bin, &script_bin_sz, &timeout, &params, &debug);
+	zbx_alerter_deserialize_webhook(ipc_message->data, &script_bin, &script_bin_sz, &timeout, &params,
+			&oauth_bearer, &debug);
 
 	zbx_es_init(&es_engine);
 
 	if (SUCCEED == (ret = zbx_es_init_env(&es_engine, config_source_ip, &error)))
 	{
+		zbx_es_set_oauth_bearer(&es_engine, oauth_bearer);
 		zbx_es_set_timeout(&es_engine, timeout);
 
 		if (ZBX_ALERT_DEBUG == debug)
@@ -498,6 +499,7 @@ static void	alerter_process_webhook(zbx_ipc_socket_t *socket, zbx_ipc_message_t 
 	zbx_free(output);
 	zbx_free(error);
 	zbx_free(params);
+	zbx_free(oauth_bearer);
 	zbx_es_destroy(&es_engine);
 	zbx_free(script_bin);
 }

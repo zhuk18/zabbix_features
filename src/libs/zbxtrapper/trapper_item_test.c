@@ -144,6 +144,17 @@ static void	db_int_from_json(const struct zbx_json_parse *jp, const char *name, 
 		*num = atoi(zbx_db_get_field(table, fieldname)->default_value);
 }
 
+static void	db_uint64_from_json(const struct zbx_json_parse *jp, const char *name, const zbx_db_table_t *table,
+		const char *fieldname, zbx_uint64_t *num)
+{
+	char	tmp[ZBX_MAX_UINT64_LEN + 1];
+
+	if (SUCCEED == zbx_json_value_by_name(jp, name, tmp, sizeof(tmp), NULL))
+		ZBX_STR2UINT64(*num, tmp);
+	else
+		ZBX_STR2UINT64(*num, zbx_db_get_field(table, fieldname)->default_value);
+}
+
 int	zbx_trapper_item_test_run(const struct zbx_json_parse *jp_data, zbx_uint64_t proxyid, char **info,
 		const zbx_config_comms_args_t *config_comms, int config_startup_time, unsigned char program_type,
 		const char *progname, zbx_get_config_forks_f get_config_forks,  const char *config_java_gateway,
@@ -205,6 +216,7 @@ int	zbx_trapper_item_test_run(const struct zbx_json_parse *jp_data, zbx_uint64_t
 
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_VALUE_TYPE, table_items, "value_type", &item.value_type);
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_AUTHTYPE, table_items, "authtype", &item.authtype);
+	db_uint64_from_json(&jp_item, ZBX_PROTO_TAG_OAUTHPROFILEID, table_items, "oauthprofileid", &item.oauthprofileid);
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_FLAGS, table_items, "flags", &item.flags);
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_FOLLOW_REDIRECTS, table_items, "follow_redirects",
 			&item.follow_redirects);

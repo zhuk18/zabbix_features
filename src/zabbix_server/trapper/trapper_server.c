@@ -91,7 +91,7 @@ static void	trapper_process_alert_send(zbx_socket_t *sock, const struct zbx_json
 	int			ret = FAIL, errcode;
 	char			tmp[ZBX_MAX_UINT64_LEN + 1], *sendto = NULL, *subject = NULL,
 				*message = NULL, *error = NULL, *params = NULL, *value = NULL, *debug = NULL;
-	zbx_uint64_t		mediatypeid;
+	zbx_uint64_t		mediatypeid, oauthprofileid;
 	size_t			string_alloc;
 	struct zbx_json		json;
 	struct zbx_json_parse	jp_data, jp_params;
@@ -158,7 +158,7 @@ static void	trapper_process_alert_send(zbx_socket_t *sock, const struct zbx_json
 	result = zbx_db_select(
 			"select type,smtp_server,smtp_helo,smtp_email,exec_path,gsm_modem,username,passwd,smtp_port"
 				",smtp_security,smtp_verify_peer,smtp_verify_host,smtp_authentication,maxsessions"
-				",maxattempts,attempt_interval,message_format,script,timeout,name"
+				",maxattempts,attempt_interval,message_format,script,timeout,name,oauthprofileid"
 			" from media_type"
 			" where mediatypeid=" ZBX_FS_UI64, mediatypeid);
 
@@ -182,11 +182,12 @@ static void	trapper_process_alert_send(zbx_socket_t *sock, const struct zbx_json
 	ZBX_STR2UCHAR(smtp_authentication, row[12]);
 	ZBX_STR2UCHAR(message_format, row[16]);
 	ZBX_STR2UCHAR(type, row[0]);
+	ZBX_STR2UINT64(oauthprofileid, row[20]);
 
 	size = zbx_alerter_serialize_alert_send(&data, mediatypeid, type, row[19], row[1], row[2], row[3], row[4],
 			row[5], row[6], row[7], smtp_port, smtp_security, smtp_verify_peer, smtp_verify_host,
 			smtp_authentication, atoi(row[13]), atoi(row[14]), row[15], message_format, row[17], row[18],
-			ZBX_ALERT_MESSAGE_TEST, sendto, subject, message, params);
+			oauthprofileid, ZBX_ALERT_MESSAGE_TEST, sendto, subject, message, params);
 
 	zbx_db_free_result(result);
 

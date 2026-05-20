@@ -107,7 +107,8 @@ zbx_uint32_t	zbx_alerter_serialize_alert_send(unsigned char **data, zbx_uint64_t
 		unsigned short smtp_port, unsigned char smtp_security, unsigned char smtp_verify_peer,
 		unsigned char smtp_verify_host, unsigned char smtp_authentication, int maxsessions, int maxattempts,
 		const char *attempt_interval, unsigned char message_format, const char *script, const char *timeout,
-		int message_type, const char *sendto, const char *subject, const char *message, const char *params);
+		zbx_uint64_t oauthprofileid, int message_type, const char *sendto, const char *subject,
+		const char *message, const char *params);
 
 void	zbx_alerter_deserialize_result_ext(const unsigned char *data, char **recipient, char **value, int *errcode,
 		char **error, char **debug);

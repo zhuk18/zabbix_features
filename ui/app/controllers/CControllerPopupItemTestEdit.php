@@ -37,6 +37,7 @@ class CControllerPopupItemTestEdit extends CControllerPopupItemTest {
 			'http_password'			=> 'string',
 			'http_proxy'			=> 'string',
 			'http_username'			=> 'string',
+			'oauthprofileid'		=> 'id',
 			'follow_redirects'		=> 'in 0,1',
 			'key'					=> 'string',
 			'interfaceid'			=> 'db interface.interfaceid',

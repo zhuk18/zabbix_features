@@ -485,6 +485,10 @@ abstract class CControllerPopupItemTest extends CController {
 				if ($data_item['http_authtype'] != ZBX_HTTP_AUTH_NONE) {
 					$data_item += CArrayHelper::getByKeys($input, ['http_username', 'http_password']);
 				}
+
+				if ($data_item['http_authtype'] == ZBX_HTTP_AUTH_OAUTH) {
+					$data_item += CArrayHelper::getByKeys($input, ['oauthprofileid']);
+				}
 				break;
 
 			case ITEM_TYPE_IPMI:

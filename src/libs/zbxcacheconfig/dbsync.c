@@ -1779,7 +1779,7 @@ static char	**dbsync_item_preproc_row(zbx_dbsync_t *sync, char **row)
 			zbx_free(error);
 		}
 
-		row[49] = encode_expression(&ctx);
+		row[50] = encode_expression(&ctx);
 		zbx_eval_clear(&ctx);
 
 		return sync->row;
@@ -1813,11 +1813,11 @@ int	zbx_dbsync_compare_items(zbx_dbsync_t *sync)
 				"i.master_itemid,i.timeout,i.url,i.query_fields,i.posts,i.status_codes,"
 				"i.follow_redirects,i.post_type,i.http_proxy,i.headers,i.retrieve_mode,"
 				"i.request_method,i.output_format,i.ssl_cert_file,i.ssl_key_file,i.ssl_key_password,"
-				"i.verify_peer,i.verify_host,i.allow_traps,i.templateid,null"
+				"i.verify_peer,i.verify_host,i.allow_traps,i.oauthprofileid,i.templateid,null"
 			" from items i"
 			" left join item_rtdata ir on i.itemid=ir.itemid");
 
-	dbsync_prepare(sync, 50, dbsync_item_preproc_row);
+	dbsync_prepare(sync, 51, dbsync_item_preproc_row);
 
 	if (ZBX_DBSYNC_INIT == sync->mode)
 	{

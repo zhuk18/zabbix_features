@@ -41,6 +41,7 @@ int		zbx_es_execute(zbx_es_t *es, const char *script, const char *code, int size
 		char **script_ret, char **error);
 size_t		zbx_es_total_alloc(const zbx_es_t *es);
 void		zbx_es_set_timeout(zbx_es_t *es, int timeout);
+void		zbx_es_set_oauth_bearer(zbx_es_t *es, const char *oauth_bearer);
 void		zbx_es_debug_enable(zbx_es_t *es);
 void		zbx_es_debug_disable(zbx_es_t *es);
 const char	*zbx_es_debug_info(const zbx_es_t *es);

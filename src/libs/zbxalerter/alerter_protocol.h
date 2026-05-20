@@ -69,6 +69,9 @@ typedef struct
 	int			script_bin_sz;
 	unsigned char		message_format;
 	unsigned char		flags;
+	zbx_uint64_t		oauthprofileid;
+	char			*oauth_bearer;
+	int			oauth_bearer_expires;
 }
 zbx_am_mediatype_t;
 
@@ -116,6 +119,7 @@ typedef struct
 	int			maxattempts;
 	unsigned char		message_format;
 	unsigned char		process_tags;
+	zbx_uint64_t		oauthprofileid;
 	time_t			last_access;
 }
 zbx_am_db_mediatype_t;
@@ -213,14 +217,14 @@ void	zbx_alerter_deserialize_alert_send(const unsigned char *data, zbx_uint64_t 
 		char **exec_path, char **gsm_modem, char **username, char **passwd, unsigned short *smtp_port,
 		unsigned char *smtp_security, unsigned char *smtp_verify_peer, unsigned char *smtp_verify_host,
 		unsigned char *smtp_authentication, int *maxsessions, int *maxattempts, char **attempt_interval,
-		unsigned char *message_format, char **script, char **timeout, int *message_type, char **sendto,
-		char **subject, char **message, char **params);
+		unsigned char *message_format, char **script, char **timeout, zbx_uint64_t *oauthprofileid,
+		int *message_type, char **sendto, char **subject, char **message, char **params);
 
 zbx_uint32_t	zbx_alerter_serialize_webhook(unsigned char **data, const char *script_bin, int script_sz,
-		int timeout, const char *params, unsigned char debug);
+		int timeout, const char *params, const char *oauth_bearer, unsigned char debug);
 
 void	zbx_alerter_deserialize_webhook(const unsigned char *data, char **script_bin, int *script_sz, int *timeout,
-		char **params, unsigned char *debug);
+		char **params, char **oauth_bearer, unsigned char *debug);
 
 zbx_uint32_t	zbx_alerter_serialize_mediatypes(unsigned char **data, zbx_am_db_mediatype_t **mediatypes,
 		int mediatypes_num);

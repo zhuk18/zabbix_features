@@ -216,6 +216,7 @@ int	zbx_http_prepare_auth(CURL *easyhandle, unsigned char authtype, const char *
 			curlauth = CURLAUTH_DIGEST;
 			break;
 		case HTTPTEST_AUTH_BEARER:
+		case HTTPTEST_AUTH_OAUTH:
 			if (SUCCEED != zbx_curl_has_http_bearer(error))
 				return FAIL;
 
@@ -237,6 +238,7 @@ int	zbx_http_prepare_auth(CURL *easyhandle, unsigned char authtype, const char *
 	switch (authtype)
 	{
 		case HTTPTEST_AUTH_BEARER:
+		case HTTPTEST_AUTH_OAUTH:
 			if (NULL == token || '\0' == *token)
 			{
 				*error = zbx_dsprintf(*error, "cannot set empty bearer token");

@@ -16,7 +16,7 @@
 #include "alerter_defs.h"
 
 #include "alerter_protocol.h"
-#include "alerter_internal.h"
+#include "zbxhttp.h"
 
 #include "zbxtimekeeper.h"
 #include "zbxlog.h"
@@ -424,13 +424,31 @@ static void	zbx_am_update_webhook(zbx_am_t *manager, zbx_am_mediatype_t *mediaty
  *             config_ssl_ca_location - [IN]                                  *
  *                                                                            *
  ******************************************************************************/
+static void	am_refresh_oauth_bearer(zbx_am_mediatype_t *mediatype, const char *config_source_ip,
+		const char *config_ssl_ca_location)
+{
+	if (0 == mediatype->oauthprofileid)
+	{
+		zbx_free(mediatype->oauth_bearer);
+		mediatype->oauth_bearer_expires = 0;
+		return;
+	}
+
+	zbx_free(mediatype->error);
+	zbx_free(mediatype->oauth_bearer);
+
+	zbx_oauth_profile_get(mediatype->oauthprofileid, mediatype->name, mediatype->timeout, mediatype->maxattempts,
+			SEC_PER_MIN, config_source_ip, config_ssl_ca_location, &mediatype->oauth_bearer,
+			&mediatype->oauth_bearer_expires, &mediatype->error);
+}
+
 static void	am_update_mediatype(zbx_am_t *manager, zbx_uint64_t mediatypeid, unsigned char type, const char *name,
 		const char *smtp_server, const char *smtp_helo, const char *smtp_email, const char *exec_path,
 		const char *gsm_modem, const char *username, const char *passwd, unsigned short smtp_port,
 		unsigned char smtp_security, unsigned char smtp_verify_peer, unsigned char smtp_verify_host,
 		unsigned char smtp_authentication, int maxsessions, int maxattempts, const char *attempt_interval,
-		unsigned char message_format, const char *script, const char *timeout, unsigned char flags,
-		const char *config_source_ip, const char *config_ssl_ca_location)
+		unsigned char message_format, const char *script, const char *timeout, zbx_uint64_t oauthprofileid,
+		unsigned char flags, const char *config_source_ip, const char *config_ssl_ca_location)
 {
 	zbx_am_mediatype_t	*mediatype;
 
@@ -484,8 +502,15 @@ static void	am_update_mediatype(zbx_am_t *manager, zbx_uint64_t mediatypeid, uns
 		return;
 	}
 
+	mediatype->oauthprofileid = oauthprofileid;
+
 	if (MEDIA_TYPE_WEBHOOK == mediatype->type)
+	{
 		zbx_am_update_webhook(manager, mediatype, script, timeout, config_source_ip);
+
+		if (NULL == mediatype->error)
+			am_refresh_oauth_bearer(mediatype, config_source_ip, config_ssl_ca_location);
+	}
 	else if (MEDIA_TYPE_EMAIL == mediatype->type && SMTP_AUTHENTICATION_OAUTH == mediatype->smtp_authentication)
 	{
 		zbx_oauth_get(mediatype->mediatypeid, mediatype->name, mediatype->timeout, mediatype->maxattempts,
@@ -494,6 +519,12 @@ static void	am_update_mediatype(zbx_am_t *manager, zbx_uint64_t mediatypeid, uns
 
 		/* OAuth uses e-mail address as username */
 		mediatype->username = zbx_strdup(mediatype->username, mediatype->smtp_email);
+	}
+	else
+	{
+		zbx_free(mediatype->oauth_bearer);
+		mediatype->oauthprofileid = 0;
+		mediatype->oauth_bearer_expires = 0;
 	}
 }
 
@@ -570,6 +601,7 @@ static void	am_remove_mediatype(zbx_am_t *manager, zbx_am_mediatype_t *mediatype
 	zbx_free(mediatype->passwd);
 	zbx_free(mediatype->script);
 	zbx_free(mediatype->script_bin);
+	zbx_free(mediatype->oauth_bearer);
 	zbx_free(mediatype->error);
 
 	zbx_binary_heap_destroy(&mediatype->queue);
@@ -1637,7 +1669,7 @@ out:
  *                                                                            *
  ******************************************************************************/
 static int	am_process_alert(zbx_am_t *manager, zbx_am_alerter_t *alerter, zbx_am_alert_t *alert,
-		const char *scripts_path)
+		const char *scripts_path, const char *config_source_ip, const char *config_ssl_ca_location)
 {
 	zbx_am_mediatype_t	*mediatype;
 	unsigned char		*data = NULL, debug;
@@ -1720,8 +1752,26 @@ static int	am_process_alert(zbx_am_t *manager, zbx_am_alerter_t *alerter, zbx_am
 			else
 				debug = ZBX_ALERT_NO_DEBUG;
 
+			if (0 != mediatype->oauthprofileid && (NULL == mediatype->oauth_bearer ||
+					mediatype->oauth_bearer_expires - SEC_PER_MIN < (int)time(NULL)))
+			{
+				am_refresh_oauth_bearer(mediatype, config_source_ip, config_ssl_ca_location);
+			}
+
+			if (NULL != mediatype->error)
+			{
+				if (ALERT_SOURCE_EXTERNAL == ZBX_ALERTPOOL_SOURCE(alert->alertpoolid))
+					am_external_alert_send_response(&manager->ipc, alert, NULL, FAIL, mediatype->error,
+							NULL);
+				else
+					am_db_update_alert(manager, alert, ALERT_STATUS_FAILED, 0, NULL, mediatype->error);
+
+				am_remove_alert(manager, alert);
+				goto out;
+			}
+
 			data_len = zbx_alerter_serialize_webhook(&data, mediatype->script_bin, mediatype->script_bin_sz,
-					mediatype->timeout, alert->params, debug);
+					mediatype->timeout, alert->params, mediatype->oauth_bearer, debug);
 			break;
 		default:
 			error = "unsupported media type";
@@ -1893,7 +1943,8 @@ static void	am_update_mediatypes(zbx_am_t *manager, zbx_ipc_message_t *message, 
 				mt->smtp_email, mt->exec_path, mt->gsm_modem, mt->username, mt->passwd, mt->smtp_port,
 				mt->smtp_security, mt->smtp_verify_peer, mt->smtp_verify_host, mt->smtp_authentication,
 				mt->maxsessions, mt->maxattempts, mt->attempt_interval, mt->message_format, mt->script,
-				mt->timeout, ZBX_AM_MEDIATYPE_FLAG_NONE, config_source_ip, config_ssl_ca_location);
+				mt->timeout, mt->oauthprofileid, ZBX_AM_MEDIATYPE_FLAG_NONE, config_source_ip,
+				config_ssl_ca_location);
 
 		zbx_am_db_mediatype_clear(mt);
 		zbx_free(mt);
@@ -2087,7 +2138,7 @@ out:
 static void	am_process_external_alert_request(zbx_am_t *manager, zbx_uint64_t id, const unsigned char *data,
 		const char *config_source_ip, const char *config_ssl_ca_location)
 {
-	zbx_uint64_t	mediatypeid;
+	zbx_uint64_t	mediatypeid, oauthprofileid;
 	char		*sendto, *subject, *message, *params, *smtp_server, *smtp_helo, *smtp_email, *exec_path,
 			*gsm_modem, *username, *passwd, *attempt_interval, *script, *timeout, *name;
 	unsigned short	smtp_port;
@@ -2101,7 +2152,8 @@ static void	am_process_external_alert_request(zbx_am_t *manager, zbx_uint64_t id
 	zbx_alerter_deserialize_alert_send(data, &mediatypeid, &type, &name, &smtp_server, &smtp_helo, &smtp_email,
 			&exec_path, &gsm_modem, &username, &passwd, &smtp_port, &smtp_security, &smtp_verify_peer,
 			&smtp_verify_host, &smtp_authentication, &maxsessions, &maxattempts, &attempt_interval,
-			&message_format, &script, &timeout, &message_type, &sendto, &subject, &message, &params);
+			&message_format, &script, &timeout, &oauthprofileid, &message_type, &sendto, &subject, &message,
+			&params);
 
 	zbx_audit_prepare(ZBX_AUDIT_ALL_CONTEXT);
 
@@ -2109,7 +2161,7 @@ static void	am_process_external_alert_request(zbx_am_t *manager, zbx_uint64_t id
 	am_update_mediatype(manager, mediatypeid, type, name, smtp_server, smtp_helo, smtp_email, exec_path, gsm_modem,
 			username, passwd, smtp_port, smtp_security, smtp_verify_peer, smtp_verify_host,
 			smtp_authentication, maxsessions, maxattempts, attempt_interval, message_format, script, timeout,
-			ZBX_AM_MEDIATYPE_FLAG_REMOVE, config_source_ip, config_ssl_ca_location);
+			oauthprofileid, ZBX_AM_MEDIATYPE_FLAG_REMOVE, config_source_ip, config_ssl_ca_location);
 
 	zbx_audit_flush(ZBX_AUDIT_ALL_CONTEXT);
 
@@ -2249,7 +2301,7 @@ static void	am_process_send_dispatch(zbx_am_t *manager, zbx_ipc_client_t *client
 	am_update_mediatype(manager, mt.mediatypeid, mt.type, mt.name, mt.smtp_server, mt.smtp_helo, mt.smtp_email,
 			mt.exec_path, mt.gsm_modem, mt.username, mt.passwd, mt.smtp_port, mt.smtp_security,
 			mt.smtp_verify_peer, mt.smtp_verify_host, mt.smtp_authentication, mt.maxsessions,
-			mt.maxattempts, mt.attempt_interval, mt.message_format, mt.script, mt.timeout,
+			mt.maxattempts, mt.attempt_interval, mt.message_format, mt.script, mt.timeout, 0,
 			ZBX_AM_MEDIATYPE_FLAG_REMOVE, config_source_ip, config_ssl_ca_location);
 
 	zbx_audit_flush(ZBX_AUDIT_ALL_CONTEXT);
@@ -2605,7 +2657,9 @@ ZBX_THREAD_ENTRY(zbx_alert_manager_thread, args)
 			if (NULL == (alert = am_pop_alert(&manager)))
 				break;
 
-			if (FAIL == am_process_alert(&manager, alerter, alert, scripts_path))
+			if (FAIL == am_process_alert(&manager, alerter, alert, scripts_path,
+					alert_manager_args_in->config_source_ip,
+					alert_manager_args_in->config_ssl_ca_location))
 				zbx_queue_ptr_push(&manager.free_alerters, alerter);
 		}
 
