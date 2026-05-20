@@ -190,7 +190,10 @@
 				}
 
 				if (properties.http_authtype == <?= ZBX_HTTP_AUTH_OAUTH ?>) {
-					properties.oauthprofileid = form_data['oauthprofileid'];
+					const oauth_profile_select = $form[0].querySelector('z-select[name="oauthprofileid"]');
+
+					properties.oauthprofileid = form_data['oauthprofileid']
+						|| (oauth_profile_select ? oauth_profile_select.value : 0);
 				}
 				break;
 

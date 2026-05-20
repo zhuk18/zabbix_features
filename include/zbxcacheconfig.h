@@ -851,6 +851,7 @@ zbx_dc_drule_t;
 ZBX_PTR_VECTOR_DECL(dc_drule_ptr, zbx_dc_drule_t *)
 
 int	zbx_is_item_processed_by_server(unsigned char type, const char *key);
+int	zbx_is_item_processed_by_server_ex(unsigned char type, const char *key, unsigned char authtype);
 int	zbx_is_counted_in_item_queue(unsigned char type, const char *key);
 int	zbx_in_maintenance_without_data_collection(unsigned char maintenance_status, unsigned char maintenance_type,
 		unsigned char type);

@@ -401,6 +401,24 @@ static ZBX_THREAD_LOCAL zbx_dc_um_handle_t	*dc_um_handle = NULL;
  * '------------------+-----------------------------------------------------' *
  *                                                                            *
  ******************************************************************************/
+static int	dc_item_processed_by_server(const ZBX_DC_ITEM *item)
+{
+	unsigned char	authtype = HTTPTEST_AUTH_NONE;
+
+	if (ITEM_TYPE_HTTPAGENT == item->type && NULL != item->itemtype.httpitem)
+		authtype = item->itemtype.httpitem->authtype;
+
+	return zbx_is_item_processed_by_server_ex(item->type, item->key, authtype);
+}
+
+int	zbx_is_item_processed_by_server_ex(unsigned char type, const char *key, unsigned char authtype)
+{
+	if (ITEM_TYPE_HTTPAGENT == type && HTTPTEST_AUTH_OAUTH == authtype)
+		return SUCCEED;
+
+	return zbx_is_item_processed_by_server(type, key);
+}
+
 int	zbx_is_item_processed_by_server(unsigned char type, const char *key)
 {
 	int	ret = FAIL;
@@ -803,7 +821,7 @@ static void	DCitem_poller_type_update(ZBX_DC_ITEM *dc_item, const ZBX_DC_HOST *d
 	unsigned char	snmp_oid_type = ZBX_SNMP_OID_TYPE_MACRO; /* oid type is only used by ITEM_TYPE_SNMP*/
 
 	if (HOST_MONITORED_BY_SERVER != dc_host->monitored_by &&
-			SUCCEED != zbx_is_item_processed_by_server(dc_item->type, dc_item->key))
+			SUCCEED != dc_item_processed_by_server(dc_item))
 	{
 		dc_item->poller_type = ZBX_NO_POLLER;
 		return;
@@ -10705,7 +10723,7 @@ void	zbx_dc_config_get_preprocessable_items(zbx_hashset_t *items, zbx_dc_um_shar
 				continue;
 
 			if (HOST_MONITORED_BY_SERVER == dc_host->monitored_by ||
-					SUCCEED == zbx_is_item_processed_by_server(dc_item->type, dc_item->key) ||
+					SUCCEED == dc_item_processed_by_server(dc_item) ||
 					ITEM_TYPE_TRAPPER == dc_item->type || (ITEM_TYPE_HTTPAGENT == dc_item->type &&
 					1 == dc_item->itemtype.httpitem->allow_traps))
 			{
@@ -12007,7 +12025,7 @@ int	zbx_dc_config_get_poller_items(unsigned char poller_type, int config_timeout
 
 		if (HOST_STATUS_MONITORED != dc_host->status ||
 				(HOST_MONITORED_BY_SERVER != dc_host->monitored_by &&
-				SUCCEED != zbx_is_item_processed_by_server(dc_item->type, dc_item->key)))
+				SUCCEED != dc_item_processed_by_server(dc_item)))
 		{
 			continue;
 		}
@@ -15568,7 +15586,7 @@ void	zbx_dc_reschedule_items(const zbx_vector_uint64_t *itemids, time_t nextchec
 			proxyid = 0;
 		}
 		else if (HOST_MONITORED_BY_SERVER == dc_host->monitored_by ||
-				SUCCEED == zbx_is_item_processed_by_server(dc_item->type, dc_item->key))
+				SUCCEED == dc_item_processed_by_server(dc_item))
 		{
 			dc_requeue_item_at(dc_item, dc_host, nextcheck);
 			proxyid = 0;
@@ -17004,7 +17022,7 @@ static void	dc_check_item_activation(ZBX_DC_ITEM *item, ZBX_DC_HOST *host,
 		return;
 
 	if (HOST_MONITORED_BY_SERVER != host->monitored_by &&
-			SUCCEED != zbx_is_item_processed_by_server(item->type, item->key))
+			SUCCEED != dc_item_processed_by_server(item))
 	{
 		return;
 	}

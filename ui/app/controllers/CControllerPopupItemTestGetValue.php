@@ -155,6 +155,13 @@ class CControllerPopupItemTestGetValue extends CControllerPopupItemTest {
 
 				$ret = false;
 			}
+
+			if ($ret && $this->item_type == ITEM_TYPE_HTTPAGENT
+					&& $this->getInput('http_authtype', ZBX_HTTP_AUTH_NONE) == ZBX_HTTP_AUTH_OAUTH
+					&& $this->getHttpItemOauthProfileId($this->getInputAll()) == 0) {
+				error(_s('Incorrect value for field "%1$s": %2$s.', _('OAuth profile'), _('cannot be empty')));
+				$ret = false;
+			}
 		}
 
 		if ($messages = array_column(get_and_clear_messages(), 'message')) {

@@ -201,8 +201,9 @@ int	zbx_trapper_item_test_run(const struct zbx_json_parse *jp_data, zbx_uint64_t
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_TYPE, table_items, "type", &item.type);
 	db_string_from_json(&jp_item, ZBX_PROTO_TAG_KEY, table_items, "key_", item.key_orig, sizeof(item.key_orig));
 	item.key = db_string_from_json_dyn(&jp_item, ZBX_PROTO_TAG_KEY, table_items, "key_");
+	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_AUTHTYPE, table_items, "authtype", &item.authtype);
 
-	if (0 != proxyid && FAIL == zbx_is_item_processed_by_server(item.type, item.key))
+	if (0 != proxyid && FAIL == zbx_is_item_processed_by_server_ex(item.type, item.key, item.authtype))
 	{
 		struct zbx_json	json;
 
@@ -215,7 +216,6 @@ int	zbx_trapper_item_test_run(const struct zbx_json_parse *jp_data, zbx_uint64_t
 	}
 
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_VALUE_TYPE, table_items, "value_type", &item.value_type);
-	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_AUTHTYPE, table_items, "authtype", &item.authtype);
 	db_uint64_from_json(&jp_item, ZBX_PROTO_TAG_OAUTHPROFILEID, table_items, "oauthprofileid", &item.oauthprofileid);
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_FLAGS, table_items, "flags", &item.flags);
 	db_uchar_from_json(&jp_item, ZBX_PROTO_TAG_FOLLOW_REDIRECTS, table_items, "follow_redirects",

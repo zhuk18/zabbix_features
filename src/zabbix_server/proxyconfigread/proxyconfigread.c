@@ -709,7 +709,7 @@ static int	proxyconfig_get_item_data(const zbx_vector_uint64_t *hostids, zbx_has
 	const zbx_db_table_t	*table;
 	char			*sql;
 	size_t			sql_alloc = 4 * ZBX_KIBIBYTE, sql_offset = 0;
-	int			fld = 1, ret = FAIL, fld_key = -1, fld_type = -1, fld_master_itemid = -1;
+	int			fld = 1, ret = FAIL, fld_key = -1, fld_type = -1, fld_authtype = -1, fld_master_itemid = -1;
 
 	zbx_vector_proxyconfig_dep_item_ptr_t	dep_items;
 	zbx_proxyconfig_dep_item_t		*dep_item;
@@ -730,12 +730,14 @@ static int	proxyconfig_get_item_data(const zbx_vector_uint64_t *hostids, zbx_has
 			fld_type = fld;
 		else if (0 == strcmp(table->fields[i].name, "key_"))
 			fld_key = fld;
+		else if (0 == strcmp(table->fields[i].name, "authtype"))
+			fld_authtype = fld;
 		else if (0 == strcmp(table->fields[i].name, "master_itemid"))
 			fld_master_itemid = fld;
 		fld++;
 	}
 
-	if (-1 == fld_type || -1 == fld_key || -1 == fld_master_itemid)
+	if (-1 == fld_type || -1 == fld_key || -1 == fld_authtype || -1 == fld_master_itemid)
 	{
 		THIS_SHOULD_NEVER_HAPPEN;
 		zbx_exit(EXIT_FAILURE);
@@ -772,9 +774,13 @@ static int	proxyconfig_get_item_data(const zbx_vector_uint64_t *hostids, zbx_has
 			unsigned char	type;
 			zbx_uint64_t	itemid, master_itemid;
 
+			unsigned char	authtype;
+
 			ZBX_STR2UCHAR(type, row[fld_type]);
-			if (SUCCEED == zbx_is_item_processed_by_server(type, row[fld_key]))
-					continue;
+			ZBX_STR2UCHAR(authtype, row[fld_authtype]);
+
+			if (SUCCEED == zbx_is_item_processed_by_server_ex(type, row[fld_key], authtype))
+				continue;
 
 			ZBX_DBROW2UINT64(itemid, row[0]);
 

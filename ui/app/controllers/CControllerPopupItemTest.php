@@ -367,6 +367,31 @@ abstract class CControllerPopupItemTest extends CController {
 	}
 
 	/**
+	 * Resolve OAuth profile ID for HTTP agent item test from user input or database.
+	 *
+	 * @param array $input
+	 *
+	 * @return int
+	 */
+	protected function getHttpItemOauthProfileId(array $input): int {
+		if (array_key_exists('oauthprofileid', $input) && $input['oauthprofileid'] != 0) {
+			return (int) $input['oauthprofileid'];
+		}
+
+		if (!array_key_exists('itemid', $input) || $input['itemid'] == 0) {
+			return 0;
+		}
+
+		$items = API::Item()->get([
+			'output' => ['oauthprofileid'],
+			'itemids' => $input['itemid'],
+			'filter' => ['type' => ITEM_TYPE_HTTPAGENT]
+		]);
+
+		return $items ? (int) $items[0]['oauthprofileid'] : 0;
+	}
+
+	/**
 	 * Function returns array of item specific properties used for item testing.
 	 *
 	 * @param array $input       Stored user input used to overwrite values retrieved from database.
@@ -487,7 +512,7 @@ abstract class CControllerPopupItemTest extends CController {
 				}
 
 				if ($data_item['http_authtype'] == ZBX_HTTP_AUTH_OAUTH) {
-					$data_item += CArrayHelper::getByKeys($input, ['oauthprofileid']);
+					$data_item['oauthprofileid'] = $this->getHttpItemOauthProfileId($input);
 				}
 				break;
 

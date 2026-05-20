@@ -44,6 +44,7 @@
 #include "zbxtime.h"
 #include "zbxtypes.h"
 #include "zbxasyncpoller.h"
+#include "zbxdb.h"
 
 #include <event2/dns.h>
 
@@ -759,6 +760,13 @@ ZBX_THREAD_ENTRY(zbx_async_poller_thread, args)
 #ifdef HAVE_LIBCURL
 		char	*error = NULL;
 
+		if (0 != (info->program_type & ZBX_PROGRAM_TYPE_SERVER))
+		{
+			zbx_setproctitle("%s #%d [connecting to the database]",
+					get_process_type_string(process_type), process_num);
+			zbx_db_connect(ZBX_DB_CONNECT_NORMAL);
+		}
+
 		zbx_async_httpagent_init();
 
 		if (NULL == (asynchttppoller_config = zbx_async_httpagent_create(poller_config.base, process_httpagent_result,
@@ -881,6 +889,9 @@ ZBX_THREAD_ENTRY(zbx_async_poller_thread, args)
 #ifdef HAVE_LIBCURL
 		zbx_async_httpagent_clean(asynchttppoller_config);
 		zbx_free(asynchttppoller_config);
+
+		if (0 != (info->program_type & ZBX_PROGRAM_TYPE_SERVER))
+			zbx_db_close();
 #endif
 	}
 

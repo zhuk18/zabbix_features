@@ -433,11 +433,12 @@ out:
 static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *context_name, zbx_oauth_data_t *data,
 		char **error)
 {
+	const char	*profile_name = context_name;
 #define SET_ERROR(message) 										\
 	do 												\
 	{												\
 		*error = zbx_dsprintf(NULL, "Access token fetch failed: %s \"%s\": "			\
-			message, "OAuth profile", context_name);					\
+			message, "OAuth profile", profile_name);					\
 	}												\
 	while(0)
 #define CHECK_FOR_NULL(index, message)									\
@@ -457,7 +458,7 @@ static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *
 
 	zabbix_log(LOG_LEVEL_DEBUG, "In %s()", __func__);
 
-	result = zbx_db_select("select token_url,client_id,client_secret,refresh_token,access_token,"
+	result = zbx_db_select("select profile_name,token_url,client_id,client_secret,refresh_token,access_token,"
 			"access_token_updated,access_expires_in,tokens_status"
 			" from oauth_profile"
 			" where oauthprofileid="ZBX_FS_UI64, oauthprofileid);
@@ -470,37 +471,41 @@ static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *
 
 	if (NULL == (row = zbx_db_fetch(result)))
 	{
-		*error = zbx_dsprintf(NULL, "Access token fetch failed: %s \"%s\" requires"
-				" OAuth2 to be configured in frontend", "OAuth profile", context_name);
+		*error = zbx_dsprintf(NULL, "Access token fetch failed: OAuth profile (ID: " ZBX_FS_UI64 ") not found."
+				" Select a valid profile or configure OAuth2 in Administration > OAuth profiles",
+				oauthprofileid);
 		goto out;
 	}
 
-	CHECK_FOR_NULL(0, "token URL is missing");
-	CHECK_FOR_NULL(1, "client ID is missing");
-	CHECK_FOR_NULL(2, "client secret is missing");
-	CHECK_FOR_NULL(3, "refresh token is missing");
-	CHECK_FOR_NULL(4, "access token is missing");
+	if ('\0' != *row[0])
+		profile_name = row[0];
 
-	if (0 == atoi(row[5]))
+	CHECK_FOR_NULL(1, "token URL is missing");
+	CHECK_FOR_NULL(2, "client ID is missing");
+	CHECK_FOR_NULL(3, "client secret is missing");
+	CHECK_FOR_NULL(4, "refresh token is missing");
+	CHECK_FOR_NULL(5, "access token is missing");
+
+	if (0 == atoi(row[6]))
 	{
 		SET_ERROR("access token update time is zero");
 		goto out;
 	}
 
-	if (0 == atoi(row[6]))
+	if (0 == atoi(row[7]))
 	{
 		SET_ERROR("access token expire time is zero");
 		goto out;
 	}
 
-	data->token_url = zbx_strdup(NULL, row[0]);
-	data->client_id = zbx_strdup(NULL, row[1]);
-	data->client_secret = zbx_strdup(NULL, row[2]);
-	data->refresh_token = zbx_strdup(NULL, row[3]);
-	data->access_token = zbx_strdup(NULL, row[4]);
-	data->access_token_updated = (time_t)atoi(row[5]);
-	data->access_expires_in = (time_t)atoi(row[6]);
-	data->tokens_status = (unsigned char)atoi(row[7]);
+	data->token_url = zbx_strdup(NULL, row[1]);
+	data->client_id = zbx_strdup(NULL, row[2]);
+	data->client_secret = zbx_strdup(NULL, row[3]);
+	data->refresh_token = zbx_strdup(NULL, row[4]);
+	data->access_token = zbx_strdup(NULL, row[5]);
+	data->access_token_updated = (time_t)atoi(row[6]);
+	data->access_expires_in = (time_t)atoi(row[7]);
+	data->tokens_status = (unsigned char)atoi(row[8]);
 	data->old_tokens_status = data->tokens_status;
 
 	ret = SUCCEED;
