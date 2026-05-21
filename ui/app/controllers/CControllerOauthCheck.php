@@ -24,13 +24,14 @@ class CControllerOauthCheck extends CController {
 	public static function getValidationRules(): array {
 		return ['object', 'fields' => [
 			// Extra fields used by OAuth profiles UI (optional here, validated on save).
+			'oauthprofileid' => ['db oauth_profile.oauthprofileid'],
 			'profile_name' => ['db oauth_profile.profile_name'],
 			'mode' => ['db oauth_profile.mode'],
 			'status' => ['db oauth_profile.status'],
 			'mediatypeid' => ['db media_type_oauth.mediatypeid'],
 			'redirection_url' => ['db media_type_oauth.redirection_url', 'required', 'not_empty'],
 			'client_id' => ['db media_type_oauth.client_id', 'required', 'not_empty'],
-			'client_secret' => ['db media_type_oauth.client_secret', 'not_empty'],
+			'client_secret' => ['db media_type_oauth.client_secret'],
 			'authorization_url' => ['string', 'not_empty'],
 			'authorization_url_parameters' => ['objects', 'uniq' => ['value', 'name'],
 				'fields' => [
@@ -78,17 +79,43 @@ class CControllerOauthCheck extends CController {
 
 	public function doAction() {
 		$oauth = [
+			'oauthprofileid' => null,
 			'profile_name' => '',
 			'mode' => '',
 			'status' => 0,
 			'redirection_url' => '',
 			'client_id' => '',
+			'client_secret' => '',
 			'authorization_url' => '',
 			'token_url' => ''
 		];
-		$this->getInputs($oauth, ['profile_name', 'mode', 'status', 'redirection_url', 'client_id',
+		$this->getInputs($oauth, ['oauthprofileid', 'profile_name', 'mode', 'status', 'redirection_url', 'client_id',
 			'authorization_url', 'token_url', 'client_secret', 'mediatypeid'
 		]);
+
+		if (array_key_exists('oauthprofileid', $oauth) && $oauth['oauthprofileid'] && $oauth['client_secret'] === '') {
+			$db_profile = DBfetch(DBselect(
+				'SELECT client_secret'.
+				' FROM oauth_profile'.
+				' WHERE oauthprofileid='.zbx_dbstr($oauth['oauthprofileid'])
+			));
+
+			if ($db_profile) {
+				$oauth['client_secret'] = $db_profile['client_secret'];
+			}
+		}
+
+		if ($oauth['client_secret'] === '') {
+			$this->setResponse(new CControllerResponseData([
+				'main_block' => json_encode([
+					'form_errors' => [
+						'client_secret' => [_('Field cannot be empty.')]
+					]
+				])
+			]));
+
+			return;
+		}
 
 		$authorization_url = new CUrl($oauth['authorization_url']);
 		foreach ($this->getInput('authorization_url_parameters', []) as $parameter) {
@@ -124,9 +151,12 @@ class CControllerOauthCheck extends CController {
 
 		$url->setArgument('state', base64_encode(json_encode($oauth)));
 
+		$oauth_response = $oauth;
+		unset($oauth_response['client_secret']);
+
 		$data = [
 			'oauth_popup_url' => $url->getUrl(),
-			'oauth' => $oauth
+			'oauth' => $oauth_response
 		];
 
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode($data)]));

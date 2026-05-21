@@ -61,7 +61,7 @@ class CControllerOauthAuthorize extends CController {
 		$mandatory_all = array_flip(['client_id', 'redirection_url', 'token_url', 'sign']);
 		$result = !array_diff_key($mandatory_all, $state);
 
-		$mandatory_one = array_flip(['mediatypeid', 'client_secret']);
+		$mandatory_one = array_flip(['mediatypeid', 'oauthprofileid', 'client_secret']);
 		$result = $result && array_intersect_key($mandatory_one, $state);
 
 		if (!$result) {
@@ -71,14 +71,21 @@ class CControllerOauthAuthorize extends CController {
 		}
 
 		if (!array_key_exists('client_secret', $state)) {
-			$db_mediatype_token_url = (bool) API::MediaType()->get([
-				'output' => ['token_url'],
-				'mediatypeids' => [$state['mediatypeid']],
-				'search' => ['token_url' => $state['token_url']],
-				'startSearch' => true
-			]);
+			if (array_key_exists('mediatypeid', $state)) {
+				$db_mediatype_token_url = (bool) API::MediaType()->get([
+					'output' => ['token_url'],
+					'mediatypeids' => [$state['mediatypeid']],
+					'search' => ['token_url' => $state['token_url']],
+					'startSearch' => true
+				]);
 
-			if (!$db_mediatype_token_url) {
+				if (!$db_mediatype_token_url) {
+					error(_s('Incorrect value for field "%1$s": %2$s.', 'client_secret', _('cannot be empty')), true);
+
+					return false;
+				}
+			}
+			elseif (!array_key_exists('oauthprofileid', $state)) {
 				error(_s('Incorrect value for field "%1$s": %2$s.', 'client_secret', _('cannot be empty')), true);
 
 				return false;
@@ -111,11 +118,24 @@ class CControllerOauthAuthorize extends CController {
 		$data += array_intersect_key($state, array_flip(['client_id', 'client_secret']));
 
 		if (!array_key_exists('client_secret', $data)) {
-			$mediatype = API::MediaType()->get([
-				'output' => ['client_secret'],
-				'mediatypeids' => [$state['mediatypeid']]
-			]);
-			$data['client_secret'] = $mediatype ? $mediatype[0]['client_secret'] : '';
+			if (array_key_exists('mediatypeid', $state)) {
+				$mediatype = API::MediaType()->get([
+					'output' => ['client_secret'],
+					'mediatypeids' => [$state['mediatypeid']]
+				]);
+				$data['client_secret'] = $mediatype ? $mediatype[0]['client_secret'] : '';
+			}
+			elseif (array_key_exists('oauthprofileid', $state)) {
+				$db_profile = DBfetch(DBselect(
+					'SELECT client_secret'.
+					' FROM oauth_profile'.
+					' WHERE oauthprofileid='.zbx_dbstr($state['oauthprofileid'])
+				));
+				$data['client_secret'] = $db_profile ? $db_profile['client_secret'] : '';
+			}
+			else {
+				$data['client_secret'] = '';
+			}
 		}
 
 		$token_url = $state['token_url'];

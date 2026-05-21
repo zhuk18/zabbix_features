@@ -20,6 +20,7 @@
  */
 
 $form = (new CForm('post'))
+	->addVar('oauthprofileid', $data['oauthprofileid'])
 	->addVar('mediatypeid', $data['mediatypeid'])
 	->addVar('advanced_form', $data['advanced_form'])
 	->addVar(CSRF_TOKEN_NAME, CCsrfTokenHelper::get('oauth'))
@@ -263,7 +264,7 @@ $form_grid->addItem(
 );
 
 $output = [
-	'header' => $data['update'] ? _('OAuth') : _('New OAuth'),
+	'header' => $data['update'] ? _('OAuth profile') : _('New OAuth profile'),
 	'body' => $form->addItem($form_grid)->toString(),
 	'buttons' => $buttons,
 	'script_inline' => getPagePostJs().$this->readJsFile('oauth.edit.js.php')

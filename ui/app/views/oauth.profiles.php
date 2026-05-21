@@ -135,7 +135,11 @@ foreach ($data['oauth_profiles'] as $oauth_profile) {
 
 	$oauth_profiles_table->addRow([
 		new CCheckBox('oauthprofileids['.$oauth_profile['oauthprofileid'].']', $oauth_profile['oauthprofileid']),
-		(new CCol($oauth_profile['profile_name']))->addClass(ZBX_STYLE_WORDBREAK),
+		(new CCol(
+			(new CLink($oauth_profile['profile_name']))
+				->addClass('js-edit-oauth-profile')
+				->setAttribute('data-oauthprofileid', $oauth_profile['oauthprofileid'])
+		))->addClass(ZBX_STYLE_WORDBREAK),
 		(new CCol($oauth_profile['mode'] === 'client_credentials'
 			? _('Client credentials')
 			: ($oauth_profile['mode'] === 'authorization_code'

@@ -56,6 +56,12 @@ window.oauth_edit_popup = new class {
 					return;
 				}
 
+				if (this.#canSaveWithoutAuthorization(fields)) {
+					this.overlay.unsetLoading();
+					this.#submitDataToOpener(fields);
+					return;
+				}
+
 				const curl = new Curl('zabbix.php');
 				curl.setArgument('action', 'oauth.check');
 
@@ -207,9 +213,34 @@ window.oauth_edit_popup = new class {
 		}
 	}
 
+	#canSaveWithoutAuthorization(fields) {
+		if (!fields.oauthprofileid) {
+			return false;
+		}
+
+		const client_secret_input = this.form_element.querySelector('[name="client_secret"]');
+
+		if (client_secret_input !== null && !client_secret_input.disabled && fields.client_secret !== '') {
+			return false;
+		}
+
+		if (this.is_advanced_form
+				&& fields.authorization_mode === 'manual'
+				&& fields.code !== undefined
+				&& fields.code !== '') {
+			return false;
+		}
+
+		return true;
+	}
+
 	#submitDataToOpener(detail) {
+		const form_fields = this.form.getAllValues();
+
 		overlayDialogueDestroy(this.overlay.dialogueid);
-		this.dialogue.dispatchEvent(new CustomEvent('dialogue.submit', {detail}));
+		this.dialogue.dispatchEvent(new CustomEvent('dialogue.submit', {
+			detail: {...form_fields, ...detail}
+		}));
 	}
 
 	#popupAuthenticate(oauth_popup_url, server_data) {

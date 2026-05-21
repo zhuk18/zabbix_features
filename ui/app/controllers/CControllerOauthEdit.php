@@ -22,6 +22,7 @@ class CControllerOauthEdit extends CController {
 
 	protected function checkInput(): bool {
 		$fields = [
+			'oauthprofileid' =>		'db oauth_profile.oauthprofileid',
 			'profile_name' =>		'db oauth_profile.profile_name',
 			'mode' =>				'db oauth_profile.mode',
 			'status' =>				'db oauth_profile.status',
@@ -63,6 +64,7 @@ class CControllerOauthEdit extends CController {
 	 */
 	protected function doAction(): void {
 		$data = [
+			'oauthprofileid' => null,
 			'update' => 0,
 			'advanced_form' => 0,
 			'profile_name' => '',
@@ -76,9 +78,46 @@ class CControllerOauthEdit extends CController {
 			'tokens_status' => 0,
 			'js_validation_rules' => (new CFormValidator(CControllerOauthCheck::getValidationRules()))->getRules()
 		];
-		$this->getInputs($data, ['update', 'advanced_form', 'profile_name', 'mode', 'status', 'mediatypeid',
-			'redirection_url', 'client_id', 'client_secret', 'authorization_url', 'token_url', 'tokens_status'
+		$this->getInputs($data, ['oauthprofileid', 'update', 'advanced_form', 'profile_name', 'mode', 'status',
+			'mediatypeid', 'redirection_url', 'client_id', 'client_secret', 'authorization_url', 'token_url',
+			'tokens_status'
 		]);
+
+		if ($this->hasInput('oauthprofileid')) {
+			$db_profile = DBfetch(DBselect(
+				'SELECT oauthprofileid,profile_name,mode,status,redirection_url,client_id,authorization_url,'.
+					'token_url,tokens_status'.
+				' FROM oauth_profile'.
+				' WHERE oauthprofileid='.zbx_dbstr($this->getInput('oauthprofileid'))
+			));
+
+			if (!$db_profile) {
+				$this->setResponse(
+					(new CControllerResponseData([
+						'main_block' => json_encode([
+							'error' => [
+								'title' => _('Invalid OAuth configuration'),
+								'messages' => [_('OAuth profile not found.')]
+							]
+						])
+					]))->disableView()
+				);
+
+				return;
+			}
+
+			$data['oauthprofileid'] = $db_profile['oauthprofileid'];
+			$data['update'] = 1;
+			$data['advanced_form'] = 1;
+			$data['profile_name'] = $db_profile['profile_name'];
+			$data['mode'] = $db_profile['mode'];
+			$data['status'] = $db_profile['status'];
+			$data['redirection_url'] = $db_profile['redirection_url'];
+			$data['client_id'] = $db_profile['client_id'];
+			$data['authorization_url'] = $db_profile['authorization_url'];
+			$data['token_url'] = $db_profile['token_url'];
+			$data['tokens_status'] = $db_profile['tokens_status'];
+		}
 
 		$data['user'] = [
 			'debug_mode' => $this->getDebugMode()

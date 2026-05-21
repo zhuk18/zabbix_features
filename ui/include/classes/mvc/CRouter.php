@@ -234,6 +234,7 @@ class CRouter {
 		'oauth.edit'								=> [CControllerOauthEdit::class,									'layout.json',			'oauth.edit'],
 		'oauth.profiles'                            => [CControllerOauthProfilesList::class,                            'layout.htmlpage',        'oauth.profiles'],
 		'oauth.profile.create'						=> [CControllerOauthProfileCreate::class,							'layout.json',			null],
+		'oauth.profile.update'						=> [CControllerOauthProfileUpdate::class,							'layout.json',			null],
 		'oauth.profile.enable'						=> [CControllerOauthProfileEnable::class,							'layout.json',			null],
 		'oauth.profile.disable'						=> [CControllerOauthProfileDisable::class,							'layout.json',			null],
 		'oauth.profile.massdelete'					=> [CControllerOauthProfileMassDelete::class,						'layout.json',			null],

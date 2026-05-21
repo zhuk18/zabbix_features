@@ -31,6 +31,16 @@
 			}
 
 			this.initMassActions();
+			this.initEditLinks();
+		},
+
+		initEditLinks() {
+			document.querySelectorAll('.js-edit-oauth-profile').forEach((link) => {
+				link.addEventListener('click', (e) => {
+					e.preventDefault();
+					this.openEditPopup(link.getAttribute('data-oauthprofileid'));
+				});
+			});
 		},
 
 		openCreatePopup() {
@@ -44,7 +54,25 @@
 				token_url: 'https://oauth2.googleapis.com/token'
 			}, {dialogue_class: 'modal-popup-generic'});
 
-			overlay.$dialogue[0].addEventListener('dialogue.submit', (e) => this.createProfile(e.detail));
+			overlay.$dialogue[0].addEventListener('dialogue.submit', (e) => this.saveProfile(e.detail));
+		},
+
+		openEditPopup(oauthprofileid) {
+			const overlay = PopUp('oauth.edit', {oauthprofileid}, {dialogue_class: 'modal-popup-generic'});
+
+			overlay.$dialogue[0].addEventListener('dialogue.submit', (e) => this.saveProfile(e.detail));
+		},
+
+		saveProfile(fields) {
+			const is_update = fields.oauthprofileid !== undefined && fields.oauthprofileid !== null
+				&& fields.oauthprofileid !== '' && fields.oauthprofileid !== '0';
+
+			if (is_update) {
+				this.updateProfile(fields);
+			}
+			else {
+				this.createProfile(fields);
+			}
 		},
 
 		createProfile(fields) {
@@ -75,10 +103,49 @@
 
 					location.href = location.href;
 				})
-				.catch(() => {
-					clearMessages();
-					addMessage(makeMessageBox('bad', [<?= json_encode(_('Unexpected server error.')) ?>]));
-				});
+				.catch((exception) => this.showError(exception));
+		},
+
+		updateProfile(fields) {
+			const curl = new Curl('zabbix.php');
+			curl.setArgument('action', 'oauth.profile.update');
+
+			fetch(curl.getUrl(), {
+				method: 'POST',
+				headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({
+					...fields,
+					[CSRF_TOKEN_NAME]: this.csrf_token
+				})
+			})
+				.then((response) => response.json())
+				.then((response) => {
+					if ('error' in response) {
+						throw {error: response.error};
+					}
+
+					if ('form_errors' in response) {
+						throw {error: {title: null, messages: [<?= json_encode(_('Invalid OAuth profile.')) ?>]}};
+					}
+
+					if ('success' in response) {
+						postMessageOk(response.success.title);
+					}
+
+					location.href = location.href;
+				})
+				.catch((exception) => this.showError(exception));
+		},
+
+		showError(exception) {
+			clearMessages();
+
+			if (typeof exception === 'object' && exception !== null && 'error' in exception) {
+				addMessage(makeMessageBox('bad', exception.error.messages ?? [], exception.error.title));
+			}
+			else {
+				addMessage(makeMessageBox('bad', [<?= json_encode(_('Unexpected server error.')) ?>]));
+			}
 		},
 
 		initMassActions() {
