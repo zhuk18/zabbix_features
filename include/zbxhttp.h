@@ -76,9 +76,14 @@ int	zbx_http_prepare_auth(CURL *easyhandle, unsigned char authtype, const char *
 int	zbx_oauth_get(zbx_uint64_t mediatypeid, const char *mediatype_name, int timeout, int maxattempts,
 		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
 		char **oauthbearer, int *expires, char **error);
+#define ZBX_OAUTH_REFRESH_NORMAL	0
+#define ZBX_OAUTH_REFRESH_FORCE		1
+
 int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name, int timeout, int maxattempts,
 		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
-		char **oauthbearer, int *expires, char **error);
+		unsigned char force_refresh, char **oauthbearer, int *expires, char **error);
+void	zbx_oauth_profile_invalidate(zbx_uint64_t oauthprofileid);
+void	zbx_oauth_profile_invalidate_all(void);
 char	*zbx_http_parse_header(char **headers);
 
 int	zbx_http_req(const char *url, const char *header, long timeout, const char *ssl_cert_file,

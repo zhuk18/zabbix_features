@@ -22,7 +22,8 @@
 #define ZBX_HTTP_OAUTH_MAXATTEMPTS	3
 
 int	zbx_http_get_oauth_bearer(zbx_uint64_t oauthprofileid, const char *context_name, int timeout,
-		const char *config_source_ip, const char *config_ssl_ca_location, char **token, char **error)
+		const char *config_source_ip, const char *config_ssl_ca_location, unsigned char force_refresh,
+		char **token, char **error)
 {
 	int	expires;
 
@@ -36,32 +37,36 @@ int	zbx_http_get_oauth_bearer(zbx_uint64_t oauthprofileid, const char *context_n
 		timeout = SEC_PER_MIN;
 
 	return zbx_oauth_profile_get(oauthprofileid, context_name, timeout, ZBX_HTTP_OAUTH_MAXATTEMPTS, SEC_PER_MIN,
-			config_source_ip, config_ssl_ca_location, token, &expires, error);
+			config_source_ip, config_ssl_ca_location, force_refresh, token, &expires, error);
 }
 
 int	get_value_http(const zbx_dc_item_t *item, const char *config_source_ip, const char *config_ssl_ca_location,
 		const char *config_ssl_cert_location, const char *config_ssl_key_location, AGENT_RESULT *result)
 {
 	char			*out = NULL, *error = NULL, *oauth_token = NULL;
-	int			ret;
+	int			ret, oauth_retry = 0;
 	long			response_code;
-	unsigned char		authtype;
+	unsigned char		authtype, oauth_refresh;
 	zbx_http_context_t	context;
 
 	zbx_http_context_create(&context);
 
 	authtype = item->authtype;
+	oauth_refresh = ZBX_OAUTH_REFRESH_NORMAL;
 
+retry:
 	if (HTTPTEST_AUTH_OAUTH == authtype)
 	{
 		if (SUCCEED != zbx_http_get_oauth_bearer(item->oauthprofileid, item->key_orig, item->timeout,
-				config_source_ip, config_ssl_ca_location, &oauth_token, &error))
+				config_source_ip, config_ssl_ca_location, oauth_refresh, &oauth_token, &error))
 		{
 			SET_MSG_RESULT(result, error);
 			error = NULL;
 			ret = NOTSUPPORTED;
 			goto clean;
 		}
+
+		oauth_refresh = ZBX_OAUTH_REFRESH_NORMAL;
 	}
 
 	if (SUCCEED == zbx_http_request_prepare(&context, item->request_method, item->url,
@@ -74,13 +79,32 @@ int	get_value_http(const zbx_dc_item_t *item, const char *config_source_ip, cons
 		CURLcode	err = zbx_http_request_sync_perform(context.easyhandle, &context, 0,
 				ZBX_HTTP_IGNORE_RESPONSE_CODE);
 
-		if (SUCCEED == zbx_http_handle_response(context.easyhandle, &context, err, &response_code, &out, &error)
-				&& SUCCEED == zbx_handle_response_code(item->status_codes, response_code, out, &error))
+		if (SUCCEED == zbx_http_handle_response(context.easyhandle, &context, err, &response_code, &out, &error))
 		{
+			if (HTTPTEST_AUTH_OAUTH == authtype && 401 == response_code && 0 == oauth_retry)
+			{
+				oauth_retry = 1;
+				oauth_refresh = ZBX_OAUTH_REFRESH_FORCE;
+				zbx_free(oauth_token);
+				zbx_free(out);
+				zbx_free(error);
+				zbx_http_context_destroy(&context);
+				zbx_http_context_create(&context);
+				goto retry;
+			}
 
-			SET_TEXT_RESULT(result, out);
-			out = NULL;
-			ret = SUCCEED;
+			if (SUCCEED == zbx_handle_response_code(item->status_codes, response_code, out, &error))
+			{
+				SET_TEXT_RESULT(result, out);
+				out = NULL;
+				ret = SUCCEED;
+			}
+			else
+			{
+				SET_MSG_RESULT(result, error);
+				error = NULL;
+				ret = NOTSUPPORTED;
+			}
 		}
 		else
 		{

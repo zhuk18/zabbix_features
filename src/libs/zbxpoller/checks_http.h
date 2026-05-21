@@ -24,7 +24,8 @@ int	get_value_http(const zbx_dc_item_t *item, const char *config_source_ip, cons
 		const char *config_ssl_cert_location, const char *config_ssl_key_location, AGENT_RESULT *result);
 
 int	zbx_http_get_oauth_bearer(zbx_uint64_t oauthprofileid, const char *context_name, int timeout,
-		const char *config_source_ip, const char *config_ssl_ca_location, char **token, char **error);
+		const char *config_source_ip, const char *config_ssl_ca_location, unsigned char force_refresh,
+		char **token, char **error);
 #endif
 
 #endif

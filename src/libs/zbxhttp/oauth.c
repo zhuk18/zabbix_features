@@ -27,6 +27,17 @@
 
 typedef struct
 {
+	zbx_uint64_t	oauthprofileid;
+	char		*bearer;
+	int		expires;
+}
+zbx_oauth_profile_cache_t;
+
+static zbx_hashset_t	oauth_profile_cache;
+static unsigned char	oauth_profile_cache_initialized = 0;
+
+typedef struct
+{
 	char	*token_url;
 	char	*client_id;
 	char	*client_secret;
@@ -232,11 +243,11 @@ static int	oauth_access_refresh(zbx_oauth_data_t *data, const char *context_name
 			goto out;
 		}
 
-		if (0 != strcmp(tmp, "Bearer"))
-		{
-			SET_ERROR("%s", "token_type is not \"Bearer\" in OAuth server response");
-			goto out;
-		}
+		//if (0 != strcmp(tmp, "Bearer"))
+		//{
+		//	SET_ERROR("%s", "token_type is not \"Bearer\" in OAuth server response");
+		//	goto out;
+		//}
 
 		if (SUCCEED != zbx_json_value_by_name_dyn(&jp, "access_token", &tmp, &tmp_alloc, NULL))
 		{
@@ -430,6 +441,107 @@ out:
 	return ret;
 }
 
+static void	oauth_profile_cache_init(void)
+{
+	if (0 != oauth_profile_cache_initialized)
+		return;
+
+	zbx_hashset_create(&oauth_profile_cache, 1, ZBX_DEFAULT_UINT64_HASH_FUNC,
+			ZBX_DEFAULT_UINT64_COMPARE_FUNC);
+	oauth_profile_cache_initialized = 1;
+}
+
+static void	oauth_profile_cache_free_entry(zbx_oauth_profile_cache_t *entry)
+{
+	zbx_free(entry->bearer);
+}
+
+static int	oauth_profile_cache_get(zbx_uint64_t oauthprofileid, int expire_offset, char **oauthbearer, int *expires)
+{
+	zbx_oauth_profile_cache_t	*entry;
+
+	if (0 == oauthprofileid)
+		return FAIL;
+
+	oauth_profile_cache_init();
+
+	if (NULL == (entry = (zbx_oauth_profile_cache_t *)zbx_hashset_search(&oauth_profile_cache, &oauthprofileid)))
+		return FAIL;
+
+	if (entry->expires - expire_offset <= (int)time(NULL))
+		return FAIL;
+
+	*oauthbearer = zbx_strdup(*oauthbearer, entry->bearer);
+	*expires = entry->expires;
+
+	return SUCCEED;
+}
+
+static void	oauth_profile_cache_set(zbx_uint64_t oauthprofileid, const char *bearer, int expires)
+{
+	zbx_oauth_profile_cache_t	*entry, entry_local = {.oauthprofileid = oauthprofileid};
+
+	if (0 == oauthprofileid || NULL == bearer || '\0' == *bearer)
+		return;
+
+	oauth_profile_cache_init();
+
+	if (NULL == (entry = (zbx_oauth_profile_cache_t *)zbx_hashset_search(&oauth_profile_cache, &oauthprofileid)))
+	{
+		entry = (zbx_oauth_profile_cache_t *)zbx_hashset_insert(&oauth_profile_cache, &entry_local,
+				sizeof(entry_local));
+	}
+	else
+		zbx_free(entry->bearer);
+
+	entry->bearer = zbx_strdup(NULL, bearer);
+	entry->expires = expires;
+}
+
+void	zbx_oauth_profile_invalidate(zbx_uint64_t oauthprofileid)
+{
+	zbx_oauth_profile_cache_t	*entry;
+
+	if (0 == oauthprofileid || 0 == oauth_profile_cache_initialized)
+		return;
+
+	if (NULL != (entry = (zbx_oauth_profile_cache_t *)zbx_hashset_search(&oauth_profile_cache, &oauthprofileid)))
+	{
+		oauth_profile_cache_free_entry(entry);
+		zbx_hashset_remove_direct(&oauth_profile_cache, entry);
+	}
+}
+
+void	zbx_oauth_profile_invalidate_all(void)
+{
+	zbx_hashset_iter_t	iter;
+	zbx_oauth_profile_cache_t	*entry;
+
+	if (0 == oauth_profile_cache_initialized)
+		return;
+
+	zbx_hashset_iter_reset(&oauth_profile_cache, &iter);
+
+	while (NULL != (entry = (zbx_oauth_profile_cache_t *)zbx_hashset_iter_next(&iter)))
+		oauth_profile_cache_free_entry(entry);
+
+	zbx_hashset_clear(&oauth_profile_cache);
+}
+
+static int	oauth_db_ensure_connected(char **error)
+{
+	if (SUCCEED == zbx_db_is_connected())
+		return SUCCEED;
+
+	if (ZBX_DB_OK != zbx_db_connect(ZBX_DB_CONNECT_ONCE))
+	{
+		*error = zbx_strdup(NULL, "cannot fetch access token: database not available");
+		return FAIL;
+	}
+
+	return SUCCEED;
+}
+
 static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *context_name, zbx_oauth_data_t *data,
 		char **error)
 {
@@ -457,6 +569,9 @@ static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *
 	zbx_db_row_t	row;
 
 	zabbix_log(LOG_LEVEL_DEBUG, "In %s()", __func__);
+
+	if (SUCCEED != oauth_db_ensure_connected(error))
+		return FAIL;
 
 	result = zbx_db_select("select profile_name,token_url,client_id,client_secret,refresh_token,access_token,"
 			"access_token_updated,access_expires_in,tokens_status"
@@ -576,12 +691,27 @@ static void	oauth_profile_db_update(zbx_uint64_t oauthprofileid, zbx_oauth_data_
  *****************************************************************************************/
 int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name, int timeout, int maxattempts,
 		int expire_offset, const char *config_source_ip, const char *config_ssl_ca_location,
-		char **oauthbearer, int *expires, char **error)
+		unsigned char force_refresh, char **oauthbearer, int *expires, char **error)
 {
 	int			ret;
 	zbx_oauth_data_t	data = {0};
 
 	zabbix_log(LOG_LEVEL_DEBUG, "In %s()", __func__);
+
+	if (0 == oauthprofileid)
+	{
+		*error = zbx_strdup(NULL, "OAuth profile is not configured.");
+		return FAIL;
+	}
+
+	if (0 == force_refresh && SUCCEED == oauth_profile_cache_get(oauthprofileid, expire_offset, oauthbearer,
+			expires))
+	{
+		return SUCCEED;
+	}
+
+	if (0 != force_refresh)
+		zbx_oauth_profile_invalidate(oauthprofileid);
 
 	if (SUCCEED != (ret = oauth_profile_fetch_from_db(oauthprofileid, context_name, &data, error)))
 		goto out;
@@ -603,6 +733,7 @@ int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name,
 
 		if (SUCCEED != ret)
 		{
+			zbx_oauth_profile_invalidate(oauthprofileid);
 			*error = suberror;
 			goto out;
 		}
@@ -610,6 +741,7 @@ int	zbx_oauth_profile_get(zbx_uint64_t oauthprofileid, const char *context_name,
 
 	*oauthbearer = zbx_strdup(*oauthbearer, data.access_token);
 	*expires = (int)data.access_token_updated + data.access_expires_in;
+	oauth_profile_cache_set(oauthprofileid, *oauthbearer, *expires);
 out:
 	oauth_clean(&data);
 

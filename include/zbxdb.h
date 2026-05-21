@@ -515,6 +515,7 @@ void	zbx_dbconn_pool_sync(zbx_dbconn_pool_t *pool);
 
 void	zbx_db_init_autoincrement_options(void);
 int	zbx_db_connect(int flag);
+int	zbx_db_is_connected(void);
 void	zbx_db_close(void);
 void	zbx_db_begin_deferred(void);
 void	zbx_db_begin(void);

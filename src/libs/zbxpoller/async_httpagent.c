@@ -52,7 +52,7 @@ int	zbx_async_check_httpagent(zbx_dc_httpagent_item_t *item, AGENT_RESULT *resul
 	if (HTTPTEST_AUTH_OAUTH == item->authtype)
 	{
 		if (SUCCEED != zbx_http_get_oauth_bearer(item->oauthprofileid, item->key_orig, item->timeout,
-				config_source_ip, config_ssl_ca_location, &oauth_token, &error))
+				config_source_ip, config_ssl_ca_location, ZBX_OAUTH_REFRESH_NORMAL, &oauth_token, &error))
 		{
 			SET_MSG_RESULT(result, error);
 			goto fail;

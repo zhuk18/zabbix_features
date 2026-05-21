@@ -77,6 +77,19 @@ void	zbx_db_close(void)
 
 /******************************************************************************
  *                                                                            *
+ * Purpose: check if database connection is open in current process           *
+ *                                                                            *
+ * Return value: SUCCEED - connected                                          *
+ *               FAIL    - not connected                                      *
+ *                                                                            *
+ ******************************************************************************/
+int	zbx_db_is_connected(void)
+{
+	return (NULL != dbconn ? SUCCEED : FAIL);
+}
+
+/******************************************************************************
+ *                                                                            *
  * Purpose: defer start of transaction till actual query is present           *
  *                                                                            *
  * Comments: for performance reasons it is better not to start empty          *

@@ -298,6 +298,47 @@ zbx_es_content_type_t;
 
 /******************************************************************************
  *                                                                            *
+ * Purpose: check if Authorization header is already set                      *
+ *                                                                            *
+ ******************************************************************************/
+static int	es_httprequest_has_authorization_header(const zbx_es_httprequest_t *request)
+{
+	struct curl_slist	*header;
+	const char		*name = "Authorization:";
+	size_t			name_len = strlen(name);
+
+	for (header = request->headers; NULL != header; header = header->next)
+	{
+		if (0 == zbx_strncasecmp(header->data, name, name_len))
+			return SUCCEED;
+	}
+
+	return FAIL;
+}
+
+/******************************************************************************
+ *                                                                            *
+ * Purpose: append OAuth bearer Authorization header if configured            *
+ *                                                                            *
+ ******************************************************************************/
+static void	es_httprequest_append_oauth_header(const zbx_es_env_t *env, zbx_es_httprequest_t *request)
+{
+	char	*auth_header;
+
+	if (NULL == env->oauth_bearer || '\0' == *env->oauth_bearer)
+		return;
+
+	if (SUCCEED == es_httprequest_has_authorization_header(request))
+		return;
+
+	auth_header = zbx_dsprintf(NULL, "Authorization: Bearer %s", env->oauth_bearer);
+	request->headers = curl_slist_append(request->headers, auth_header);
+	request->headers_sz += strlen(auth_header) + 1;
+	zbx_free(auth_header);
+}
+
+/******************************************************************************
+ *                                                                            *
  * Purpose: HttpRequest HTTP request implementation                           *
  *                                                                            *
  * Parameters: ctx          - [IN] the scripting engine context               *
@@ -362,8 +403,6 @@ static duk_ret_t	es_httprequest_query(duk_context *ctx, const char *http_request
 
 	if (0 == request->custom_header)
 	{
-		char	*auth_header = NULL;
-
 		if (NULL != request->headers)
 		{
 			curl_slist_free_all(request->headers);
@@ -371,13 +410,7 @@ static duk_ret_t	es_httprequest_query(duk_context *ctx, const char *http_request
 			request->headers_sz = 0;
 		}
 
-		if (NULL != env->oauth_bearer && '\0' != *env->oauth_bearer)
-		{
-			auth_header = zbx_dsprintf(NULL, "Authorization: Bearer %s", env->oauth_bearer);
-			request->headers = curl_slist_append(request->headers, auth_header);
-			request->headers_sz += strlen(auth_header) + 1;
-			zbx_free(auth_header);
-		}
+		es_httprequest_append_oauth_header(env, request);
 
 		/* the post parameter will be converted to string and have terminating zero */
 		/* unless it had buffer or object type                                      */
@@ -395,6 +428,8 @@ static duk_ret_t	es_httprequest_query(duk_context *ctx, const char *http_request
 				break;
 		}
 	}
+	else
+		es_httprequest_append_oauth_header(env, request);
 
 	ZBX_CURL_SETOPT(ctx, request->handle, CURLOPT_HTTPHEADER, request->headers, err);
 	ZBX_CURL_SETOPT(ctx, request->handle, CURLOPT_CUSTOMREQUEST, http_request, err);

@@ -406,3 +406,7 @@ ui/tests/bootstrap.php
 ui/tests/composer.*
 ui/tests/vendor
 ui/tests/.phpunit.result.cache
+.cursor/skills/feature-decomposition/SKILL.md
+.gitignore
+.cursor/skills/zabbix-feature-design/SKILL.md
+.cursor/skills/zabbix-feature-design/reference.md

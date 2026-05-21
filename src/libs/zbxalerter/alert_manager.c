@@ -438,8 +438,8 @@ static void	am_refresh_oauth_bearer(zbx_am_mediatype_t *mediatype, const char *c
 	zbx_free(mediatype->oauth_bearer);
 
 	zbx_oauth_profile_get(mediatype->oauthprofileid, mediatype->name, mediatype->timeout, mediatype->maxattempts,
-			SEC_PER_MIN, config_source_ip, config_ssl_ca_location, &mediatype->oauth_bearer,
-			&mediatype->oauth_bearer_expires, &mediatype->error);
+			SEC_PER_MIN, config_source_ip, config_ssl_ca_location, ZBX_OAUTH_REFRESH_NORMAL,
+			&mediatype->oauth_bearer, &mediatype->oauth_bearer_expires, &mediatype->error);
 }
 
 static void	am_update_mediatype(zbx_am_t *manager, zbx_uint64_t mediatypeid, unsigned char type, const char *name,
@@ -509,7 +509,10 @@ static void	am_update_mediatype(zbx_am_t *manager, zbx_uint64_t mediatypeid, uns
 		zbx_am_update_webhook(manager, mediatype, script, timeout, config_source_ip);
 
 		if (NULL == mediatype->error)
+		{
+			zbx_oauth_profile_invalidate(oauthprofileid);
 			am_refresh_oauth_bearer(mediatype, config_source_ip, config_ssl_ca_location);
+		}
 	}
 	else if (MEDIA_TYPE_EMAIL == mediatype->type && SMTP_AUTHENTICATION_OAUTH == mediatype->smtp_authentication)
 	{
@@ -1709,6 +1712,29 @@ static int	am_process_alert(zbx_am_t *manager, zbx_am_alerter_t *alerter, zbx_am
 				p_eventid = alert->eventid;
 			else
 				p_eventid = 0;
+
+			if (SMTP_AUTHENTICATION_OAUTH == mediatype->smtp_authentication && (NULL == mediatype->passwd ||
+					mediatype->passwd_expires - SEC_PER_MIN < (int)time(NULL)))
+			{
+				zbx_free(mediatype->error);
+
+				zbx_oauth_get(mediatype->mediatypeid, mediatype->name, mediatype->timeout,
+						mediatype->maxattempts, SEC_PER_MIN, config_source_ip,
+						config_ssl_ca_location, &mediatype->passwd, &mediatype->passwd_expires,
+						&mediatype->error);
+			}
+
+			if (NULL != mediatype->error)
+			{
+				if (ALERT_SOURCE_EXTERNAL == ZBX_ALERTPOOL_SOURCE(alert->alertpoolid))
+					am_external_alert_send_response(&manager->ipc, alert, NULL, FAIL, mediatype->error,
+							NULL);
+				else
+					am_db_update_alert(manager, alert, ALERT_STATUS_FAILED, 0, NULL, mediatype->error);
+
+				am_remove_alert(manager, alert);
+				goto out;
+			}
 
 			if (ZBX_MEDIA_MESSAGE_FORMAT_DEFAULT == (message_format = alert->message_format))
 				message_format = mediatype->message_format;
