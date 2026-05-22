@@ -282,6 +282,18 @@ $host_tab
 		)
 	])
 	->addItem([
+		(new CLabel(_('Default OAuth profile'), 'oauthprofileid')),
+		new CFormField(
+			(new CSelect('oauthprofileid'))
+				->setId('oauthprofileid')
+				->setFocusableElementId('label-oauthprofileid')
+				->setValue((string) $data['host']['oauthprofileid'])
+				->addOption(new CSelectOption('0', _('None')))
+				->addOptions(CSelect::createOptionsFromArray($data['oauth_profiles']))
+				->setReadonly($host_is_discovered)
+		)
+	])
+	->addItem([
 		new CLabel(_('Monitored by'), 'label-proxy'),
 		new CFormField(
 			(new CRadioButtonList('monitored_by', (int) $data['host']['monitored_by']))

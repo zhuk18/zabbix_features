@@ -808,6 +808,13 @@ static int	DBpatch_7050054(void)
 	return SUCCEED;
 }
 
+static int	DBpatch_7050055(void)
+{
+	const zbx_db_field_t	field = {"oauthprofileid", "0", NULL, NULL, 0, ZBX_TYPE_ID, ZBX_NOTNULL, 0};
+
+	return DBadd_field("hosts", &field);
+}
+
 #endif
 
 DBPATCH_START(7050)
@@ -869,5 +876,6 @@ DBPATCH_ADD(7050051, 0, 1)
 DBPATCH_ADD(7050052, 0, 1)
 DBPATCH_ADD(7050053, 0, 1)
 DBPATCH_ADD(7050054, 0, 1)
+DBPATCH_ADD(7050055, 0, 1)
 
 DBPATCH_END()

@@ -23,17 +23,18 @@ class CItemTypeScript extends CItemType {
 	/**
 	 * @inheritDoc
 	 */
-	const FIELD_NAMES = ['parameters', 'params', 'timeout', 'delay'];
+	const FIELD_NAMES = ['parameters', 'params', 'timeout', 'delay', 'oauthprofileid'];
 
 	/**
 	 * @inheritDoc
 	 */
 	public static function getCreateValidationRules(array $item): array {
 		return [
-			'parameters' =>	self::getCreateFieldRule('parameters', $item),
+			'parameters' =>		self::getCreateFieldRule('parameters', $item),
 			'params' =>		self::getCreateFieldRule('params', $item),
-			'timeout' =>	self::getCreateFieldRule('timeout', $item),
-			'delay' =>		self::getCreateFieldRule('delay', $item)
+			'timeout' =>		self::getCreateFieldRule('timeout', $item),
+			'delay' =>		self::getCreateFieldRule('delay', $item),
+			'oauthprofileid' =>	['type' => API_ID]
 		];
 	}
 
@@ -42,10 +43,11 @@ class CItemTypeScript extends CItemType {
 	 */
 	public static function getUpdateValidationRules(array $db_item): array {
 		return [
-			'parameters' =>	self::getUpdateFieldRule('parameters', $db_item),
+			'parameters' =>		self::getUpdateFieldRule('parameters', $db_item),
 			'params' =>		self::getUpdateFieldRule('params', $db_item),
-			'timeout' =>	self::getUpdateFieldRule('timeout', $db_item),
-			'delay' =>		self::getUpdateFieldRule('delay', $db_item)
+			'timeout' =>		self::getUpdateFieldRule('timeout', $db_item),
+			'delay' =>		self::getUpdateFieldRule('delay', $db_item),
+			'oauthprofileid' =>	['type' => API_ID]
 		];
 	}
 
@@ -54,10 +56,11 @@ class CItemTypeScript extends CItemType {
 	 */
 	public static function getUpdateValidationRulesInherited(array $db_item): array {
 		return [
-			'parameters' =>	self::getUpdateFieldRuleInherited('parameters', $db_item),
+			'parameters' =>		self::getUpdateFieldRuleInherited('parameters', $db_item),
 			'params' =>		self::getUpdateFieldRuleInherited('params', $db_item),
-			'timeout' =>	self::getUpdateFieldRuleInherited('timeout', $db_item),
-			'delay' =>		self::getUpdateFieldRuleInherited('delay', $db_item)
+			'timeout' =>		self::getUpdateFieldRuleInherited('timeout', $db_item),
+			'delay' =>		self::getUpdateFieldRuleInherited('delay', $db_item),
+			'oauthprofileid' =>	self::getUpdateFieldRuleInherited('oauthprofileid', $db_item)
 		];
 	}
 
@@ -66,10 +69,11 @@ class CItemTypeScript extends CItemType {
 	 */
 	public static function getUpdateValidationRulesDiscovered(): array {
 		return [
-			'parameters' =>	self::getUpdateFieldRuleDiscovered('parameters'),
+			'parameters' =>		self::getUpdateFieldRuleDiscovered('parameters'),
 			'params' =>		self::getUpdateFieldRuleDiscovered('params'),
-			'timeout' =>	self::getUpdateFieldRuleDiscovered('timeout'),
-			'delay' =>		self::getUpdateFieldRuleDiscovered('delay')
+			'timeout' =>		self::getUpdateFieldRuleDiscovered('timeout'),
+			'delay' =>		self::getUpdateFieldRuleDiscovered('delay'),
+			'oauthprofileid' =>	self::getUpdateFieldRuleDiscovered('oauthprofileid')
 		];
 	}
 }

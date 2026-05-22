@@ -2271,12 +2271,12 @@ function getTypeItemFieldNames(array $input): array {
 
 		case ITEM_TYPE_SCRIPT:
 			return $input['templateid'] == 0
-				? ['parameters', 'params', 'timeout', 'delay']
+				? ['parameters', 'params', 'timeout', 'delay', 'oauthprofileid']
 				: ['delay'];
 
 		case ITEM_TYPE_BROWSER:
 			return $input['templateid'] == 0
-				? ['parameters', 'params', 'timeout', 'delay']
+				? ['parameters', 'params', 'timeout', 'delay', 'oauthprofileid']
 				: ['delay'];
 
 		case ITEM_TYPE_NESTED:
@@ -2334,8 +2334,9 @@ function getConditionalItemFieldNames(array $field_names, array $input): array {
 				);
 
 			case 'oauthprofileid':
-				return $input['type'] != ITEM_TYPE_HTTPAGENT || $input['authtype'] == ZBX_HTTP_AUTH_OAUTH
-						|| $input['oauthprofileid'] == 0;
+				return in_array($input['type'], [ITEM_TYPE_SCRIPT, ITEM_TYPE_BROWSER])
+						|| ($input['type'] == ITEM_TYPE_HTTPAGENT && ($input['authtype'] == ZBX_HTTP_AUTH_OAUTH
+						|| $input['oauthprofileid'] == 0));
 
 			case 'timeout':
 				return ($input['type'] != ITEM_TYPE_SIMPLE || (strncmp($input['key_'], 'icmpping', 8) != 0

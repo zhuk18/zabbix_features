@@ -141,9 +141,9 @@ foreach ($data['oauth_profiles'] as $oauth_profile) {
 				->setAttribute('data-oauthprofileid', $oauth_profile['oauthprofileid'])
 		))->addClass(ZBX_STYLE_WORDBREAK),
 		(new CCol($oauth_profile['mode'] === 'client_credentials'
-			? _('Client credentials')
+			? _('Service')
 			: ($oauth_profile['mode'] === 'authorization_code'
-				? _('Authorization code')
+				? _('User')
 				: $oauth_profile['mode'])))
 			->addClass(ZBX_STYLE_NOWRAP),
 		(new CCol($expires_in))->addClass(ZBX_STYLE_NOWRAP),

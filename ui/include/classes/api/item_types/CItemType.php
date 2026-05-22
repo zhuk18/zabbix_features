@@ -392,6 +392,8 @@ abstract class CItemType {
 			case 'oauthprofileid':
 				switch (static::TYPE) {
 					case ITEM_TYPE_HTTPAGENT:
+					case ITEM_TYPE_SCRIPT:
+					case ITEM_TYPE_BROWSER:
 						return ['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED];
 				}
 

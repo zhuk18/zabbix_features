@@ -17,7 +17,41 @@
 #include "zbxembed.h"
 #include "zbxjson.h"
 
-int	get_value_script(zbx_dc_item_t *item, const char *config_source_ip, AGENT_RESULT *result)
+#ifdef HAVE_LIBCURL
+#include "checks_http.h"
+#include "zbxhttp.h"
+#endif
+
+static void	script_set_oauth_bearer(zbx_es_t *es, const zbx_dc_item_t *item, const char *config_source_ip,
+		const char *config_ssl_ca_location)
+{
+#ifdef HAVE_LIBCURL
+	zbx_uint64_t	oauthprofileid;
+	char		*oauth_bearer = NULL, *error = NULL;
+
+	oauthprofileid = (0 != item->oauthprofileid) ? item->oauthprofileid : item->host.oauthprofileid;
+
+	if (0 == oauthprofileid)
+		return;
+
+	if (SUCCEED == zbx_http_get_oauth_bearer(oauthprofileid, item->key_orig, item->timeout, config_source_ip,
+			config_ssl_ca_location, ZBX_OAUTH_REFRESH_NORMAL, &oauth_bearer, &error) && NULL != oauth_bearer)
+	{
+		zbx_es_set_oauth_bearer(es, oauth_bearer);
+	}
+
+	zbx_free(oauth_bearer);
+	zbx_free(error);
+#else
+	ZBX_UNUSED(es);
+	ZBX_UNUSED(item);
+	ZBX_UNUSED(config_source_ip);
+	ZBX_UNUSED(config_ssl_ca_location);
+#endif
+}
+
+int	get_value_script(zbx_dc_item_t *item, const char *config_source_ip, const char *config_ssl_ca_location,
+		AGENT_RESULT *result)
 {
 	char		*error = NULL, *script_bin = NULL, *output = NULL;
 	int		script_bin_sz, ret = NOTSUPPORTED;
@@ -31,6 +65,8 @@ int	get_value_script(zbx_dc_item_t *item, const char *config_source_ip, AGENT_RE
 		SET_MSG_RESULT(result, zbx_dsprintf(NULL, "Cannot initialize scripting environment: %s", error));
 		return ret;
 	}
+
+	script_set_oauth_bearer(&es_engine, item, config_source_ip, config_ssl_ca_location);
 
 	zbx_json_init(&json, ZBX_JSON_STAT_BUF_LEN);
 

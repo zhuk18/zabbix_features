@@ -208,11 +208,12 @@ class CControllerItemPrototypeCreate extends CControllerItemPrototype {
 				],
 				'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]
 			],
-			'oauthprofileid' => ['db items.oauthprofileid', 'required',
-				'when' => [
+			'oauthprofileid' => [
+				['db items.oauthprofileid', 'when' => ['type', 'in' => [ITEM_TYPE_SCRIPT, ITEM_TYPE_BROWSER]]],
+				['db items.oauthprofileid', 'required', 'when' => [
 					['type', 'in' => [ITEM_TYPE_HTTPAGENT]],
 					['http_authtype', 'in' => [ZBX_HTTP_AUTH_OAUTH]]
-				]
+				]]
 			],
 			'http_username' => ['db items.username', 'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]],
 			'http_password' => ['db items.password', 'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]],

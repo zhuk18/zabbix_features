@@ -166,6 +166,7 @@ class CControllerHostUpdate extends CControllerHostUpdateGeneral {
 			]],
 			'ipmi_username' => ['db hosts.ipmi_username'],
 			'ipmi_password' => ['db hosts.ipmi_password'],
+			'oauthprofileid' => ['db hosts.oauthprofileid'],
 			'tls_connect' => ['db hosts.tls_connect', 'required', 'in' => [HOST_ENCRYPTION_NONE, HOST_ENCRYPTION_PSK,
 				HOST_ENCRYPTION_CERTIFICATE
 			]],
@@ -264,8 +265,8 @@ class CControllerHostUpdate extends CControllerHostUpdateGeneral {
 
 		$this->host = API::Host()->get([
 			'output' => ['hostid', 'host', 'name', 'monitored_by', 'proxyid', 'proxy_groupid', 'assigned_proxyid',
-				'status', 'description', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password',
-				'tls_connect', 'tls_accept', 'tls_issuer', 'tls_subject', 'flags', 'inventory_mode'
+				'status', 'description', 'oauthprofileid', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username',
+				'ipmi_password', 'tls_connect', 'tls_accept', 'tls_issuer', 'tls_subject', 'flags', 'inventory_mode'
 			],
 			'selectMacros' => ['hostmacroid', 'macro', 'value', 'type', 'description', 'automatic'],
 			'hostids' => $this->getInput('hostid'),
@@ -350,8 +351,8 @@ class CControllerHostUpdate extends CControllerHostUpdateGeneral {
 			}
 
 			$host_properties = [
-				'description', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password', 'tls_subject',
-				'tls_issuer', 'inventory_mode'
+				'description', 'oauthprofileid', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password',
+				'tls_subject', 'tls_issuer', 'inventory_mode'
 			];
 
 			foreach ($host_properties as $prop) {

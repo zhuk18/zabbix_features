@@ -640,6 +640,31 @@ JAVASCRIPT;
 	}
 
 	/**
+	 * Resolve OAuth profile ID for HTTP agent item: use item profile or inherit from host when item value is 0.
+	 *
+	 * @param int|string $oauthprofileid  Item-level OAuth profile ID (0 = inherit from host).
+	 * @param int|string $hostid          Host ID.
+	 *
+	 * @return int
+	 */
+	public static function resolveHttpItemOauthProfileId($oauthprofileid, $hostid): int {
+		if ($oauthprofileid != 0) {
+			return (int) $oauthprofileid;
+		}
+
+		if (!$hostid) {
+			return 0;
+		}
+
+		$hosts = API::Host()->get([
+			'output' => ['oauthprofileid'],
+			'hostids' => $hostid
+		]);
+
+		return $hosts ? (int) $hosts[0]['oauthprofileid'] : 0;
+	}
+
+	/**
 	 * Normalize and clean form data.
 	 *
 	 * @param array $input  Form data.

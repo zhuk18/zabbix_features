@@ -75,7 +75,8 @@ class CControllerHostEdit extends CController {
 										HOST_INVENTORY_MANUAL, HOST_INVENTORY_AUTOMATIC
 									]),
 			'host_inventory'		=> 'array',
-			'valuemaps'				=> 'array'
+			'valuemaps'				=> 'array',
+			'oauthprofileid'		=> 'db hosts.oauthprofileid'
 		];
 
 		$ret = ($this->validateInput($fields) && $this->checkCloneSourceHostId());
@@ -132,9 +133,9 @@ class CControllerHostEdit extends CController {
 			else {
 				$hosts = API::Host()->get([
 					'output' => ['hostid', 'host', 'name', 'monitored_by', 'proxyid', 'proxy_groupid',
-						'assigned_proxyid', 'status', 'description', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username',
-						'ipmi_password', 'tls_connect', 'tls_accept', 'tls_issuer', 'tls_subject', 'flags',
-						'inventory_mode'
+						'assigned_proxyid', 'status', 'description', 'oauthprofileid', 'ipmi_authtype', 'ipmi_privilege',
+						'ipmi_username', 'ipmi_password', 'tls_connect', 'tls_accept', 'tls_issuer', 'tls_subject',
+						'flags', 'inventory_mode'
 					],
 					'selectDiscoveryRule' => ['itemid', 'name'],
 					'selectHostGroups' => ['groupid'],
@@ -349,6 +350,21 @@ class CControllerHostEdit extends CController {
 
 		$data['js_validation_rules'] = (new CFormValidator($data['js_validation_rules']))->getRules();
 
+		$data['oauth_profiles'] = CItemGeneralHelper::getOauthProfiles();
+
+		if ($data['host']['oauthprofileid'] != 0
+				&& !array_key_exists($data['host']['oauthprofileid'], $data['oauth_profiles'])) {
+			$db_profile = DBfetch(DBselect(
+				'SELECT oauthprofileid,profile_name'.
+				' FROM oauth_profile'.
+				' WHERE oauthprofileid='.zbx_dbstr($data['host']['oauthprofileid'])
+			));
+
+			if ($db_profile) {
+				$data['oauth_profiles'][$db_profile['oauthprofileid']] = $db_profile['profile_name'];
+			}
+		}
+
 		$response = new CControllerResponseData($data);
 		$response->setTitle(_('Configuration of host'));
 		$this->setResponse($response);
@@ -489,7 +505,7 @@ class CControllerHostEdit extends CController {
 			$inputs['inventory'] = $this->getInput('host_inventory', []);
 
 			$this->getInputs($inputs, [
-				'host', 'monitored_by', 'proxyid', 'proxy_groupid', 'description', 'status',
+				'host', 'monitored_by', 'proxyid', 'proxy_groupid', 'description', 'oauthprofileid', 'status',
 				'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password', 'tls_connect', 'tls_subject',
 				'tls_issuer', 'tls_psk_identity', 'tls_psk', 'tags', 'inventory_mode', 'host_inventory'
 			]);
@@ -590,6 +606,7 @@ class CControllerHostEdit extends CController {
 			'ipmi_password' => '',
 			'flags' => ZBX_FLAG_DISCOVERY_NORMAL,
 			'description' => '',
+			'oauthprofileid' => 0,
 			'tls_connect' => HOST_ENCRYPTION_NONE,
 			'tls_accept' => HOST_ENCRYPTION_NONE,
 			'tls_issuer' => '',

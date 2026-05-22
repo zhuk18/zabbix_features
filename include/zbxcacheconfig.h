@@ -138,6 +138,7 @@ typedef struct
 	char		ipmi_username[ZBX_HOST_IPMI_USERNAME_LEN_MAX];
 	char		ipmi_password[ZBX_HOST_IPMI_PASSWORD_LEN_MAX];
 	unsigned char	monitored_by;
+	zbx_uint64_t	oauthprofileid;
 	unsigned char	status;
 	unsigned char	tls_connect;
 	unsigned char	tls_accept;

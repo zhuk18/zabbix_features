@@ -23,8 +23,8 @@ class CHost extends CHostGeneral {
 
 	public const OUTPUT_FIELDS = ['hostid', 'host', 'monitored_by', 'proxyid', 'proxy_groupid', 'assigned_proxyid',
 		'status', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password', 'maintenanceid',
-		'maintenance_status', 'maintenance_type', 'maintenance_from', 'name', 'flags', 'description', 'tls_connect',
-		'tls_accept', 'tls_issuer', 'tls_subject', 'inventory_mode', 'active_available'
+		'maintenance_status', 'maintenance_type', 'maintenance_from', 'name', 'flags', 'description', 'oauthprofileid',
+		'tls_connect', 'tls_accept', 'tls_issuer', 'tls_subject', 'inventory_mode', 'active_available'
 	];
 
 	/**
@@ -818,8 +818,8 @@ class CHost extends CHostGeneral {
 			$host = array_intersect_key($host,
 				array_flip(['hostid', 'host', 'name', 'interfaces', 'description', 'monitored_by', 'proxyid',
 					'proxy_groupid', 'status', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username', 'ipmi_password',
-					'inventory_mode', 'inventory', 'tls_connect', 'tls_accept', 'tls_psk_identity', 'tls_psk',
-					'tls_issuer', 'tls_subject'
+					'oauthprofileid', 'inventory_mode', 'inventory', 'tls_connect', 'tls_accept', 'tls_psk_identity',
+					'tls_psk', 'tls_issuer', 'tls_subject'
 				])
 			);
 
@@ -1607,6 +1607,7 @@ class CHost extends CHostGeneral {
 										['if' => static fn(array $data): bool => $data['tls_connect'] == HOST_ENCRYPTION_CERTIFICATE || ($data['tls_accept'] & HOST_ENCRYPTION_CERTIFICATE) != 0, 'type' => API_STRING_UTF8, 'length' => DB::getFieldLength('hosts', 'tls_subject')],
 										['else' => true, 'type' => API_STRING_UTF8, 'in' => DB::getDefault('hosts', 'tls_subject')]
 			]],
+			'oauthprofileid' =>		['type' => API_ID],
 			'groups' =>			['type' => API_OBJECTS, 'flags' => API_REQUIRED | API_NOT_EMPTY | API_NORMALIZE, 'uniq' => [['groupid']], 'fields' => [
 				'groupid' =>		['type' => API_ID, 'flags' => API_REQUIRED]
 			]],
@@ -1894,7 +1895,7 @@ class CHost extends CHostGeneral {
 
 		$db_hosts = DBfetchArrayAssoc(DBselect(
 			'SELECT h.hostid,h.host,h.name,h.description,h.monitored_by,h.proxyid,h.proxy_groupid,h.status,'.
-				'h.ipmi_authtype,h.ipmi_privilege,h.ipmi_username,h.ipmi_password,'.
+				'h.ipmi_authtype,h.ipmi_privilege,h.ipmi_username,h.ipmi_password,h.oauthprofileid,'.
 				dbConditionCoalesce('hi.inventory_mode', HOST_INVENTORY_MANUAL, 'inventory_mode').','.
 				'h.tls_connect,h.tls_accept,h.tls_psk_identity,h.tls_psk,h.tls_issuer,h.tls_subject,h.flags'.
 			' FROM hosts h'.
@@ -2139,6 +2140,7 @@ class CHost extends CHostGeneral {
 										['if' => static fn(array $data): bool => $data['tls_connect'] == HOST_ENCRYPTION_CERTIFICATE || ($data['tls_accept'] & HOST_ENCRYPTION_CERTIFICATE) != 0, 'type' => API_STRING_UTF8, 'length' => DB::getFieldLength('hosts', 'tls_subject')],
 										['else' => true, 'type' => API_STRING_UTF8, 'in' => DB::getDefault('hosts', 'tls_subject')]
 			]],
+			'oauthprofileid' =>		['type' => API_ID],
 			'groups' =>				['type' => API_OBJECTS, 'flags' => API_NOT_EMPTY | API_NORMALIZE, 'uniq' => [['groupid']], 'fields' => [
 				'groupid' =>			['type' => API_ID, 'flags' => API_REQUIRED]
 			]],

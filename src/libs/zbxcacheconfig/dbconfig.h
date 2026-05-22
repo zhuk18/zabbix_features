@@ -428,6 +428,7 @@ typedef struct
 	unsigned char	maintenance_type;
 	unsigned char	status;
 	unsigned char	monitored_by;
+	zbx_uint64_t	oauthprofileid;
 
 	/* 'tls_connect' and 'tls_accept' must be respected even if encryption support is not compiled in */
 	unsigned char	tls_connect;

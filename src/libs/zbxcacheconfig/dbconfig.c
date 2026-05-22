@@ -1561,7 +1561,8 @@ static void	DCsync_hosts(zbx_dbsync_t *sync, zbx_uint64_t revision, zbx_vector_u
 
 		host = (ZBX_DC_HOST *)DCfind_id(&config->hosts, hostid, sizeof(ZBX_DC_HOST), &found);
 		host->revision = revision;
-		ZBX_STR2UINT64(host->flags, row[21]);
+		ZBX_DBROW2UINT64(host->oauthprofileid, row[21]);
+		ZBX_STR2UINT64(host->flags, row[22]);
 
 		/* see whether we should and can update 'hosts_h' and 'proxies_p' indexes at this point */
 
@@ -9349,6 +9350,7 @@ static void	DCget_host(zbx_dc_host_t *dst_host, const ZBX_DC_HOST *src_host)
 	dst_host->proxy_groupid = src_host->proxy_groupid;
 	dst_host->status = src_host->status;
 	dst_host->monitored_by = src_host->monitored_by;
+	dst_host->oauthprofileid = src_host->oauthprofileid;
 
 	if (sizeof(dst_host->host) < src_host->sz_host)
 	{
@@ -10174,7 +10176,7 @@ static void	DCget_httpagent_item(zbx_dc_httpagent_item_t *dst_item, const ZBX_DC
 	dst_item->verify_peer = src_item->itemtype.httpitem->verify_peer;
 	dst_item->verify_host = src_item->itemtype.httpitem->verify_host;
 	dst_item->authtype = src_item->itemtype.httpitem->authtype;
-	dst_item->oauthprofileid = src_item->oauthprofileid;
+	dst_item->oauthprofileid = (0 != src_item->oauthprofileid) ? src_item->oauthprofileid : src_host->oauthprofileid;
 	zbx_strscpy(dst_item->username_orig, src_item->itemtype.httpitem->username);
 	zbx_strscpy(dst_item->password_orig, src_item->itemtype.httpitem->password);
 	dst_item->posts = zbx_strdup(NULL, src_item->itemtype.httpitem->posts);

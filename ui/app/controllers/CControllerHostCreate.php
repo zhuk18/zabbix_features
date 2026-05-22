@@ -161,6 +161,7 @@ class CControllerHostCreate extends CControllerHostUpdateGeneral {
 			]],
 			'ipmi_username' => ['db hosts.ipmi_username'],
 			'ipmi_password' => ['db hosts.ipmi_password'],
+			'oauthprofileid' => ['db hosts.oauthprofileid'],
 			'tls_connect' => ['db hosts.tls_connect', 'required', 'in' => [HOST_ENCRYPTION_NONE, HOST_ENCRYPTION_PSK,
 				HOST_ENCRYPTION_CERTIFICATE
 			]],
@@ -329,8 +330,8 @@ class CControllerHostCreate extends CControllerHostUpdateGeneral {
 			}
 
 			$this->getInputs($host, [
-				'host', 'visiblename', 'description', 'ipmi_authtype', 'ipmi_privilege', 'ipmi_username',
-				'ipmi_password', 'tls_subject', 'tls_issuer', 'inventory_mode'
+				'host', 'visiblename', 'description', 'oauthprofileid', 'ipmi_authtype', 'ipmi_privilege',
+				'ipmi_username', 'ipmi_password', 'tls_subject', 'tls_issuer', 'inventory_mode'
 			]);
 
 			if ($host['tls_connect'] == HOST_ENCRYPTION_PSK || $host['tls_accept'] & HOST_ENCRYPTION_PSK) {

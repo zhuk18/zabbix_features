@@ -374,21 +374,23 @@ abstract class CControllerPopupItemTest extends CController {
 	 * @return int
 	 */
 	protected function getHttpItemOauthProfileId(array $input): int {
-		if (array_key_exists('oauthprofileid', $input) && $input['oauthprofileid'] != 0) {
-			return (int) $input['oauthprofileid'];
+		$oauthprofileid = array_key_exists('oauthprofileid', $input) ? $input['oauthprofileid'] : 0;
+
+		if ($oauthprofileid == 0 && array_key_exists('itemid', $input) && $input['itemid'] != 0) {
+			$items = API::Item()->get([
+				'output' => ['oauthprofileid'],
+				'itemids' => $input['itemid'],
+				'filter' => ['type' => ITEM_TYPE_HTTPAGENT]
+			]);
+
+			if ($items) {
+				$oauthprofileid = $items[0]['oauthprofileid'];
+			}
 		}
 
-		if (!array_key_exists('itemid', $input) || $input['itemid'] == 0) {
-			return 0;
-		}
-
-		$items = API::Item()->get([
-			'output' => ['oauthprofileid'],
-			'itemids' => $input['itemid'],
-			'filter' => ['type' => ITEM_TYPE_HTTPAGENT]
-		]);
-
-		return $items ? (int) $items[0]['oauthprofileid'] : 0;
+		return CItemGeneralHelper::resolveHttpItemOauthProfileId($oauthprofileid,
+			$input['hostid'] ?? $this->host['hostid'] ?? 0
+		);
 	}
 
 	/**
@@ -563,6 +565,7 @@ abstract class CControllerPopupItemTest extends CController {
 
 			case ITEM_TYPE_SCRIPT:
 				$data_item += CArrayHelper::getByKeys($input, ['key', 'parameters', 'script', 'timeout']);
+				$data_item['oauthprofileid'] = $this->getHttpItemOauthProfileId($input);
 				break;
 
 			case ITEM_TYPE_BROWSER:

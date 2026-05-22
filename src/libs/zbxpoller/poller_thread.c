@@ -135,7 +135,8 @@ static int	get_value(zbx_dc_item_t *item, AGENT_RESULT *result, zbx_vector_agent
 #endif
 			break;
 		case ITEM_TYPE_SCRIPT:
-			res = get_value_script(item, config_comms->config_source_ip, result);
+			res = get_value_script(item, config_comms->config_source_ip, config_comms->config_ssl_ca_location,
+					result);
 			break;
 		case ITEM_TYPE_BROWSER:
 			res = get_value_browser(item, config_webdriver_url, config_comms->config_source_ip, result);

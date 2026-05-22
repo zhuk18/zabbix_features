@@ -249,12 +249,18 @@
 				break;
 
 			case <?= ITEM_TYPE_SCRIPT ?>:
-				properties = {
-					key: form_data['key'].trim(),
-					parameters: form_data['parameters'],
-					script: form_data['script'],
-					timeout
-				};
+				{
+					const oauth_profile_select = $form[0].querySelector('z-select[name="oauthprofileid"]');
+
+					properties = {
+						key: form_data['key'].trim(),
+						parameters: form_data['parameters'],
+						script: form_data['script'],
+						timeout,
+						oauthprofileid: form_data['oauthprofileid']
+							|| (oauth_profile_select ? oauth_profile_select.value : 0)
+					};
+				}
 				break;
 
 			case <?= ITEM_TYPE_BROWSER ?>:
