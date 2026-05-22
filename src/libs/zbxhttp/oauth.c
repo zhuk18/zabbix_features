@@ -106,7 +106,7 @@ static int	oauth_fetch_from_db(zbx_uint64_t mediatypeid, const char *mediatype_n
 	CHECK_FOR_NULL(0, "token URL is missing");
 	CHECK_FOR_NULL(1, "client ID is missing");
 	CHECK_FOR_NULL(2, "client secret is missing");
-	CHECK_FOR_NULL(3, "refresh token is missing");
+	//CHECK_FOR_NULL(3, "refresh token is missing");
 	CHECK_FOR_NULL(4, "access token is missing");
 
 	if (0 == atoi(row[5]))
@@ -598,7 +598,7 @@ static int	oauth_profile_fetch_from_db(zbx_uint64_t oauthprofileid, const char *
 	CHECK_FOR_NULL(1, "token URL is missing");
 	CHECK_FOR_NULL(2, "client ID is missing");
 	CHECK_FOR_NULL(3, "client secret is missing");
-	CHECK_FOR_NULL(4, "refresh token is missing");
+	//CHECK_FOR_NULL(4, "refresh token is missing");
 	CHECK_FOR_NULL(5, "access token is missing");
 
 	if (0 == atoi(row[6]))

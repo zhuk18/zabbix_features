@@ -205,7 +205,8 @@ class CControllerOauthAuthorize extends CController {
 		}
 
 		$response = json_decode($raw_response, true);
-		$mandatory_all = array_flip(['access_token', 'refresh_token', 'expires_in']);
+		//$mandatory_all = array_flip(['access_token', 'refresh_token', 'expires_in']);
+		$mandatory_all = array_flip(['access_token', 'expires_in']);
 
 		if (!is_array($response) || array_diff_key($mandatory_all, $response)) {
 			error(_('OAuth response missing mandatory fields.'), true);
