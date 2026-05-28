@@ -47,6 +47,23 @@ class CControllerBannerGet extends CController {
 			];
 
 			if ($banner_data['nextcheck'] > $now) {
+				$banners_raw = $banner_data['banners_raw'] ?? null;
+				$signature = $banner_data['signature'] ?? null;
+
+				if (!is_array($banners_raw) || !is_string($signature) || !CBannerHelper::verify($banners_raw, $signature)) {
+					$output += [
+						'csrf_token' => CCsrfTokenHelper::get('banner')
+					];
+
+					$banner_data['nextcheck'] = $now + SEC_PER_MIN;
+
+					CSettings::updatePrivate(['banner_data' => $banner_data]);
+
+					$this->setResponse(new CControllerResponseData(['main_block' => json_encode($output)]));
+
+					return;
+				}
+
 				$output += [
 					'delay' => $banner_data['nextcheck'] - $now + mt_rand(1, SEC_PER_MIN),
 					'banners' => $banner_data['banners'] ?? []

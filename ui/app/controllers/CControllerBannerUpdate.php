@@ -26,7 +26,8 @@ class CControllerBannerUpdate extends CController {
 	protected function checkInput(): bool {
 		$fields = [
 			'number_of_attempts' => 'required|int32',
-			'banners' => 'required|array'
+			'banners' => 'required|array',
+			'signature' => 'required|string|not_empty'
 		];
 
 		return $this->validateInput($fields);
@@ -40,6 +41,31 @@ class CControllerBannerUpdate extends CController {
 		$lastcheck = time();
 		$number_of_attempts = $this->getInput('number_of_attempts');
 		$previous_check_data = CSettingsHelper::getBannerData() + ['lastcheck_success' => 0];
+		$banners_raw = $this->getInput('banners');
+		$signature = $this->getInput('signature');
+
+		if (!CBannerHelper::verify($banners_raw, $signature)) {
+			$delay = self::NEXTCHECK_DELAY_ON_FAIL;
+			$lastcheck_success = $previous_check_data['lastcheck_success'];
+			$nextcheck = $lastcheck + $delay;
+
+			$banner_data = $previous_check_data + [
+				'lastcheck' => $lastcheck,
+				'lastcheck_success' => $lastcheck_success,
+				'nextcheck' => $nextcheck
+			];
+
+			CSettings::updatePrivate(['banner_data' => $banner_data]);
+
+			$output = [
+				'error' => 'Invalid banner signature.',
+				'delay' => self::NEXTCHECK_DELAY_ON_FAIL
+			];
+
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode($output)]));
+
+			return;
+		}
 
 		if ($number_of_attempts > 0) {
 			$delay = self::NEXTCHECK_DELAY_ON_FAIL;
@@ -54,7 +80,7 @@ class CControllerBannerUpdate extends CController {
 
 		$parsedown = (new Parsedown())->setSafeMode(true);
 
-		$banners = $this->getInput('banners');
+		$banners = $banners_raw;
 		foreach ($banners as &$banner) {
 			foreach ($banner['content'] ?? [] as $lang => $text) {
 				$banner['content'][$lang] = $parsedown->text($text);
@@ -67,7 +93,9 @@ class CControllerBannerUpdate extends CController {
 				'lastcheck' => $lastcheck,
 				'lastcheck_success' => $lastcheck_success,
 				'nextcheck' => $nextcheck,
-				'banners' => $banners
+				'banners' => $banners,
+				'banners_raw' => $banners_raw,
+				'signature' => $signature
 			]
 		];
 
