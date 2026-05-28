@@ -30,7 +30,18 @@ class CControllerBannerUpdate extends CController {
 			'signature' => 'required|string|not_empty'
 		];
 
-		return $this->validateInput($fields);
+		$ret = $this->validateInput($fields);
+
+		if (!$ret) {
+			$output = [
+				'error' => 'Invalid request.',
+				'delay' => self::NEXTCHECK_DELAY_ON_FAIL
+			];
+
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode($output)]));
+		}
+
+		return $ret;
 	}
 
 	protected function checkPermissions(): bool {
