@@ -7,12 +7,15 @@
 .cproject
 .deps
 .dirstamp
+.cursor/
 .vscode
 .idea
 /.buildpath
 /.idea
 /.project
 /.settings
+configure~
+*~
 /Debug/
 /GPATH
 /GRTAGS

@@ -19,11 +19,13 @@ const ZBX_STYLE_BANNER_CLOSE = 'banner-close';
 
 class CBanner {
 
-	static URL = 'https://services.zabbix.com/banners/v1';
+	//static URL = 'https://services.zabbix.com/banners/v1';
+	static URL = 'http://localhost:8443/banners/v1';
 	static DELAY_ON_PAGE_LOAD = 1; // 1 second
 	static DELAY_ON_ERROR = 60; // 1 minute
-	static NUMBER_OF_ATTEMPTS = 1;
 	static CONTENT_LANG_ALL = 'all';
+	static CACHE_TTL = 86400; // 24 hours
+	static CACHE_KEY = 'zbx.banner.cache';
 	static RESPONSE_DEFAULTS = {
 		allow_banners: true,
 		language: CBanner.CONTENT_LANG_ALL,
@@ -34,7 +36,6 @@ class CBanner {
 
 	#language = 'en_US';
 	#storage_idx = null;
-	#csrf_token = null;
 	#container = null;
 	#content = null;
 
@@ -42,7 +43,6 @@ class CBanner {
 	#dismissed_banner_ids = [];
 
 	#abort_controller = null;
-	#number_of_attempts = 0;
 	#banners = [];
 
 	#template = new Template(`
@@ -84,16 +84,14 @@ class CBanner {
 				this.#storage_idx = response.storage_idx;
 				this.#dismissed_banner_ids = new Set(response.dismissed_banner_ids || []);
 
-				if ('delay' in response && response.delay >= 0) {
-					this.#banners = response.banners || [];
+				const cached = this.#getCachedBanners();
+				if (cached) {
+					this.#banners = cached;
 
 					this.#displayActiveBanner();
-
-					this.#startUpdating(response.delay);
+					this.#startUpdating(CBanner.CACHE_TTL);
 				}
-				else if ('csrf_token' in response) {
-					this.#csrf_token = response.csrf_token;
-
+				else {
 					this.#getCurrentData();
 				}
 			})
@@ -123,20 +121,15 @@ class CBanner {
 					throw new Error('Invalid response format.');
 				}
 
-				this.#number_of_attempts = 0;
+				this.#banners = response.banners || [];
+				this.#setCachedBanners(this.#banners);
 
-				this.#updateData(response.banners);
+				this.#displayActiveBanner();
+				this.#startUpdating(CBanner.CACHE_TTL);
 			})
 			.catch(error => {
 				console.log('Could not get current banner data.', error);
-
-				if (this.#number_of_attempts === CBanner.NUMBER_OF_ATTEMPTS) {
-					return;
-				}
-
-				this.#number_of_attempts++;
-
-				setTimeout(() => this.#getCurrentData(), CBanner.DELAY_ON_ERROR * 1000);
+				this.#startUpdating(CBanner.DELAY_ON_ERROR);
 			})
 			.finally(() => {
 				if (this.#abort_controller === abort_controller) {
@@ -260,52 +253,43 @@ class CBanner {
 		}
 	}
 
-	#updateData(banners) {
-		const now = new Date();
+	#getCachedBanners() {
+		try {
+			const raw = localStorage.getItem(CBanner.CACHE_KEY);
+			if (!raw) {
+				return null;
+			}
 
-		const url = new URL('zabbix.php', location.href);
-		url.searchParams.set('action', 'banner.update');
+			const data = JSON.parse(raw);
+			if (!data || typeof data !== 'object') {
+				return null;
+			}
 
-		banners = banners.filter(banner => {
-			const to = new Date(banner.to);
+			const fetched_at = Number(data.fetched_at);
+			if (!Number.isFinite(fetched_at) || fetched_at <= 0) {
+				return null;
+			}
 
-			return 'id' in banner && 'content' in banner && Object.keys(banner.content).length > 0 && now <= to;
-		});
+			if (Math.round(Date.now() / 1000) - fetched_at > CBanner.CACHE_TTL) {
+				return null;
+			}
 
-		const abort_controller = new AbortController();
+			return Array.isArray(data.banners) ? data.banners : null;
+		}
+		catch {
+			return null;
+		}
+	}
 
-		this.#abort_controller?.abort();
-		this.#abort_controller = abort_controller;
-
-		fetch(url.toString(), {
-			method: 'POST',
-			headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({
-				number_of_attempts: this.#number_of_attempts,
-				banners,
-				[CSRF_TOKEN_NAME]: this.#csrf_token
-			}),
-			signal: this.#abort_controller.signal
-		})
-			.then(response => response.json())
-			.then(response => {
-				if ('error' in response) {
-					throw new Error(response.error);
-				}
-
-				this.#banners = response.banners || [];
-
-				if ('delay' in response) {
-					this.#startUpdating(response.delay);
-				}
-
-				this.#displayActiveBanner();
-			})
-			.catch(error => console.log('Could not update banner data.', error))
-			.finally(() => {
-				if (this.#abort_controller === abort_controller) {
-					this.#abort_controller = null;
-				}
-			});
+	#setCachedBanners(banners) {
+		try {
+			localStorage.setItem(CBanner.CACHE_KEY, JSON.stringify({
+				fetched_at: Math.round(Date.now() / 1000),
+				banners
+			}));
+		}
+		catch {
+			// ignore storage errors (quota/disabled)
+		}
 	}
 }

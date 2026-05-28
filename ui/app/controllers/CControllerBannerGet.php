@@ -38,31 +38,6 @@ class CControllerBannerGet extends CController {
 			'storage_idx' => 'web.banner.dismissed_ids'
 		];
 
-		if ($output['allow_banners']) {
-			$now = time();
-			$banner_data = CSettingsHelper::getBannerData() + [
-				'lastcheck' => 0,
-				'lastcheck_success' => 0,
-				'nextcheck' => 0
-			];
-
-			if ($banner_data['nextcheck'] > $now) {
-				$output += [
-					'delay' => $banner_data['nextcheck'] - $now + mt_rand(1, SEC_PER_MIN),
-					'banners' => $banner_data['banners'] ?? []
-				];
-			}
-			else {
-				$output += [
-					'csrf_token' => CCsrfTokenHelper::get('banner')
-				];
-
-				$banner_data['nextcheck'] = $now + SEC_PER_MIN;
-
-				CSettings::updatePrivate(['banner_data' => $banner_data]);
-			}
-		}
-
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode($output)]));
 	}
 }
