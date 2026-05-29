@@ -26,6 +26,30 @@ const TLS_CERT = process.env.TLS_CERT || '';
 const TLS_KEY = process.env.TLS_KEY || '';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function logRequest(req) {
+  // eslint-disable-next-line no-console
+  console.log(
+    `[${nowIso()}] req ${req.method} ${req.url} ` +
+      `ua=${JSON.stringify(req.headers['user-agent'] || '')} ` +
+      `origin=${JSON.stringify(req.headers.origin || '')} ` +
+      `lang=${JSON.stringify(req.headers['accept-language'] || '')}`
+  );
+}
+
+function logResponse(req, statusCode, body) {
+  // eslint-disable-next-line no-console
+  console.log(`[${nowIso()}] res ${req.method} ${req.url} status=${statusCode}`);
+
+  if (body !== undefined) {
+    // eslint-disable-next-line no-console
+    console.log(`[${nowIso()}] body ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+  }
+}
+
 function getBanners() {
   if (!process.env.BANNERS_JSON) {
     return [
@@ -47,17 +71,26 @@ function getBanners() {
 }
 
 function handler(req, res) {
+  logRequest(req);
+
+  res.on('finish', () => {
+    // eslint-disable-next-line no-console
+    console.log(`[${nowIso()}] done ${req.method} ${req.url} status=${res.statusCode}`);
+  });
+
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': CORS_ORIGIN,
       'Access-Control-Allow-Methods': 'GET,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Accept-Language'
     });
+    logResponse(req, 204);
     return res.end();
   }
 
   if (req.method !== 'GET' || req.url !== '/banners/v1') {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    logResponse(req, 404, 'Not found');
     return res.end('Not found');
   }
 
@@ -67,16 +100,20 @@ function handler(req, res) {
   }
   catch (e) {
     res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-    return res.end(JSON.stringify({ error: String(e && e.message ? e.message : e) }));
+    const body = { error: String(e && e.message ? e.message : e) };
+    logResponse(req, 500, body);
+    return res.end(JSON.stringify(body));
   }
 
-  const body = JSON.stringify({ banners }, null, 2);
+  const response = { banners };
+  const body = JSON.stringify(response, null, 2);
 
   res.writeHead(200, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': CORS_ORIGIN,
     'Cache-Control': 'no-store'
   });
+  logResponse(req, 200, response);
   res.end(body);
 }
 
