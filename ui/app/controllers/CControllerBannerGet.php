@@ -49,8 +49,10 @@ class CControllerBannerGet extends CController {
 			if ($banner_data['nextcheck'] > $now) {
 				$banners_raw = $banner_data['banners_raw'] ?? null;
 				$signature = $banner_data['signature'] ?? null;
+				$kid = $banner_data['kid'] ?? '';
 
-				if (!is_array($banners_raw) || !is_string($signature) || !CBannerHelper::verify($banners_raw, $signature)) {
+				if (!is_array($banners_raw) || !is_string($signature) || $kid === ''
+						|| !CBannerHelper::verify($banners_raw, $signature, $kid)) {
 					$output += [
 						'csrf_token' => CCsrfTokenHelper::get('banner')
 					];

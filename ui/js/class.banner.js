@@ -119,13 +119,13 @@ class CBanner {
 		})
 			.then(response => response.json())
 			.then(response => {
-				if (!('banners' in response) || !('signature' in response)) {
+				if (!('banners' in response) || !('signature' in response) || !('kid' in response)) {
 					throw new Error('Invalid response format.');
 				}
 
 				this.#number_of_attempts = 0;
 
-				this.#updateData(response.banners, response.signature);
+				this.#updateData(response.banners, response.signature, response.kid);
 			})
 			.catch(error => {
 				console.log('Could not get current banner data.', error);
@@ -260,7 +260,7 @@ class CBanner {
 		}
 	}
 
-	#updateData(banners, signature) {
+	#updateData(banners, signature, kid) {
 		const now = new Date();
 
 		const url = new URL('zabbix.php', location.href);
@@ -284,6 +284,7 @@ class CBanner {
 				number_of_attempts: this.#number_of_attempts,
 				banners,
 				signature,
+				kid,
 				[CSRF_TOKEN_NAME]: this.#csrf_token
 			}),
 			signal: this.#abort_controller.signal

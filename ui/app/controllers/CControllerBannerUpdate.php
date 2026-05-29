@@ -27,7 +27,8 @@ class CControllerBannerUpdate extends CController {
 		$fields = [
 			'number_of_attempts' => 'required|int32',
 			'banners' => 'required|array',
-			'signature' => 'required|string|not_empty'
+			'signature' => 'required|string|not_empty',
+			'kid' => 'required|string|not_empty'
 		];
 
 		$ret = $this->validateInput($fields);
@@ -54,8 +55,9 @@ class CControllerBannerUpdate extends CController {
 		$previous_check_data = CSettingsHelper::getBannerData() + ['lastcheck_success' => 0];
 		$banners_raw = $this->getInput('banners');
 		$signature = $this->getInput('signature');
+		$kid = $this->getInput('kid');
 
-		if (!CBannerHelper::verify($banners_raw, $signature)) {
+		if (!CBannerHelper::verify($banners_raw, $signature, $kid)) {
 			$delay = self::NEXTCHECK_DELAY_ON_FAIL;
 			$lastcheck_success = $previous_check_data['lastcheck_success'];
 			$nextcheck = $lastcheck + $delay;
@@ -106,7 +108,8 @@ class CControllerBannerUpdate extends CController {
 				'nextcheck' => $nextcheck,
 				'banners' => $banners,
 				'banners_raw' => $banners_raw,
-				'signature' => $signature
+				'signature' => $signature,
+				'kid' => $kid
 			]
 		];
 

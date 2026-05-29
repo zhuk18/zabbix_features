@@ -49,58 +49,58 @@ SjQZXQFAOZ2hW7FO/Sc2+cU=
 -----END PRIVATE KEY-----
 PEM;
 
-	public function testVerifyValidSignature(): void {
-		$banners = [
-			[
-				'id' => 'test_banner',
-				'from' => '2026-01-01T00:00:00Z',
-				'to' => '2099-01-01T00:00:00Z',
-				'content' => ['all' => '**test**']
-			]
-		];
-
+	private function signBanners(array $banners): string {
 		$payload = CBannerHelper::getPayload($banners);
-		$this->assertNotSame('', $payload);
-
-		$private_key = openssl_pkey_get_private(self::PRIVATE_KEY_PEM);
-		$this->assertNotFalse($private_key);
-
-		$signature_bin = '';
-		$ok = openssl_sign($payload, $signature_bin, $private_key, OPENSSL_ALGO_SHA256);
-		openssl_free_key($private_key);
-
-		$this->assertTrue($ok);
-
-		$signature = base64_encode($signature_bin);
-		$this->assertTrue(CBannerHelper::verify($banners, $signature));
-	}
-
-	public function testVerifyTamperedPayloadFails(): void {
-		$banners = [
-			[
-				'id' => 'test_banner',
-				'from' => '2026-01-01T00:00:00Z',
-				'to' => '2099-01-01T00:00:00Z',
-				'content' => ['all' => '**test**']
-			]
-		];
-
-		$payload = CBannerHelper::getPayload($banners);
-
 		$private_key = openssl_pkey_get_private(self::PRIVATE_KEY_PEM);
 		$signature_bin = '';
 		openssl_sign($payload, $signature_bin, $private_key, OPENSSL_ALGO_SHA256);
 		openssl_free_key($private_key);
 
-		$signature = base64_encode($signature_bin);
+		return base64_encode($signature_bin);
+	}
+
+	private function getTestBanners(): array {
+		return [
+			[
+				'id' => 'test_banner',
+				'from' => '2026-01-01T00:00:00Z',
+				'to' => '2099-01-01T00:00:00Z',
+				'content' => ['all' => '**test**']
+			]
+		];
+	}
+
+	public function testVerifyValidSignatureWithKid(): void {
+		$banners = $this->getTestBanners();
+		$signature = $this->signBanners($banners);
+
+		$this->assertTrue(CBannerHelper::verify($banners, $signature, CBannerHelper::KID_V2));
+	}
+
+	public function testVerifyValidSignatureWithoutKidFallback(): void {
+		$banners = $this->getTestBanners();
+		$signature = $this->signBanners($banners);
+
+		$this->assertTrue(CBannerHelper::verify($banners, $signature));
+	}
+
+	public function testVerifyUnknownKidFails(): void {
+		$banners = $this->getTestBanners();
+		$signature = $this->signBanners($banners);
+
+		$this->assertFalse(CBannerHelper::verify($banners, $signature, 'v99'));
+	}
+
+	public function testVerifyTamperedPayloadFails(): void {
+		$banners = $this->getTestBanners();
+		$signature = $this->signBanners($banners);
 
 		$banners[0]['content']['all'] = '**tampered**';
 
-		$this->assertFalse(CBannerHelper::verify($banners, $signature));
+		$this->assertFalse(CBannerHelper::verify($banners, $signature, CBannerHelper::KID_V2));
 	}
 
 	public function testVerifyInvalidBase64Fails(): void {
-		$this->assertFalse(CBannerHelper::verify([], '*not-base64*'));
+		$this->assertFalse(CBannerHelper::verify([], '*not-base64*', CBannerHelper::KID_V2));
 	}
 }
-
