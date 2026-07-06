@@ -297,24 +297,23 @@ export_table_mysql() {
 }
 
 # ── CSV export — PostgreSQL ────────────────────────────────────────────────────
-# Uses native COPY CSV format:
-#   NULL  → unquoted \N  (via NULL '\N' option)
-#   other → RFC 4180 minimum-quoting (quoted when field contains comma, quote, or newline)
-#   BYTEA → PostgreSQL hex-encoded (\x...) by default
-#
-# Note: quoting style is QUOTE_MINIMAL (unlike MySQL output which is always-quoted).
-# Both are valid RFC 4180; the importer must use a proper RFC 4180 parser.
+# Emits MySQL-compatible field formatting so one importer can load bundles from
+# either source DB:
+#   NULL   → unquoted \N
+#   BYTEA  → base64-encoded, always-quoted (encode(col, 'base64'))
+#   other  → always-quoted, with backslash and double-quote escaped by backslash
 #
 export_table_pgsql() {
     local table="$1"
     local out_file="$2"
 
-    # Fetch column names
-    local -a col_names=()
-    while IFS= read -r col_name; do
+    # Fetch column names and types
+    local -a col_names=() col_types=()
+    while IFS=$'\t' read -r col_name col_type; do
         [[ -n "$col_name" ]] || continue
         col_names+=("$col_name")
-    done < <(psql_query "SELECT column_name \
+        col_types+=("$col_type")
+    done < <(psql_query "SELECT column_name, data_type \
         FROM information_schema.columns \
         WHERE table_schema = 'public' AND table_name = '${table}' \
         ORDER BY ordinal_position")
@@ -329,17 +328,38 @@ export_table_pgsql() {
     done
     printf '%s\n' "$header" > "$out_file"
 
-    # Export rows using psql \copy (client-side, writes to stdout)
-    # NULL '\N'  → unquoted \N for SQL NULLs (field values equal to \N are auto-quoted by PostgreSQL)
-    printf '\\copy "%s" to stdout with (format csv, header false, null '"'"'\\N'"'"', encoding '"'"'UTF8'"'"')\n' \
-        "$table" \
-        | PGPASSWORD="${DB_PASS}" psql \
-            --no-align --tuples-only --quiet \
-            -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" "${DB_NAME}" \
-            >> "$out_file"
+    # Build per-column SQL expressions that match MySQL export escaping.
+    local concat_inner=""
+    local i dtype col_esc expr
+    for i in "${!col_names[@]}"; do
+        col_esc="${col_names[$i]//\"/\"\"}"
+        dtype="${col_types[$i]}"
+
+        [[ $i -gt 0 ]] && concat_inner+=" || ',' || "
+
+        case "$dtype" in
+            bytea)
+                expr="CASE WHEN \"${col_esc}\" IS NULL"
+                expr+=" THEN E'\\\\N'"
+                expr+=" ELSE '"\""' || encode(\"${col_esc}\", 'base64') || '"\""' END"
+                ;;
+            *)
+                expr="CASE WHEN \"${col_esc}\" IS NULL"
+                expr+=" THEN E'\\\\N'"
+                expr+=" ELSE '"\""' || replace(replace(\"${col_esc}\"::text, E'\\\\', E'\\\\\\\\'), '"\""', E'\\\\"\""') || '"\""' END"
+                ;;
+        esac
+
+        concat_inner+="$expr"
+    done
+
+    # Export rows as one text column per row to preserve formatting verbatim.
+    local table_esc
+    table_esc="${table//\"/\"\"}"
+    psql_query "SELECT ${concat_inner} FROM \"${table_esc}\"" >> "$out_file"
 
     # Return row count
-    psql_query "SELECT COUNT(*) FROM \"${table}\""
+    psql_query "SELECT COUNT(*) FROM \"${table_esc}\""
 }
 
 # ── JSON builders ──────────────────────────────────────────────────────────────
