@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# zabbix_import.sh - Minimal MySQL bundle importer
+# zabbix_import_pgsql_native.sh - Minimal native PostgreSQL bundle importer
 
 set -euo pipefail
 
@@ -7,7 +7,7 @@ readonly SCRIPT_VERSION="1.0"
 
 BUNDLE=""
 DB_HOST="127.0.0.1"
-DB_PORT="3306"
+DB_PORT="5432"
 DB_NAME=""
 DB_USER=""
 DB_PASS=""
@@ -27,35 +27,27 @@ cleanup() {
 }
 
 check_deps() {
-    local -a required=(mysql tar gzip sha256sum awk head tr)
+    local -a required=(psql tar gzip sha256sum awk head tr)
     local cmd
     for cmd in "${required[@]}"; do
         command -v "$cmd" >/dev/null 2>&1 || die "Required command not found: ${cmd}"
     done
 }
 
-mysql_query() {
-    MYSQL_PWD="${DB_PASS}" mysql \
-        --batch --raw --skip-column-names \
-        --default-character-set=utf8mb4 \
-        --local-infile=1 \
-        --connect-timeout=10 \
-        -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "${DB_NAME}" \
-        -e "$1"
+psql_query() {
+    PGPASSWORD="${DB_PASS}" psql \
+        --no-align --tuples-only --quiet \
+        -F $'\t' \
+        -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" "${DB_NAME}" \
+        -c "$1"
 }
 
-mysql_exec_file() {
-    {
-        printf 'SET FOREIGN_KEY_CHECKS = 0;\n'
-        printf 'SET UNIQUE_CHECKS = 0;\n'
-        cat "$1"
-        printf 'SET UNIQUE_CHECKS = 1;\n'
-        printf 'SET FOREIGN_KEY_CHECKS = 1;\n'
-    } | MYSQL_PWD="${DB_PASS}" mysql \
-        --default-character-set=utf8mb4 \
-        --local-infile=1 \
-        --connect-timeout=10 \
-        -h "${DB_HOST}" -P "${DB_PORT}" -u "${DB_USER}" "${DB_NAME}"
+psql_exec_file() {
+    PGPASSWORD="${DB_PASS}" psql \
+        --no-align --tuples-only --quiet \
+        --set ON_ERROR_STOP=1 \
+        -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" "${DB_NAME}" \
+        -f "$1"
 }
 
 extract_bundle() {
@@ -92,106 +84,93 @@ parse_manifest() {
     log "Manifest parsed: ${#MANIFEST_FILES[@]} tables"
 }
 
-read_csv_header() {
-    local csv_file="$1"
-    local -n out_cols="$2"
-    local header col
-
-    header=$(head -1 "$csv_file")
-    IFS=',' read -ra out_cols <<< "$header"
-    for col in "${!out_cols[@]}"; do
-        out_cols[$col]="${out_cols[$col]#\"}"
-        out_cols[$col]="${out_cols[$col]%\"}"
-    done
-}
-
-get_blob_columns() {
-    local table="$1"
-    mysql_query "SELECT column_name FROM information_schema.columns \
-        WHERE table_schema = DATABASE() AND table_name = '${table}' \
-        AND data_type IN ('blob','longblob','mediumblob','tinyblob') \
-        ORDER BY ordinal_position" | tr '\n' ' '
-}
-
-build_load_sql() {
-    local table="$1"
-    local csv_file="$2"
-
-    local -a cols=()
-    read_csv_header "$csv_file" cols
-    [[ ${#cols[@]} -gt 0 ]] || die "Could not read CSV header: ${csv_file}"
-
-    local blob_list
-    blob_list=$(get_blob_columns "$table")
-    declare -A blob_set
-    local b
-    for b in $blob_list; do
-        blob_set["$b"]=1
-    done
-
-    local var_list=""
-    local set_clause=""
-    local i vn col
-    for i in "${!cols[@]}"; do
-        vn="@v$((i + 1))"
-        col="${cols[$i]}"
-
-        [[ -n "$var_list" ]] && var_list+=", "
-        var_list+="$vn"
-
-        [[ -n "$set_clause" ]] && set_clause+=$',\n  '
-        if [[ -n "${blob_set[$col]+x}" ]]; then
-            set_clause+="\`${col}\` = CASE WHEN ${vn} IS NULL OR ${vn} = '\\\\N' THEN NULL ELSE FROM_BASE64(${vn}) END"
-        else
-            set_clause+="\`${col}\` = CASE WHEN ${vn} IS NULL OR ${vn} = '\\\\N' THEN NULL ELSE ${vn} END"
-        fi
-    done
-
-    printf "DELETE FROM \`%s\`;\n" "$table"
-    printf "LOAD DATA LOCAL INFILE '%s'\n" "$csv_file"
-    printf "INTO TABLE \`%s\`\n" "$table"
-    printf "CHARACTER SET utf8mb4\n"
-    printf "FIELDS\n"
-    printf "  TERMINATED BY ','\n"
-    printf "  OPTIONALLY ENCLOSED BY '\"'\n"
-    printf '%s\n' "  ESCAPED BY '\\\\'"
-    printf '%s\n' "LINES TERMINATED BY '\\n'"
-    printf 'IGNORE 1 LINES\n'
-    printf '(%s)\n' "$var_list"
-    printf 'SET\n  %s;\n' "$set_clause"
-}
-
 load_table() {
     local table="$1"
     local csv_file="$2"
     local expected_rows="$3"
 
     local exists
-    exists=$(mysql_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = '${table}'")
+    exists=$(psql_query "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public' AND tablename='${table}'")
     [[ "$exists" -eq 1 ]] || { log "Skipping missing table: ${table}"; return 0; }
 
     local sql_file="${WORK_DIR}/load_${table}.sql"
-    build_load_sql "$table" "$csv_file" > "$sql_file"
-    mysql_exec_file "$sql_file"
+    local table_esc csv_esc
+    table_esc="${table//\"/\"\"}"
+    csv_esc="${csv_file//\'/\'\'}"
+
+    {
+        printf '\\copy "%s" FROM '\''%s'\'' WITH (FORMAT csv, HEADER true, NULL '\''\\N'\'', ENCODING '\''UTF8'\'')\n' "$table_esc" "$csv_esc"
+    } > "$sql_file"
+
+    if ! psql_exec_file "$sql_file" >/dev/null 2>&1; then
+        return 1
+    fi
 
     local actual
-    actual=$(mysql_query "SELECT COUNT(*) FROM \`${table}\`")
+    actual=$(psql_query "SELECT COUNT(*) FROM \"${table_esc}\"")
     [[ "$actual" == "$expected_rows" ]] || die "Row count mismatch for ${table}: expected ${expected_rows}, got ${actual}"
+}
+
+truncate_manifest_tables() {
+    log "Truncating target tables..."
+
+    local table_list=""
+    local i table table_esc
+    for i in "${!MANIFEST_TABLES[@]}"; do
+        table="${MANIFEST_TABLES[$i]}"
+        table_esc="${table//\"/\"\"}"
+        [[ -n "$table_list" ]] && table_list+=", "
+        table_list+="\"${table_esc}\""
+    done
+
+    [[ -n "$table_list" ]] || die "No tables in manifest to truncate"
+    psql_query "TRUNCATE TABLE ${table_list} CASCADE" >/dev/null
 }
 
 import_tables() {
     log "Starting table import..."
+    truncate_manifest_tables
+
+    local -a pending=()
     local i rel table rows csv_file
-
     for i in "${!MANIFEST_FILES[@]}"; do
-        rel="${MANIFEST_FILES[$i]}"
-        table="${MANIFEST_TABLES[$i]}"
-        rows="${MANIFEST_ROWS[$i]}"
-        csv_file="${WORK_DIR}/${rel}"
+        pending+=("$i")
+    done
 
-        [[ -f "$csv_file" ]] || die "Missing CSV file: ${rel}"
-        log "  [$(printf '%03d' $((i + 1)))] loading ${table} (${rows} rows)"
-        load_table "$table" "$csv_file" "$rows"
+    local pass=1 progressed=0
+    local -a next_pending=()
+    while (( ${#pending[@]} > 0 )); do
+        progressed=0
+        next_pending=()
+        log "Import pass ${pass}: pending tables=${#pending[@]}"
+
+        for i in "${pending[@]}"; do
+            rel="${MANIFEST_FILES[$i]}"
+            table="${MANIFEST_TABLES[$i]}"
+            rows="${MANIFEST_ROWS[$i]}"
+            csv_file="${WORK_DIR}/${rel}"
+
+            [[ -f "$csv_file" ]] || die "Missing CSV file: ${rel}"
+            log "  [$(printf '%03d' $((i + 1)))] loading ${table} (${rows} rows)"
+
+            if load_table "$table" "$csv_file" "$rows"; then
+                progressed=$((progressed + 1))
+            else
+                next_pending+=("$i")
+            fi
+        done
+
+        if (( progressed == 0 )); then
+            local unresolved=""
+            for i in "${next_pending[@]}"; do
+                [[ -n "$unresolved" ]] && unresolved+=", "
+                unresolved+="${MANIFEST_TABLES[$i]}"
+            done
+            die "Could not resolve table load dependencies. Unresolved tables: ${unresolved}"
+        fi
+
+        pending=("${next_pending[@]}")
+        pass=$((pass + 1))
     done
 
     log "Table import complete"
@@ -203,39 +182,47 @@ rebuild_ids() {
     local sql_file="${WORK_DIR}/rebuild_ids.sql"
     : > "$sql_file"
 
-    local i table pk_col
+    local i table pk_col table_esc pk_esc
     for i in "${!MANIFEST_TABLES[@]}"; do
         table="${MANIFEST_TABLES[$i]}"
-        pk_col=$(mysql_query "SELECT kcu.column_name \
-            FROM information_schema.key_column_usage kcu \
+
+        pk_col=$(psql_query "SELECT kcu.column_name \
+            FROM information_schema.table_constraints tc \
+            JOIN information_schema.key_column_usage kcu \
+              ON tc.constraint_name = kcu.constraint_name \
+             AND tc.table_schema = kcu.table_schema \
+             AND tc.table_name = kcu.table_name \
             JOIN information_schema.columns c \
               ON c.table_schema = kcu.table_schema \
              AND c.table_name = kcu.table_name \
              AND c.column_name = kcu.column_name \
-            WHERE kcu.table_schema = DATABASE() \
-              AND kcu.table_name = '${table}' \
-              AND kcu.constraint_name = 'PRIMARY' \
-              AND c.data_type IN ('int','bigint','smallint','mediumint') \
-            GROUP BY kcu.table_name \
+            WHERE tc.constraint_type = 'PRIMARY KEY' \
+              AND tc.table_schema = 'public' \
+              AND tc.table_name = '${table}' \
+              AND c.data_type IN ('smallint','integer','bigint') \
+            GROUP BY kcu.table_name, kcu.column_name \
             HAVING COUNT(*) = 1" | head -1 | tr -d '[:space:]')
 
         [[ -n "$pk_col" ]] || continue
 
-        printf "INSERT INTO ids (table_name, field_name, nextid)\n" >> "$sql_file"
-        printf "SELECT '%s', '%s', COALESCE(MAX(\`%s\`), 0)\n" "$table" "$pk_col" "$pk_col" >> "$sql_file"
-        printf "FROM \`%s\`\n" "$table" >> "$sql_file"
-        printf "ON DUPLICATE KEY UPDATE nextid = VALUES(nextid);\n\n" >> "$sql_file"
+        table_esc="${table//\"/\"\"}"
+        pk_esc="${pk_col//\"/\"\"}"
+
+        printf 'INSERT INTO ids (table_name, field_name, nextid)\n' >> "$sql_file"
+        printf 'SELECT '\''%s'\'', '\''%s'\'', COALESCE(MAX("%s"), 0)\n' "$table_esc" "$pk_esc" "$pk_esc" >> "$sql_file"
+        printf 'FROM "%s"\n' "$table_esc" >> "$sql_file"
+        printf 'ON CONFLICT (table_name, field_name) DO UPDATE SET nextid = EXCLUDED.nextid;\n\n' >> "$sql_file"
     done
 
-    mysql_exec_file "$sql_file"
+    psql_exec_file "$sql_file" >/dev/null
     log "ids table rebuilt"
 }
 
 set_dbversion() {
     log "Setting dbversion to ${CLOUD_VERSION}"
-    mysql_query "INSERT INTO dbversion (dbversionid, mandatory, optional) \
+    psql_query "INSERT INTO dbversion (dbversionid, mandatory, optional) \
         VALUES (1, ${CLOUD_VERSION}, ${CLOUD_VERSION}) \
-        ON DUPLICATE KEY UPDATE mandatory = VALUES(mandatory), optional = VALUES(optional)"
+        ON CONFLICT (dbversionid) DO UPDATE SET mandatory = EXCLUDED.mandatory, optional = EXCLUDED.optional" >/dev/null
 }
 
 usage() {
@@ -282,8 +269,8 @@ main() {
     WORK_DIR=$(mktemp -d)
     trap cleanup EXIT
 
-    log "Zabbix import script v${SCRIPT_VERSION}"
-    log "Target: mysql://${DB_HOST}:${DB_PORT}/${DB_NAME}"
+    log "Zabbix PostgreSQL native import script v${SCRIPT_VERSION}"
+    log "Target: pgsql://${DB_HOST}:${DB_PORT}/${DB_NAME}"
     log "Bundle: ${BUNDLE}"
 
     extract_bundle
