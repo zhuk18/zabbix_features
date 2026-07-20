@@ -5,6 +5,7 @@ DIST_SUBDIRS = \
 	libs \
 	zabbix_agent \
 	zabbix_get \
+	zabbix_config \
 	zabbix_sender \
 	zabbix_proxy \
 	zabbix_server \
@@ -50,6 +51,7 @@ endif
 if SERVER
 SERVER_SUBDIRS = \
 	zabbix_server \
+	zabbix_config \
 	zabbix_js
 endif
 
