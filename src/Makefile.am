@@ -6,6 +6,7 @@ DIST_SUBDIRS = \
 	zabbix_agent \
 	zabbix_get \
 	zabbix_config \
+	zabbix_config_csv \
 	zabbix_sender \
 	zabbix_proxy \
 	zabbix_server \
@@ -52,6 +53,7 @@ if SERVER
 SERVER_SUBDIRS = \
 	zabbix_server \
 	zabbix_config \
+	zabbix_config_csv \
 	zabbix_js
 endif
 

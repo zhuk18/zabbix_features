@@ -2320,6 +2320,8 @@ AC_CONFIG_FILES([
 	src/zabbix_proxy/stats/Makefile
 	src/zabbix_proxy/taskmanager/Makefile
 	src/zabbix_proxy/trapper/Makefile
+	src/zabbix_config/Makefile
+	src/zabbix_config_csv/Makefile
 	src/zabbix_sender/Makefile
 	src/zabbix_server/Makefile
 	src/zabbix_server/audit/Makefile

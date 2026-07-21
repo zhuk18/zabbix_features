@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gcc -o test_csv_codec test_csv_codec.c -std=c99)",
+      "Bash(./test_csv_codec)",
+      "PowerShell(Get-Command gcc, clang, cl)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\DmitrijsSaldovs\\.claude\\plans"
+    ]
+  }
+}
