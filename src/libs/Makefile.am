@@ -17,6 +17,7 @@ DIST_SUBDIRS = \
 	zbxcalc \
 	zbxcfg \
 	zbxcrypto \
+	zbxcsvbundle \
 	zbxcurl \
 	zbxdb \
 	zbxcacheconfig \
@@ -167,6 +168,7 @@ SERVER_SUBDIRS = \
 	zbxvmware \
 	zbxxml \
 	zbxcrypto \
+	zbxcsvbundle \
 	zbxexec \
 	zbxthreads
 if HAVE_IPMI
@@ -241,6 +243,7 @@ PROXY_SUBDIRS = \
 	zbxvmware \
 	zbxxml \
 	zbxcrypto \
+	zbxcsvbundle \
 	zbxexec \
 	zbxthreads
 if HAVE_IPMI

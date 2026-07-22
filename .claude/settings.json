@@ -3,7 +3,10 @@
     "allow": [
       "Bash(gcc -o test_csv_codec test_csv_codec.c -std=c99)",
       "Bash(./test_csv_codec)",
-      "PowerShell(Get-Command gcc, clang, cl)"
+      "PowerShell(Get-Command gcc, clang, cl)",
+      "Bash(xargs cat)",
+      "Bash(cat)",
+      "Read(//tmp/**)"
     ],
     "additionalDirectories": [
       "C:\\Users\\DmitrijsSaldovs\\.claude\\plans"

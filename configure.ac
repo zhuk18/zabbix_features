@@ -2205,6 +2205,7 @@ AC_CONFIG_FILES([
 	src/libs/zbxcalc/Makefile
 	src/libs/zbxcfg/Makefile
 	src/libs/zbxcrypto/Makefile
+	src/libs/zbxcsvbundle/Makefile
 	src/libs/zbxcurl/Makefile
 	src/libs/zbxdb/Makefile
 	src/libs/zbxdbsyncer/Makefile

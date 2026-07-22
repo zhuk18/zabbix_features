@@ -11,6 +11,7 @@ SUBDIRS = \
 	zbxcachevalue \
 	zbxcacheconfig \
 	zbxcalc \
+	zbxcsvbundle \
 	zbxdb \
 	zbxdbhigh \
 	zbxhistory \
