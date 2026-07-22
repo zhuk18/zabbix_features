@@ -6,7 +6,13 @@
       "PowerShell(Get-Command gcc, clang, cl)",
       "Bash(xargs cat)",
       "Bash(cat)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(make -C tests/libs/zbxcsvbundle bundle_test)",
+      "Bash(autoreconf -i)",
+      "Bash(gcc -I./include -I./src/libs/zbxcsvbundle -I./src/libs/zbxcommon tests/libs/zbxcsvbundle/bundle_test.c src/libs/zbxcsvbundle/csvcodec.c src/libs/zbxcsvbundle/bundle.c -lz -o bundle_test)",
+      "PowerShell(Get-Command cl.exe -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command gcc.exe -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command clang.exe -ErrorAction SilentlyContinue)"
     ],
     "additionalDirectories": [
       "C:\\Users\\DmitrijsSaldovs\\.claude\\plans"

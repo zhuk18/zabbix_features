@@ -7,6 +7,8 @@ DIST_SUBDIRS = \
 	zabbix_get \
 	zabbix_config \
 	zabbix_config_csv \
+	zabbix_export \
+	zabbix_import \
 	zabbix_sender \
 	zabbix_proxy \
 	zabbix_server \
@@ -54,6 +56,8 @@ SERVER_SUBDIRS = \
 	zabbix_server \
 	zabbix_config \
 	zabbix_config_csv \
+	zabbix_export \
+	zabbix_import \
 	zabbix_js
 endif
 
