@@ -70,7 +70,7 @@ static unsigned int zbx_tar_checksum(const unsigned char *header)
 
 static void zbx_tar_format_octal(char *buf, size_t len, unsigned long long value)
 {
-	snprintf(buf, len, "%.*llo", (int)len - 1, value);
+	zbx_snprintf(buf, len, "%.*llo", (int)len - 1, value);
 }
 
 static int zbx_bundle_writer_write_padding(zbx_bundle_writer_t *bw, size_t len)
@@ -92,7 +92,7 @@ static int zbx_bundle_writer_write_padding(zbx_bundle_writer_t *bw, size_t len)
 int zbx_bundle_writer_open(zbx_bundle_writer_t *bw, const char *path)
 {
 	memset(bw, 0, sizeof(zbx_bundle_writer_t));
-	strncpy(bw->path, path, sizeof(bw->path) - 1);
+	zbx_strlcpy(bw->path, path, sizeof(bw->path));
 
 	bw->gz_file = gzopen(path, "wb");
 	if (NULL == bw->gz_file)
@@ -109,18 +109,18 @@ int zbx_bundle_write_member_begin(zbx_bundle_writer_t *bw, const char *name, siz
 
 	memset(&header, 0, sizeof(header));
 
-	strncpy(header.name, name, sizeof(header.name) - 1);
-	strcpy(header.mode, "0000644");
-	strcpy(header.uid, "0000000");
-	strcpy(header.gid, "0000000");
+	zbx_strlcpy(header.name, name, sizeof(header.name));
+	zbx_strlcpy(header.mode, "0000644", sizeof(header.mode));
+	zbx_strlcpy(header.uid, "0000000", sizeof(header.uid));
+	zbx_strlcpy(header.gid, "0000000", sizeof(header.gid));
 	zbx_tar_format_octal(header.size, sizeof(header.size), size);
 	zbx_tar_format_octal(header.mtime, sizeof(header.mtime), time(NULL));
-	strcpy(header.typeflag, "0");
-	strcpy(header.magic, "ustar");
-	strcpy(header.version, "00");
+	header.typeflag[0] = '0';			/* fixed 1-byte field, no terminator */
+	zbx_strlcpy(header.magic, "ustar", sizeof(header.magic));
+	memcpy(header.version, "00", sizeof(header.version));	/* fixed 2-byte field, no terminator */
 
 	checksum = zbx_tar_checksum(header_bytes);
-	snprintf(header.chksum, sizeof(header.chksum), "%06o", checksum);
+	zbx_snprintf(header.chksum, sizeof(header.chksum), "%06o", checksum);
 
 	if (gzwrite((gzFile)bw->gz_file, &header, sizeof(header)) != (int)sizeof(header))
 		return FAIL;
@@ -199,6 +199,30 @@ int zbx_bundle_read_next_header(zbx_bundle_reader_t *br, char *name_out, size_t 
 	if (NULL == br->gz_file)
 		return FAIL;
 
+	/* Skip any leftover data and the 512-byte padding of the previous member so that the next */
+	/* header read starts on a block boundary (member_size is 0 before the first member). */
+	if (0 != br->member_size)
+	{
+		size_t	padded = ((br->member_size + ZBX_USTAR_BLOCK_SIZE - 1) / ZBX_USTAR_BLOCK_SIZE) *
+					ZBX_USTAR_BLOCK_SIZE;
+		size_t	skip = padded - br->member_pos;
+
+		while (0 < skip)
+		{
+			unsigned char	skip_buf[ZBX_USTAR_BLOCK_SIZE];
+			int		n = gzread((gzFile)br->gz_file, skip_buf,
+						(unsigned int)(skip < sizeof(skip_buf) ? skip : sizeof(skip_buf)));
+
+			if (0 >= n)
+				break;
+
+			skip -= (size_t)n;
+		}
+
+		br->member_size = 0;
+		br->member_pos = 0;
+	}
+
 	bytes_read = gzread((gzFile)br->gz_file, header_bytes, ZBX_USTAR_HEADER_SIZE);
 
 	if (bytes_read < (int)ZBX_USTAR_HEADER_SIZE)
@@ -229,14 +253,10 @@ int zbx_bundle_read_next_header(zbx_bundle_reader_t *br, char *name_out, size_t 
 	zbx_ustar_header_t *header = (zbx_ustar_header_t *)header_bytes;
 
 	if (name_size > 0)
-	{
-		strncpy(name_out, header->name, name_size - 1);
-		name_out[name_size - 1] = '\0';
-	}
+		zbx_strlcpy(name_out, header->name, name_size);
 
 	char size_str[12 + 1];
-	strncpy(size_str, header->size, sizeof(size_str) - 1);
-	size_str[sizeof(size_str) - 1] = '\0';
+	zbx_strlcpy(size_str, header->size, sizeof(size_str));
 	*size_out = (size_t)strtoll(size_str, NULL, 8);
 
 	br->member_pos = 0;

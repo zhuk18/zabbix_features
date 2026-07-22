@@ -19,6 +19,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "zbxcommon.h"
 #include "zbxcsvbundle.h"
@@ -37,6 +40,9 @@ static const char *excluded_tables[] = {
 	"history_bin",
 	NULL
 };
+
+/* Sentinel emitted via psql "\echo" to reliably delimit each command's output on the shared pipe. */
+#define ZBX_PG_SENTINEL		"__ZBX_EOT__"
 
 typedef struct
 {
@@ -99,6 +105,14 @@ static char *zbx_generate_iso8601_timestamp(void)
 	return zbx_strdup(NULL, timestamp);
 }
 
+/* Convert a 32-byte SHA-256 digest to a lowercase hex string (out must hold 65 bytes). */
+static void zbx_sha256_to_hex(const unsigned char *digest, char *out)
+{
+	for (int i = 0; i < ZBX_SHA256_DIGEST_SIZE; i++)
+		zbx_snprintf(out + i * 2, 3, "%02x", digest[i]);
+	out[ZBX_SHA256_DIGEST_SIZE * 2] = '\0';
+}
+
 /* Generate manifest.json content */
 static int zbx_generate_manifest(zbx_export_result_t *result, zbx_csv_buf_t *manifest_buf)
 {
@@ -123,6 +137,8 @@ static int zbx_generate_manifest(zbx_export_result_t *result, zbx_csv_buf_t *man
 
 	for (int i = 0; i < result->tables_exported; i++)
 	{
+		const char	*closing;
+
 		if (zbx_csv_buf_appendf(manifest_buf, "    \"%s\": {\n", result->table_info[i].table_name) != SUCCEED)
 			return FAIL;
 
@@ -132,12 +148,10 @@ static int zbx_generate_manifest(zbx_export_result_t *result, zbx_csv_buf_t *man
 		if (zbx_csv_buf_appendf(manifest_buf, "      \"checksum\": \"%s\"\n", result->table_info[i].checksum) != SUCCEED)
 			return FAIL;
 
-		if (i < result->tables_exported - 1)
-			if (zbx_csv_buf_appendf(manifest_buf, "    },\n") != SUCCEED)
-				return FAIL;
-		else
-			if (zbx_csv_buf_appendf(manifest_buf, "    }\n") != SUCCEED)
-				return FAIL;
+		closing = (i < result->tables_exported - 1) ? "    },\n" : "    }\n";
+
+		if (zbx_csv_buf_appendf(manifest_buf, "%s", closing) != SUCCEED)
+			return FAIL;
 	}
 
 	if (zbx_csv_buf_appendf(manifest_buf, "  }\n") != SUCCEED)
@@ -149,73 +163,219 @@ static int zbx_generate_manifest(zbx_export_result_t *result, zbx_csv_buf_t *man
 	return SUCCEED;
 }
 
+/* Read one full logical line from the pipe into *buf (grown on demand). On return *len holds the number */
+/* of bytes read, including a trailing newline when present. Returns FAIL only at end of input. */
+static int zbx_pg_read_line(FILE *pipe, char **buf, size_t *buf_alloc, size_t *len)
+{
+	*len = 0;
+
+	if (0 == *buf_alloc)
+	{
+		*buf_alloc = 8192;
+		*buf = zbx_malloc(NULL, *buf_alloc);
+	}
+
+	for (;;)
+	{
+		if (NULL == fgets(*buf + *len, (int)(*buf_alloc - *len), pipe))
+			break;
+
+		*len += strlen(*buf + *len);
+
+		if (0 < *len && '\n' == (*buf)[*len - 1])
+			break;
+
+		if (*len + 1 >= *buf_alloc)
+		{
+			*buf_alloc *= 2;
+			*buf = zbx_realloc(*buf, *buf_alloc);
+		}
+	}
+
+	return (0 < *len) ? SUCCEED : FAIL;
+}
+
+static int zbx_pg_line_is_sentinel(const char *buf, size_t len)
+{
+	while (0 < len && ('\n' == buf[len - 1] || '\r' == buf[len - 1]))
+		len--;
+
+	return (ZBX_CONST_STRLEN(ZBX_PG_SENTINEL) == len && 0 == strncmp(buf, ZBX_PG_SENTINEL, len)) ? 1 : 0;
+}
+
+/* Discard all pipe output up to (and including) the sentinel. Returns FAIL if the pipe closed first. */
+static int zbx_pg_drain_to_sentinel(FILE *pipe, char **buf, size_t *buf_alloc)
+{
+	size_t	len;
+
+	while (SUCCEED == zbx_pg_read_line(pipe, buf, buf_alloc, &len))
+	{
+		if (0 != zbx_pg_line_is_sentinel(*buf, len))
+			return SUCCEED;
+	}
+
+	return FAIL;
+}
+
+/* Read output up to the sentinel and return the first non-empty line (newline stripped), or NULL. */
+static char *zbx_pg_read_value_to_sentinel(FILE *pipe, char **buf, size_t *buf_alloc)
+{
+	size_t	len;
+	char	*value = NULL;
+
+	while (SUCCEED == zbx_pg_read_line(pipe, buf, buf_alloc, &len))
+	{
+		if (0 != zbx_pg_line_is_sentinel(*buf, len))
+			break;
+
+		if (NULL == value)
+		{
+			while (0 < len && ('\n' == (*buf)[len - 1] || '\r' == (*buf)[len - 1]))
+				(*buf)[--len] = '\0';
+
+			if (0 < len)
+				value = zbx_strdup(NULL, *buf);
+		}
+	}
+
+	return value;
+}
+
+/* Set libpq connection environment so the credentials never appear on the psql command line. */
+static void zbx_pg_setenv(zbx_export_options_t *opts)
+{
+	if (opts->db_host && *opts->db_host)
+		setenv("PGHOST", opts->db_host, 1);
+
+	if (opts->db_port && *opts->db_port)
+		setenv("PGPORT", opts->db_port, 1);
+
+	if (opts->db_user && *opts->db_user)
+		setenv("PGUSER", opts->db_user, 1);
+
+	if (opts->db_name && *opts->db_name)
+		setenv("PGDATABASE", opts->db_name, 1);
+
+	if (opts->db_password && *opts->db_password)
+		setenv("PGPASSWORD", opts->db_password, 1);
+}
+
+/* Spawn a child process wired to two pipes. Returns the child's stdout as a readable FILE*, sets */
+/* *to_child to a writable FILE* for the child's stdin and *pid to the child pid. NULL on failure. */
+/* (popen() cannot be used here: POSIX only allows "r" or "w", so bidirectional talk needs two pipes.) */
+static FILE *zbx_pg_popen2(char *const argv[], FILE **to_child, pid_t *pid)
+{
+	int	in_pipe[2], out_pipe[2];
+	pid_t	child;
+
+	*to_child = NULL;
+
+	if (0 != pipe(in_pipe))
+		return NULL;
+
+	if (0 != pipe(out_pipe))
+	{
+		close(in_pipe[0]);
+		close(in_pipe[1]);
+		return NULL;
+	}
+
+	if (0 > (child = fork()))
+	{
+		close(in_pipe[0]);
+		close(in_pipe[1]);
+		close(out_pipe[0]);
+		close(out_pipe[1]);
+		return NULL;
+	}
+
+	if (0 == child)
+	{
+		dup2(in_pipe[0], STDIN_FILENO);
+		dup2(out_pipe[1], STDOUT_FILENO);
+		close(in_pipe[0]);
+		close(in_pipe[1]);
+		close(out_pipe[0]);
+		close(out_pipe[1]);
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+
+	close(in_pipe[0]);
+	close(out_pipe[1]);
+
+	*to_child = fdopen(in_pipe[1], "w");
+	*pid = child;
+
+	return fdopen(out_pipe[0], "r");
+}
+
+static void zbx_pg_pclose(FILE *to_child, FILE *from_child, pid_t pid)
+{
+	if (NULL != to_child)
+		fclose(to_child);
+	if (NULL != from_child)
+		fclose(from_child);
+	if (0 < pid)
+		waitpid(pid, NULL, 0);
+}
+
 /* PostgreSQL export path using COPY TO STDOUT */
 static int zbx_export_postgres(zbx_export_options_t *opts, zbx_bundle_writer_t *writer, zbx_export_result_t *result)
 {
-	FILE		*pipe = NULL;
-	char		cmd[4096];
-	char		line[8192];
-	zbx_csv_buf_t	csv_data;
-	int		row_count = 0;
+	FILE		*pin = NULL, *pout = NULL;
+	pid_t		pid = -1;
+	char		*line = NULL;
+	size_t		line_alloc = 0, line_len;
 	int		table_idx = 0;
+	int		ret = FAIL;
+	char		*psql_argv[] = {"psql", "-q", "-X", "-w", NULL};
 
-	/* Build psql connection command */
-	snprintf(cmd, sizeof(cmd), "psql");
+	/* Connection parameters are passed through the environment (see zbx_pg_setenv), so the command line */
+	/* carries no user-controlled data. -q suppresses status noise, -X skips ~/.psqlrc, -w never prompts. */
+	zbx_pg_setenv(opts);
 
-	if (opts->db_host && *opts->db_host)
-		snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " -h %s", opts->db_host);
-
-	if (opts->db_port && *opts->db_port)
-		snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " -p %s", opts->db_port);
-
-	snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " -U %s -d %s", opts->db_user, opts->db_name);
-
-	if (opts->db_password && *opts->db_password)
-		snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " -v PGPASSWORD=%s", opts->db_password);
-
-	snprintf(cmd + strlen(cmd), sizeof(cmd) - strlen(cmd), " --batch --no-align");
-
-	pipe = popen(cmd, "r+");
-	if (NULL == pipe)
+	pout = zbx_pg_popen2(psql_argv, &pin, &pid);
+	if (NULL == pin || NULL == pout)
 	{
 		result->status = FAIL;
 		result->exit_code = 4;
-		result->error_msg = zbx_dsprintf(NULL, "Failed to connect to PostgreSQL: %s", strerror(errno));
-		return FAIL;
+		result->error_msg = zbx_dsprintf(NULL, "Failed to launch psql: %s", strerror(errno));
+		goto out;
 	}
 
-	/* Set up transaction and bytea format */
-	fprintf(pipe, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n");
-	fprintf(pipe, "SET bytea_output = 'hex';\n");
-	fflush(pipe);
+	/* Open a consistent snapshot and configure output for the metadata queries below. */
+	fprintf(pin,
+		"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n"
+		"SET bytea_output = 'hex';\n"
+		"\\pset tuples_only on\n"
+		"\\pset format unaligned\n"
+		"\\pset footer off\n"
+		"\\echo " ZBX_PG_SENTINEL "\n");
+	fflush(pin);
+
+	/* Draining to the sentinel also verifies the connection actually came up. */
+	if (SUCCEED != zbx_pg_drain_to_sentinel(pout, &line, &line_alloc))
+	{
+		result->status = FAIL;
+		result->exit_code = 4;
+		result->error_msg = zbx_strdup(NULL, "Failed to connect to PostgreSQL");
+		goto out;
+	}
 
 	/* Read dbversion.mandatory */
-	fprintf(pipe, "\\set ECHO_HIDDEN on\nSELECT mandatory FROM dbversion LIMIT 1;\n");
-	fflush(pipe);
-
-	/* Read response until we get the dbversion value */
-	while (NULL != fgets(line, sizeof(line), pipe))
-	{
-		if (line[0] >= '0' && line[0] <= '9')	/* Looks like a version number */
-		{
-			/* Remove trailing newline */
-			size_t len = strlen(line);
-			if (len > 0 && line[len-1] == '\n')
-				line[len-1] = '\0';
-			result->dbversion_mandatory = zbx_strdup(NULL, line);
-			break;
-		}
-	}
+	fprintf(pin, "SELECT mandatory FROM dbversion LIMIT 1;\n\\echo " ZBX_PG_SENTINEL "\n");
+	fflush(pin);
+	result->dbversion_mandatory = zbx_pg_read_value_to_sentinel(pout, &line, &line_alloc);
 
 	/* Get schema metadata */
 	const zbx_db_table_t *tables = zbx_dbschema_get_tables();
 	if (NULL == tables)
 	{
-		pclose(pipe);
 		result->status = FAIL;
 		result->exit_code = 6;
 		result->error_msg = zbx_strdup(NULL, "Failed to get database schema");
-		return FAIL;
+		goto out;
 	}
 
 	/* Count tables to export */
@@ -225,27 +385,8 @@ static int zbx_export_postgres(zbx_export_options_t *opts, zbx_bundle_writer_t *
 			export_table_count++;
 
 	/* Allocate table info array */
-	result->table_info = malloc(sizeof(zbx_table_info_t) * export_table_count);
-	if (NULL == result->table_info)
-	{
-		pclose(pipe);
-		result->status = FAIL;
-		result->exit_code = 6;
-		result->error_msg = zbx_strdup(NULL, "Failed to allocate table info array");
-		return FAIL;
-	}
+	result->table_info = (zbx_table_info_t *)zbx_malloc(NULL, sizeof(zbx_table_info_t) * export_table_count);
 	memset(result->table_info, 0, sizeof(zbx_table_info_t) * export_table_count);
-
-	/* Initialize buffers */
-	if (zbx_csv_buf_init(&csv_data, 65536) != SUCCEED)
-	{
-		zbx_csv_buf_free(&csv_data);
-		pclose(pipe);
-		result->status = FAIL;
-		result->exit_code = 6;
-		result->error_msg = zbx_strdup(NULL, "Failed to allocate buffer");
-		return FAIL;
-	}
 
 	/* Export each table */
 	for (int t = 0; NULL != tables[t].table; t++)
@@ -257,94 +398,73 @@ static int zbx_export_postgres(zbx_export_options_t *opts, zbx_bundle_writer_t *
 		zbx_csv_buf_t table_csv;
 		if (zbx_csv_buf_init(&table_csv, 65536) != SUCCEED)
 		{
-			zbx_csv_buf_free(&csv_data);
-			pclose(pipe);
 			result->status = FAIL;
 			result->exit_code = 6;
 			result->error_msg = zbx_strdup(NULL, "Failed to allocate table CSV buffer");
-			return FAIL;
+			goto out;
 		}
 
 		/* Initialize SHA-256 for this table */
-		zbx_sha256_t table_sha256;
-		zbx_sha256_init(&table_sha256);
+		sha256_ctx table_ctx;
+		zbx_sha256_init(&table_ctx);
 
-		/* Build and write CSV header row with column names */
-		for (int f = 0; f < tables[t].field_count; f++)
+		/* Build and write CSV header row with column names (COPY output carries no header). */
+		int	header_ok = SUCCEED;
+		for (int f = 0; SUCCEED == header_ok && NULL != tables[t].fields[f].name; f++)
 		{
-			if (zbx_csv_write_field(&table_csv, tables[t].fields[f].name, 0) != SUCCEED)
-			{
-				zbx_csv_buf_free(&table_csv);
-				zbx_csv_buf_free(&csv_data);
-				pclose(pipe);
-				result->status = FAIL;
-				result->exit_code = 6;
-				result->error_msg = zbx_strdup(NULL, "Failed to write CSV header");
-				return FAIL;
-			}
-
-			if (f < tables[t].field_count - 1)
-				if (zbx_csv_buf_append_len(&table_csv, ",", 1) != SUCCEED)
-				{
-					zbx_csv_buf_free(&table_csv);
-					zbx_csv_buf_free(&csv_data);
-					pclose(pipe);
-					result->status = FAIL;
-					result->exit_code = 6;
-					result->error_msg = zbx_strdup(NULL, "Failed to write CSV separator");
-					return FAIL;
-				}
+			if (0 != f && zbx_csv_buf_append_len(&table_csv, ",", 1) != SUCCEED)
+				header_ok = FAIL;
+			else if (zbx_csv_write_field(&table_csv, tables[t].fields[f].name, 0) != SUCCEED)
+				header_ok = FAIL;
 		}
 
-		if (zbx_csv_buf_append_len(&table_csv, "\n", 1) != SUCCEED)
+		if (SUCCEED != header_ok || zbx_csv_buf_append_len(&table_csv, "\n", 1) != SUCCEED)
 		{
 			zbx_csv_buf_free(&table_csv);
-			zbx_csv_buf_free(&csv_data);
-			pclose(pipe);
 			result->status = FAIL;
 			result->exit_code = 6;
-			result->error_msg = zbx_strdup(NULL, "Failed to finalize CSV header");
-			return FAIL;
+			result->error_msg = zbx_strdup(NULL, "Failed to write CSV header");
+			goto out;
 		}
 
 		/* Update SHA-256 with header */
-		zbx_sha256_process_bytes(&table_sha256, (unsigned char *)table_csv.data, table_csv.len);
+		zbx_sha256_process_bytes(table_csv.data, table_csv.len, &table_ctx);
 
-		/* Issue COPY command for this table */
-		fprintf(pipe, "COPY %s TO STDOUT WITH (FORMAT csv, FORCE_QUOTE *, NULL 'NULL');\n", tables[t].table);
-		fflush(pipe);
+		/* Ask for an exact row count within the snapshot (COPY output cannot be counted reliably */
+		/* because a single field may contain embedded newlines). */
+		fprintf(pin, "SELECT count(*) FROM \"%s\";\n\\echo " ZBX_PG_SENTINEL "\n", tables[t].table);
+		fflush(pin);
+		char	*count_str = zbx_pg_read_value_to_sentinel(pout, &line, &line_alloc);
+		int	row_count = (NULL != count_str) ? atoi(count_str) : 0;
+		zbx_free(count_str);
 
-		/* Read COPY output line by line */
-		row_count = 0;
-		while (NULL != fgets(line, sizeof(line), pipe))
+		/* Issue COPY command for this table and read its output up to the sentinel. */
+		fprintf(pin, "COPY \"%s\" TO STDOUT WITH (FORMAT csv, FORCE_QUOTE *, NULL 'NULL');\n\\echo " ZBX_PG_SENTINEL "\n",
+			tables[t].table);
+		fflush(pin);
+
+		while (SUCCEED == zbx_pg_read_line(pout, &line, &line_alloc, &line_len))
 		{
-			if (strcmp(line, "\\.\n") == 0)
-				break;	/* COPY end marker */
+			if (0 != zbx_pg_line_is_sentinel(line, line_len))
+				break;
 
-			if (zbx_csv_buf_append_len(&table_csv, line, strlen(line)) != SUCCEED)
+			if (zbx_csv_buf_append_len(&table_csv, line, line_len) != SUCCEED)
 			{
 				zbx_csv_buf_free(&table_csv);
-				zbx_csv_buf_free(&csv_data);
-				pclose(pipe);
 				result->status = FAIL;
 				result->exit_code = 5;
 				result->error_msg = zbx_strdup(NULL, "Failed to buffer table CSV data");
-				return FAIL;
+				goto out;
 			}
 
-			/* Update SHA-256 incrementally */
-			zbx_sha256_process_bytes(&table_sha256, (unsigned char *)line, strlen(line));
-
-			row_count++;
+			zbx_sha256_process_bytes(line, line_len, &table_ctx);
 		}
 
 		/* Finalize SHA-256 and get hex digest */
-		unsigned char sha256_digest[32];
-		zbx_sha256_finish(&table_sha256, sha256_digest);
-		char sha256_hex[65];
-		for (int i = 0; i < 32; i++)
-			snprintf(sha256_hex + i*2, 3, "%02x", sha256_digest[i]);
-		sha256_hex[64] = '\0';
+		unsigned char sha256_digest[ZBX_SHA256_DIGEST_SIZE];
+		zbx_sha256_finish(&table_ctx, sha256_digest);
+		char sha256_hex[ZBX_SHA256_DIGEST_SIZE * 2 + 1];
+		zbx_sha256_to_hex(sha256_digest, sha256_hex);
 
 		/* Store table info for manifest */
 		result->table_info[table_idx].table_name = zbx_strdup(NULL, tables[t].table);
@@ -353,40 +473,18 @@ static int zbx_export_postgres(zbx_export_options_t *opts, zbx_bundle_writer_t *
 		table_idx++;
 
 		/* Write table to bundle */
-		char member_name[256];
-		snprintf(member_name, sizeof(member_name), "%s.csv", tables[t].table);
+		char member_name[ZBX_TABLENAME_LEN_MAX + 8];
+		zbx_snprintf(member_name, sizeof(member_name), "%s.csv", tables[t].table);
 
-		if (zbx_bundle_write_member_begin(writer, member_name, table_csv.len) != SUCCEED)
+		if (zbx_bundle_write_member_begin(writer, member_name, table_csv.len) != SUCCEED ||
+				zbx_bundle_write_member_data(writer, table_csv.data, table_csv.len) != SUCCEED ||
+				zbx_bundle_write_member_end(writer) != SUCCEED)
 		{
 			zbx_csv_buf_free(&table_csv);
-			zbx_csv_buf_free(&csv_data);
-			pclose(pipe);
 			result->status = FAIL;
 			result->exit_code = 5;
-			result->error_msg = zbx_strdup(NULL, "Failed to start bundle member");
-			return FAIL;
-		}
-
-		if (zbx_bundle_write_member_data(writer, table_csv.data, table_csv.len) != SUCCEED)
-		{
-			zbx_csv_buf_free(&table_csv);
-			zbx_csv_buf_free(&csv_data);
-			pclose(pipe);
-			result->status = FAIL;
-			result->exit_code = 5;
-			result->error_msg = zbx_strdup(NULL, "Failed to write bundle member data");
-			return FAIL;
-		}
-
-		if (zbx_bundle_write_member_end(writer) != SUCCEED)
-		{
-			zbx_csv_buf_free(&table_csv);
-			zbx_csv_buf_free(&csv_data);
-			pclose(pipe);
-			result->status = FAIL;
-			result->exit_code = 5;
-			result->error_msg = zbx_strdup(NULL, "Failed to finalize bundle member");
-			return FAIL;
+			result->error_msg = zbx_dsprintf(NULL, "Failed to write bundle member: %s", member_name);
+			goto out;
 		}
 
 		zbx_csv_buf_free(&table_csv);
@@ -395,16 +493,19 @@ static int zbx_export_postgres(zbx_export_options_t *opts, zbx_bundle_writer_t *
 	}
 
 	/* End transaction */
-	fprintf(pipe, "COMMIT;\n");
-	pclose(pipe);
-
-	zbx_csv_buf_free(&csv_data);
+	fprintf(pin, "COMMIT;\n");
+	fflush(pin);
 
 	/* Set table_info_count to match tables_exported */
 	result->table_info_count = result->tables_exported;
 
 	result->status = SUCCEED;
-	return SUCCEED;
+	ret = SUCCEED;
+out:
+	zbx_pg_pclose(pin, pout, pid);
+	zbx_free(line);
+
+	return ret;
 }
 
 static int zbx_export(zbx_export_options_t *opts, zbx_export_result_t *result)
@@ -483,15 +584,13 @@ static int zbx_export(zbx_export_options_t *opts, zbx_export_result_t *result)
 	}
 
 	/* Calculate SHA-256 for manifest.json */
-	zbx_sha256_t manifest_sha256;
-	zbx_sha256_init(&manifest_sha256);
-	zbx_sha256_process_bytes(&manifest_sha256, (unsigned char *)manifest_buf.data, manifest_buf.len);
-	unsigned char manifest_digest[32];
-	zbx_sha256_finish(&manifest_sha256, manifest_digest);
-	char manifest_checksum[65];
-	for (int i = 0; i < 32; i++)
-		snprintf(manifest_checksum + i*2, 3, "%02x", manifest_digest[i]);
-	manifest_checksum[64] = '\0';
+	sha256_ctx manifest_ctx;
+	zbx_sha256_init(&manifest_ctx);
+	zbx_sha256_process_bytes(manifest_buf.data, manifest_buf.len, &manifest_ctx);
+	unsigned char manifest_digest[ZBX_SHA256_DIGEST_SIZE];
+	zbx_sha256_finish(&manifest_ctx, manifest_digest);
+	char manifest_checksum[ZBX_SHA256_DIGEST_SIZE * 2 + 1];
+	zbx_sha256_to_hex(manifest_digest, manifest_checksum);
 
 	/* Write manifest.json to bundle */
 	if (zbx_bundle_write_member_begin(&writer, "manifest.json", manifest_buf.len) != SUCCEED)
@@ -608,6 +707,11 @@ static int zbx_export(zbx_export_options_t *opts, zbx_export_result_t *result)
 		result->error_msg = zbx_strdup(NULL, "Failed to close output bundle");
 		return FAIL;
 	}
+
+	/* Record the size of the finished bundle for the summary output. */
+	struct stat	st;
+	if (0 == stat(opts->output_file, &st))
+		result->size_bytes = (long long)st.st_size;
 
 	result->status = SUCCEED;
 	return SUCCEED;

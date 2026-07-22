@@ -8,6 +8,13 @@ zabbix_export_LDADD = \
 	$(top_builddir)/src/libs/zbxcsvbundle/libzbxcsvbundle.a \
 	$(top_builddir)/src/libs/zbxdbschema/libzbxdbschema.a \
 	$(top_builddir)/src/libs/zbxhash/libzbxhash.a \
+	$(top_builddir)/src/libs/zbxregexp/libzbxregexp.a \
+	$(top_builddir)/src/libs/zbxnix/libzbxnix.a \
+	$(top_builddir)/src/libs/zbxalgo/libzbxalgo.a \
+	$(top_builddir)/src/libs/zbxstr/libzbxstr.a \
+	$(top_builddir)/src/libs/zbxnum/libzbxnum.a \
+	$(top_builddir)/src/libs/zbxtime/libzbxtime.a \
+	$(top_builddir)/src/libs/zbxcommon/libzbxcommon.a \
 	$(ZLIB_LIBS)
 
 zabbix_export_LDFLAGS = $(ZLIB_LDFLAGS)

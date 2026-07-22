@@ -306,7 +306,7 @@ int zbx_csv_read_row(zbx_csv_reader_t *state, char ***out_fields, size_t *out_fi
 				free(is_null);
 				return FAIL;
 			}
-			strcpy(fields[field_count], field);
+			memcpy(fields[field_count], field, strlen(field) + 1);
 		}
 		else
 		{
