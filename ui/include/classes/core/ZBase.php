@@ -331,6 +331,7 @@ class ZBase {
 			$this->root_dir.'/include/classes/export/elements',
 			$this->root_dir.'/include/classes/graph',
 			$this->root_dir.'/include/classes/graphdraw',
+			$this->root_dir.'/include/classes/topology',
 			$this->root_dir.'/include/classes/import',
 			$this->root_dir.'/include/classes/import/converters',
 			$this->root_dir.'/include/classes/import/importers',
