@@ -228,6 +228,7 @@ class CRouter {
 		'topology.neighbors.get'					=> [CControllerTopologyNeighborsGet::class,							'layout.json',			null],
 		'topology.interfaces.get'					=> [CControllerTopologyInterfacesGet::class,							'layout.json',			null],
 		'topology.promote'						=> [CControllerTopologyPromote::class,								'layout.json',			null],
+		'topology.depromote'						=> [CControllerTopologyDepromote::class,							'layout.json',			null],
 		'topology.hosts.pull'					=> [CControllerTopologyHostsPull::class,							'layout.json',			null],
 		'mediatype.create'							=> [CControllerMediatypeCreate::class,								'layout.json',			null],
 		'mediatype.delete'							=> [CControllerMediatypeDelete::class,								'layout.json',			null],

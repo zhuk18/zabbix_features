@@ -59,9 +59,11 @@ mysql_args=(--host="$host" --port="$port" --user="$user" --database="$database" 
 if [[ -n $password ]]; then
 	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_schema.sql"
 	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_host_ref.sql"
+	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_proxy_ref.sql"
 else
 	mysql "${mysql_args[@]}" < "$script_dir/mysql_schema.sql"
 	mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_host_ref.sql"
+	mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_proxy_ref.sql"
 fi
 
 echo "Topology tables are installed in MySQL database '$database'."

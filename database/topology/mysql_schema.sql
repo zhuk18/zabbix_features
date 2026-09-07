@@ -2,13 +2,16 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	type VARCHAR(32) NOT NULL,
 	host_ref BIGINT UNSIGNED NULL,
+	proxy_ref BIGINT UNSIGNED NULL,
 	attrs JSON NOT NULL,
 	created_at INT UNSIGNED NOT NULL DEFAULT 0,
 	updated_at INT UNSIGNED NOT NULL DEFAULT 0,
 	PRIMARY KEY (id),
 	KEY topo_nodes_1 (type),
 	KEY topo_nodes_2 (host_ref),
-	CONSTRAINT topo_nodes_1 FOREIGN KEY (host_ref) REFERENCES hosts (hostid) ON DELETE CASCADE
+	KEY topo_nodes_3 (proxy_ref),
+	CONSTRAINT topo_nodes_1 FOREIGN KEY (host_ref) REFERENCES hosts (hostid) ON DELETE CASCADE,
+	CONSTRAINT topo_nodes_3 FOREIGN KEY (proxy_ref) REFERENCES proxy (proxyid) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS topo_edges (
