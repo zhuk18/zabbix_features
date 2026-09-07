@@ -182,6 +182,47 @@ const view = new class {
 		return '#' + String(color ?? '97AAB3').replace(/^#/, '');
 	}
 
+	// Node/device names here are typically one hyphenated word (e.g. "core-switch-48") rather than prose, so
+	// wrapping on spaces alone (as CSS text-wrap would) wouldn't help — this also breaks on '-'. Greedy
+	// last-fit: the break point is the latest hyphen/space at or before maxChars, so the first line never
+	// overflows; the second line is left as-is even if it runs a little over rather than ellipsis-truncating
+	// it — for names like "access-switch-1" losing the trailing "-1" to an ellipsis would destroy the one
+	// thing that makes the label useful, which is worse than a few pixels of visual overflow. SVG text has no
+	// native wrapping, so this returns plain line strings; the caller renders each as its own <tspan>.
+	wrapLabel(text, maxChars) {
+		text = String(text ?? '');
+		if (text.length <= maxChars) {
+			return [text];
+		}
+		let break_at = -1;
+		for (let i = Math.min(maxChars, text.length - 1); i >= 1; i--) {
+			if ('- '.includes(text[i])) {
+				break_at = i;
+				break;
+			}
+		}
+		if (break_at === -1) {
+			break_at = maxChars;
+		}
+		const cut_after_hyphen = text[break_at] === '-';
+		const first = text.slice(0, break_at + (cut_after_hyphen ? 1 : 0)).trim();
+		const second = text.slice(break_at + (cut_after_hyphen ? 1 : 0)).trim();
+		return [first, second];
+	}
+
+	// Renders `textFn(node)` as one or two vertically-centered <tspan> lines (wrapped via wrapLabel()) instead
+	// of a single line that can run past the node box's edge — every <tspan> repeats `x` explicitly, since a
+	// tspan with no x of its own continues from the end of the previous line's text, not back at the start.
+	renderWrappedLabel(selection, textFn, maxChars, x = 0) {
+		selection.each((node, index, elements) => {
+			const lines = this.wrapLabel(textFn(node), maxChars);
+			const text = d3.select(elements[index]);
+			lines.forEach((line, line_index) => {
+				text.append('tspan').attr('x', x).attr('dy', line_index === 0 ? (lines.length > 1 ? -2 : 4) : 12).text(line);
+			});
+		});
+	}
+
 	showProblems(node, problems) {
 		const list = problems.length
 			? `<section class="topology-group"><table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
@@ -294,10 +335,39 @@ const view = new class {
 		const width = bounds.width || 800;
 		const height = bounds.height || 500;
 		const padding = 70;
-		const nodes = [...this.nodes.values()];
+
+		// §7: a Device with an active represented_by is rendered as ONE split node, never as two nodes joined
+		// by a line — the merge itself *is* the visual representation of represented_by, so that edge type
+		// must never reach the line-drawing code below. Only merge when both sides are actually loaded (a
+		// promoted Host/Proxy still sitting in the tray, not yet dragged in, can't be merged with — same
+		// "both endpoints must be on the canvas" rule already used for every other link type here).
+		const merge_target_of = new Map(); // device id (string) -> Host/Proxy node object
+		this.links.forEach(link => {
+			if (link.type === 'represented_by' && this.nodes.has(link.source) && this.nodes.has(link.target)) {
+				merge_target_of.set(link.source, this.nodes.get(link.target));
+			}
+		});
+		const parent_id_of_absorbed = new Map(); // absorbed Host/Proxy id (string) -> its merge-parent Device id
+		merge_target_of.forEach((target, device_id) => parent_id_of_absorbed.set(String(target.id), device_id));
+		this.nodes.forEach((node, id) => {
+			node.merged = merge_target_of.get(id) ?? null;
+		});
+		// 1:1 on represented_by (backend-enforced) guarantees at most one target per device — a merged node
+		// is always exactly two halves, never more.
+		const nodes = [...this.nodes.values()].filter(node => !parent_id_of_absorbed.has(String(node.id)));
+		const rendered_ids = new Set(nodes.map(node => String(node.id)));
+		const resolve_display_id = id => parent_id_of_absorbed.get(id) ?? id;
 		const simulation_links = this.links
-			.filter(link => this.nodes.has(link.source) && this.nodes.has(link.target))
-			.map(link => ({...link}));
+			.filter(link => link.type !== 'represented_by')
+			.map(link => ({
+				...link,
+				// monitored_by (or any future edge) targeting/sourcing an absorbed Host/Proxy now resolves to
+				// the merged node's id (the Device's id) instead — that standalone simulation node no longer
+				// exists once merged.
+				source: resolve_display_id(link.source),
+				target: resolve_display_id(link.target)
+			}))
+			.filter(link => rendered_ids.has(link.source) && rendered_ids.has(link.target));
 		const columns = Math.max(1, Math.floor((width - 2 * padding) / 140));
 		nodes.forEach((node, index) => {
 			if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
@@ -367,39 +437,51 @@ const view = new class {
 		// §7: disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
 		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
 		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
-		const fill_for = node => {
-			if (node.type === 'host') {
-				if (node.disabled) {
+		// These operate on a "subject" — either a plain Host/Proxy node, or the target half of a merged node —
+		// the shape is identical either way, so the same functions serve both.
+		const fill_for = subject => {
+			if (subject.type === 'host') {
+				if (subject.disabled) {
 					return '#cbd2d9';
 				}
-				if (node.blind_spot) {
+				if (subject.blind_spot) {
 					return 'url(#topology-blind-spot-hatch)';
 				}
-				return node.severity !== null && node.severity !== undefined ? this.cssColor(node.color) : '#2b7dbc';
+				return subject.severity !== null && subject.severity !== undefined ? this.cssColor(subject.color) : '#2b7dbc';
 			}
-			if (node.type === 'proxy') {
-				if (node.unreachable) {
+			if (subject.type === 'proxy') {
+				if (subject.unreachable) {
 					return '#9ca3af';
 				}
-				return node.severity !== null && node.severity !== undefined ? this.cssColor(node.color) : '#6b46c1';
+				return subject.severity !== null && subject.severity !== undefined ? this.cssColor(subject.color) : '#6b46c1';
 			}
 			return '#f3f4f6';
 		};
-		const stroke_for = node => {
-			if (node.type === 'host') {
-				if (node.disabled) {
+		const stroke_for = subject => {
+			if (subject.type === 'host') {
+				if (subject.disabled) {
 					return '#98a2ad';
 				}
-				return node.blind_spot ? '#f59e0b' : '#17577f';
+				return subject.blind_spot ? '#f59e0b' : '#17577f';
 			}
-			if (node.type === 'proxy') {
-				return node.unreachable ? '#ef4444' : '#4c1d95';
+			if (subject.type === 'proxy') {
+				return subject.unreachable ? '#ef4444' : '#4c1d95';
 			}
 			return '#697386';
 		};
+		const label_fill_for = subject => {
+			if (subject.type === 'host' && subject.disabled) {
+				return '#55606b';
+			}
+			return (subject.type === 'host' || subject.type === 'proxy') ? '#ffffff' : '#1f2937';
+		};
+
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
-			.attr('class', node => `topology-node ${node.type}`).on('click', (event, node) => this.selectNode(node));
-		node_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
+			.attr('class', node => `topology-node ${node.type}${node.merged ? ' merged' : ''}`);
+
+		// Plain (unmerged) nodes: exactly the pre-existing single-box rendering.
+		const plain_selection = node_selection.filter(node => !node.merged);
+		plain_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
 			.style('fill', fill_for)
 			.style('stroke', stroke_for)
 			.style('stroke-width', node => (node.type === 'proxy' && node.unreachable) ? 3 : 2)
@@ -408,55 +490,97 @@ const view = new class {
 					return '6 4';
 				}
 				return (node.type === 'proxy' && node.unreachable) ? '4 3' : null;
-			});
-		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle').attr('dy', 4)
-			.style('fill', node => {
-				if (node.type === 'host' && node.disabled) {
-					return '#55606b';
-				}
-				return (node.type === 'host' || node.type === 'proxy') ? '#ffffff' : '#1f2937';
 			})
-			.text(node => node.name);
-		const proxy_badges = node_selection.filter(node => node.type === 'proxy');
+			.style('cursor', 'pointer')
+			.on('click', (event, node) => this.selectNode(node));
+		const plain_labels = plain_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+			.style('fill', label_fill_for).style('pointer-events', 'none');
+		this.renderWrappedLabel(plain_labels, node => node.name, 14);
+
+		// Merged nodes: one Device+Host/Proxy pairing (§2.3's represented_by is 1:1, so always exactly two
+		// halves) rendered as a single split box — the represented_by edge itself is never drawn as a line
+		// anywhere in this file; this split *is* its visual representation. Each half is independently
+		// clickable: left → /ports (the Device), right → /problems (the Host/Proxy), with no gap between the
+		// two rects so there's no dead zone at the boundary.
+		const merged_selection = node_selection.filter(node => node.merged);
+		merged_selection.append('rect').attr('class', 'topology-merged-device').attr('x', -58).attr('y', -22).attr('width', 58).attr('height', 44).attr('rx', 4)
+			.style('fill', '#f3f4f6').style('stroke', '#697386').style('stroke-width', 2).style('stroke-dasharray', '6 4')
+			.style('cursor', 'pointer')
+			.on('click', (event, node) => this.selectNode(node));
+		merged_selection.append('rect').attr('class', 'topology-merged-target').attr('x', 0).attr('y', -22).attr('width', 58).attr('height', 44).attr('rx', 4)
+			.style('fill', node => fill_for(node.merged))
+			.style('stroke', node => stroke_for(node.merged))
+			.style('stroke-width', node => (node.merged.type === 'proxy' && node.merged.unreachable) ? 3 : 2)
+			.style('stroke-dasharray', node => (node.merged.type === 'proxy' && node.merged.unreachable) ? '4 3' : null)
+			.style('cursor', 'pointer')
+			.on('click', (event, node) => this.selectNode(node.merged));
+		const merged_device_labels = merged_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+			.style('fill', '#1f2937').style('font-size', '10px').style('pointer-events', 'none');
+		this.renderWrappedLabel(merged_device_labels, node => node.name, 9, -29);
+		const merged_target_labels = merged_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+			.style('fill', node => label_fill_for(node.merged)).style('font-size', '10px').style('pointer-events', 'none');
+		this.renderWrappedLabel(merged_target_labels, node => node.merged.name, 9, 29);
+
+		// Badge/tooltip "subject" is the plain node itself, or a merged node's target half — same shape either
+		// way, so badges apply uniformly; only the maintenance badge's position changes (see below) since a
+		// merged node's top-left corner belongs to the Device half, not the Host/Proxy half, once merged.
+		const subject_of = node => node.merged ?? node;
+		const proxy_badges = node_selection.filter(node => subject_of(node).type === 'proxy');
 		proxy_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
-			.style('fill', '#ffffff').style('stroke', node => node.unreachable ? '#ef4444' : '#4c1d95').style('stroke-width', 2);
+			.style('fill', '#ffffff').style('stroke', node => subject_of(node).unreachable ? '#ef4444' : '#4c1d95').style('stroke-width', 2);
 		proxy_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => node.unreachable ? '#ef4444' : '#4c1d95')
+			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => subject_of(node).unreachable ? '#ef4444' : '#4c1d95')
 			.text('P');
-		// blind-spot ("?", amber, top-right) and maintenance ("M", slate, top-left) are deliberately opposite
-		// corners with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a
-		// maintenance window) and the two badges must read as different concerns, never the same warning twice.
-		const blind_spot_badges = node_selection.filter(node => node.type === 'host' && node.blind_spot);
+		// blind-spot ("?", amber, top-right) and maintenance ("M", slate) are deliberately different corners
+		// with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a maintenance
+		// window) and the two badges must read as different concerns, never the same warning twice.
+		const blind_spot_badges = node_selection.filter(node => subject_of(node).type === 'host' && subject_of(node).blind_spot);
 		blind_spot_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
 			.style('fill', '#f59e0b').style('stroke', '#7c2d12').style('stroke-width', 2);
 		blind_spot_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('?');
-		const maintenance_badges = node_selection.filter(node => node.type === 'host' && node.maintenance && !node.disabled);
-		maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
+		// Maintenance badge position depends on whether this node is merged: a plain Host's own box still has
+		// its top-left corner free, but a merged node's top-left belongs to the Device half, so the badge
+		// moves to the bottom-right of the Host/Proxy half instead — still clearly on that half, never
+		// overlapping the top-right blind-spot/proxy badge.
+		const plain_maintenance_badges = node_selection.filter(node => !node.merged && node.type === 'host' && node.maintenance && !node.disabled);
+		plain_maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
 			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
-		maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
+		plain_maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('M');
-		node_selection.append('title').text(node => {
-			if (node.type === 'proxy' && node.unreachable) {
+		const merged_maintenance_badges = node_selection.filter(node => node.merged && node.merged.type === 'host' && node.merged.maintenance && !node.merged.disabled);
+		merged_maintenance_badges.append('circle').attr('cx', 50).attr('cy', 18).attr('r', 10)
+			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
+		merged_maintenance_badges.append('text').attr('x', 50).attr('y', 22).attr('text-anchor', 'middle')
+			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
+			.text('M');
+
+		const describeSubject = subject => {
+			if (subject.type === 'proxy' && subject.unreachable) {
 				return <?= json_encode(_('Proxy unreachable')) ?>;
 			}
-			if (node.type === 'host' && node.disabled) {
+			if (subject.type === 'host' && subject.disabled) {
 				return <?= json_encode(_('Host is disabled — not polled, no severity to show.')) ?>;
 			}
 			const notes = [];
-			if (node.type === 'host' && node.blind_spot) {
+			if (subject.type === 'host' && subject.blind_spot) {
 				notes.push(<?= json_encode(_('Monitoring blind spot: the proxy for this host is unreachable, this does not mean the host itself is down.')) ?>);
 			}
-			if (node.type === 'host' && node.maintenance) {
+			if (subject.type === 'host' && subject.maintenance) {
 				notes.push(<?= json_encode(_('In maintenance — still monitored, notifications suppressed.')) ?>);
 			}
-			if ((node.type === 'host' || node.type === 'proxy') && node.severity_name) {
-				notes.push(`${<?= json_encode(_('Severity: ')) ?>}${node.severity_name}`);
+			if ((subject.type === 'host' || subject.type === 'proxy') && subject.severity_name) {
+				notes.push(`${<?= json_encode(_('Severity: ')) ?>}${subject.severity_name}`);
 			}
-			return notes.length ? `${node.name} — ${notes.join(' ')}` : node.name;
-		});
+			return notes.length ? `${subject.name} — ${notes.join(' ')}` : subject.name;
+		};
+		// Plain nodes keep one group-level tooltip; a merged node's two independently-clickable halves get
+		// their own tooltip each, attached directly to their own rect.
+		plain_selection.append('title').text(node => describeSubject(node));
+		this.canvas.selectAll('g.merged rect.topology-merged-device').append('title').text(node => node.name);
+		this.canvas.selectAll('g.merged rect.topology-merged-target').append('title').text(node => describeSubject(node.merged));
 		simulation.on('tick', () => {
 			nodes.forEach(node => {
 				if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
