@@ -8,14 +8,16 @@ class CTopologyPrototype {
 
 	public static function getDevices(): array {
 		$nodes = [];
-		$result = DBselect('SELECT id,type,attrs FROM topo_nodes WHERE type IN ('.zbx_dbstr('device').','.zbx_dbstr('host').')');
+		$result = DBselect('SELECT node.id,node.type,node.attrs,host.name AS host_name,host.status AS host_status'.
+			' FROM topo_nodes node LEFT JOIN hosts host ON host.hostid=node.host_ref'.
+			' WHERE node.type='.zbx_dbstr('device').' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL)');
 
 		while ($row = DBfetch($result)) {
 			$attrs = self::attrs($row);
 			$nodes[] = [
 				'id' => $row['id'], 'type' => $row['type'],
-				'name' => $row['type'] === 'device' ? $attrs['sysname'] : $attrs['name'],
-				'monitoring_state' => $attrs['status'] ?? null,
+				'name' => $row['type'] === 'device' ? $attrs['sysname'] : $row['host_name'],
+				'monitoring_state' => $row['type'] === 'host' ? $row['host_status'] : null,
 				'represented' => $row['type'] === 'device' && self::isRepresented($row['id'])
 			];
 		}
@@ -107,20 +109,18 @@ class CTopologyPrototype {
 
 	public static function pullHosts(): int {
 		$count = 0;
-		foreach (API::Host()->get(['output' => ['hostid', 'name', 'status'], 'selectInterfaces' => 'extend']) as $host) {
-			$attrs = ['zabbix_host_id' => $host['hostid'], 'name' => $host['name'], 'status' => $host['status'],
-				'interfaces' => $host['interfaces']];
+		foreach (API::Host()->get(['output' => ['hostid'], 'selectInterfaces' => 'extend']) as $host) {
 			$existing = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
-				' AND attrs LIKE '.zbx_dbstr('%"zabbix_host_id":"'.$host['hostid'].'"%')));
+				' AND host_ref='.zbx_dbstr($host['hostid'])));
 			if ($existing) {
-				DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($existing['id']));
+				DBexecute('UPDATE topo_nodes SET updated_at='.time().' WHERE id='.zbx_dbstr($existing['id']));
 				$host_nodeid = $existing['id'];
 			}
 			else {
-				DBexecute('INSERT INTO topo_nodes (type,attrs,created_at,updated_at) VALUES ('.
-					zbx_dbstr('host').','.zbx_dbstr(json_encode($attrs)).','.time().','.time().')');
+				DBexecute('INSERT INTO topo_nodes (type,host_ref,attrs,created_at,updated_at) VALUES ('.
+					zbx_dbstr('host').','.zbx_dbstr($host['hostid']).','.zbx_dbstr('{}').','.time().','.time().')');
 				$host_nodeid = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
-					' AND attrs LIKE '.zbx_dbstr('%"zabbix_host_id":"'.$host['hostid'].'"%')))['id'];
+					' AND host_ref='.zbx_dbstr($host['hostid'])))['id'];
 			}
 			self::reconcileHost($host_nodeid, $host['interfaces']);
 			$count++;

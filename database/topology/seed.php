@@ -28,23 +28,23 @@ try {
 	$ports = [];
 	for ($port = 1; $port <= 44; $port++) {
 		$connected = $port <= 40;
-		$ports[$port] = $node('interface', ['if_index' => $port, 'name' => 'GigabitEthernet1/0/'.$port, 'if_type' => 'physical', 'mac' => sprintf('00:11:22:33:%02x:%02x', intdiv($port, 256), $port % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => $connected ? 'up' : 'down', 'learned_macs' => $connected && $port > 2 ? [sprintf('02:00:00:00:00:%02x', $port)] : []]);
+		$ports[$port] = $node('interface', ['if_index' => $port, 'name' => 'GigabitEthernet1/0/'.$port, 'if_type' => 'physical', 'mac' => sprintf('00:11:22:33:%02x:%02x', intdiv($port, 256), $port % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => $connected ? 'up' : 'down', 'learned_macs' => $connected && $port > 2 ? [sprintf('02:00:00:00:00:%02x', $port)] : [], 'zabbix_itemids' => []]);
 		$edge('part_of', $ports[$port], $switch);
 	}
 	for ($port = 1; $port <= 2; $port++) {
 		$neighbor = $node('device', ['mac' => sprintf('00:aa:bb:cc:dd:%02x', $port), 'chassis_id' => 'neighbor-'.$port, 'mgmt_ip' => '192.0.2.'.(20 + $port), 'sysname' => 'edge-switch-'.$port, 'vendor' => 'Example Networks', 'last_seen' => $now]);
-		$interface = $node('interface', ['if_index' => 1, 'name' => 'Ethernet1', 'if_type' => 'physical', 'mac' => sprintf('00:aa:bb:cc:dd:%02x', $port), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
+		$interface = $node('interface', ['if_index' => 1, 'name' => 'Ethernet1', 'if_type' => 'physical', 'mac' => sprintf('00:aa:bb:cc:dd:%02x', $port), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
 		$edge('part_of', $interface, $neighbor);
 		$edge('physical_link', $ports[$port], $interface, ['discovered_via' => 'lldp', 'last_seen' => $now]);
 	}
 	foreach ([[1, 37, 38], [2, 39, 40]] as [$lag_index, $first, $second]) {
-		$lag = $node('interface', ['if_index' => 100 + $lag_index, 'name' => 'Port-channel'.$lag_index, 'if_type' => 'lag', 'mac' => sprintf('00:11:22:33:fe:%02x', $lag_index), 'speed' => 2000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
+		$lag = $node('interface', ['if_index' => 100 + $lag_index, 'name' => 'Port-channel'.$lag_index, 'if_type' => 'lag', 'mac' => sprintf('00:11:22:33:fe:%02x', $lag_index), 'speed' => 2000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
 		$edge('part_of', $lag, $switch);
 		$edge('member_of_lag', $ports[$first], $lag);
 		$edge('member_of_lag', $ports[$second], $lag);
 	}
 	for ($index = 1; $index <= 2; $index++) {
-		$management = $node('interface', ['if_index' => 200 + $index, 'name' => 'Management'.$index, 'if_type' => 'mgmt', 'mac' => sprintf('00:11:22:33:fd:%02x', $index), 'speed' => 100000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
+		$management = $node('interface', ['if_index' => 200 + $index, 'name' => 'Management'.$index, 'if_type' => 'mgmt', 'mac' => sprintf('00:11:22:33:fd:%02x', $index), 'speed' => 100000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
 		$edge('part_of', $management, $switch);
 	}
 	$pdo->commit();
