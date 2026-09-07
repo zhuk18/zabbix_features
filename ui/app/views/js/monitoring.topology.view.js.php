@@ -29,10 +29,14 @@ const view = new class {
 	}
 
 	async loadDevices() {
-		const {devices = []} = await this.request('topology.devices.get');
+		const {devices = [], relations = []} = await this.request('topology.devices.get');
 		this.nodes = new Map(devices.map(node => [String(node.id), node]));
-		this.links = [];
+		this.links = relations.map(relation => ({source: String(relation.source), target: String(relation.target), type: relation.type}));
 		this.render();
+		const first_device = devices.find(node => node.type === 'device');
+		if (first_device) {
+			await this.selectNode(first_device);
+		}
 	}
 
 	async selectNode(node) {
@@ -47,7 +51,7 @@ const view = new class {
 		neighbors.forEach(neighbor => {
 			this.nodes.set(String(neighbor.id), neighbor);
 			if (!this.links.some(link => link.source === String(node.id) && link.target === String(neighbor.id))) {
-				this.links.push({source: String(node.id), target: String(neighbor.id)});
+				this.links.push({source: String(node.id), target: String(neighbor.id), type: 'physical_link'});
 			}
 		});
 		this.render();
@@ -78,15 +82,33 @@ const view = new class {
 
 	render() {
 		const element = this.canvas.node();
-		const width = element.clientWidth || 800;
-		const height = element.clientHeight || 500;
+		const bounds = element.getBoundingClientRect();
+		const width = bounds.width || 800;
+		const height = bounds.height || 500;
+		const padding = 70;
 		const nodes = [...this.nodes.values()];
+		const simulation_links = this.links.map(link => ({...link}));
+		const columns = Math.max(1, Math.floor((width - 2 * padding) / 140));
+		nodes.forEach((node, index) => {
+			if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+				node.x = padding + (index % columns) * ((width - 2 * padding) / Math.max(1, columns - 1));
+				node.y = padding + Math.floor(index / columns) * 80;
+				node.vx = 0;
+				node.vy = 0;
+			}
+		});
+		this.simulation?.stop();
 		this.canvas.attr('viewBox', `0 0 ${width} ${height}`).selectAll('*').remove();
 		const simulation = d3.forceSimulation(nodes)
-			.force('link', d3.forceLink(this.links).id(node => String(node.id)).distance(160))
+			.force('link', d3.forceLink(simulation_links).id(node => String(node.id)).distance(160))
 			.force('charge', d3.forceManyBody().strength(-600))
 			.force('center', d3.forceCenter(width / 2, height / 2));
-		const links = this.canvas.append('g').selectAll('line').data(this.links).join('line').attr('class', 'topology-link');
+		this.simulation = simulation;
+		const links = this.canvas.append('g').selectAll('line').data(simulation_links).join('line')
+			.attr('class', 'topology-link')
+			.attr('stroke', link => link.type === 'represented_by' ? '#2b7dbc' : '#64748b')
+			.attr('stroke-width', 2)
+			.attr('stroke-dasharray', link => link.type === 'represented_by' ? '5 3' : null);
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
 			.attr('class', node => `topology-node ${node.type}`).on('click', (event, node) => this.selectNode(node));
 		node_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
@@ -97,6 +119,16 @@ const view = new class {
 			.style('fill', node => node.type === 'host' ? '#ffffff' : '#1f2937')
 			.text(node => node.name);
 		simulation.on('tick', () => {
+			nodes.forEach(node => {
+				if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+					node.x = width / 2;
+					node.y = height / 2;
+					node.vx = 0;
+					node.vy = 0;
+				}
+				node.x = Math.max(padding, Math.min(width - padding, node.x));
+				node.y = Math.max(padding, Math.min(height - padding, node.y));
+			});
 			links.attr('x1', link => link.source.x).attr('y1', link => link.source.y)
 				.attr('x2', link => link.target.x).attr('y2', link => link.target.y);
 			node_selection.attr('transform', node => `translate(${node.x},${node.y})`);

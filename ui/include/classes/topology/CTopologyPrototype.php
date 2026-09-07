@@ -23,6 +23,17 @@ class CTopologyPrototype {
 		return $nodes;
 	}
 
+	public static function getRelations(): array {
+		$relations = [];
+		$result = DBselect('SELECT src_id,dst_id,type FROM topo_edges WHERE type='.zbx_dbstr('represented_by'));
+
+		while ($row = DBfetch($result)) {
+			$relations[] = ['source' => $row['src_id'], 'target' => $row['dst_id'], 'type' => $row['type']];
+		}
+
+		return $relations;
+	}
+
 	public static function getNeighbors(string $deviceid): array {
 		$neighbors = [];
 		$result = DBselect(

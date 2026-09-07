@@ -13,8 +13,8 @@ $now = time();
 $pdo->beginTransaction();
 
 try {
-	$pdo->exec('DELETE FROM topo_edges');
-	$pdo->exec('DELETE FROM topo_nodes');
+	$pdo->exec("DELETE edge FROM topo_edges edge JOIN topo_nodes source ON source.id=edge.src_id JOIN topo_nodes target ON target.id=edge.dst_id WHERE source.type <> 'host' OR target.type <> 'host'");
+	$pdo->exec("DELETE FROM topo_nodes WHERE type IN ('device', 'interface')");
 	$insert_node = $pdo->prepare('INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES (?, ?, ?, ?)');
 	$insert_edge = $pdo->prepare('INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES (?, ?, ?, ?, ?)');
 	$node = static function(string $type, array $attrs) use ($insert_node, $pdo, $now): int {
