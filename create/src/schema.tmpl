@@ -2342,9 +2342,14 @@ FIELD		|attrs		|t_json		|	|NOT NULL	|0
 FIELD		|created_at	|t_time		|'0'	|NOT NULL	|0
 FIELD		|updated_at	|t_time		|'0'	|NOT NULL	|0
 INDEX		|1		|type
-INDEX		|2		|host_ref
-INDEX		|3		|proxy_ref
+UNIQUE		|2		|host_ref
+UNIQUE		|3		|proxy_ref
 
+-- topo_edges also needs, per §2.1/§5 of the topology prototype spec, at most one 'represented_by' edge per
+-- src (Device) and per dst (Host/Proxy), and at most one 'physical_link' edge per canonicalized port pair.
+-- This schema DSL has no generated-column/partial-index primitive, so those constraints aren't expressible
+-- here — they're applied only via database/topology/mysql_migrate_uniqueness.sql (MySQL: generated columns
+-- + UNIQUE; PostgreSQL: a real partial unique index, see that file's header comment).
 TABLE|topo_edges|id|0
 FIELD		|id		|t_id		|	|NOT NULL	|0
 FIELD		|type		|t_varchar(32)	|''	|NOT NULL	|0

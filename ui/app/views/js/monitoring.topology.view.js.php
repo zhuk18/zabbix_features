@@ -10,6 +10,18 @@ const view = new class {
 		return payload;
 	}
 
+	// Every mutating action (promote, link, ...) can now be legitimately rejected by the backend (e.g. the
+	// §2.1 1:1 represented_by constraint) — without this, request()'s thrown Error was an unhandled promise
+	// rejection: the click did nothing visible and the failure only showed up in the browser console.
+	async guard(action) {
+		try {
+			await action();
+		}
+		catch (error) {
+			alert(error.message);
+		}
+	}
+
 	escape(value) {
 		return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
 	}
@@ -21,12 +33,13 @@ const view = new class {
 		this.nodes = new Map();
 		this.links = [];
 		this.unassigned = {host: new Map(), proxy: new Map()};
-		document.getElementById('topology-host-pull').addEventListener('click', async () => {
+		this.link_pick = null;
+		document.getElementById('topology-host-pull').addEventListener('click', () => this.guard(async () => {
 			await this.request('topology.hosts.pull', {
 				method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
 			});
 			await this.loadDevices();
-		});
+		}));
 		const canvas_element = this.canvas.node();
 		canvas_element.addEventListener('dragover', event => {
 			if (event.dataTransfer.types.includes('text/topology-node-id')) {
@@ -114,32 +127,109 @@ const view = new class {
 	}
 
 	async selectNode(node) {
+		// Proxy nodes reuse the Host problems panel only once they're actually represented_by a Device — a
+		// proxy just dragged in from the tray (not yet promoted) has nothing to show here, per spec §7.
+		if (node.type === 'host' || (node.type === 'proxy' && node.represented)) {
+			const {problems} = await this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`);
+			this.showProblems(node, problems);
+			return;
+		}
 		if (node.type !== 'device') {
 			return;
 		}
 
 		const [{neighbors}, {groups}] = await Promise.all([
 			this.request(`topology.neighbors.get&id=${encodeURIComponent(node.id)}`),
-			this.request(`topology.interfaces.get&id=${encodeURIComponent(node.id)}`)
+			this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`)
 		]);
 		neighbors.forEach(neighbor => {
 			this.nodes.set(String(neighbor.id), neighbor);
-			if (!this.links.some(link => link.source === String(node.id) && link.target === String(neighbor.id))) {
-				this.links.push({source: String(node.id), target: String(neighbor.id), type: 'physical_link'});
+			// severity is a link-level fact (derived from both endpoint ports' triggers), not a node fact —
+			// carry it onto the physical_link edge object itself, refreshing it even if the link already
+			// exists from a previous selection, since the underlying trigger state can have changed since.
+			let link = this.links.find(candidate =>
+				candidate.type === 'physical_link' && candidate.source === String(node.id) && candidate.target === String(neighbor.id));
+			if (!link) {
+				link = {source: String(node.id), target: String(neighbor.id), type: 'physical_link'};
+				this.links.push(link);
 			}
+			link.severity = neighbor.severity;
+			link.severity_name = neighbor.severity_name;
+			link.color = neighbor.color;
+			link.discovered_via = neighbor.discovered_via;
 		});
 		this.render();
-		this.showInterfaces(node, groups);
+		this.showPorts(node, groups);
 	}
 
-	showInterfaces(node, groups) {
+	formatAge(seconds) {
+		const days = Math.floor(seconds / 86400);
+		const hours = Math.floor((seconds % 86400) / 3600);
+		const minutes = Math.floor((seconds % 3600) / 60);
+		if (days > 0) {
+			return `${days}d ${hours}h`;
+		}
+		if (hours > 0) {
+			return `${hours}h ${minutes}m`;
+		}
+		return `${minutes}m`;
+	}
+
+	// Zabbix stores severity colors as bare hex, e.g. "E97659" — no leading '#' (see admin ›
+	// General › Trigger displaying options). CSS needs the '#'; strip any that's already there
+	// first so this stays correct whether or not that storage convention ever changes.
+	cssColor(color) {
+		return '#' + String(color ?? '97AAB3').replace(/^#/, '');
+	}
+
+	showProblems(node, problems) {
+		const list = problems.length
+			? `<section class="topology-group"><table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
+				${problems.map(problem => `<tr>
+					<td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}">${this.escape(problem.severity_name)}</span></td>
+					<td>${this.escape(problem.name)}</td>
+					<td>${this.escape(this.formatAge(problem.age))}</td>
+				</tr>`).join('')}
+				</tbody></table></section>`
+			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`;
+		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${list}`;
+	}
+
+	renderLinkPick() {
+		const container = document.getElementById('topology-link-pick');
+		if (!this.link_pick) {
+			container.innerHTML = '';
+			return;
+		}
+		container.innerHTML = `${this.escape(<?= json_encode(_('Linking from: ')) ?>)}${this.escape(this.link_pick.label)}` +
+			`<a class="topology-link-cancel">${this.escape(<?= json_encode(_('Cancel')) ?>)}</a>`;
+		container.querySelector('.topology-link-cancel').addEventListener('click', () => {
+			this.link_pick = null;
+			this.renderLinkPick();
+		});
+	}
+
+	showPorts(node, groups) {
 		const labels = {
 			connected_lldp: 'Connected via LLDP', connected_mac_only: 'Connected MAC-only',
 			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
 		};
+		const port_action = port => port.linked_port_id
+			? `<button type="button" class="btn-alt topology-unlink-button" data-port-id="${this.escape(port.id)}" data-linked-port-id="${this.escape(port.linked_port_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
+			: `<button type="button" class="btn-alt topology-link-button" data-port-id="${this.escape(port.id)}" data-port-name="${this.escape(port.port)}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`;
+		const source_classes = {LLDP: 'topology-source-lldp', Manual: 'topology-source-manual'};
 		const sections = Object.entries(groups).filter(([, ports]) => ports.length).map(([group, ports]) => `
-			<section class="topology-group"><h3>${labels[group]}</h3><table><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th>Source</th></tr></thead><tbody>
-			${ports.map(port => `<tr><td>${this.escape(port.port)}</td><td>${this.escape(port.status)}</td><td>${this.escape(port.connected_to ?? '-')}</td><td class="topology-source">${this.escape(port.source)}</td></tr>`).join('')}
+			<section class="topology-group"><h3>${labels[group]}</h3><table><colgroup>
+				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected">
+				<col class="topology-col-source"><col class="topology-col-action">
+			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th>Source</th><th></th></tr></thead><tbody>
+			${ports.map(port => `<tr>
+				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}</td>
+				<td><span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}</td>
+				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}</td>
+				<td>${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
+				<td>${port_action(port)}</td>
+			</tr>`).join('')}
 			</tbody></table></section>`).join('');
 		const candidates = [
 			...[...this.nodes.values()].filter(candidate => (candidate.type === 'host' || candidate.type === 'proxy') && !candidate.linked),
@@ -153,19 +243,49 @@ const view = new class {
 		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${sections}${promotion}`;
 		const button = this.details.querySelector('.topology-promote-button');
 		if (button) {
-			button.addEventListener('click', async () => {
+			button.addEventListener('click', () => this.guard(async () => {
 				const host_id = this.details.querySelector('.topology-host-select').value;
 				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: node.id, host_id})});
 				await this.loadDevices();
-			});
+			}));
 		}
 		const depromote_button = this.details.querySelector('.topology-depromote-button');
 		if (depromote_button) {
-			depromote_button.addEventListener('click', async () => {
+			depromote_button.addEventListener('click', () => this.guard(async () => {
 				await this.request('topology.depromote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: node.id})});
 				await this.loadDevices();
-			});
+			}));
 		}
+		this.details.querySelectorAll('.topology-link-button').forEach(link_button => {
+			link_button.addEventListener('click', () => this.guard(async () => {
+				const port_id = link_button.dataset.portId;
+				// A click either starts a pick (nothing picked yet, or re-picking the same port) or completes
+				// one (a different port was already picked, possibly on another device's panel entirely —
+				// the pick lives on `this`, not in this render, so it survives navigating to a different node).
+				if (this.link_pick && this.link_pick.id !== port_id) {
+					await this.request('topology.ports.link', {
+						method: 'POST', headers: {'Content-Type': 'application/json'},
+						body: JSON.stringify({id: this.link_pick.id, dst_id: port_id})
+					});
+					this.link_pick = null;
+					this.renderLinkPick();
+					await this.selectNode(node);
+				}
+				else {
+					this.link_pick = {id: port_id, label: `${node.name} / ${link_button.dataset.portName}`};
+					this.renderLinkPick();
+				}
+			}));
+		});
+		this.details.querySelectorAll('.topology-unlink-button').forEach(unlink_button => {
+			unlink_button.addEventListener('click', () => this.guard(async () => {
+				await this.request('topology.ports.unlink', {
+					method: 'POST', headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({id: unlink_button.dataset.portId, dst_id: unlink_button.dataset.linkedPortId})
+				});
+				await this.selectNode(node);
+			}));
+		});
 	}
 
 	render() {
@@ -202,22 +322,74 @@ const view = new class {
 			.force('charge', d3.forceManyBody().strength(-600))
 			.force('center', d3.forceCenter(width / 2, height / 2));
 		this.simulation = simulation;
+		// Two independent visual channels on physical_link, deliberately kept apart so they can't collide:
+		// dash pattern = provenance (dashed = "manual", not yet discovery-confirmed — same dashed/solid
+		// language already used for represented_by/monitored_by and for an unassociated Device's outline),
+		// color + stroke-width = severity (an active trigger on either endpoint port), which is orthogonal —
+		// a manually-declared link can carry an active-trigger color just as easily as an LLDP one.
 		const links = this.canvas.append('g').selectAll('line').data(simulation_links).join('line')
 			.attr('class', 'topology-link')
-			.attr('stroke', link => link.type === 'represented_by' ? '#2b7dbc' : (link.type === 'monitored_by' ? '#6b46c1' : '#64748b'))
-			.attr('stroke-width', 2)
-			.attr('stroke-dasharray', link => (link.type === 'represented_by' || link.type === 'monitored_by') ? '5 3' : null);
+			.attr('stroke', link => {
+				if (link.type === 'represented_by') {
+					return '#2b7dbc';
+				}
+				if (link.type === 'monitored_by') {
+					return '#6b46c1';
+				}
+				return (link.type === 'physical_link' && link.color) ? this.cssColor(link.color) : '#64748b';
+			})
+			.attr('stroke-width', link => (link.type === 'physical_link' && link.severity !== null && link.severity !== undefined) ? 4 : 2)
+			.attr('stroke-dasharray', link => {
+				// represented_by and monitored_by both connect monitoring-related nodes and are easy to
+				// mis-read as the same kind of relationship — a distinct dash pattern per type (not just
+				// color) keeps them apart even for a colorblind viewer, without touching the dashed/solid
+				// channel that already means "physical_link provenance" / "Device association status".
+				if (link.type === 'represented_by') {
+					return '6 3';
+				}
+				if (link.type === 'monitored_by') {
+					return '2 2';
+				}
+				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
+			});
+		links.append('title').text(link => {
+			if (link.type === 'physical_link') {
+				const provenance = link.discovered_via === 'manual'
+					? <?= json_encode(_('manually declared')) ?>
+					: <?= json_encode(_('LLDP-discovered')) ?>;
+				const severity = link.severity_name
+					? <?= json_encode(_('Active problem: ')) ?> + link.severity_name
+					: <?= json_encode(_('No active trigger on this link.')) ?>;
+				return `${provenance}. ${severity}`;
+			}
+			return '';
+		});
+		// §7: disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
+		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
+		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
 		const fill_for = node => {
 			if (node.type === 'host') {
-				return node.blind_spot ? 'url(#topology-blind-spot-hatch)' : '#2b7dbc';
+				if (node.disabled) {
+					return '#cbd2d9';
+				}
+				if (node.blind_spot) {
+					return 'url(#topology-blind-spot-hatch)';
+				}
+				return node.severity !== null && node.severity !== undefined ? this.cssColor(node.color) : '#2b7dbc';
 			}
 			if (node.type === 'proxy') {
-				return node.unreachable ? '#9ca3af' : '#6b46c1';
+				if (node.unreachable) {
+					return '#9ca3af';
+				}
+				return node.severity !== null && node.severity !== undefined ? this.cssColor(node.color) : '#6b46c1';
 			}
 			return '#f3f4f6';
 		};
 		const stroke_for = node => {
 			if (node.type === 'host') {
+				if (node.disabled) {
+					return '#98a2ad';
+				}
 				return node.blind_spot ? '#f59e0b' : '#17577f';
 			}
 			if (node.type === 'proxy') {
@@ -238,7 +410,12 @@ const view = new class {
 				return (node.type === 'proxy' && node.unreachable) ? '4 3' : null;
 			});
 		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle').attr('dy', 4)
-			.style('fill', node => (node.type === 'host' || node.type === 'proxy') ? '#ffffff' : '#1f2937')
+			.style('fill', node => {
+				if (node.type === 'host' && node.disabled) {
+					return '#55606b';
+				}
+				return (node.type === 'host' || node.type === 'proxy') ? '#ffffff' : '#1f2937';
+			})
 			.text(node => node.name);
 		const proxy_badges = node_selection.filter(node => node.type === 'proxy');
 		proxy_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
@@ -246,20 +423,39 @@ const view = new class {
 		proxy_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => node.unreachable ? '#ef4444' : '#4c1d95')
 			.text('P');
+		// blind-spot ("?", amber, top-right) and maintenance ("M", slate, top-left) are deliberately opposite
+		// corners with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a
+		// maintenance window) and the two badges must read as different concerns, never the same warning twice.
 		const blind_spot_badges = node_selection.filter(node => node.type === 'host' && node.blind_spot);
 		blind_spot_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
 			.style('fill', '#f59e0b').style('stroke', '#7c2d12').style('stroke-width', 2);
 		blind_spot_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('?');
+		const maintenance_badges = node_selection.filter(node => node.type === 'host' && node.maintenance && !node.disabled);
+		maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
+			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
+		maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
+			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
+			.text('M');
 		node_selection.append('title').text(node => {
 			if (node.type === 'proxy' && node.unreachable) {
 				return <?= json_encode(_('Proxy unreachable')) ?>;
 			}
-			if (node.type === 'host' && node.blind_spot) {
-				return <?= json_encode(_('Monitoring blind spot: the proxy for this host is unreachable, this does not mean the host itself is down.')) ?>;
+			if (node.type === 'host' && node.disabled) {
+				return <?= json_encode(_('Host is disabled — not polled, no severity to show.')) ?>;
 			}
-			return node.name;
+			const notes = [];
+			if (node.type === 'host' && node.blind_spot) {
+				notes.push(<?= json_encode(_('Monitoring blind spot: the proxy for this host is unreachable, this does not mean the host itself is down.')) ?>);
+			}
+			if (node.type === 'host' && node.maintenance) {
+				notes.push(<?= json_encode(_('In maintenance — still monitored, notifications suppressed.')) ?>);
+			}
+			if ((node.type === 'host' || node.type === 'proxy') && node.severity_name) {
+				notes.push(`${<?= json_encode(_('Severity: ')) ?>}${node.severity_name}`);
+			}
+			return notes.length ? `${node.name} — ${notes.join(' ')}` : node.name;
 		});
 		simulation.on('tick', () => {
 			nodes.forEach(node => {

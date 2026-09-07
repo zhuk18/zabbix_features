@@ -60,10 +60,14 @@ if [[ -n $password ]]; then
 	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_schema.sql"
 	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_host_ref.sql"
 	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_proxy_ref.sql"
+	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_rename_interface_to_port.sql"
+	MYSQL_PWD=$password mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_uniqueness.sql"
 else
 	mysql "${mysql_args[@]}" < "$script_dir/mysql_schema.sql"
 	mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_host_ref.sql"
 	mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_proxy_ref.sql"
+	mysql "${mysql_args[@]}" < "$script_dir/mysql_rename_interface_to_port.sql"
+	mysql "${mysql_args[@]}" < "$script_dir/mysql_migrate_uniqueness.sql"
 fi
 
 echo "Topology tables are installed in MySQL database '$database'."
