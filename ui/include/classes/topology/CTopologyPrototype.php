@@ -68,13 +68,20 @@ class CTopologyPrototype {
 
 	public static function getUnassignedHosts(): array {
 		$nodes = [];
-		$result = DBselect('SELECT node.id,host.name AS host_name,host.status AS host_status'.
+		$result = DBselect('SELECT node.id,node.host_ref,host.name AS host_name,host.status AS host_status'.
 			' FROM topo_nodes node JOIN hosts host ON host.hostid=node.host_ref'.
 			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
 			' WHERE node.type='.zbx_dbstr('host').' AND rep.id IS NULL ORDER BY host.name');
 
 		while ($row = DBfetch($result)) {
-			$nodes[] = ['id' => $row['id'], 'type' => 'host', 'name' => $row['host_name'], 'monitoring_state' => $row['host_status']];
+			$nodes[] = [
+				'id' => $row['id'], 'type' => 'host', 'name' => $row['host_name'],
+				// Raw Zabbix hostid alongside the topo_nodes pointer id — lets a caller that just created a host
+				// via the API (and knows its hostid, not this pointer id) find its match after a pull without
+				// relying on the name staying exactly as it was when the host was first created.
+				'hostid' => $row['host_ref'],
+				'monitoring_state' => $row['host_status']
+			];
 		}
 
 		return $nodes;

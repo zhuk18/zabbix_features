@@ -280,7 +280,7 @@ const view = new class {
 		const type_labels = {host: 'Host', proxy: 'Proxy'};
 		const promotion = node.represented
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">Depromote</button></div>`
-			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.id)}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button></div>`;
+			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.id)}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button><button type="button" class="btn-alt topology-create-host-button">+ Create host</button></div>`;
 		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${sections}${promotion}`;
 		const button = this.details.querySelector('.topology-promote-button');
 		if (button) {
@@ -288,6 +288,12 @@ const view = new class {
 				const host_id = this.details.querySelector('.topology-host-select').value;
 				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: node.id, host_id})});
 				await this.loadDevices();
+			}));
+		}
+		const create_host_button = this.details.querySelector('.topology-create-host-button');
+		if (create_host_button) {
+			create_host_button.addEventListener('click', () => this.guard(async () => {
+				await this.createHostForDevice(node);
 			}));
 		}
 		const depromote_button = this.details.querySelector('.topology-depromote-button');
@@ -327,6 +333,38 @@ const view = new class {
 				await this.selectNode(node);
 			}));
 		});
+	}
+
+	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
+	// device's LLDP name, then tries to promote the result automatically. The create response carries no hostid
+	// (see CControllerHostCreate), so the only way back to it is a pull + a name lookup — which only works if
+	// the name wasn't changed in the popup. If it doesn't match, we don't guess: the new host still lands in the
+	// unassigned tray/select for a manual Promote, same as pulling it in via the existing "Pull hosts" button.
+	async createHostForDevice(node) {
+		const overlay = ZABBIX.PopupManager.open('host.edit', {host: node.name});
+		if (!overlay) {
+			return;
+		}
+
+		await new Promise(resolve => {
+			overlay.$dialogue[0].addEventListener('dialogue.submit', resolve, {once: true});
+		});
+
+		await this.request('topology.hosts.pull', {
+			method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+		});
+
+		const {unassigned_hosts = []} = await this.request('topology.devices.get');
+		const match = unassigned_hosts.find(host => host.name === node.name);
+
+		if (match) {
+			await this.request('topology.promote', {
+				method: 'POST', headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({id: node.id, host_id: match.id})
+			});
+		}
+
+		await this.loadDevices();
 	}
 
 	render() {
