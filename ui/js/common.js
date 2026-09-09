@@ -117,7 +117,9 @@ Object.defineProperty(Array.prototype, 'xor', {
 
 		return merged.filter(e => merged.indexOf(e) === merged.lastIndexOf(e));
 	},
-	enumerable: false
+	enumerable: false,
+	writable: true,
+	configurable: true
 });
 
 function addListener(element, eventname, expression, bubbling) {

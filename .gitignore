@@ -409,3 +409,9 @@ ui/tests/bootstrap.php
 ui/tests/composer.*
 ui/tests/vendor
 ui/tests/.phpunit.result.cache
+router1.log
+switch1.log
+switch2.log
+.gitignore
+ups1.log
+ui/include/defines.inc.php
