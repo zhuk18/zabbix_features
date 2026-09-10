@@ -346,6 +346,12 @@ class CTopologyPrototype {
 			' WHERE local_part.type='.zbx_dbstr('part_of').' AND local_part.dst_id='.zbx_dbstr($deviceid)
 		);
 
+		// $port_ids/$discovered_via buffered per neighbor during the fetch loop, same as before —
+		// what changed is that 'represented' and severity are no longer resolved inline per row/
+		// per neighbor. Both used to mean one extra DB (or API::Trigger) round trip PER NEIGHBOR;
+		// clicking a highly-connected device (dozens of neighbors) fired dozens of those
+		// synchronously, which is where the per-click delay came from. Batched below instead:
+		// two small queries total, regardless of how many neighbors there are.
 		$neighbors = [];
 		$port_ids = [];
 		$discovered_via = [];
@@ -353,7 +359,7 @@ class CTopologyPrototype {
 			if (!array_key_exists($row['id'], $neighbors)) {
 				$attrs = self::attrs($row);
 				$neighbors[$row['id']] = ['id' => $row['id'], 'type' => 'device', 'name' => $attrs['sysname'],
-					'monitoring_state' => null, 'represented' => self::isRepresented($row['id'])];
+					'monitoring_state' => null];
 				$port_ids[$row['id']] = [];
 				$discovered_via[$row['id']] = 'manual';
 			}
@@ -369,8 +375,12 @@ class CTopologyPrototype {
 			}
 		}
 
+		$represented_ids = self::getRepresentedIds(array_keys($neighbors));
+		$severity_by_neighbor = self::getMaxActiveSeverityForPortsBatch($port_ids);
+
 		foreach ($neighbors as $id => &$neighbor) {
-			$neighbor += self::describeSeverity(self::getMaxActiveSeverityForPorts($port_ids[$id]));
+			$neighbor['represented'] = isset($represented_ids[$id]);
+			$neighbor += self::describeSeverity($severity_by_neighbor[$id] ?? null);
 			$neighbor['discovered_via'] = $discovered_via[$id];
 		}
 		unset($neighbor);
@@ -456,7 +466,21 @@ class CTopologyPrototype {
 		// DBfetch(..., false) — see GOTCHAS.md #1: with the default $convertNulls=true, a disconnected/mgmt
 		// port's unmatched linkid came back as '0' instead of null, so `linkid !== null` was always true and
 		// every port (management ports included) was misreported as LLDP-connected.
+		// Buffered into $rows first (rather than resolving 'connected_to' inline per row) so the
+		// linked-device-name lookup below can run as ONE batched query for every connected port
+		// instead of one getLinkedDeviceName() call per port — the difference between one extra
+		// DB round trip and dozens, on a device with many connected ports.
+		$rows = [];
+		$connected_port_ids = [];
 		while ($row = DBfetch($result, false)) {
+			$rows[] = $row;
+			if ($row['linkid'] !== null) {
+				$connected_port_ids[] = $row['id'];
+			}
+		}
+		$linked_names = self::getLinkedDeviceNames($connected_port_ids);
+
+		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
 			$discovered_via = $row['linkid'] !== null
 				? (json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR)['discovered_via'] ?? 'lldp')
@@ -480,7 +504,7 @@ class CTopologyPrototype {
 
 			$groups[$group][] = [
 				'id' => $row['id'], 'port' => $attrs['name'], 'status' => $attrs['oper_status'],
-				'connected_to' => $row['linkid'] !== null ? self::getLinkedDeviceName($row['id']) : null,
+				'connected_to' => $linked_names[$row['id']] ?? null,
 				'linked_port_id' => $row['linkid'] !== null ? $row['linked_port_id'] : null,
 				'source' => $discovered_via === 'manual' ? 'Manual' : ($row['linkid'] !== null ? 'LLDP'
 					: ($group === 'connected_mac_only' ? 'MAC only' : '-'))
@@ -693,6 +717,99 @@ class CTopologyPrototype {
 		return self::getMaxActiveSeverityForItemIds(array_values(array_unique($itemids)));
 	}
 
+	/**
+	 * Same result as calling getMaxActiveSeverityForPorts() once per entry in $port_ids_by_key,
+	 * in two queries total (port attrs, then active triggers) instead of two PER ENTRY —
+	 * getNeighbors() previously called the single-item version once per neighbor found, so a
+	 * highly-connected device (dozens of neighbors) fired dozens of API::Trigger()->get() calls
+	 * synchronously in a loop on every click. Same "highest wins" semantics, just batched.
+	 *
+	 * @param array $port_ids_by_key  arbitrary key => array of topo_nodes 'port' ids (nulls OK,
+	 *                                same as the single-item version — filtered out below)
+	 *
+	 * @return array same keys => max active severity (int) or null
+	 */
+	private static function getMaxActiveSeverityForPortsBatch(array $port_ids_by_key): array {
+		$all_port_ids = [];
+		foreach ($port_ids_by_key as $port_ids) {
+			foreach ($port_ids as $port_id) {
+				if ($port_id !== null) {
+					$all_port_ids[] = $port_id;
+				}
+			}
+		}
+		$all_port_ids = array_values(array_unique($all_port_ids));
+
+		$result_by_key = array_fill_keys(array_keys($port_ids_by_key), null);
+		if (!$all_port_ids) {
+			return $result_by_key;
+		}
+
+		$itemids_by_port = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $all_port_ids).
+			' AND type='.zbx_dbstr('port'));
+		while ($row = DBfetch($result)) {
+			$itemids_by_port[$row['id']] = self::attrs($row)['zabbix_itemids'] ?? [];
+		}
+
+		$all_itemids = [];
+		foreach ($itemids_by_port as $itemids) {
+			foreach ($itemids as $itemid) {
+				$all_itemids[] = $itemid;
+			}
+		}
+		$priority_by_itemid = self::getMaxPriorityByItemId(array_values(array_unique($all_itemids)));
+		if (!$priority_by_itemid) {
+			return $result_by_key;
+		}
+
+		foreach ($port_ids_by_key as $key => $port_ids) {
+			$max_severity = null;
+			foreach ($port_ids as $port_id) {
+				foreach ($itemids_by_port[$port_id] ?? [] as $itemid) {
+					if (isset($priority_by_itemid[$itemid])
+							&& ($max_severity === null || $priority_by_itemid[$itemid] > $max_severity)) {
+						$max_severity = $priority_by_itemid[$itemid];
+					}
+				}
+			}
+			$result_by_key[$key] = $max_severity;
+		}
+
+		return $result_by_key;
+	}
+
+	/**
+	 * itemid => priority of the highest-priority ACTIVE (value=TRIGGER_VALUE_TRUE) trigger on
+	 * that item, for every itemid given, in one API call — the batched counterpart to
+	 * getMaxActiveSeverityForItemIds() (which answers "what's the single worst severity across
+	 * these items", collapsed to one number; this keeps the per-item breakdown so a caller can
+	 * regroup it per neighbor/port/whatever afterwards without a query per group).
+	 */
+	private static function getMaxPriorityByItemId(array $itemids): array {
+		if (!$itemids) {
+			return [];
+		}
+
+		$priority_by_itemid = [];
+		foreach (API::Trigger()->get([
+			'output' => ['priority'],
+			'selectItems' => ['itemid'],
+			'itemids' => $itemids,
+			'filter' => ['value' => TRIGGER_VALUE_TRUE]
+		]) as $trigger) {
+			$priority = (int) $trigger['priority'];
+			foreach ($trigger['items'] as $item) {
+				$itemid = $item['itemid'];
+				if (!isset($priority_by_itemid[$itemid]) || $priority > $priority_by_itemid[$itemid]) {
+					$priority_by_itemid[$itemid] = $priority;
+				}
+			}
+		}
+
+		return $priority_by_itemid;
+	}
+
 	// §7: Proxy shares Host's severity-colored fill, but Zabbix has no proxyid linkage on problem/trigger/item
 	// to resolve it from — see getProxyHealthTriggerIds() for how this is actually found.
 	private static function getMaxActiveSeverityForProxy(string $proxy_name): ?int {
@@ -764,6 +881,28 @@ class CTopologyPrototype {
 			' AND src_id='.zbx_dbstr($deviceid), 1));
 	}
 
+	/**
+	 * Same result as calling isRepresented() once per id in $ids, in one query instead of one
+	 * per id — getNeighbors() previously did exactly that in a loop, one extra DB round trip per
+	 * neighbor found, which is where a highly-connected device's per-click delay came from.
+	 *
+	 * @return array a lookup set: id => true for every id (of the ones given) that IS represented.
+	 */
+	private static function getRepresentedIds(array $ids): array {
+		if (!$ids) {
+			return [];
+		}
+
+		$represented = [];
+		$result = DBselect('SELECT DISTINCT src_id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
+			' AND '.dbConditionId('src_id', $ids));
+		while ($row = DBfetch($result)) {
+			$represented[$row['src_id']] = true;
+		}
+
+		return $represented;
+	}
+
 	private static function isRepresentedTarget(string $target_id): bool {
 		return (bool) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
 			' AND dst_id='.zbx_dbstr($target_id), 1));
@@ -775,6 +914,45 @@ class CTopologyPrototype {
 			' JOIN topo_nodes device ON device.id=part_of.dst_id WHERE link.type='.zbx_dbstr('physical_link').
 			' AND (link.src_id='.zbx_dbstr($portid).' OR link.dst_id='.zbx_dbstr($portid).')', 1));
 		return $row ? self::attrs($row)['sysname'] : null;
+	}
+
+	/**
+	 * Same result as calling getLinkedDeviceName() once per id in $portids, in one query instead
+	 * of one per port — getPorts() previously did exactly that for every connected port in a
+	 * loop, another source of the per-click delay on a device with many connected ports.
+	 *
+	 * @return array port id => linked device's sysname, only for ports that resolved to one.
+	 */
+	private static function getLinkedDeviceNames(array $portids): array {
+		if (!$portids) {
+			return [];
+		}
+
+		$names = [];
+		$result = DBselect(
+			'SELECT link.src_id,link.dst_id,device.attrs'.
+			' FROM topo_edges link'.
+			' JOIN topo_edges part_of ON part_of.type='.zbx_dbstr('part_of').
+				' AND part_of.src_id=CASE WHEN '.dbConditionId('link.src_id', $portids).
+					' THEN link.dst_id ELSE link.src_id END'.
+			' JOIN topo_nodes device ON device.id=part_of.dst_id'.
+			' WHERE link.type='.zbx_dbstr('physical_link').
+				' AND ('.dbConditionId('link.src_id', $portids).' OR '.dbConditionId('link.dst_id', $portids).')'
+		);
+		while ($row = DBfetch($result)) {
+			$name = self::attrs($row)['sysname'];
+			// Whichever end of this physical_link is one of our ports gets the OTHER end's
+			// device name — same CASE logic as the single-port version, just evaluated for both
+			// possible sides since this query no longer has one fixed $portid to pivot on.
+			if (in_array($row['src_id'], $portids)) {
+				$names[$row['src_id']] = $name;
+			}
+			if (in_array($row['dst_id'], $portids)) {
+				$names[$row['dst_id']] = $name;
+			}
+		}
+
+		return $names;
 	}
 
 	// host.get's selectInterfaces never returns a 'mac' field (the Zabbix interface table only has

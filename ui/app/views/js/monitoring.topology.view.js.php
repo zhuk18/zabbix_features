@@ -481,6 +481,18 @@ const view = new class {
 				node.vy = 0;
 			}
 		});
+		// render() reruns on every click (selectNode() always calls it, even when nothing new was
+		// discovered) as well as on real structural changes, and it always rebuilds the
+		// simulation from these same node objects — which already carry x/y/vx/vy from wherever
+		// they last settled, or from a manual drag. What it does NOT already carry over on its
+		// own is alpha: a plain `d3.forceSimulation(nodes)` starts at the default alpha=1 (full
+		// force strength) regardless, so every re-render was re-throwing the WHOLE graph through
+		// a full-energy settle even when only one node/edge actually changed — every other node
+		// visibly wobbling on every single click, not just the ones near it. Reheating gently
+		// (low alpha) instead of cold-starting fixes that: existing positions get nudged to
+		// accommodate whatever's new, not thrown back into a fresh layout. Only the very first
+		// render (nothing to preserve yet) still wants the full alpha=1 settle.
+		const is_first_render = !this.simulation;
 		this.simulation?.stop();
 		this.canvas.attr('viewBox', `0 0 ${width} ${height}`).selectAll('*').remove();
 		const defs = this.canvas.append('defs');
@@ -492,6 +504,7 @@ const view = new class {
 				pattern.append('rect').attr('width', 4).attr('height', 8).attr('fill', '#f59e0b');
 			});
 		const simulation = d3.forceSimulation(nodes)
+			.alpha(is_first_render ? 1 : 0.3)
 			.force('link', d3.forceLink(simulation_links).id(node => String(node.id)).distance(160))
 			.force('charge', d3.forceManyBody().strength(-600))
 			.force('center', d3.forceCenter(width / 2, height / 2));
