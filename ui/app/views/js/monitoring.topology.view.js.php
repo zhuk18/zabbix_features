@@ -26,6 +26,14 @@ const view = new class {
 		return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
 	}
 
+	// The panel's outer section heading ("Device details" / "Link details") — distinct from the
+	// per-selection <h2> that showProblems()/showPorts()/selectLink() each render inside
+	// #topology-details for the specific node/link's own name. Kept in sync with whatever kind
+	// of thing is currently selected, not left stuck on whichever label happened to render last.
+	setDetailsTitle(text) {
+		document.getElementById('topology-details-title').textContent = text;
+	}
+
 	async init() {
 		this.canvas = d3.select('#topology-canvas');
 		this.details = document.getElementById('topology-details');
@@ -118,12 +126,20 @@ const view = new class {
 			}
 		});
 		this.nodes = new Map(devices.map(node => [String(node.id), node]));
-		// discovered_via rides along for physical_link relations (dash-pattern provenance,
-		// see render()) — represented_by/monitored_by don't carry it and just get undefined,
-		// which render()'s type checks there never look at.
+		// discovered_via/source_port/target_port/source_status/target_status/source_speed/
+		// target_speed ride along for physical_link relations (dash-pattern provenance,
+		// connectivity color, and the "Link details" panel — see render()/selectLink()) —
+		// represented_by/monitored_by don't carry any of it and just get undefined, which every
+		// place that reads them already guards against. All of it comes from getRelations()
+		// itself (batched server-side, same cost regardless of edge count), present from the
+		// very first render — no click-through-both-devices step needed to see it.
 		this.links = relations.map(relation => ({
 			source: String(relation.source), target: String(relation.target), type: relation.type,
-			discovered_via: relation.discovered_via
+			discovered_via: relation.discovered_via,
+			source_port: relation.source_port, target_port: relation.target_port,
+			source_port_id: relation.source_port_id, target_port_id: relation.target_port_id,
+			source_status: relation.source_status, target_status: relation.target_status,
+			source_speed: relation.source_speed, target_speed: relation.target_speed
 		}));
 		this.unassigned = {
 			host: new Map(unassigned_hosts.map(node => [String(node.id), node])),
@@ -215,13 +231,134 @@ const view = new class {
 				link = {source: node_id, target: neighbor_id, type: 'physical_link'};
 				this.links.push(link);
 			}
-			link.severity = neighbor.severity;
-			link.severity_name = neighbor.severity_name;
-			link.color = neighbor.color;
 			link.discovered_via = neighbor.discovered_via;
+			// neighbor.local_*/remote_* are from the CLICKED device's (node's) point of view —
+			// map them onto whichever of link.source/link.target actually IS node_id, same
+			// orientation concern as the undirected match above.
+			if (link.source === node_id) {
+				link.source_port = neighbor.local_port;
+				link.target_port = neighbor.remote_port;
+				link.source_port_id = neighbor.local_port_id;
+				link.target_port_id = neighbor.remote_port_id;
+				link.source_status = neighbor.local_status;
+				link.target_status = neighbor.remote_status;
+				link.source_speed = neighbor.local_speed;
+				link.target_speed = neighbor.remote_speed;
+			}
+			else {
+				link.source_port = neighbor.remote_port;
+				link.target_port = neighbor.local_port;
+				link.source_port_id = neighbor.remote_port_id;
+				link.target_port_id = neighbor.local_port_id;
+				link.source_status = neighbor.remote_status;
+				link.target_status = neighbor.local_status;
+				link.source_speed = neighbor.remote_speed;
+				link.target_speed = neighbor.local_speed;
+			}
 		});
 		this.render();
 		this.showPorts(node, groups);
+	}
+
+	// Link click: by the time a rendered <line>'s click handler fires, d3.forceLink has already
+	// resolved link.source/link.target from the plain ids simulation_links started with (see
+	// render()) into the actual node data objects — so .name/.type etc. are just there, no
+	// lookup needed. represented_by edges never reach this: render() filters them out of
+	// simulation_links entirely (a merged split-box IS that edge's visual representation, so
+	// there's nothing separate to click).
+	selectLink(link) {
+		this.setDetailsTitle(<?= json_encode(_('Link details')) ?>);
+		const type_labels = {
+			physical_link: <?= json_encode(_('Physical link (LLDP/manual)')) ?>,
+			monitored_by: <?= json_encode(_('Monitored by')) ?>
+		};
+		const status_labels = {
+			up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('Down')) ?>,
+			disabled: <?= json_encode(_('Disabled')) ?>
+		};
+		const rows = [[<?= json_encode(_('Type')) ?>, type_labels[link.type] ?? link.type]];
+		if (link.type === 'physical_link') {
+			// Port names/status/speed all come from getRelations()' up-front payload already (or
+			// selectNode()'s per-click refresh) — a missing value (device removed a port, or the
+			// topo_nodes attrs never had one) just skips that row rather than showing a blank.
+			if (link.source_port) {
+				rows.push([`${this.escape(link.source.name)} ${<?= json_encode(_('port')) ?>}`, link.source_port]);
+			}
+			if (link.target_port) {
+				rows.push([`${this.escape(link.target.name)} ${<?= json_encode(_('port')) ?>}`, link.target_port]);
+			}
+			rows.push([<?= json_encode(_('Discovered via')) ?>,
+				link.discovered_via === 'manual' ? <?= json_encode(_('Manual')) ?> : 'LLDP']);
+			if (link.source_status) {
+				rows.push([`${this.escape(link.source.name)} ${<?= json_encode(_('status')) ?>}`,
+					this.statusCell(link.source_status, status_labels), true]);
+			}
+			if (link.target_status) {
+				rows.push([`${this.escape(link.target.name)} ${<?= json_encode(_('status')) ?>}`,
+					this.statusCell(link.target_status, status_labels), true]);
+			}
+			// A speed mismatch is a real, common misconfiguration (autonegotiation gone wrong) —
+			// flagged on both speed rows plus its own note, rather than folded into the line
+			// color: that channel already carries connectivity, and stacking a second meaning
+			// onto the same color would make neither one reliably readable at a glance.
+			const speed_mismatch = link.source_speed && link.target_speed && link.source_speed !== link.target_speed;
+			if (link.source_speed) {
+				rows.push([`${this.escape(link.source.name)} ${<?= json_encode(_('speed')) ?>}`,
+					this.formatSpeed(link.source_speed) + (speed_mismatch ? ' ⚠' : '')]);
+			}
+			if (link.target_speed) {
+				rows.push([`${this.escape(link.target.name)} ${<?= json_encode(_('speed')) ?>}`,
+					this.formatSpeed(link.target_speed) + (speed_mismatch ? ' ⚠' : '')]);
+			}
+			if (speed_mismatch) {
+				rows.push([<?= json_encode(_('Note')) ?>, <?= json_encode(_('Speed mismatch between the two ends.')) ?>]);
+			}
+		}
+		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw]) =>
+			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`;
+		// Only physical_link is a real, user/LLDP-declared topo_edges row a person can remove —
+		// monitored_by comes from pullHosts() syncing actual Zabbix host config and would just
+		// reappear on the next pull, so there's nothing meaningful to "delete" there.
+		const delete_button = link.type === 'physical_link' && link.source_port_id && link.target_port_id
+			? `<div class="topology-promote"><button type="button" class="btn-alt topology-delete-link-button">` +
+				`${this.escape(<?= json_encode(_('Delete link')) ?>)}</button></div>`
+			: '';
+		this.details.innerHTML = `<h2>${this.escape(link.source.name)} ↔ ${this.escape(link.target.name)}</h2>${table}${delete_button}`;
+		const button = this.details.querySelector('.topology-delete-link-button');
+		if (button) {
+			button.addEventListener('click', () => this.guard(async () => {
+				await this.request('topology.ports.unlink', {
+					method: 'POST', headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({id: link.source_port_id, dst_id: link.target_port_id})
+				});
+				// The link itself is gone, not just refreshable in place — both endpoints' data
+				// changes, so a full reload (same as "Apply filter"/"Show all") rather than a
+				// targeted re-render.
+				await this.loadDevices();
+			}));
+		}
+	}
+
+	// Same colored-dot convention showPorts() already uses for a port's own oper_status.
+	statusCell(status, status_labels) {
+		return `<span class="topology-status-dot topology-status-${this.escape(status)}"></span>` +
+			this.escape(status_labels[status] ?? status);
+	}
+
+	formatSpeed(bps) {
+		if (!bps) {
+			return '';
+		}
+		if (bps >= 1e9) {
+			return `${+(bps / 1e9).toFixed(1)} Gbps`;
+		}
+		if (bps >= 1e6) {
+			return `${+(bps / 1e6).toFixed(1)} Mbps`;
+		}
+		if (bps >= 1e3) {
+			return `${+(bps / 1e3).toFixed(1)} Kbps`;
+		}
+		return `${bps} bps`;
 	}
 
 	formatAge(seconds) {
@@ -286,6 +423,7 @@ const view = new class {
 	}
 
 	showProblems(node, problems) {
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
 		const list = problems.length
 			? `<section class="topology-group"><table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
 				${problems.map(problem => `<tr>
@@ -313,6 +451,7 @@ const view = new class {
 	}
 
 	showPorts(node, groups) {
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
 		const labels = {
 			connected_lldp: 'Connected via LLDP', connected_mac_only: 'Connected MAC-only',
 			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
@@ -512,10 +651,15 @@ const view = new class {
 		// Two independent visual channels on physical_link, deliberately kept apart so they can't collide:
 		// dash pattern = provenance (dashed = "manual", not yet discovery-confirmed — same dashed/solid
 		// language already used for represented_by/monitored_by and for an unassociated Device's outline),
-		// color + stroke-width = severity (an active trigger on either endpoint port), which is orthogonal —
-		// a manually-declared link can carry an active-trigger color just as easily as an LLDP one.
+		// color + stroke-width = connectivity — an *unexpected* down (admin says up, oper says down) on
+		// either endpoint port, which is orthogonal — a manually-declared link can be down just as easily
+		// as an LLDP one. 'disabled' (admin turned the port off on purpose, see portStatus() server-side)
+		// deliberately does NOT turn the link red — that's an intentional state, not an alarm.
 		const links = this.canvas.append('g').selectAll('line').data(simulation_links).join('line')
 			.attr('class', 'topology-link')
+			.style('cursor', 'pointer')
+			.style('pointer-events', 'stroke')
+			.on('click', (event, link) => this.selectLink(link))
 			.attr('stroke', link => {
 				if (link.type === 'represented_by') {
 					return '#2b7dbc';
@@ -523,9 +667,13 @@ const view = new class {
 				if (link.type === 'monitored_by') {
 					return '#6b46c1';
 				}
-				return (link.type === 'physical_link' && link.color) ? this.cssColor(link.color) : '#64748b';
+				const down = link.source_status === 'down' || link.target_status === 'down';
+				return (link.type === 'physical_link' && down) ? '#dc2626' : '#64748b';
 			})
-			.attr('stroke-width', link => (link.type === 'physical_link' && link.severity !== null && link.severity !== undefined) ? 4 : 2)
+			.attr('stroke-width', link => {
+				const down = link.source_status === 'down' || link.target_status === 'down';
+				return (link.type === 'physical_link' && down) ? 4 : 2;
+			})
 			.attr('stroke-dasharray', link => {
 				// represented_by and monitored_by both connect monitoring-related nodes and are easy to
 				// mis-read as the same kind of relationship — a distinct dash pattern per type (not just
@@ -544,10 +692,18 @@ const view = new class {
 				const provenance = link.discovered_via === 'manual'
 					? <?= json_encode(_('manually declared')) ?>
 					: <?= json_encode(_('LLDP-discovered')) ?>;
-				const severity = link.severity_name
-					? <?= json_encode(_('Active problem: ')) ?> + link.severity_name
-					: <?= json_encode(_('No active trigger on this link.')) ?>;
-				return `${provenance}. ${severity}`;
+				const status_labels = {
+					up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>,
+					disabled: <?= json_encode(_('Disabled')) ?>
+				};
+				const sides = [];
+				if (link.source_status) {
+					sides.push(`${link.source.name}: ${status_labels[link.source_status] ?? link.source_status}`);
+				}
+				if (link.target_status) {
+					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
+				}
+				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}`;
 			}
 			return '';
 		});

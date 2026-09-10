@@ -50,6 +50,7 @@ $page_styles = '
 .topology-status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .topology-status-up{background:#2ecc71}
 .topology-status-down{background:#e74c3c}
+.topology-status-disabled{background:#94a3b8}
 .topology-source-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#eef0f3;color:#3d4650;white-space:nowrap}
 .topology-source-lldp{background:#e3edf7;color:#1f5a8a}
 .topology-source-manual{background:#fdf1de;color:#8a5a1f}
@@ -146,8 +147,8 @@ $page_styles = '
 					(new CButton('topology-panel-toggle', '«'))
 						->addClass('topology-panel-toggle')
 						->setAttribute('title', _('Collapse')),
-					(new CTag('h2', true, _('Device details'))),
-					(new CDiv(_('Select a device to inspect its ports, or a host to see its active problems.')))->setId('topology-details')
+					(new CTag('h2', true, _('Device details')))->setId('topology-details-title'),
+					(new CDiv(_('Select a device to inspect its ports, a host to see its active problems, or a link to see its details.')))->setId('topology-details')
 				]))
 					->setId('topology-panel')
 					->addClass('topology-panel')

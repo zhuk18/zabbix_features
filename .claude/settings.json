@@ -13,7 +13,10 @@
       "Bash(sed -i '/CWebUser::setDefault/d' /tmp/claude-1000/-home-zhuk-work-branches-zabbix/f4263923-a63d-48a6-9f2b-712703f9c581/scratchpad/test_tray.php)",
       "Bash(php /tmp/claude-1000/-home-zhuk-work-branches-zabbix/f4263923-a63d-48a6-9f2b-712703f9c581/scratchpad/test_tray.php)",
       "Bash(sudo -S mysql -ulibrenms -p'librenms')",
-      "Bash(mysql -uzabbix zabbix -e ' *)"
+      "Bash(mysql -uzabbix zabbix -e ' *)",
+      "Bash(php -l /home/zhuk/work/branches/zabbix/ui/include/classes/mvc/CRouter.php)",
+      "Bash(grep -n \"topology-status-dot\\\\|topology-status-\\\\${\" /home/zhuk/work/branches/zabbix/ui/app/views/js/monitoring.topology.view.js.php)",
+      "Bash(php -r ' *)"
     ]
   }
 }

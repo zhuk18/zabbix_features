@@ -58,6 +58,11 @@ class CTopologyPrototype {
 		// DBfetch()'s default $convertNulls=true turns every unmatched LEFT JOIN column (mon.id included)
 		// into the string '0' instead of leaving it null, which would make the blind_spot check below always
 		// true. Pass false here to keep real SQL NULLs distinguishable from an actual '0' id/state value.
+		// 'represented'/'represented_hostid' for device rows are patched in AFTER this loop
+		// (batched below) rather than resolved inline per row — one isRepresented() call per
+		// device was itself a lingering N+1 here, same class of fix as getNeighbors()/getPorts()
+		// got earlier; adding the hostid lookup the same naive way would have doubled it.
+		$device_ids = [];
 		while ($row = DBfetch($result, false)) {
 			$attrs = self::attrs($row);
 			$node = ['id' => $row['id'], 'type' => $row['type'], 'monitoring_state' => null];
@@ -65,7 +70,7 @@ class CTopologyPrototype {
 			switch ($row['type']) {
 				case 'device':
 					$node['name'] = $attrs['sysname'];
-					$node['represented'] = self::isRepresented($row['id']);
+					$device_ids[] = $row['id'];
 					break;
 
 				case 'host':
@@ -93,6 +98,19 @@ class CTopologyPrototype {
 
 			$nodes[] = $node;
 		}
+
+		$represented_ids = self::getRepresentedIds($device_ids);
+		$representing_hostids = self::getRepresentingHostIds($device_ids, $visible_hostids);
+		foreach ($nodes as &$node) {
+			if ($node['type'] === 'device') {
+				$node['represented'] = isset($represented_ids[$node['id']]);
+				// Which host to scope the "attach item" picker to on the Link details panel —
+				// null when unrepresented, represented by a proxy (proxies have no items), or
+				// the representing host isn't visible to this caller.
+				$node['represented_hostid'] = $representing_hostids[$node['id']] ?? null;
+			}
+		}
+		unset($node);
 
 		return $nodes;
 	}
@@ -193,12 +211,9 @@ class CTopologyPrototype {
 		}
 
 		// Device-to-device physical_link pairs, so the canvas shows the actual LLDP/manual wiring
-		// on first load instead of only after a user clicks each device in turn (selectNode()'s
-		// topology.neighbors.get call is where these previously first appeared, one device at a
-		// time). Severity/color are deliberately left for that per-click enrichment to fill in —
-		// computing them for every link up front would mean a getMaxActiveSeverityForPorts() call
-		// per link on every devices.get, not just for the link(s) a user actually inspects.
-		$link_sql = 'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b,link.attrs AS link_attrs'.
+		// on first load instead of only after a user clicks each device in turn.
+		$link_sql = 'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b,'.
+				'link.src_id AS port_a,link.dst_id AS port_b,link.attrs AS link_attrs'.
 			' FROM topo_edges link'.
 			' JOIN topo_edges local_part ON local_part.type='.zbx_dbstr('part_of').
 				' AND local_part.src_id=link.src_id'.
@@ -210,22 +225,30 @@ class CTopologyPrototype {
 				? ' AND '.dbConditionId('local_part.dst_id', $node_ids).' AND '.dbConditionId('remote_part.dst_id', $node_ids)
 				: ' AND 1=0';
 		}
-		$result = DBselect($link_sql);
+		$rows = DBfetchArray(DBselect($link_sql));
+		$port_details = self::getPortDetails(array_merge(array_column($rows, 'port_a'), array_column($rows, 'port_b')));
 
 		// A device pair can be reached by more than one physical_link (redundant cabling, or one
 		// manual + one LLDP-discovered link between the same two devices) — collapse to a single
 		// edge per pair rather than stacking duplicates, same "most-confirmed wins" precedent as
 		// getNeighbors()' per-device discovered_via.
 		$device_links = [];
-		while ($row = DBfetch($result)) {
+		foreach ($rows as $row) {
 			$pair = [$row['device_a'], $row['device_b']];
 			sort($pair);
 			$key = implode('-', $pair);
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$discovered_via = ($link_attrs['discovered_via'] ?? 'lldp') === 'lldp' ? 'lldp' : 'manual';
 			if (!isset($device_links[$key]) || $discovered_via === 'lldp') {
+				$port_a = $port_details[$row['port_a']] ?? [];
+				$port_b = $port_details[$row['port_b']] ?? [];
 				$device_links[$key] = ['source' => $row['device_a'], 'target' => $row['device_b'],
-					'type' => 'physical_link', 'discovered_via' => $discovered_via];
+					'type' => 'physical_link', 'discovered_via' => $discovered_via,
+					'source_port' => $port_a['name'] ?? null, 'target_port' => $port_b['name'] ?? null,
+					// Ids, not just labels — port_status_of()/port_speed_of() below key on these too.
+					'source_port_id' => $row['port_a'], 'target_port_id' => $row['port_b'],
+					'source_status' => self::portStatus($port_a), 'target_status' => self::portStatus($port_b),
+					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null];
 			}
 		}
 		foreach ($device_links as $relation) {
@@ -233,6 +256,20 @@ class CTopologyPrototype {
 		}
 
 		return $relations;
+	}
+
+	/**
+	 * A link's own connectivity, from one port's attrs — 'disabled' (an operator turned the
+	 * interface off on purpose, not alarm-worthy) takes precedence over the raw oper_status,
+	 * which otherwise passes through as-is ('up'/'down'). Shared by getRelations() and
+	 * getNeighbors() so both report the same three-state value the same way.
+	 */
+	private static function portStatus(array $port_attrs): ?string {
+		if (!array_key_exists('oper_status', $port_attrs)) {
+			return null;
+		}
+
+		return ($port_attrs['admin_status'] ?? 'up') === 'down' ? 'disabled' : $port_attrs['oper_status'];
 	}
 
 	/**
@@ -346,42 +383,65 @@ class CTopologyPrototype {
 			' WHERE local_part.type='.zbx_dbstr('part_of').' AND local_part.dst_id='.zbx_dbstr($deviceid)
 		);
 
-		// $port_ids/$discovered_via buffered per neighbor during the fetch loop, same as before —
-		// what changed is that 'represented' and severity are no longer resolved inline per row/
-		// per neighbor. Both used to mean one extra DB (or API::Trigger) round trip PER NEIGHBOR;
-		// clicking a highly-connected device (dozens of neighbors) fired dozens of those
-		// synchronously, which is where the per-click delay came from. Batched below instead:
-		// two small queries total, regardless of how many neighbors there are.
+		// $discovered_via buffered per neighbor during the fetch loop, same as before — what
+		// changed is that 'represented' is no longer resolved inline per row. That used to mean
+		// one extra DB round trip PER NEIGHBOR; clicking a highly-connected device (dozens of
+		// neighbors) fired dozens of those synchronously, which is where the per-click delay
+		// came from. Batched below instead: a handful of small queries total, regardless of how
+		// many neighbors there are.
 		$neighbors = [];
-		$port_ids = [];
 		$discovered_via = [];
+		// Which specific port pair to LABEL the link with, for the "Link details" panel — a
+		// neighbor reached via more than one physical_link (redundant cabling) still only shows
+		// one pair, upgraded to an LLDP-confirmed pair the same moment $discovered_via upgrades
+		// (below), rather than tracking it completely independently.
+		$link_ports = [];
 		while ($row = DBfetch($result)) {
 			if (!array_key_exists($row['id'], $neighbors)) {
 				$attrs = self::attrs($row);
 				$neighbors[$row['id']] = ['id' => $row['id'], 'type' => 'device', 'name' => $attrs['sysname'],
 					'monitoring_state' => null];
-				$port_ids[$row['id']] = [];
 				$discovered_via[$row['id']] = 'manual';
+				$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
 			}
-			$port_ids[$row['id']][] = $row['local_port_id'];
-			$port_ids[$row['id']][] = $row['remote_port_id'];
 
 			// A neighbor can be reached by more than one physical_link (e.g. one manually declared, one
-			// LLDP-discovered via a different port pair). Same "most-confirmed wins" precedent as severity's
-			// "highest wins" below: if any one of them is LLDP-confirmed, render the neighbor link as such.
+			// LLDP-discovered via a different port pair). Same "most-confirmed wins" precedent used
+			// throughout this class: if any one of them is LLDP-confirmed, render the neighbor link as such.
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			if (($link_attrs['discovered_via'] ?? 'lldp') === 'lldp') {
+				if ($discovered_via[$row['id']] !== 'lldp') {
+					$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+				}
 				$discovered_via[$row['id']] = 'lldp';
 			}
 		}
 
 		$represented_ids = self::getRepresentedIds(array_keys($neighbors));
-		$severity_by_neighbor = self::getMaxActiveSeverityForPortsBatch($port_ids);
+		$visible_hostids = self::getVisibleHostIds();
+		$representing_hostids = self::getRepresentingHostIds(array_keys($neighbors), $visible_hostids);
+		$port_details = self::getPortDetails(array_merge(
+			array_column($link_ports, 'local'), array_column($link_ports, 'remote')
+		));
 
 		foreach ($neighbors as $id => &$neighbor) {
 			$neighbor['represented'] = isset($represented_ids[$id]);
-			$neighbor += self::describeSeverity($severity_by_neighbor[$id] ?? null);
+			$neighbor['represented_hostid'] = $representing_hostids[$id] ?? null;
 			$neighbor['discovered_via'] = $discovered_via[$id];
+			// 'local'/'remote' from $deviceid's own point of view — local_port belongs to the
+			// clicked device, remote_port to this neighbor. Matches the naming already used for
+			// local_port_id/remote_port_id above. Ids ride along too (not just the display
+			// names/status/speed) — selectLink() on the frontend keys off them.
+			$local = $port_details[$link_ports[$id]['local']] ?? [];
+			$remote = $port_details[$link_ports[$id]['remote']] ?? [];
+			$neighbor['local_port'] = $local['name'] ?? null;
+			$neighbor['remote_port'] = $remote['name'] ?? null;
+			$neighbor['local_port_id'] = $link_ports[$id]['local'];
+			$neighbor['remote_port_id'] = $link_ports[$id]['remote'];
+			$neighbor['local_status'] = self::portStatus($local);
+			$neighbor['remote_status'] = self::portStatus($remote);
+			$neighbor['local_speed'] = $local['speed'] ?? null;
+			$neighbor['remote_speed'] = $remote['speed'] ?? null;
 		}
 		unset($neighbor);
 
@@ -697,119 +757,6 @@ class CTopologyPrototype {
 		return $max_severity;
 	}
 
-	private static function getMaxActiveSeverityForPorts(array $port_ids): ?int {
-		$port_ids = array_values(array_unique(array_filter($port_ids, static function($id) {
-			return $id !== null;
-		})));
-		if (!$port_ids) {
-			return null;
-		}
-
-		$itemids = [];
-		$result = DBselect('SELECT attrs FROM topo_nodes WHERE '.dbConditionId('id', $port_ids).
-			' AND type='.zbx_dbstr('port'));
-		while ($row = DBfetch($result)) {
-			foreach (self::attrs($row)['zabbix_itemids'] ?? [] as $itemid) {
-				$itemids[] = $itemid;
-			}
-		}
-
-		return self::getMaxActiveSeverityForItemIds(array_values(array_unique($itemids)));
-	}
-
-	/**
-	 * Same result as calling getMaxActiveSeverityForPorts() once per entry in $port_ids_by_key,
-	 * in two queries total (port attrs, then active triggers) instead of two PER ENTRY —
-	 * getNeighbors() previously called the single-item version once per neighbor found, so a
-	 * highly-connected device (dozens of neighbors) fired dozens of API::Trigger()->get() calls
-	 * synchronously in a loop on every click. Same "highest wins" semantics, just batched.
-	 *
-	 * @param array $port_ids_by_key  arbitrary key => array of topo_nodes 'port' ids (nulls OK,
-	 *                                same as the single-item version — filtered out below)
-	 *
-	 * @return array same keys => max active severity (int) or null
-	 */
-	private static function getMaxActiveSeverityForPortsBatch(array $port_ids_by_key): array {
-		$all_port_ids = [];
-		foreach ($port_ids_by_key as $port_ids) {
-			foreach ($port_ids as $port_id) {
-				if ($port_id !== null) {
-					$all_port_ids[] = $port_id;
-				}
-			}
-		}
-		$all_port_ids = array_values(array_unique($all_port_ids));
-
-		$result_by_key = array_fill_keys(array_keys($port_ids_by_key), null);
-		if (!$all_port_ids) {
-			return $result_by_key;
-		}
-
-		$itemids_by_port = [];
-		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $all_port_ids).
-			' AND type='.zbx_dbstr('port'));
-		while ($row = DBfetch($result)) {
-			$itemids_by_port[$row['id']] = self::attrs($row)['zabbix_itemids'] ?? [];
-		}
-
-		$all_itemids = [];
-		foreach ($itemids_by_port as $itemids) {
-			foreach ($itemids as $itemid) {
-				$all_itemids[] = $itemid;
-			}
-		}
-		$priority_by_itemid = self::getMaxPriorityByItemId(array_values(array_unique($all_itemids)));
-		if (!$priority_by_itemid) {
-			return $result_by_key;
-		}
-
-		foreach ($port_ids_by_key as $key => $port_ids) {
-			$max_severity = null;
-			foreach ($port_ids as $port_id) {
-				foreach ($itemids_by_port[$port_id] ?? [] as $itemid) {
-					if (isset($priority_by_itemid[$itemid])
-							&& ($max_severity === null || $priority_by_itemid[$itemid] > $max_severity)) {
-						$max_severity = $priority_by_itemid[$itemid];
-					}
-				}
-			}
-			$result_by_key[$key] = $max_severity;
-		}
-
-		return $result_by_key;
-	}
-
-	/**
-	 * itemid => priority of the highest-priority ACTIVE (value=TRIGGER_VALUE_TRUE) trigger on
-	 * that item, for every itemid given, in one API call — the batched counterpart to
-	 * getMaxActiveSeverityForItemIds() (which answers "what's the single worst severity across
-	 * these items", collapsed to one number; this keeps the per-item breakdown so a caller can
-	 * regroup it per neighbor/port/whatever afterwards without a query per group).
-	 */
-	private static function getMaxPriorityByItemId(array $itemids): array {
-		if (!$itemids) {
-			return [];
-		}
-
-		$priority_by_itemid = [];
-		foreach (API::Trigger()->get([
-			'output' => ['priority'],
-			'selectItems' => ['itemid'],
-			'itemids' => $itemids,
-			'filter' => ['value' => TRIGGER_VALUE_TRUE]
-		]) as $trigger) {
-			$priority = (int) $trigger['priority'];
-			foreach ($trigger['items'] as $item) {
-				$itemid = $item['itemid'];
-				if (!isset($priority_by_itemid[$itemid]) || $priority > $priority_by_itemid[$itemid]) {
-					$priority_by_itemid[$itemid] = $priority;
-				}
-			}
-		}
-
-		return $priority_by_itemid;
-	}
-
 	// §7: Proxy shares Host's severity-colored fill, but Zabbix has no proxyid linkage on problem/trigger/item
 	// to resolve it from — see getProxyHealthTriggerIds() for how this is actually found.
 	private static function getMaxActiveSeverityForProxy(string $proxy_name): ?int {
@@ -903,6 +850,36 @@ class CTopologyPrototype {
 		return $represented;
 	}
 
+	/**
+	 * device topo_nodes.id => the hostid of whatever HOST represents it (never a proxy — Zabbix
+	 * items only ever belong to hosts) — which host to scope the "attach item" picker on the Link
+	 * details panel to. Excludes anything the caller can't see, same principle as every other ACL
+	 * floor in this class: a device represented by an invisible host must not leak that hostid.
+	 *
+	 * @param array $device_ids      topo_nodes.id values to resolve (device type)
+	 * @param array $visible_hostids from getVisibleHostIds() — passed in rather than recomputed,
+	 *                               since every current caller already has it on hand.
+	 */
+	private static function getRepresentingHostIds(array $device_ids, array $visible_hostids): array {
+		if (!$device_ids || !$visible_hostids) {
+			return [];
+		}
+
+		$map = [];
+		$result = DBselect('SELECT rep.src_id AS device_id,host.hostid'.
+			' FROM topo_edges rep'.
+			' JOIN topo_nodes host_node ON host_node.id=rep.dst_id AND host_node.type='.zbx_dbstr('host').
+			' JOIN hosts host ON host.hostid=host_node.host_ref'.
+			' WHERE rep.type='.zbx_dbstr('represented_by').
+				' AND '.dbConditionId('rep.src_id', $device_ids).
+				' AND '.dbConditionId('host.hostid', $visible_hostids));
+		while ($row = DBfetch($result)) {
+			$map[$row['device_id']] = $row['hostid'];
+		}
+
+		return $map;
+	}
+
 	private static function isRepresentedTarget(string $target_id): bool {
 		return (bool) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
 			' AND dst_id='.zbx_dbstr($target_id), 1));
@@ -953,6 +930,35 @@ class CTopologyPrototype {
 		}
 
 		return $names;
+	}
+
+	/**
+	 * Port topo_nodes.id => the subset of its attrs a link needs: name (e.g.
+	 * "GigabitEthernet1/0/1", for the local/remote port labels), oper_status/admin_status (via
+	 * portStatus()) and speed — what a physical_link's "Link details" panel and its line color on
+	 * the map are actually built from. One query for however many port ids are given, same
+	 * batching precedent as getLinkedDeviceNames()/getRepresentedIds().
+	 */
+	private static function getPortDetails(array $portids): array {
+		$portids = array_values(array_unique(array_filter($portids, static fn($id) => $id !== null)));
+		if (!$portids) {
+			return [];
+		}
+
+		$details = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $portids).
+			' AND type='.zbx_dbstr('port'));
+		while ($row = DBfetch($result)) {
+			$attrs = self::attrs($row);
+			$details[$row['id']] = [
+				'name' => $attrs['name'] ?? null,
+				'oper_status' => $attrs['oper_status'] ?? null,
+				'admin_status' => $attrs['admin_status'] ?? null,
+				'speed' => $attrs['speed'] ?? null
+			];
+		}
+
+		return $details;
 	}
 
 	// host.get's selectInterfaces never returns a 'mac' field (the Zabbix interface table only has
