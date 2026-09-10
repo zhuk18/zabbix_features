@@ -1,3 +1,6 @@
+# lldpLocChassisId (this device's own chassis id) — see router1 fixture's comment for the
+# scheme shared across all four lab fixtures.
+1.0.8802.1.1.2.1.3.2.0|4x|001122334402
 # LLDP neighbor table (local port 1 -> Router1, local port 2 -> Switch2)
 1.0.8802.1.1.2.1.4.1.1.5.0.1.1|4x|001122334401
 1.0.8802.1.1.2.1.4.1.1.5.0.2.1|4x|001122334412

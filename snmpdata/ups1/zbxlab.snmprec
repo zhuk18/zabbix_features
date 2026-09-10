@@ -1,3 +1,7 @@
+# lldpLocChassisId (own) + lldpRemChassisId for neighbor Switch2 — see router1 fixture's
+# comment for the scheme shared across all four lab fixtures.
+1.0.8802.1.1.2.1.3.2.0|4x|001122334405
+1.0.8802.1.1.2.1.4.1.1.5.0.1.1|4x|001122334412
 1.0.8802.1.1.2.1.4.1.1.7.0.1.1|4|Gi0/1
 1.0.8802.1.1.2.1.4.1.1.8.0.1.1|4|GigabitEthernet0/1
 1.0.8802.1.1.2.1.4.1.1.9.0.1.1|4|Switch2
