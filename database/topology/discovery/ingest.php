@@ -136,19 +136,41 @@ final class ZabbixApi {
 $pdo = new PDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $now = time();
 
-$find_device = static function (?string $chassis_id, ?string $mgmt_ip) use ($pdo): ?int {
+// Rule 4's third Device-match key (chassis_id -> mgmt_ip -> sysname). The sysname key is deliberately NOT a
+// global "WHERE sysname = ?" scan (that would risk merging two unrelated devices that happen to share a
+// sysname): it only matches a Device that was previously created/matched as the neighbor discovered on this
+// exact (reporter, local_if_index) pair — i.e. a Device already reachable by walking the physical_link edge
+// off $local_port_id (the local reporter Port at that if_index) to its far-side Port, then that Port's
+// owning Device via part_of. $local_port_id/$sysname are only ever passed for neighbor Devices (see the
+// $device() calls below) — the reporter Device itself is never matched this way.
+$find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname) use ($pdo): ?array {
 	if ($chassis_id) {
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?");
 		$stmt->execute([$chassis_id]);
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return (int) $row['id'];
+			return [(int) $row['id'], 'chassis_id'];
 		}
 	}
 	if ($mgmt_ip) {
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mgmt_ip')) = ?");
 		$stmt->execute([$mgmt_ip]);
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return (int) $row['id'];
+			return [(int) $row['id'], 'mgmt_ip'];
+		}
+	}
+	if ($local_port_id !== null && $sysname) {
+		$stmt = $pdo->prepare(
+			"SELECT dev.id FROM topo_edges link".
+			" JOIN topo_nodes port ON port.id = (CASE WHEN link.src_id = ? THEN link.dst_id ELSE link.src_id END)".
+			" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
+			" JOIN topo_nodes dev ON dev.id = part_of.dst_id".
+			" WHERE link.type = 'physical_link' AND (link.src_id = ? OR link.dst_id = ?)".
+			" AND port.type = 'port' AND dev.type = 'device'".
+			" AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ?"
+		);
+		$stmt->execute([$local_port_id, $local_port_id, $local_port_id, $sysname]);
+		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+			return [(int) $row['id'], 'sysname'];
 		}
 	}
 	return null;
@@ -170,10 +192,19 @@ $last_insert_id = static function () use ($pdo): int {
 	return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
 };
 
-// Rule 4: upsert Device by chassis_id (else mgmt_ip). Mirrors seed.php's $device() exactly.
-$device = static function (array $attrs) use ($insert_node, $update_node, $now, $last_insert_id, $find_device): int {
-	$existing_id = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null);
-	if ($existing_id !== null) {
+// Rule 4: upsert Device by chassis_id, else mgmt_ip, else (neighbor Devices only, via $local_port_id) sysname
+// scoped to (reporter, local_if_index) — see $find_device's comment. Mirrors seed.php's $device(), plus the
+// third key seed.php doesn't have (seed.php's fixture data always carries chassis_id, so it never needs it).
+// When the sysname key is what resolved the match, attrs.matched_by is stamped 'sysname' per rule 4 — the
+// chassis_id/mgmt_ip matches don't get a matched_by (no existing convention for one; nothing else in this
+// codebase records "how a Device was matched" outside rule 4's own sysname-weak-signal requirement).
+$device = static function (array $attrs, ?int $local_port_id = null) use ($insert_node, $update_node, $now, $last_insert_id, $find_device): int {
+	$match = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null, $local_port_id, $attrs['sysname'] ?? null);
+	if ($match !== null) {
+		[$existing_id, $matched_by] = $match;
+		if ($matched_by === 'sysname') {
+			$attrs['matched_by'] = 'sysname';
+		}
 		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
 		return $existing_id;
 	}
@@ -378,7 +409,13 @@ foreach ($reporter_hosts as $zabbix_host) {
 				'vendor' => 'unknown',
 				'last_seen' => $now,
 			];
-			$neighbor_device_id = $device($neighbor_attrs);
+			// Rule 4's third match key needs the local reporter Port at this neighbor's local_if_index up
+			// front (it scopes the sysname lookup to "already linked off this exact port") — compute it
+			// before the Device upsert rather than after, unlike the physical_link wiring below which only
+			// needs it once the neighbor Port also exists.
+			$local_if_index = (int) $neighbor['local_if_index'];
+			$local_port_id = $local_ports[$local_if_index] ?? null;
+			$neighbor_device_id = $device($neighbor_attrs, $local_port_id);
 
 			$neighbor_if_index = $pseudo_if_index($neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
 			$neighbor_port_attrs = [
@@ -394,9 +431,8 @@ foreach ($reporter_hosts as $zabbix_host) {
 			];
 			$neighbor_port_id = $port($neighbor_device_id, $neighbor_port_attrs);
 
-			$local_if_index = (int) $neighbor['local_if_index'];
-			if (isset($local_ports[$local_if_index])) {
-				$ensure_physical_link($local_ports[$local_if_index], $neighbor_port_id, 'lldp');
+			if ($local_port_id !== null) {
+				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp');
 			}
 
 			// Rule 2: reconcile the neighbor Device too, not just the reporter — a neighbor discovered by

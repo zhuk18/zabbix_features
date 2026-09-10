@@ -257,8 +257,30 @@ These rules are the core of the model — implement them exactly, do not
 
 4. **Upsert, not insert**: re-running the collector against the same device
    must update existing nodes, not create duplicates. Match `Device` by
-   `chassis_id` if present, else `mgmt_ip`. Match `Port` by
-   `(device_id via part_of, if_index)`.
+   `chassis_id` if present, else `mgmt_ip`, else `sysname` **scoped to the
+   same `local_if_index` of the same reporter** (i.e. only against a
+   `Device` previously seen as the neighbor on that exact port of that
+   exact reporter — never a global `sysname` lookup across all `Device`
+   nodes). This third key exists for LLDP neighbors that announce a
+   `sysname` but no chassis ID and have no resolvable `mgmt_ip` — without
+   it, every re-run creates a fresh duplicate `Device` for that neighbor,
+   and (unlike `Host`, which has `/depromote` as a correction path) there
+   is no merge/cleanup operation for an accidentally-duplicated `Device` —
+   the growth is effectively irreversible, so this key is not optional
+   hardening, it's required for rule 4 to hold at all against real LLDP
+   data. Scoping it to (reporter, local_if_index) keeps the risk profile
+   different from the weak-key matching rule 2 (§3.2) deliberately
+   excludes: rule 2's risk was merging two different real identities
+   (`Device`↔`Host`), which is why it stays MAC/chassis-ID only — this
+   scoped `sysname` match instead risks only failing to recognize the same
+   neighbor across runs, and a false merge requires two physically
+   different devices sharing a `sysname` on the same port of the same
+   reporter, which is far narrower. When this key is what resolved the
+   match, set `Device.attrs.matched_by = "sysname"` so it's visible on
+   inspection as a weaker signal than `chassis_id`/`mgmt_ip`. Match `Port`
+   by `(device_id via part_of, if_index)`. If a neighbor has none of
+   `chassis_id`, `mgmt_ip`, or `sysname` — stop and flag it; do not invent
+   a fourth fallback key.
 
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
