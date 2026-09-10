@@ -6,9 +6,30 @@ class CTopologyPrototype {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
 
-	public static function getDevices(): array {
+	/**
+	 * Every hostid the CURRENTLY LOGGED-IN user has read access to. Not a filter someone chose —
+	 * a floor that always applies, the same way every other Zabbix page (Problems, Latest data,
+	 * host lists) implicitly scopes to the caller's permitted host groups. API::Host()->get()
+	 * without an 'editable' flag enforces exactly that (a Super Admin gets everything, back to
+	 * today's behavior for that role; anyone else gets only what they're actually allowed to
+	 * see) — unlike the raw `hosts` table joins elsewhere in this class, which enforce nothing at
+	 * all and were the actual bug: a restricted user saw every host on the map regardless of
+	 * their real Zabbix permissions, same underlying gap the group-filter path in resolveScope()
+	 * already avoided by going through this exact API call for its OWN, optional scoping.
+	 */
+	private static function getVisibleHostIds(): array {
+		return array_column(API::Host()->get(['output' => ['hostid']]), 'hostid');
+	}
+
+	/**
+	 * @param array|null $node_ids  restrict to these topo_nodes.id values (hostgroup/hop scope
+	 *                              from CTopologyHopScope::neighborhood()); null = unrestricted,
+	 *                              today's default behavior.
+	 */
+	public static function getDevices(?array $node_ids = null): array {
 		$nodes = [];
-		$result = DBselect('SELECT node.id,node.type,node.attrs,node.host_ref,'.
+		$visible_hostids = self::getVisibleHostIds();
+		$sql = 'SELECT node.id,node.type,node.attrs,node.host_ref,'.
 				'host.name AS host_name,host.status AS host_status,host.maintenance_status AS host_maintenance_status,'.
 				'proxy.name AS proxy_name,proxy_rt.state AS proxy_state,'.
 				'mon.id AS mon_id,mon_proxy_rt.state AS mon_proxy_state'.
@@ -20,9 +41,19 @@ class CTopologyPrototype {
 			' LEFT JOIN topo_edges mon ON mon.type='.zbx_dbstr('monitored_by').' AND mon.src_id=node.id'.
 			' LEFT JOIN topo_nodes mon_proxy ON mon_proxy.id=mon.dst_id'.
 			' LEFT JOIN proxy_rtdata mon_proxy_rt ON mon_proxy_rt.proxyid=mon_proxy.proxy_ref'.
-			' WHERE node.type='.zbx_dbstr('device').
-				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL AND rep.id IS NOT NULL)'.
-				' OR (node.type='.zbx_dbstr('proxy').' AND proxy.proxyid IS NOT NULL AND rep.id IS NOT NULL)');
+			' WHERE ('.
+				'node.type='.zbx_dbstr('device').
+				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL AND rep.id IS NOT NULL'.
+					' AND '.($visible_hostids ? dbConditionId('host.hostid', $visible_hostids) : '1=0').')'.
+				' OR (node.type='.zbx_dbstr('proxy').' AND proxy.proxyid IS NOT NULL AND rep.id IS NOT NULL)'.
+			')';
+		if ($node_ids !== null) {
+			// Empty scope (e.g. a host group with no members) must return no nodes, not every
+			// node — spelled out explicitly rather than relying on dbConditionId()'s behavior
+			// for an empty array.
+			$sql .= $node_ids ? ' AND '.dbConditionId('node.id', $node_ids) : ' AND 1=0';
+		}
+		$result = DBselect($sql);
 
 		// DBfetch()'s default $convertNulls=true turns every unmatched LEFT JOIN column (mon.id included)
 		// into the string '0' instead of leaving it null, which would make the blind_spot check below always
@@ -66,12 +97,38 @@ class CTopologyPrototype {
 		return $nodes;
 	}
 
-	public static function getUnassignedHosts(): array {
+	/**
+	 * @param array $groupids  Zabbix host group ids to restrict to; [] = unrestricted (today's
+	 *                         default). Only meaningful in hostgroup-filter mode — the tray isn't
+	 *                         restricted by the focus-host+depth mode, since an unassigned host
+	 *                         isn't a node in that graph to begin with and has no hop distance to
+	 *                         speak of. Proxies have no host-group concept in Zabbix at all, so
+	 *                         getUnassignedProxies() has no equivalent parameter.
+	 */
+	public static function getUnassignedHosts(array $groupids = []): array {
 		$nodes = [];
-		$result = DBselect('SELECT node.id,node.host_ref,host.name AS host_name,host.status AS host_status'.
+		$sql = 'SELECT node.id,node.host_ref,host.name AS host_name,host.status AS host_status'.
 			' FROM topo_nodes node JOIN hosts host ON host.hostid=node.host_ref'.
 			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
-			' WHERE node.type='.zbx_dbstr('host').' AND rep.id IS NULL ORDER BY host.name');
+			' WHERE node.type='.zbx_dbstr('host').' AND rep.id IS NULL';
+		// Permission floor, always applied — same as getDevices(); a raw `hosts` join enforces
+		// nothing on its own, unlike the API call below.
+		$visible_hostids = self::getVisibleHostIds();
+		$sql .= $visible_hostids ? ' AND '.dbConditionId('host.hostid', $visible_hostids) : ' AND 1=0';
+		if ($groupids) {
+			// API::Host()->get() (not a raw hosts_groups join) for the same reason resolveScope()
+			// uses it: this makes the group filter ACL-safe for free, consistent with how the
+			// main graph's own group scoping already behaves. Redundant with the floor above for
+			// a non-Super-Admin caller, but cheap, and keeps this branch correct on its own even
+			// if the floor's implementation ever changes.
+			$member_hostids = array_column(API::Host()->get([
+				'output' => ['hostid'],
+				'groupids' => $groupids
+			]), 'hostid');
+			$sql .= $member_hostids ? ' AND '.dbConditionId('host.hostid', $member_hostids) : ' AND 1=0';
+		}
+		$sql .= ' ORDER BY host.name';
+		$result = DBselect($sql);
 
 		while ($row = DBfetch($result)) {
 			$nodes[] = [
@@ -105,16 +162,172 @@ class CTopologyPrototype {
 		return $nodes;
 	}
 
-	public static function getRelations(): array {
+	/**
+	 * @param array|null $node_ids  restrict to relations where BOTH ends are in this set; null
+	 *                              = unrestricted, today's default behavior.
+	 */
+	public static function getRelations(?array $node_ids = null): array {
 		$relations = [];
-		$result = DBselect('SELECT src_id,dst_id,type FROM topo_edges WHERE type IN ('.
-			zbx_dbstr('represented_by').','.zbx_dbstr('monitored_by').')');
+		// Permission floor, always applied: represented_by (device->host) and monitored_by
+		// (host->proxy) are the only edge types that ever touch a 'host' topo_node, so excluding
+		// any row whose src/dst is a host the caller can't see is enough — physical_link rows
+		// (added below) are device-to-device only and never need this. dbConditionId(..., true)
+		// already renders "exclude every host node" (1=1) when getVisibleHostIds() is empty, so
+		// no separate empty-array branch is needed here the way getDevices()/getUnassignedHosts()
+		// need one for their positive IN() case.
+		$invisible_host_nodes = 'SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
+			' AND '.dbConditionId('host_ref', self::getVisibleHostIds(), true);
+		$sql = 'SELECT src_id,dst_id,type FROM topo_edges WHERE type IN ('.
+			zbx_dbstr('represented_by').','.zbx_dbstr('monitored_by').')'.
+			' AND src_id NOT IN ('.$invisible_host_nodes.')'.
+			' AND dst_id NOT IN ('.$invisible_host_nodes.')';
+		if ($node_ids !== null) {
+			$sql .= $node_ids
+				? ' AND '.dbConditionId('src_id', $node_ids).' AND '.dbConditionId('dst_id', $node_ids)
+				: ' AND 1=0';
+		}
+		$result = DBselect($sql);
 
 		while ($row = DBfetch($result)) {
 			$relations[] = ['source' => $row['src_id'], 'target' => $row['dst_id'], 'type' => $row['type']];
 		}
 
+		// Device-to-device physical_link pairs, so the canvas shows the actual LLDP/manual wiring
+		// on first load instead of only after a user clicks each device in turn (selectNode()'s
+		// topology.neighbors.get call is where these previously first appeared, one device at a
+		// time). Severity/color are deliberately left for that per-click enrichment to fill in —
+		// computing them for every link up front would mean a getMaxActiveSeverityForPorts() call
+		// per link on every devices.get, not just for the link(s) a user actually inspects.
+		$link_sql = 'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b,link.attrs AS link_attrs'.
+			' FROM topo_edges link'.
+			' JOIN topo_edges local_part ON local_part.type='.zbx_dbstr('part_of').
+				' AND local_part.src_id=link.src_id'.
+			' JOIN topo_edges remote_part ON remote_part.type='.zbx_dbstr('part_of').
+				' AND remote_part.src_id=link.dst_id'.
+			' WHERE link.type='.zbx_dbstr('physical_link');
+		if ($node_ids !== null) {
+			$link_sql .= $node_ids
+				? ' AND '.dbConditionId('local_part.dst_id', $node_ids).' AND '.dbConditionId('remote_part.dst_id', $node_ids)
+				: ' AND 1=0';
+		}
+		$result = DBselect($link_sql);
+
+		// A device pair can be reached by more than one physical_link (redundant cabling, or one
+		// manual + one LLDP-discovered link between the same two devices) — collapse to a single
+		// edge per pair rather than stacking duplicates, same "most-confirmed wins" precedent as
+		// getNeighbors()' per-device discovered_via.
+		$device_links = [];
+		while ($row = DBfetch($result)) {
+			$pair = [$row['device_a'], $row['device_b']];
+			sort($pair);
+			$key = implode('-', $pair);
+			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			$discovered_via = ($link_attrs['discovered_via'] ?? 'lldp') === 'lldp' ? 'lldp' : 'manual';
+			if (!isset($device_links[$key]) || $discovered_via === 'lldp') {
+				$device_links[$key] = ['source' => $row['device_a'], 'target' => $row['device_b'],
+					'type' => 'physical_link', 'discovered_via' => $discovered_via];
+			}
+		}
+		foreach ($device_links as $relation) {
+			$relations[] = $relation;
+		}
+
 		return $relations;
+	}
+
+	/**
+	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every
+	 * represented_by/monitored_by pair (same source as getRelations()) plus every
+	 * device-to-device pair implied by a physical_link — the same part_of -> physical_link ->
+	 * part_of join chain getNeighbors() runs per-device below, but for every physical_link at
+	 * once instead of one device's ports.
+	 *
+	 * @return array list of [id_a, id_b] pairs.
+	 */
+	public static function getAdjacency(): array {
+		$pairs = [];
+
+		$result = DBselect('SELECT src_id,dst_id FROM topo_edges WHERE type IN ('.
+			zbx_dbstr('represented_by').','.zbx_dbstr('monitored_by').')');
+		while ($row = DBfetch($result)) {
+			$pairs[] = [$row['src_id'], $row['dst_id']];
+		}
+
+		$result = DBselect(
+			'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b'.
+			' FROM topo_edges link'.
+			' JOIN topo_edges local_part ON local_part.type='.zbx_dbstr('part_of').
+				' AND local_part.src_id=link.src_id'.
+			' JOIN topo_edges remote_part ON remote_part.type='.zbx_dbstr('part_of').
+				' AND remote_part.src_id=link.dst_id'.
+			' WHERE link.type='.zbx_dbstr('physical_link')
+		);
+		while ($row = DBfetch($result)) {
+			$pairs[] = [$row['device_a'], $row['device_b']];
+		}
+
+		return $pairs;
+	}
+
+	/**
+	 * Resolve a hostgroup/host+hops filter request into a concrete topo_nodes.id scope for
+	 * getDevices()/getRelations(), or null for "no filter" (today's unrestricted behavior).
+	 *
+	 * Precedence matches the community network_topology module's own filter: a selected host
+	 * overrides the group selection when both are somehow supplied.
+	 *
+	 * @param array  $groupids  Zabbix host group ids (host-group filter mode)
+	 * @param string $hostid    Zabbix hostid (host+hops filter mode); '' = not set
+	 * @param int    $hops      expansion depth for the focus-host mode, ignored otherwise
+	 *
+	 * @return array|null topo_nodes.id values in scope, or null when neither filter is active
+	 */
+	public static function resolveScope(array $groupids, string $hostid, int $hops): ?array {
+		if ($hostid !== '') {
+			// API::Host()->get() first, not a raw topo_nodes lookup — a hostid the caller isn't
+			// permitted to see must behave exactly like a hostid that doesn't exist at all
+			// (empty scope), not resolve and hand back its neighborhood. getDevices()/
+			// getRelations() would still strip the invisible host itself out of whatever this
+			// returns, but without this check a restricted user could use it as a topology
+			// pivot — learning which unrelated devices sit near a host they can't otherwise see,
+			// even though the host's own data stays hidden.
+			if (!API::Host()->get(['hostids' => [$hostid], 'output' => []])) {
+				return [];
+			}
+
+			$seed_node = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
+				' AND host_ref='.zbx_dbstr($hostid), 1));
+			if (!$seed_node) {
+				// Host has no pointer node yet (never pulled) — nothing can be in scope of it.
+				return [];
+			}
+
+			return CTopologyHopScope::neighborhood([$seed_node['id']], $hops, self::getAdjacency());
+		}
+
+		if ($groupids) {
+			$seed_hostids = array_column(API::Host()->get([
+				'output' => ['hostid'],
+				'groupids' => $groupids
+			]), 'hostid');
+			if (!$seed_hostids) {
+				return [];
+			}
+
+			$seed_ids = [];
+			$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
+				' AND '.dbConditionId('host_ref', $seed_hostids));
+			while ($row = DBfetch($result)) {
+				$seed_ids[] = $row['id'];
+			}
+			if (!$seed_ids) {
+				return [];
+			}
+
+			return CTopologyHopScope::neighborhood($seed_ids, PHP_INT_MAX, self::getAdjacency());
+		}
+
+		return null;
 	}
 
 	public static function getNeighbors(string $deviceid): array {

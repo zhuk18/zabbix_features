@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n 'function __construct\\\\|'\\\\''id'\\\\''\\\\]\\\\|zbx_formatDomId\\\\|$this->options\\\\['\\\\''id'\\\\''\\\\]' ui/include/classes/html/CMultiSelect.php)",
+      "Bash(php -l /home/zhuk/work/branches/zabbix/ui/app/views/monitoring.topology.view.php)",
+      "Bash(php -l /home/zhuk/work/branches/zabbix/ui/app/controllers/CControllerTopologyDevicesGet.php)",
+      "Bash(php -l /home/zhuk/work/branches/zabbix/ui/include/classes/topology/CTopologyPrototype.php)",
+      "Bash(php -l /home/zhuk/work/branches/zabbix/ui/include/classes/topology/CTopologyHopScope.php)",
+      "Bash(curl -s \"http://localhost/zabbix.php?action=topology.devices.get\")",
+      "Bash(find /var/www /etc/apache2/sites-enabled -iname \"*.conf\" 2>/dev/null | xargs grep -l \"zabbix\" 2>/dev/null | head -3 *)",
+      "Read(//var/www/**)",
+      "Read(//etc/apache2/sites-enabled/**)",
+      "Bash(sed -i '/CWebUser::setDefault/d' /tmp/claude-1000/-home-zhuk-work-branches-zabbix/f4263923-a63d-48a6-9f2b-712703f9c581/scratchpad/test_tray.php)",
+      "Bash(php /tmp/claude-1000/-home-zhuk-work-branches-zabbix/f4263923-a63d-48a6-9f2b-712703f9c581/scratchpad/test_tray.php)",
+      "Bash(sudo -S mysql -ulibrenms -p'librenms')",
+      "Bash(mysql -uzabbix zabbix -e ' *)"
+    ]
+  }
+}

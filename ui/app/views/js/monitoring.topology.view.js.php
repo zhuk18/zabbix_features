@@ -34,10 +34,45 @@ const view = new class {
 		this.links = [];
 		this.unassigned = {host: new Map(), proxy: new Map()};
 		this.link_pick = null;
+		// Automatic (LLDP) vs manual physical_link display — purely a client-side render filter,
+		// not a data-scope query like groupids/hostid above: the discovered_via a link needs is
+		// already in what loadDevices() fetched, so toggling it just re-renders, no server round
+		// trip. represented_by/monitored_by aren't physical wiring and are never affected by this.
+		this.link_filter = 'all';
+		document.getElementById('topology-link-filter').addEventListener('change', event => {
+			this.link_filter = event.target.value;
+			this.render();
+		});
+		// Device details panel: collapsible so a wide canvas/graph gets the room back when the
+		// panel isn't needed — purely a CSS class toggle (topology-panel-collapsed on the grid
+		// container shrinks the panel's column), nothing about the loaded data changes.
+		const panel_toggle = document.getElementById('topology-panel-toggle');
+		const workspace = document.querySelector('.topology-workspace');
+		panel_toggle.addEventListener('click', () => {
+			const collapsed = workspace.classList.toggle('topology-panel-collapsed');
+			panel_toggle.textContent = collapsed ? '»' : '«';
+			panel_toggle.title = collapsed ? <?= json_encode(_('Expand')) ?> : <?= json_encode(_('Collapse')) ?>;
+			// The CSS transition resizes the canvas column; re-render once it's settled so the
+			// graph actually uses the space instead of sitting at its old (now stale) viewBox
+			// until some unrelated interaction happens to trigger the next render().
+			setTimeout(() => this.render(), 160);
+		});
 		document.getElementById('topology-host-pull').addEventListener('click', () => this.guard(async () => {
 			await this.request('topology.hosts.pull', {
 				method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
 			});
+			await this.loadDevices();
+		}));
+		// Hostgroup / host+hops scope: read on "Apply", not on every multiselect change — a
+		// group multiselect can see several add/remove events in a row while the user is still
+		// picking, and firing a request per keystroke there would be wasteful.
+		document.getElementById('topology-filter-apply').addEventListener('click', () => this.guard(async () => {
+			await this.loadDevices();
+		}));
+		document.getElementById('topology-filter-clear').addEventListener('click', () => this.guard(async () => {
+			jQuery('#groupids_').multiSelect('clean');
+			jQuery('#hostid').multiSelect('clean');
+			document.getElementById('topology-filter-hops').value = '1';
 			await this.loadDevices();
 		}));
 		const canvas_element = this.canvas.node();
@@ -60,16 +95,36 @@ const view = new class {
 		await this.loadDevices();
 	}
 
+	// Current hostgroup/host+hops filter state, read straight from the multiselects rather than
+	// tracked separately — they're already the single source of truth for what's selected, and
+	// a selected host overrides the group selection (same precedence as the community
+	// network_topology module's own filter).
+	filterQuery() {
+		const hostid = jQuery('#hostid').multiSelect('getData')[0]?.id;
+		if (hostid) {
+			const hops = document.getElementById('topology-filter-hops').value;
+			return `&hostid=${encodeURIComponent(hostid)}&hops=${encodeURIComponent(hops)}`;
+		}
+		const groupids = jQuery('#groupids_').multiSelect('getData').map(item => item.id);
+		return groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
+	}
+
 	async loadDevices() {
 		const {devices = [], relations = [], unassigned_hosts = [], unassigned_proxies = []} =
-			await this.request('topology.devices.get');
+			await this.request(`topology.devices.get${this.filterQuery()}`);
 		devices.forEach(node => {
 			if (node.type === 'host' || node.type === 'proxy') {
 				node.linked = true;
 			}
 		});
 		this.nodes = new Map(devices.map(node => [String(node.id), node]));
-		this.links = relations.map(relation => ({source: String(relation.source), target: String(relation.target), type: relation.type}));
+		// discovered_via rides along for physical_link relations (dash-pattern provenance,
+		// see render()) — represented_by/monitored_by don't carry it and just get undefined,
+		// which render()'s type checks there never look at.
+		this.links = relations.map(relation => ({
+			source: String(relation.source), target: String(relation.target), type: relation.type,
+			discovered_via: relation.discovered_via
+		}));
 		this.unassigned = {
 			host: new Map(unassigned_hosts.map(node => [String(node.id), node])),
 			proxy: new Map(unassigned_proxies.map(node => [String(node.id), node]))
@@ -147,10 +202,17 @@ const view = new class {
 			// severity is a link-level fact (derived from both endpoint ports' triggers), not a node fact —
 			// carry it onto the physical_link edge object itself, refreshing it even if the link already
 			// exists from a previous selection, since the underlying trigger state can have changed since.
+			// Undirected match: the edge may already be in this.links from the initial devices.get load
+			// (getRelations() now includes physical_link pairs up front) with either endpoint as "source" —
+			// whichever device got clicked first here isn't necessarily the one that ended up as source
+			// there, and an exact-order match would wrongly add a second, reversed duplicate of the same edge.
+			const node_id = String(node.id), neighbor_id = String(neighbor.id);
 			let link = this.links.find(candidate =>
-				candidate.type === 'physical_link' && candidate.source === String(node.id) && candidate.target === String(neighbor.id));
+				candidate.type === 'physical_link' &&
+				((candidate.source === node_id && candidate.target === neighbor_id) ||
+					(candidate.source === neighbor_id && candidate.target === node_id)));
 			if (!link) {
-				link = {source: String(node.id), target: String(neighbor.id), type: 'physical_link'};
+				link = {source: node_id, target: neighbor_id, type: 'physical_link'};
 				this.links.push(link);
 			}
 			link.severity = neighbor.severity;
@@ -397,6 +459,10 @@ const view = new class {
 		const resolve_display_id = id => parent_id_of_absorbed.get(id) ?? id;
 		const simulation_links = this.links
 			.filter(link => link.type !== 'represented_by')
+			// Automatic/manual toggle: only ever hides physical_link edges — monitored_by isn't
+			// physical wiring and passes through regardless of the selector's current value.
+			.filter(link => this.link_filter === 'all' || link.type !== 'physical_link' ||
+				link.discovered_via === this.link_filter)
 			.map(link => ({
 				...link,
 				// monitored_by (or any future edge) targeting/sourcing an absorbed Host/Proxy now resolves to
@@ -515,7 +581,34 @@ const view = new class {
 		};
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
-			.attr('class', node => `topology-node ${node.type}${node.merged ? ' merged' : ''}`);
+			.attr('class', node => `topology-node ${node.type}${node.merged ? ' merged' : ''}`)
+			// Manual positioning: fx/fy pin a node in place for the force simulation (it stops
+			// pushing that node around once set) and, since render() only auto-places a node
+			// whose x/y aren't already finite (see the "give a good initial position" loop
+			// below), the pinned spot survives every future re-render — filter changes, the
+			// automatic/manual link toggle, a fresh loadDevices() poll — same as if the layout
+			// had put it there itself. d3.drag() coexists with the click-to-select handlers on
+			// the child <rect> elements below without extra guarding: a plain click (no pointer
+			// movement) still fires as a normal DOM 'click' event on mouseup.
+			.call(d3.drag()
+				.on('start', (event, node) => {
+					if (!event.active) {
+						simulation.alphaTarget(0.3).restart();
+					}
+					node.fx = node.x;
+					node.fy = node.y;
+				})
+				.on('drag', (event, node) => {
+					node.fx = event.x;
+					node.fy = event.y;
+				})
+				.on('end', (event, node) => {
+					if (!event.active) {
+						simulation.alphaTarget(0);
+					}
+					// fx/fy stay set — the node keeps the spot it was dropped at rather than
+					// springing back into the simulation's own layout.
+				}));
 
 		// Plain (unmerged) nodes: exactly the pre-existing single-box rendering.
 		const plain_selection = node_selection.filter(node => !node.merged);
