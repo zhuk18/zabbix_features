@@ -116,12 +116,22 @@ while the model is still being validated.
   `sysname`/`chassis_id`/`vendor` come from LLDP/CDP data announced by network
   devices — untrusted input, not from Zabbix or the person operating this
   tool. See §9 before rendering any of these anywhere in the UI.
-- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: []}`.
+- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: [], pseudo}`.
   Named `Port`, not `Interface`, specifically to avoid colliding with Zabbix's
   own `host.interfaces` (agent/SNMP/JMX/IPMI monitoring endpoints) — a
   different concept entirely. Use "port" consistently in code, comments, and
   endpoint names for this node type; reserve "interface" for Zabbix's own
   meaning when that comes up (e.g. `selectInterfaces`, `interfaces[]` in §3.2).
+  **`pseudo` (boolean)**: `true` when this `Port` was created only from a
+  *neighbor's* LLDP sighting of it (its owning `Device` has never pushed its
+  own `ports[]` data — real SNMP `ifIndex` unknown, so ingest fabricates one,
+  §4.1); `false` when it came from the owning `Device`'s own push. Exists to
+  drive the pseudo-port merge in §3 rule 4: when a `Device` that only had
+  pseudo-`Port`s eventually becomes a reporter itself and pushes its real
+  ports, a pseudo-`Port` that turns out to be the same physical port as a
+  newly-arrived real one needs to be recognized and merged rather than left
+  standing alongside it as a duplicate (see the `physical_link` duplication
+  note in §2.3 for the failure mode this prevents).
 - **host**: `{}` (or empty) — a thin pointer only. `host_ref` (see §2.1) is the
   single source of truth for identity; name, status, and any other display
   data are resolved with a live join against `hosts` at read time, never
@@ -231,6 +241,22 @@ before insert. Combined with the uniqueness mechanism in §2.1 (unique on
 `(src_id, dst_id)` where `type='physical_link'`), this prevents both an
 exact duplicate and a reversed-direction duplicate of the same link.
 
+**Canonicalization alone does not prevent a same-cable duplicate when both
+endpoints are independently discovered.** Found in live testing: when both
+`Device`s on either end of a cable are themselves reporters, each one's own
+push independently reports the other as an LLDP neighbor. Ingest processes
+each reporter's blob separately, and — before the pseudo-port merge in §3
+rule 4 existed — had no way to recognize that a pseudo-`Port` it was about
+to fabricate for "the neighbor's port" was the *same* physical port a
+different ingest pass had already (or would later) create for real from
+that neighbor's own push. Canonicalizing `(src_id, dst_id)` only de-dupes
+when both sides already agree on the same two `Port` ids — it does nothing
+when each side's pass ends up minting its own distinct pseudo-`Port` for
+the other, producing two separate `physical_link` rows (and two phantom
+`Port`s) for one real cable. The fix is the pseudo-port merge (§3 rule 4,
+`Port.attrs.pseudo` in §2.2) — canonicalization still matters for the
+same-port-pair case, it just isn't sufficient on its own for this one.
+
 **A `Port` can have at most one active `physical_link`.** This was missing
 from earlier passes on this spec — a physical port has exactly one cable in
 it, so nothing should allow a second `physical_link` row from (or to) a
@@ -327,6 +353,29 @@ These rules are the core of the model — implement them exactly, do not
    `matched_by: "sysname"` when this key was used, so it's visibly a
    weaker signal than `chassis_id`/`mgmt_ip` on inspection. Match `Port` by
    `(device_id via part_of, if_index)`.
+
+   **Pseudo-port merge, run only when upserting a reporter's own real
+   ports** (never triggered by, and never part of, ordinary pseudo-port
+   creation from a neighbor observation under rule 1 — that path is
+   unaffected). After upserting a real `Port` (`pseudo: false`, §2.2) from
+   a reporter's own `ports[]`, look for an existing **pseudo** `Port`
+   (`pseudo: true`) on the *same* `Device` whose `name` matches the real
+   port's `name` after normalization (vendor long/short forms —
+   `GigabitEthernet` ↔ `Gi`, `TenGigabitEthernet` ↔ `Te`, and similarly for
+   other common SNMP `ifDescr`/`ifName` abbreviations — case-insensitive).
+   - **Exactly one match**: this is the same physical port, previously
+     fabricated as a pseudo-port because this `Device` hadn't pushed its
+     own data yet. Re-point every `physical_link` edge currently on the
+     pseudo-`Port` onto the real `Port`, then delete the pseudo-`Port`.
+   - **Zero matches, or more than one**: do nothing — leave every
+     pseudo-`Port` as-is. Never guess; an ambiguous match left alone is
+     recoverable (the next ingest pass gets another chance once the
+     ambiguity resolves itself, e.g. a second pseudo-port gets cleaned up
+     by some other means), a wrong merge is not.
+   - A `Device` that never becomes a reporter itself (e.g. an end device
+     with no SNMP/management access) keeps its pseudo-`Port`s forever —
+     there's nothing to merge them with, and that's the expected, correct
+     end state for such a device, not a gap to close.
 
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
@@ -791,6 +840,16 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - Onboarding a new reporter (template attached, at least one push already
   sent) and running ingest picks it up **without editing any config file**
   — confirms reporter discovery is live via `item.get`, not a static list.
+- Two `Device`s that are both reporters and see each other as an LLDP
+  neighbor end up with **exactly one** `physical_link` between them and
+  **no leftover pseudo-`Port`** on either side, regardless of which of the
+  two gets ingested first — confirms the pseudo-port merge (§3 rule 4)
+  actually converges, not just that it fires in one specific order. A
+  `Device` with two pseudo-`Port`s whose names would both plausibly
+  normalize to match one incoming real port name is left alone (no merge,
+  no guess) when that real port arrives. A neighbor that never becomes a
+  reporter (no real ports ever pushed) keeps its pseudo-`Port` indefinitely
+  — not a bug, the expected end state per rule 4.
 
 ## 9. Security — untrusted network-sourced strings
 
