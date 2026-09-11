@@ -170,11 +170,12 @@ or separate SNMP and agent hosts for one box) cannot both be linked to the
 same `Device` — the 1:1 rule above blocks the second `/promote`. This is a
 conscious MVP simplification, not an oversight: supporting it would require
 making the constraint asymmetric (drop uniqueness on `src_id`, keep it on
-`dst_id`) and would break the merged-node UI design in §7, which assumes
-exactly one `Host`/`Proxy` per `Device`. If this becomes a real need later,
-treat it as a design task, not a quick constraint tweak — it touches §2.1,
-§6's `/promote` validation, §7's merged-node rendering, and §8's acceptance
-criteria all at once. For now, if a device genuinely has two Zabbix
+`dst_id`) and would break §7's rendering design, which assumes exactly one
+`Device` per `Host`/`Proxy` (a `Host`/`Proxy`'s side panel has at most one
+Device section — see §7). If this becomes a real need later, treat it as a
+design task, not a quick constraint tweak — it touches §2.1, §6's
+`/promote` validation, §7's rendering, and §8's acceptance criteria all at
+once. For now, if a device genuinely has two Zabbix
 identities, pick one to `represented_by` and leave the other unassociated
 (or linked to the first via a manual `physical_link`, per §3.5, as a
 workaround if the relationship needs to be visible at all).
@@ -187,7 +188,8 @@ physical chassis, each with its own `chassis_id` over LLDP, managed and
 monitored as one logical Zabbix host) or an **MLAG pair** — both are common
 enterprise topologies, more likely to be hit than the split-identity case
 above. Same root cause, same fix if it's ever needed (asymmetric constraint
-+ split-square UI redesign), same "pick one `Device` to represent it, leave
++ a §7 rendering redesign to show more than one Device section on a single
+`Host`/`Proxy` panel), same "pick one `Device` to represent it, leave
 the rest topology-only or manually linked" workaround for now.
 
 **A reporter's own `Device` is `represented_by` its own `Host` deterministically —
@@ -650,29 +652,35 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
     though it shares the "monitored, has severity" styling
   - `Device` **with no `represented_by`**: rendered as its own node, dashed
     outline, neutral gray fill, no severity color.
-  - `Device` **with a `represented_by` edge**: rendered as a single **merged
-    node**, not two nodes joined by a line. Split the node in half — left
-    half keeps the `Device` styling (dashed outline, neutral fill), right
-    half takes the `Host`/`Proxy` styling from above (solid fill, severity
-    color, disabled/maintenance/proxy-badge rules all apply to this half
-    exactly as they would to a standalone `Host`/`Proxy` node). The `1:1`
-    constraint on `represented_by` (§2.3) means this split is always exactly
-    two halves — never more, since a `Device` can never have more than one
-    active `represented_by` target.
-  - **`represented_by` is never drawn as a line.** The merge above *is* how
-    `represented_by` is represented visually — there is no separate edge to
-    style for it. This also resolves a question raised on it earlier: with
-    `represented_by` never appearing as a line at all, there's no risk of
-    confusing it with `monitored_by`, since `monitored_by` (`Host → Proxy`)
-    is the only edge type connecting monitoring-related nodes that's ever
-    drawn as a line. Give `monitored_by` its own distinct line style/color —
-    not the dashed/solid channel already used for `physical_link` provenance
+  - `Device` **with a `represented_by` edge**: **not rendered as its own
+    graph node at all.** An earlier version of this spec had it merge with
+    its `Host`/`Proxy` into a single split-square node (dashed left half +
+    solid right half, independently clickable halves); that design is
+    dropped in favor of something simpler — once a `Device` is
+    `represented_by` a `Host`/`Proxy`, only the `Host`/`Proxy` shows on the
+    graph, with its styling exactly as already described above (severity
+    color, disabled/maintenance/proxy-badge rules), completely unchanged by
+    whether it happens to have an associated `Device`. The `Device`'s data
+    (ports, etc.) isn't gone — it moves into a section of the `Host`/
+    `Proxy`'s side panel (see below), it just has no on-screen position of
+    its own anymore. No split shape, no half-and-half click routing to
+    maintain.
+  - **`represented_by` is never drawn as a line** — same rule as before,
+    just simpler to state now: since the `Device` side has no on-screen
+    position when `represented_by` is active, there's nothing for a line to
+    connect to on that end anyway. `monitored_by` (`Host → Proxy`) remains
+    the only edge type connecting monitoring-related nodes that's ever
+    drawn as a line, with its own distinct line style/color — not the
+    dashed/solid channel already used for `physical_link` provenance
     (that's a separate meaning and shouldn't be reused here).
-  - `physical_link` connects to the merged node as a whole when its
-    `Device`-half is the endpoint — attach the edge to the merged node's
-    bounding box, not specifically to the left (`Device`) half.
-  - `physical_link` line style (unrelated to the merge above — this is
-    about the link's own provenance, §2.3): solid when `discovered_via:
+  - `physical_link` **reattachment**: a `physical_link` whose endpoint
+    `Port` belongs to a `Device` that is `represented_by` something must
+    visually attach to that `Host`/`Proxy` node instead of the (now
+    off-graph) `Device` — same "attach to whatever's actually on screen"
+    principle the old merged-node design already applied, just pointing at
+    the `Host`/`Proxy` directly now instead of a merged node's bounding box.
+  - `physical_link` line style (unrelated to the reattachment above — this
+    is about the link's own provenance, §2.3): solid when `discovered_via:
     "lldp"`, dashed when `discovered_via: "manual"`. Same dashed/solid
     language as `Device` association status, reused deliberately rather
     than inventing a new channel — but note it's carried by the edge here,
@@ -687,28 +695,33 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   disaster-level trigger renders differently from a quiet one. This is
   separate from the dashed/solid convention used for node association
   status; do not repurpose that same visual channel for link severity.
-- **Side panel — unmerged `Device`** (no `represented_by`): click → call
+- **Side panel — standalone `Device`** (no `represented_by`): click → call
   `/ports`, render the grouped table (port / status / connected-to / source
-  badge: `LLDP` / `MAC only` / `—`).
-- **Side panel — merged node**: clicking the **left (`Device`) half** opens
-  the same `/ports` panel as above. Clicking the **right (`Host`/`Proxy`)
-  half** opens the `/problems` panel described next. The two halves are
-  independently clickable — a click anywhere on the merged node must
-  resolve to exactly one half, never both.
-- **Side panel — `Host`/`Proxy`**: click → call `/problems`, render the list
-  of active problems (severity, name, age). If there are none, show an empty
-  state, not a blank panel. Applies whether the `Host`/`Proxy` is standalone
-  (unmerged, e.g. one of the "unassociated hosts" from §7's earlier list
-  view discussion) or reached via the right half of a merged node.
-- **"Promote to host" button**: visible only on an unmerged `Device` node
-  (no `represented_by`); calls the `/promote` endpoint. Once promoted, the
-  node becomes a merged node (see above) and this button no longer applies.
-- **"Depromote" button**: lives inside the merged node's `/ports` panel
-  (left half) — it belongs to the `Device` side of the relationship, not a
-  standalone button on the node itself. Calls the `/depromote` endpoint;
-  after depromotion the merged node splits back into an unmerged `Device`
-  (dashed) and an unmerged `Host`/`Proxy`, positioned near each other by the
-  layout rather than re-drawn as a connected pair.
+  badge: `LLDP` / `MAC only` / `—`), same as always. Unchanged by this
+  section's rewrite below — this only ever applied to a `Device` that has
+  no on-screen `Host`/`Proxy` counterpart to begin with.
+- **Side panel — `Host`/`Proxy`: one panel, up to two sections** (replaces
+  the old two-panel / two-click-zone merged-node design above). A single
+  click on a `Host`/`Proxy` node opens one panel with:
+  - **Problems section** — always present: the same `/problems` call and
+    rendering as before (severity, name, age; empty state if none).
+  - **Device section** — present only when this `Host`/`Proxy` has an
+    active `represented_by`: the same grouped `/ports` table that used to
+    be the standalone `Device` panel's whole content, now living here
+    instead, with the **"Depromote" button** inside it (it belongs to the
+    `Device` side of the relationship, same as before — just relocated
+    from "inside the merged node's left half" to "inside this section").
+    If there's no associated `Device`, this section is simply absent — no
+    empty placeholder to fill the gap.
+- **"Promote to host" button**: unchanged — visible only on a standalone
+  `Device` node (no `represented_by`); calls `/promote`. Once promoted, the
+  `Device` stops being rendered as its own node (per the visual-encoding
+  rule above) — its data now lives in the Device section of its `Host`/
+  `Proxy`'s panel instead of a panel of its own.
+- **Depromote**: calling `/depromote` (from the Device section above)
+  reverses this exactly — the `Device` reappears as its own standalone
+  dashed node, and the Device section disappears from the `Host`/`Proxy`'s
+  panel, which goes back to Problems-only.
 
 ## 8. Acceptance criteria
 
