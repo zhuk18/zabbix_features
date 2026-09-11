@@ -1203,18 +1203,29 @@ was flagged when it first came up.
   blast-radius calculation would miss every VM/container whose outage has
   nothing to do with the network path. Flagging this now specifically so
   it isn't rediscovered mid-implementation of the reachability feature.
-- **Passive infrastructure (patch panels, wall jacks, fiber patches)** —
-  a genuinely different kind of gap from the MAC-only case in §3 rule 1.
-  MAC-only neighbors at least generate *some* evidence (a MAC in the CAM
-  table), just not enough to clear the `Device` creation bar. Passive
-  infrastructure generates **no evidence at all, from any protocol,
-  ever** — it's not LLDP-silent, it's not a network endpoint in any sense
-  a poller could observe. There is currently no way to represent this even
-  manually: rule 5 explicitly forbids manual `Device` creation. If this is
-  ever needed (physical cable-plant topology, not just active-device
-  topology), it requires either relaxing that rule for a clearly-scoped
-  case or a different data source entirely (DCIM/cable-management import)
-  feeding a manual creation path that doesn't exist today.
+- **Passive infrastructure (patch panels, wall jacks, fiber patches) and
+  SNMP-silent active devices** — related but distinct from the MAC-only
+  case in §3 rule 1. MAC-only neighbors at least generate *some* evidence
+  (a MAC in the CAM table), just not enough to clear the `Device` creation
+  bar. These generate **no evidence at all, ever, from any protocol they
+  themselves speak** — patch panels because they're passive, and consumer
+  gear like TP-Link Easy Smart or Ubiquiti UniFi (§11's vendor-variance
+  note) because they don't expose SNMP at all, even though they're real,
+  actively-connected devices someone might know about and want represented.
+  There is currently no way to represent either case, even manually: rule 5
+  explicitly forbids manual `Device` creation. **Candidate resolution,
+  raised as a customer-facing want rather than a lab-blocking need**: a
+  narrow, explicit `POST /topo/devices` endpoint for manual `Device`
+  creation — distinct from rule 5's prohibition, which exists to stop
+  `/link` from silently creating unverified nodes as a side effect, not to
+  block a deliberate, explicit "I know this device exists and represent
+  it" action. Mark such nodes `Device.attrs.source: "manual"` (same
+  audit-trail convention as `discovered_via`/`match_type` elsewhere), create
+  at least one manually-tagged `Port` alongside it so the existing `Port`↔
+  `Port` `physical_link` mechanism (§3.5, §6) works unchanged — no new edge
+  type needed, just an entry point into what already exists. DCIM/cable-
+  management import remains a separate, heavier alternative if this ever
+  needs to scale beyond one-off manual entries.
 - **Wireless connectivity (AP → client)** — an AP↔switch link fits
   `physical_link` fine, but an AP-to-wireless-client relationship doesn't:
   there's no physical port on the client side for `Port`'s model to
