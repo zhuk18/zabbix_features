@@ -134,7 +134,7 @@ and status — never duplicated into `attrs`.
 | `part_of` | Port → Device | `{}` |
 | `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen}` |
 | `member_of_lag` | Port[physical] → Port[lag] | `{}` |
-| `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"manual", matched_mac, created_at}` |
+| `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"reporter_self"\|"manual", matched_mac, created_at}` |
 | `monitored_by` | Host → Proxy | `{}` |
 
 **`represented_by` is 1:1 in both directions.** A `Device` can have at most
@@ -172,6 +172,26 @@ enterprise topologies, more likely to be hit than the split-identity case
 above. Same root cause, same fix if it's ever needed (asymmetric constraint
 + split-square UI redesign), same "pick one `Device` to represent it, leave
 the rest topology-only or manually linked" workaround for now.
+
+**A reporter's own `Device` is `represented_by` its own `Host` deterministically —
+this is a separate path from §3.2's opportunistic MAC reconciliation, not a
+variant of it.** Ingest already knows, from the `item.get` call that located
+this reporter's `topology.discovery.raw` item in the first place, exactly
+which `hostid` that item belongs to (§4.1). There is no ambiguity to
+resolve — the reporter *is* that `Host`, by construction, regardless of
+whether its Zabbix inventory happens to carry a matching MAC. So ingest
+creates the `represented_by` edge directly from the reporter's `Device` to
+that exact `Host`, with `matched_by: "reporter_self"`, **without** calling
+into the §3.2 MAC-matching function for this edge at all. This does not
+change §3.2 itself — every entry in the blob's `neighbors[]` array still
+goes through the same opportunistic MAC reconciliation as before; only the
+reporter's *own* self-identification gets this deterministic shortcut,
+since only the reporter's identity is actually known for certain. The 1:1
+constraint above still applies in full: if the `Device` already carries a
+*different* active `represented_by` (e.g. a prior manual `/promote` to the
+wrong `Host`, or a stale match from before), this write is skipped and
+logged as a conflict — never silently overridden, same rule as every other
+`represented_by` write path.
 
 **`represented_by` can be created manually, independent of reconciliation.**
 The `/promote` endpoint (§6) is a deliberate user action and does **not**
@@ -465,10 +485,14 @@ Rules for the push component:
 
 **Ingest component**: reads the latest `topology.discovery.raw` value per
 reporter (via `item.get`/`history.get`), applies §3 exactly as already
-specified (evidence threshold, MAC/chassis-ID reconciliation, upsert,
+specified (evidence threshold, MAC-based reconciliation, upsert,
 `physical_link` canonicalization), writes to `topo_nodes`/`topo_edges`.
 Runs on its own schedule, independent of the push interval — they don't
-need to be synchronized.
+need to be synchronized. **A reporter's own `Device` is additionally
+`represented_by` its own `Host` deterministically** (§2.3) — since the
+`item.get` call that located this reporter already identifies its exact
+`hostid`, there is no need to fall back to opportunistic MAC matching for
+the reporter's own identity, only for the neighbors it reports.
 
 **Reporter discovery must be dynamic, not a static list.** The ingest
 component finds its set of reporters by calling `item.get` filtered on the
@@ -670,6 +694,14 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - The UI graph correctly distinguishes `Host` (solid) from unassociated
   `Device` (dashed), and the port drill-down table groups ports the
   same way as in §7.
+- Running ingest for a reporter whose Zabbix `Host` has **no** inventory MAC
+  configured still produces a `represented_by` edge from that reporter's
+  `Device` to its own `Host`, with `matched_by: "reporter_self"` — confirms
+  the deterministic self-link (§2.3, §4.1) doesn't depend on §3.2's
+  opportunistic MAC matching at all. Manually `/promote`-ing a reporter's
+  `Device` to the *wrong* `Host` first, then running ingest, must log a
+  conflict and leave that (wrong) edge in place — never silently move it to
+  the correct `Host`.
 - Re-running the seed load **in its default (upsert) mode, without
   `--reset`**, does not create duplicate `Device`/`Port` nodes — this
   validates the upsert logic in §3.4 ahead of the real collector. (Running

@@ -344,6 +344,27 @@ $promote = static function (int $device_id, int $target_nodeid, string $matched_
 	return true;
 };
 
+// Spec §2.3/§4.1: find-or-create the Host pointer node for a reporter's own hostid, scoped to the new
+// deterministic reporter-self-link path only (see the $promote() call in the main loop below) — NOT used
+// by $reconcile_device()'s neighbor-MAC path, which must keep only ever SELECTing an existing host node
+// (a neighbor reconciling against a Host that was never pulled via the "Pull Zabbix hosts" button is
+// correctly a non-match, per §3.2's "opportunistic" framing; that stays unchanged). Mirrors
+// CTopologyPrototype::upsertPointerNode() (ui/include/classes/topology/CTopologyPrototype.php ~line 709):
+// look up topo_nodes by (type='host', host_ref=hostid), insert {type:'host', host_ref:hostid, attrs:'{}'}
+// if missing. This is the whole point of the reporter-self-link change: ingest already knows the exact
+// hostid with certainty (from the item.get call that located this reporter, §4.1), so linking the
+// reporter's Device to its own Host must not depend on "Pull Zabbix hosts" having been run first.
+$find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $last_insert_id): int {
+	$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'host' AND host_ref = ?");
+	$stmt->execute([$hostid]);
+	if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+		return (int) $row['id'];
+	}
+	$pdo->prepare('INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+		->execute(['host', $hostid, '{}', $now, $now]);
+	return $last_insert_id();
+};
+
 // Byte-for-byte mirror of CTopologyPrototype::reconcileHost()'s MAC lookup (Port.attrs.mac via
 // host_inventory.macaddress_a/b) — run per Device instead of per Host, since ingest discovers/touches
 // Devices, not Hosts (§5's Host/Proxy pull is a separate, already-existing pull path this script doesn't
@@ -516,8 +537,35 @@ foreach ($reporter_items as $reporter_item) {
 			$reconcile_device($neighbor_device_id, $neighbor_attrs, array_filter([$neighbor_attrs['mac']]));
 		}
 
-		// Rule 2: reconcile the reporter Device against Host/Proxy inventory.
-		$reconcile_device($reporter_device_id, $reporter_attrs, $reporter_macs);
+		// §2.3/§4.1: the reporter's own Device is represented_by its own Host deterministically — this
+		// is a separate path from §3.2's opportunistic MAC reconciliation, not a variant of it.
+		// $reconcile_device() is never called for the reporter itself (only for neighbors, above): ingest
+		// already knows the reporter's exact hostid for certain (from $reporter_item, the very item.get
+		// row that located this reporter in the first place), so there's no ambiguity to resolve via MAC
+		// matching, and no need to wait on a MAC even existing in inventory at all.
+		$reporter_host_nodeid = $find_or_create_host_node((string) $reporter_item['hostid']);
+		if ($promote($reporter_device_id, $reporter_host_nodeid, 'reporter_self', null)) {
+			echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} represented_by its own host ".
+				"node #{$reporter_host_nodeid} (matched_by: reporter_self)\n";
+		}
+		else {
+			// $promote() returns false both for a genuine conflict (Device/Host already represented_by
+			// something ELSE) and, on a re-run, for the idempotent case where it's already correctly
+			// linked to this exact host node — distinguish the two here purely for clearer logging
+			// ($promote() itself stays untouched, per scope).
+			$already_correct = $pdo->prepare(
+				"SELECT 1 FROM topo_edges WHERE type = 'represented_by' AND src_id = ? AND dst_id = ?");
+			$already_correct->execute([$reporter_device_id, $reporter_host_nodeid]);
+			if ($already_correct->fetch()) {
+				echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} already represented_by ".
+					"its own host node #{$reporter_host_nodeid} (matched_by: reporter_self) — no change\n";
+			}
+			else {
+				echo "CONFLICT: reporter '{$zabbix_host}' device #{$reporter_device_id} or its host node ".
+					"#{$reporter_host_nodeid} already has a represented_by edge to something else — leaving ".
+					"the existing edge in place, not overriding it (§2.3 1:1 constraint)\n";
+			}
+		}
 
 		$pdo->commit();
 		echo "OK: ingested blob for '{$zabbix_host}' — device #{$reporter_device_id}, ".
