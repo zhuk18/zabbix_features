@@ -285,21 +285,43 @@ const view = new class {
 	}
 
 	async selectNode(node) {
-		// Proxy nodes reuse the Host problems panel only once they're actually represented_by a Device — a
-		// proxy just dragged in from the tray (not yet promoted) has nothing to show here, per spec §7.
-		if (node.type === 'host' || (node.type === 'proxy' && node.represented)) {
+		// Host/Proxy: one combined panel, always Problems, plus a Device section when this node has an
+		// active represented_by (node.device, set in render() from the same represented_by edges that
+		// used to drive the old split-node merge — see render()'s device_of_target map). A represented
+		// Device has no on-screen position of its own (§7), so its /neighbors + /ports are fetched here,
+		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
+		if (node.type === 'host' || node.type === 'proxy') {
 			const {problems} = await this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`);
-			this.showProblems(node, problems);
+			let groups = null;
+			if (node.device) {
+				const [neighbor_groups] = await Promise.all([
+					this.request(`topology.ports.get&id=${encodeURIComponent(node.device.id)}`),
+					this.mergeNeighbors(node.device)
+				]);
+				groups = neighbor_groups.groups;
+				this.render();
+			}
+			this.showPanel(node, problems, groups);
 			return;
 		}
 		if (node.type !== 'device') {
 			return;
 		}
 
-		const [{neighbors}, {groups}] = await Promise.all([
-			this.request(`topology.neighbors.get&id=${encodeURIComponent(node.id)}`),
-			this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`)
+		const [{groups}] = await Promise.all([
+			this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`),
+			this.mergeNeighbors(node)
 		]);
+		this.render();
+		this.showPorts(node, groups);
+	}
+
+	// Fetches /neighbors for `device` and folds each one into this.nodes/this.links — shared by a
+	// standalone Device click and a Host/Proxy click whose represented Device's neighbors need the
+	// same treatment. Caller is responsible for this.render() afterwards (both callers already need to
+	// do other awaited work first, so this doesn't render on their behalf).
+	async mergeNeighbors(device) {
+		const {neighbors} = await this.request(`topology.neighbors.get&id=${encodeURIComponent(device.id)}`);
 		neighbors.forEach(neighbor => {
 			this.nodes.set(String(neighbor.id), neighbor);
 			// severity is a link-level fact (derived from both endpoint ports' triggers), not a node fact —
@@ -309,7 +331,7 @@ const view = new class {
 			// (getRelations() now includes physical_link pairs up front) with either endpoint as "source" —
 			// whichever device got clicked first here isn't necessarily the one that ended up as source
 			// there, and an exact-order match would wrongly add a second, reversed duplicate of the same edge.
-			const node_id = String(node.id), neighbor_id = String(neighbor.id);
+			const node_id = String(device.id), neighbor_id = String(neighbor.id);
 			let link = this.links.find(candidate =>
 				candidate.type === 'physical_link' &&
 				((candidate.source === node_id && candidate.target === neighbor_id) ||
@@ -343,16 +365,14 @@ const view = new class {
 				link.target_speed = neighbor.local_speed;
 			}
 		});
-		this.render();
-		this.showPorts(node, groups);
 	}
 
 	// Link click: by the time a rendered <line>'s click handler fires, d3.forceLink has already
 	// resolved link.source/link.target from the plain ids simulation_links started with (see
 	// render()) into the actual node data objects — so .name/.type etc. are just there, no
 	// lookup needed. represented_by edges never reach this: render() filters them out of
-	// simulation_links entirely (a merged split-box IS that edge's visual representation, so
-	// there's nothing separate to click).
+	// simulation_links entirely (a represented_by edge is never drawn as a line at all — the
+	// Device side has no on-screen position once represented, so there's nothing to click).
 	selectLink(link) {
 		this.setDetailsTitle(<?= json_encode(_('Link details')) ?>);
 		const type_labels = {
@@ -509,18 +529,36 @@ const view = new class {
 		});
 	}
 
-	showProblems(node, problems) {
-		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
-		const list = problems.length
-			? `<section class="topology-group"><table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
+	// Problems section fragment only — no title, no this.details assignment. Used both standalone
+	// (never happens today, since every Host/Proxy click always includes a Problems section — see
+	// showPanel()) and, going forward, exclusively via showPanel(); kept as its own method rather than
+	// inlined there so the table markup stays next to formatAge()/cssColor(), same as before.
+	buildProblemsFragment(problems) {
+		return `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Problems')) ?>)}</h3>${problems.length
+			? `<table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
 				${problems.map(problem => `<tr>
 					<td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}">${this.escape(problem.severity_name)}</span></td>
 					<td>${this.escape(problem.name)}</td>
 					<td>${this.escape(this.formatAge(problem.age))}</td>
 				</tr>`).join('')}
-				</tbody></table></section>`
-			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`;
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${list}`;
+				</tbody></table>`
+			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`}</section>`;
+	}
+
+	// Host/Proxy side panel (§7): one panel, always a Problems section; a Device section too when
+	// `node.device` is set (this Host/Proxy has an active represented_by — see render()'s
+	// device_of_target map, which populates node.device). `groups` is the represented Device's /ports
+	// response, or null when there's no represented Device at all — in which case the Device section is
+	// simply omitted, not rendered empty.
+	showPanel(node, problems, groups) {
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
+		const device_section = groups !== null
+			? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Device')) ?>)}</h3>${this.buildPortsFragment(node.device, groups)}</section>`
+			: '';
+		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${this.buildProblemsFragment(problems)}${device_section}`;
+		if (groups !== null) {
+			this.wirePortsFragment(node.device, node);
+		}
 	}
 
 	renderLinkPick() {
@@ -537,8 +575,11 @@ const view = new class {
 		});
 	}
 
-	showPorts(node, groups) {
-		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
+	// Device section fragment (grouped /ports table + Promote-or-Depromote button) — no title, no
+	// this.details assignment. Shared by showPorts() (standalone Device panel, unchanged behavior) and
+	// showPanel() (Device section inside a Host/Proxy's combined panel, §7) — `device` is always the
+	// actual Device node either way, never the Host/Proxy that might be showing it.
+	buildPortsFragment(device, groups) {
 		const labels = {
 			connected_lldp: 'Connected via LLDP', connected_mac_only: 'Connected MAC-only',
 			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
@@ -566,28 +607,35 @@ const view = new class {
 			...this.unassigned.proxy.values()
 		];
 		const type_labels = {host: 'Host', proxy: 'Proxy'};
-		const promotion = node.represented
+		const promotion = device.represented
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">Depromote</button></div>`
 			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.id)}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button><button type="button" class="btn-alt topology-create-host-button">+ Create host</button></div>`;
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${sections}${promotion}`;
+		return `${sections}${promotion}`;
+	}
+
+	// Wires the buttons buildPortsFragment() just rendered into this.details. `reselect_node` is what a
+	// Link/Unlink completion re-selects afterwards: `device` itself for the standalone panel (showPorts()),
+	// or the owning Host/Proxy node for the combined panel (showPanel()) — re-selecting the wrong one would
+	// swap the whole panel to the standalone Device view instead of refreshing the Device section in place.
+	wirePortsFragment(device, reselect_node) {
 		const button = this.details.querySelector('.topology-promote-button');
 		if (button) {
 			button.addEventListener('click', () => this.guard(async () => {
 				const host_id = this.details.querySelector('.topology-host-select').value;
-				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: node.id, host_id})});
+				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id, host_id})});
 				await this.loadDevices();
 			}));
 		}
 		const create_host_button = this.details.querySelector('.topology-create-host-button');
 		if (create_host_button) {
 			create_host_button.addEventListener('click', () => this.guard(async () => {
-				await this.createHostForDevice(node);
+				await this.createHostForDevice(device);
 			}));
 		}
 		const depromote_button = this.details.querySelector('.topology-depromote-button');
 		if (depromote_button) {
 			depromote_button.addEventListener('click', () => this.guard(async () => {
-				await this.request('topology.depromote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: node.id})});
+				await this.request('topology.depromote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id})});
 				await this.loadDevices();
 			}));
 		}
@@ -604,10 +652,10 @@ const view = new class {
 					});
 					this.link_pick = null;
 					this.renderLinkPick();
-					await this.selectNode(node);
+					await this.selectNode(reselect_node);
 				}
 				else {
-					this.link_pick = {id: port_id, label: `${node.name} / ${link_button.dataset.portName}`};
+					this.link_pick = {id: port_id, label: `${device.name} / ${link_button.dataset.portName}`};
 					this.renderLinkPick();
 				}
 			}));
@@ -618,9 +666,17 @@ const view = new class {
 					method: 'POST', headers: {'Content-Type': 'application/json'},
 					body: JSON.stringify({id: unlink_button.dataset.portId, dst_id: unlink_button.dataset.linkedPortId})
 				});
-				await this.selectNode(node);
+				await this.selectNode(reselect_node);
 			}));
 		});
+	}
+
+	// Side panel — standalone Device (no represented_by): unchanged by §7's rewrite, since this only
+	// ever applies to a Device with no on-screen Host/Proxy counterpart to begin with.
+	showPorts(node, groups) {
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
+		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${this.buildPortsFragment(node, groups)}`;
+		this.wirePortsFragment(node, node);
 	}
 
 	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
@@ -662,27 +718,31 @@ const view = new class {
 		const height = bounds.height || 500;
 		const padding = 70;
 
-		// §7: a Device with an active represented_by is rendered as ONE split node, never as two nodes joined
-		// by a line — the merge itself *is* the visual representation of represented_by, so that edge type
-		// must never reach the line-drawing code below. Only merge when both sides are actually loaded (a
-		// promoted Host/Proxy still sitting in the tray, not yet dragged in, can't be merged with — same
-		// "both endpoints must be on the canvas" rule already used for every other link type here).
-		const merge_target_of = new Map(); // device id (string) -> Host/Proxy node object
+		// §7: a Device with an active represented_by has no on-screen position of its own at all — only its
+		// Host/Proxy shows, styled exactly as any other Host/Proxy would be. This still needs to know, for
+		// any given Host/Proxy node, whether it has an associated Device (and which one, for showPanel()'s
+		// Device section — see selectNode()) and needs to keep the Device itself out of the simulation
+		// graph, same as the earlier split-node design did — only the "draw two halves" part is dropped, not
+		// the "the Device gets no simulation node of its own" part. Only counts when both sides are actually
+		// loaded (a promoted Host/Proxy still sitting in the tray, not yet dragged in, has nothing to attach
+		// to yet — same "both endpoints must be on the canvas" rule already used for every other link type
+		// here).
+		const device_of_target = new Map(); // Host/Proxy id (string) -> its represented Device node object
+		const target_id_of_device = new Map(); // Device id (string) -> its represented_by target's id (string)
 		this.links.forEach(link => {
 			if (link.type === 'represented_by' && this.nodes.has(link.source) && this.nodes.has(link.target)) {
-				merge_target_of.set(link.source, this.nodes.get(link.target));
+				device_of_target.set(link.target, this.nodes.get(link.source));
+				target_id_of_device.set(link.source, link.target);
 			}
 		});
-		const parent_id_of_absorbed = new Map(); // absorbed Host/Proxy id (string) -> its merge-parent Device id
-		merge_target_of.forEach((target, device_id) => parent_id_of_absorbed.set(String(target.id), device_id));
 		this.nodes.forEach((node, id) => {
-			node.merged = merge_target_of.get(id) ?? null;
+			node.device = device_of_target.get(id) ?? null;
 		});
-		// 1:1 on represented_by (backend-enforced) guarantees at most one target per device — a merged node
-		// is always exactly two halves, never more.
-		const nodes = [...this.nodes.values()].filter(node => !parent_id_of_absorbed.has(String(node.id)));
+		// 1:1 on represented_by (backend-enforced) guarantees at most one represented Device per Host/Proxy —
+		// no ambiguity about which Device a node's .device points at.
+		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))));
 		const rendered_ids = new Set(nodes.map(node => String(node.id)));
-		const resolve_display_id = id => parent_id_of_absorbed.get(id) ?? id;
+		const resolve_display_id = id => target_id_of_device.get(id) ?? id;
 		const simulation_links = this.links
 			.filter(link => link.type !== 'represented_by')
 			// Automatic/manual toggle: only ever hides physical_link edges — monitored_by isn't
@@ -691,9 +751,9 @@ const view = new class {
 				link.discovered_via === this.link_filter)
 			.map(link => ({
 				...link,
-				// monitored_by (or any future edge) targeting/sourcing an absorbed Host/Proxy now resolves to
-				// the merged node's id (the Device's id) instead — that standalone simulation node no longer
-				// exists once merged.
+				// A physical_link endpoint that's a represented Device (off-graph, per above) resolves to its
+				// Host/Proxy's id instead — same "attach to whatever's actually on screen" principle, just
+				// pointing straight at the plain Host/Proxy node now instead of a merged node's bounding box.
 				source: resolve_display_id(link.source),
 				target: resolve_display_id(link.target)
 			}))
@@ -797,8 +857,9 @@ const view = new class {
 		// §7: disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
 		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
 		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
-		// These operate on a "subject" — either a plain Host/Proxy node, or the target half of a merged node —
-		// the shape is identical either way, so the same functions serve both.
+		// A node with an associated Device (node.device set) is styled exactly the same as one without —
+		// nothing here reads .device at all, per §7's "completely unchanged by whether it happens to have an
+		// associated Device."
 		const fill_for = subject => {
 			if (subject.type === 'host') {
 				if (subject.disabled) {
@@ -837,7 +898,7 @@ const view = new class {
 		};
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
-			.attr('class', node => `topology-node ${node.type}${node.merged ? ' merged' : ''}`)
+			.attr('class', node => `topology-node ${node.type}`)
 			// Manual positioning: fx/fy pin a node in place for the force simulation (it stops
 			// pushing that node around once set) and, since render() only auto-places a node
 			// whose x/y aren't already finite (see the "give a good initial position" loop
@@ -866,9 +927,12 @@ const view = new class {
 					// springing back into the simulation's own layout.
 				}));
 
-		// Plain (unmerged) nodes: exactly the pre-existing single-box rendering.
-		const plain_selection = node_selection.filter(node => !node.merged);
-		plain_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
+		// Every node — Host, Proxy, or a standalone (unrepresented) Device — renders through this one
+		// single-box path, styled purely by its own actual type. A Host/Proxy that happens to have an
+		// associated Device (node.device set, see above) is not treated any differently here: no on-screen
+		// trace of the represented_by relationship beyond what selectNode()'s panel does with it (§7 — the
+		// earlier split-square "merged node" design that used to fork rendering here has been dropped).
+		node_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
 			.style('fill', fill_for)
 			.style('stroke', stroke_for)
 			.style('stroke-width', node => (node.type === 'proxy' && node.unreachable) ? 3 : 2)
@@ -880,67 +944,29 @@ const view = new class {
 			})
 			.style('cursor', 'pointer')
 			.on('click', (event, node) => this.selectNode(node));
-		const plain_labels = plain_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+		const node_labels = node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
 			.style('fill', label_fill_for).style('pointer-events', 'none');
-		this.renderWrappedLabel(plain_labels, node => node.name, 14);
+		this.renderWrappedLabel(node_labels, node => node.name, 14);
 
-		// Merged nodes: one Device+Host/Proxy pairing (§2.3's represented_by is 1:1, so always exactly two
-		// halves) rendered as a single split box — the represented_by edge itself is never drawn as a line
-		// anywhere in this file; this split *is* its visual representation. Each half is independently
-		// clickable: left → /ports (the Device), right → /problems (the Host/Proxy), with no gap between the
-		// two rects so there's no dead zone at the boundary.
-		const merged_selection = node_selection.filter(node => node.merged);
-		merged_selection.append('rect').attr('class', 'topology-merged-device').attr('x', -58).attr('y', -22).attr('width', 58).attr('height', 44).attr('rx', 4)
-			.style('fill', '#f3f4f6').style('stroke', '#697386').style('stroke-width', 2).style('stroke-dasharray', '6 4')
-			.style('cursor', 'pointer')
-			.on('click', (event, node) => this.selectNode(node));
-		merged_selection.append('rect').attr('class', 'topology-merged-target').attr('x', 0).attr('y', -22).attr('width', 58).attr('height', 44).attr('rx', 4)
-			.style('fill', node => fill_for(node.merged))
-			.style('stroke', node => stroke_for(node.merged))
-			.style('stroke-width', node => (node.merged.type === 'proxy' && node.merged.unreachable) ? 3 : 2)
-			.style('stroke-dasharray', node => (node.merged.type === 'proxy' && node.merged.unreachable) ? '4 3' : null)
-			.style('cursor', 'pointer')
-			.on('click', (event, node) => this.selectNode(node.merged));
-		const merged_device_labels = merged_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
-			.style('fill', '#1f2937').style('font-size', '10px').style('pointer-events', 'none');
-		this.renderWrappedLabel(merged_device_labels, node => node.name, 9, -29);
-		const merged_target_labels = merged_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
-			.style('fill', node => label_fill_for(node.merged)).style('font-size', '10px').style('pointer-events', 'none');
-		this.renderWrappedLabel(merged_target_labels, node => node.merged.name, 9, 29);
-
-		// Badge/tooltip "subject" is the plain node itself, or a merged node's target half — same shape either
-		// way, so badges apply uniformly; only the maintenance badge's position changes (see below) since a
-		// merged node's top-left corner belongs to the Device half, not the Host/Proxy half, once merged.
-		const subject_of = node => node.merged ?? node;
-		const proxy_badges = node_selection.filter(node => subject_of(node).type === 'proxy');
+		const proxy_badges = node_selection.filter(node => node.type === 'proxy');
 		proxy_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
-			.style('fill', '#ffffff').style('stroke', node => subject_of(node).unreachable ? '#ef4444' : '#4c1d95').style('stroke-width', 2);
+			.style('fill', '#ffffff').style('stroke', node => node.unreachable ? '#ef4444' : '#4c1d95').style('stroke-width', 2);
 		proxy_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => subject_of(node).unreachable ? '#ef4444' : '#4c1d95')
+			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => node.unreachable ? '#ef4444' : '#4c1d95')
 			.text('P');
 		// blind-spot ("?", amber, top-right) and maintenance ("M", slate) are deliberately different corners
 		// with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a maintenance
 		// window) and the two badges must read as different concerns, never the same warning twice.
-		const blind_spot_badges = node_selection.filter(node => subject_of(node).type === 'host' && subject_of(node).blind_spot);
+		const blind_spot_badges = node_selection.filter(node => node.type === 'host' && node.blind_spot);
 		blind_spot_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
 			.style('fill', '#f59e0b').style('stroke', '#7c2d12').style('stroke-width', 2);
 		blind_spot_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('?');
-		// Maintenance badge position depends on whether this node is merged: a plain Host's own box still has
-		// its top-left corner free, but a merged node's top-left belongs to the Device half, so the badge
-		// moves to the bottom-right of the Host/Proxy half instead — still clearly on that half, never
-		// overlapping the top-right blind-spot/proxy badge.
-		const plain_maintenance_badges = node_selection.filter(node => !node.merged && node.type === 'host' && node.maintenance && !node.disabled);
-		plain_maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
+		const maintenance_badges = node_selection.filter(node => node.type === 'host' && node.maintenance && !node.disabled);
+		maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
 			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
-		plain_maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
-			.text('M');
-		const merged_maintenance_badges = node_selection.filter(node => node.merged && node.merged.type === 'host' && node.merged.maintenance && !node.merged.disabled);
-		merged_maintenance_badges.append('circle').attr('cx', 50).attr('cy', 18).attr('r', 10)
-			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
-		merged_maintenance_badges.append('text').attr('x', 50).attr('y', 22).attr('text-anchor', 'middle')
+		maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('M');
 
@@ -963,11 +989,7 @@ const view = new class {
 			}
 			return notes.length ? `${subject.name} — ${notes.join(' ')}` : subject.name;
 		};
-		// Plain nodes keep one group-level tooltip; a merged node's two independently-clickable halves get
-		// their own tooltip each, attached directly to their own rect.
-		plain_selection.append('title').text(node => describeSubject(node));
-		this.canvas.selectAll('g.merged rect.topology-merged-device').append('title').text(node => node.name);
-		this.canvas.selectAll('g.merged rect.topology-merged-target').append('title').text(node => describeSubject(node.merged));
+		node_selection.append('title').text(node => describeSubject(node));
 		simulation.on('tick', () => {
 			nodes.forEach(node => {
 				if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
