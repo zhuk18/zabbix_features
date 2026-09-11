@@ -416,6 +416,148 @@ $pseudo_if_index = static function (?string $remote_port_id, ?string $remote_por
 	return (int) (crc32((string) $remote_port_id) % 1000000);
 };
 
+// Spec §3 rule 4 "pseudo-port merge" / §2.3's "canonicalization alone does not prevent a same-cable
+// duplicate" paragraph. Normalizes an SNMP ifDescr/ifName-style port name to a vendor-abbreviation-
+// independent, case-insensitive canonical form so e.g. "GigabitEthernet0/24" (lldpRemPortDesc's long form,
+// see the lab's *.snmprec ifDescr/lldpRemPortDesc rows) and "Gi0/24" (ifName's short form) compare equal.
+// The Gi/GigabitEthernet pair is the one actually exercised by this repo's snmpdata/ lab fixtures (grepped
+// for ifDescr/ifName/lldpRemPortDesc); Te/TenGigabitEthernet, Fa/FastEthernet and Po/Port-channel aren't
+// present in the fixtures but are the same well-known Cisco IOS ifDescr long-form convention, named
+// explicitly in the spec text this implements — kept here, not factored into a general-purpose utility
+// elsewhere, since nothing else in this file needs vendor name normalization (per the brief's scope note).
+$normalize_port_name = static function (string $name): string {
+	static $long_to_short = [
+		'gigabitethernet' => 'gi',
+		'tengigabitethernet' => 'te',
+		'fastethernet' => 'fa',
+		'port-channel' => 'po',
+	];
+	$lower = strtolower(trim($name));
+	foreach ($long_to_short as $long => $short) {
+		if (strncmp($lower, $long, strlen($long)) === 0) {
+			return $short.substr($lower, strlen($long));
+		}
+	}
+	return $lower;
+};
+
+// Spec §3 rule 4: run ONLY right after upserting a reporter's own real Port (never from the neighbor
+// pseudo-Port creation path below — that path is unaffected, per scope). Looks for an existing pseudo-Port
+// (attrs.pseudo = true, §2.2) on the same Device whose name normalizes to the same thing as the real Port
+// just upserted. Exactly one match: the pseudo-Port was standing in for this exact physical port before
+// this Device ever pushed its own data — re-point its physical_link edge(s) onto the real Port and delete
+// it. Zero or more-than-one match: do nothing (never guess — §3 rule 4's explicit instruction), just log it
+// so it isn't silently missed either way.
+$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name): void {
+	$normalized_real = $normalize_port_name($real_port_name);
+
+	$stmt = $pdo->prepare(
+		"SELECT port.id, JSON_UNQUOTE(JSON_EXTRACT(port.attrs, '\$.name')) AS name FROM topo_nodes port".
+		" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
+		" WHERE part_of.dst_id = ? AND port.type = 'port' AND port.id != ?".
+		" AND JSON_EXTRACT(port.attrs, '\$.pseudo') = true");
+	$stmt->execute([$reporter_device_id, $real_port_id]);
+	$pseudo_ports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+	$matches = array_values(array_filter($pseudo_ports,
+		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized_real));
+
+	if (count($matches) !== 1) {
+		if (count($matches) > 1) {
+			$ids = implode(', ', array_map(static fn (array $p): string => '#'.$p['id'], $matches));
+			echo "PSEUDO-MERGE SKIP: device #{$reporter_device_id} has ".count($matches)." pseudo-Port(s) ".
+				"({$ids}) whose name normalizes to match real Port #{$real_port_id} ('{$real_port_name}') — ".
+				"ambiguous, leaving all of them in place (spec §3 rule 4: never guess).\n";
+		}
+		return; // zero matches: nothing to merge, not worth logging (the ordinary/common case).
+	}
+
+	$pseudo_port_id = (int) $matches[0]['id'];
+
+	$edges_stmt = $pdo->prepare(
+		"SELECT id, src_id, dst_id FROM topo_edges WHERE type = 'physical_link' AND (src_id = ? OR dst_id = ?)");
+	$edges_stmt->execute([$pseudo_port_id, $pseudo_port_id]);
+	$edges = $edges_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+	$all_repointed = true;
+	foreach ($edges as $edge) {
+		$other_id = ((int) $edge['src_id'] === $pseudo_port_id) ? (int) $edge['dst_id'] : (int) $edge['src_id'];
+		if ($other_id === $real_port_id) {
+			// Pseudo-Port and real Port were somehow already directly linked to each other — nothing
+			// sensible to "merge" here, just drop the now-redundant edge.
+			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);
+			continue;
+		}
+		// §2.3: src_id is always the numerically smaller Port id — re-canonicalize for the new endpoint.
+		[$new_src, $new_dst] = $other_id < $real_port_id ? [$other_id, $real_port_id] : [$real_port_id, $other_id];
+
+		// Order-independence (§8): the OTHER side of this same cable may have already run its own merge
+		// first (e.g. real-real edge 167<->171 already exists because Switch1's pass merged its pseudo-Port
+		// into Router1's real Port before Router1's own pass got a chance to merge the mirror-image
+		// pseudo-Port pointing back). That leaves this pseudo-Port's edge fully redundant, not ambiguous —
+		// dropping it (rather than trying to UPDATE onto an already-taken pair, which would just violate
+		// topo_edges_physical_link_pair_uq) is what lets a second/later ingest pass still converge instead
+		// of getting stuck retrying the same collision forever.
+		$dup = $pdo->prepare(
+			"SELECT id FROM topo_edges WHERE type = 'physical_link' AND src_id = ? AND dst_id = ? AND id != ?");
+		$dup->execute([$new_src, $new_dst, $edge['id']]);
+		if ($dup->fetch()) {
+			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);
+			continue;
+		}
+
+		try {
+			$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ? WHERE id = ?')
+				->execute([$new_src, $new_dst, $edge['id']]);
+		}
+		catch (PDOException $exception) {
+			// §2.3: a Port can have at most one active physical_link. This is the genuinely pathological
+			// case left after the duplicate-pair check above: the real Port already has some OTHER active
+			// physical_link. Log and leave this pseudo-Port alone rather than letting a constraint
+			// violation escape and abort the whole reporter's ingest transaction (caught locally here, not
+			// left to the outer per-reporter catch).
+			echo "PSEUDO-MERGE SKIP: could not re-point physical_link edge #{$edge['id']} from pseudo-Port ".
+				"#{$pseudo_port_id} onto real Port #{$real_port_id} ({$exception->getMessage()}) — leaving ".
+				"the pseudo-Port in place.\n";
+			$all_repointed = false;
+		}
+	}
+
+	if (!$all_repointed) {
+		return;
+	}
+
+	// Deletes the part_of edge too via topo_edges.src_id's ON DELETE CASCADE FK onto topo_nodes.id.
+	$pdo->prepare("DELETE FROM topo_nodes WHERE id = ? AND type = 'port'")->execute([$pseudo_port_id]);
+	echo "OK: merged pseudo-Port #{$pseudo_port_id} into real Port #{$real_port_id} ('{$real_port_name}') ".
+		"on device #{$reporter_device_id}\n";
+};
+
+// The symmetric half $merge_pseudo_port() alone doesn't cover: that function only runs while upserting a
+// reporter's OWN real ports, so it only cleans up a pseudo-Port that already existed *before* this pass.
+// It does nothing to stop the neighbor-port-creation code below (unconditional, per rule 1) from
+// fabricating a *fresh* pseudo-Port on a neighbor that already has a matching real port from some earlier
+// pass — e.g. Router1 processed first in this run (its own merge already ran and found nothing to do
+// yet), then Switch1 processed later in the same run mentions Router1 as a neighbor and would otherwise
+// mint a brand-new pseudo-Port right next to Router1's real one, every single run, forever (confirmed live:
+// without this, the same duplicate reappears under a new id after every ingest pass, never actually
+// converging). This is the mirror-image check, run *before* fabricating a neighbor pseudo-Port at all: if
+// the neighbor Device already has a real (non-pseudo) Port whose name normalizes to match, use that real
+// Port's id directly and never create a pseudo one in the first place. Returns null when there's no such
+// real port (the ordinary case — proceed with pseudo-Port creation as before).
+$find_matching_real_port = static function (int $device_id, string $name) use ($pdo, $normalize_port_name): ?int {
+	$normalized = $normalize_port_name($name);
+	$stmt = $pdo->prepare(
+		"SELECT port.id, JSON_UNQUOTE(JSON_EXTRACT(port.attrs, '\$.name')) AS name FROM topo_nodes port".
+		" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
+		" WHERE part_of.dst_id = ? AND port.type = 'port' AND JSON_EXTRACT(port.attrs, '\$.pseudo') = false");
+	$stmt->execute([$device_id]);
+	$matches = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
+		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized));
+	// Same "never guess" rule as $merge_pseudo_port(): only act on an unambiguous single match.
+	return count($matches) === 1 ? (int) $matches[0]['id'] : null;
+};
+
 $api = new ZabbixApi($api_url, $api_token);
 $processed = 0;
 $skipped = 0;
@@ -479,11 +621,16 @@ foreach ($reporter_items as $reporter_item) {
 				'oper_status' => $port_blob['oper_status'] ?? 'down',
 				'learned_macs' => [], // CAM-table walk is out of scope for this iteration (spec §1)
 				'zabbix_itemids' => [],
+				'pseudo' => false, // §2.2: real port, from this Device's own push.
 			];
 			$local_ports[$attrs['if_index']] = $port($reporter_device_id, $attrs);
 			if ($attrs['mac']) {
 				$reporter_macs[] = $attrs['mac'];
 			}
+
+			// §3 rule 4 pseudo-port merge — real ports only, right after upserting one (see the closure's
+			// own comment for why it must not run anywhere else, e.g. the neighbor pseudo-port path below).
+			$merge_pseudo_port($reporter_device_id, $local_ports[$attrs['if_index']], $attrs['name']);
 		}
 
 		// Rule 1: only an LLDP-resolved neighbor becomes a Device — the push component already computed
@@ -514,19 +661,29 @@ foreach ($reporter_items as $reporter_item) {
 			$local_port_id = $local_ports[$local_if_index] ?? null;
 			$neighbor_device_id = $device($neighbor_attrs, $local_port_id);
 
-			$neighbor_if_index = $pseudo_if_index($neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
-			$neighbor_port_attrs = [
-				'if_index' => $neighbor_if_index,
-				'name' => $resolve_port_label($neighbor['remote_port_desc'] ?? null, $neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null),
-				'if_type' => 'physical',
-				'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-				'speed' => null,
-				'admin_status' => 'up',
-				'oper_status' => 'up',
-				'learned_macs' => [],
-				'zabbix_itemids' => [],
-			];
-			$neighbor_port_id = $port($neighbor_device_id, $neighbor_port_attrs);
+			$neighbor_port_label = $resolve_port_label($neighbor['remote_port_desc'] ?? null, $neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
+
+			// Spec §3 rule 4: before fabricating a pseudo-Port for this neighbor, check whether it already
+			// has a real one (from its own push, in this run or an earlier one) that's plainly the same
+			// physical port — see $find_matching_real_port()'s comment for why this proactive check is
+			// needed in addition to (not instead of) $merge_pseudo_port() below.
+			$neighbor_port_id = $find_matching_real_port($neighbor_device_id, $neighbor_port_label);
+			if ($neighbor_port_id === null) {
+				$neighbor_if_index = $pseudo_if_index($neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
+				$neighbor_port_attrs = [
+					'if_index' => $neighbor_if_index,
+					'name' => $neighbor_port_label,
+					'if_type' => 'physical',
+					'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
+					'speed' => null,
+					'admin_status' => 'up',
+					'oper_status' => 'up',
+					'learned_macs' => [],
+					'zabbix_itemids' => [],
+					'pseudo' => true, // §2.2: fabricated only from a neighbor's LLDP sighting, not this Device's own push.
+				];
+				$neighbor_port_id = $port($neighbor_device_id, $neighbor_port_attrs);
+			}
 
 			if ($local_port_id !== null) {
 				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp');
