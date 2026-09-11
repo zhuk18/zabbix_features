@@ -49,14 +49,23 @@ if (isset($options['help'])) {
 
 // ---- Run lock + status file (spec §6/§7: shared by the CLI and the web controller that spawns this
 // same script — adding it once here, at the entrypoint every caller goes through, covers both without
-// any separate locking code on the API path). Lock/status files live next to this script so both a
-// CLI invocation and a web-spawned one (different cwd) resolve to the same path. Acquired after --help
-// (which should never be blocked by an in-progress run) but before argument validation, so even a
-// malformed invocation can't race a real run — it just fails fast under the lock and the shutdown
-// handler below turns that into a clean "error" status rather than leaving "running" stuck. ----
+// any separate locking code on the API path). Deliberately NOT next to this script (__DIR__, inside
+// the git-tracked source tree): a real deployment runs the CLI as one OS user (an operator's shell)
+// and the web-spawned copy as another (e.g. www-data under Apache/PHP-FPM), and a source directory is
+// commonly owned by the former with no write access for the latter — confirmed the hard way against
+// this box's own Apache vhost (docroot owned by a human user, group-writable but www-data isn't a
+// member): the web-triggered run's fopen() on the lock file silently failed under www-data, so it hit
+// the "already running" fail() path immediately, produced no new lock/status/log file, and the status
+// endpoint kept serving a stale (from an earlier, same-OS-user) "done" result — the UI reported success
+// for a run that never actually happened. sys_get_temp_dir() (world-writable, sticky bit) is a
+// reliable common ground regardless of which OS user runs which caller. Acquired after --help (which
+// should never be blocked by an in-progress run) but before argument validation, so even a malformed
+// invocation can't race a real run — it just fails fast under the lock and the shutdown handler below
+// turns that into a clean "error" status rather than leaving "running" stuck. ----
 
-const INGEST_LOCK_FILE = __DIR__.'/.ingest.lock';
-const INGEST_STATUS_FILE = __DIR__.'/.ingest-status.json';
+define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
+const INGEST_LOCK_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest.lock';
+const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.json';
 
 function write_status(array $status): void {
 	// Atomic-ish: write to a temp file then rename, so a concurrent GET /topo/ingest/status read never

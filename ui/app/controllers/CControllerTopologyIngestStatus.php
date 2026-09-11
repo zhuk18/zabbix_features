@@ -14,7 +14,11 @@ class CControllerTopologyIngestStatus extends CController {
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 
 	protected function doAction() {
-		$status_file = dirname(__DIR__, 3).'/database/topology/discovery/.ingest-status.json';
+		// Must match ingest.php's own INGEST_STATUS_FILE constant exactly (sys_get_temp_dir(), not the
+		// git-tracked discovery/ directory — see that constant's comment: a source directory is commonly
+		// not writable by the OS user running a web-spawned ingest, so the status file has to live
+		// somewhere any caller, whichever user runs it, can actually write).
+		$status_file = sys_get_temp_dir().'/topology-ingest-status.json';
 
 		$status = is_file($status_file) ? json_decode((string) file_get_contents($status_file), true) : null;
 		if (!is_array($status)) {

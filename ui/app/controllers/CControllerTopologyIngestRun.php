@@ -43,7 +43,17 @@ class CControllerTopologyIngestRun extends CController {
 
 		$discovery_dir = dirname(__DIR__, 3).'/database/topology/discovery';
 		$ingest_script = $discovery_dir.'/ingest.php';
-		$log_file = $discovery_dir.'/.ingest-run.log';
+		// Deliberately NOT under $discovery_dir (git-tracked source tree, typically owned by a human
+		// deployer/operator) — this process runs as the web server's OS user (e.g. www-data), which a
+		// real deployment's source directory commonly doesn't grant write access to. Confirmed the hard
+		// way: with the log (and, before this fix, the lock/status files too — see ingest.php's own
+		// comment on INGEST_LOCK_FILE/INGEST_STATUS_FILE) under $discovery_dir, a run spawned through
+		// Apache/PHP-FPM silently failed to even start (the shell redirect below couldn't open the log
+		// file for writing), while this endpoint still reported {"status":"started"} and the status
+		// endpoint kept serving stale data from an earlier, different-OS-user run — the UI showed
+		// "success" for a run that never happened. sys_get_temp_dir() matches ingest.php's own runtime
+		// directory choice, so both land somewhere any OS user running either caller can write to.
+		$log_file = sys_get_temp_dir().'/topology-ingest-run.log';
 
 		// Deliberately always spawns rather than peeking at the status file first to decide "already
 		// running, don't bother": ingest.php's own flock() (§6) is the actual source of truth on whether
