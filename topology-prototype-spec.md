@@ -37,24 +37,10 @@ Favor simplicity and readability over performance or completeness.
 - Automated confidence-scored / fuzzy identity matching
 - Scheduled or cron-based discovery
 - Reachability / SPOF / blast-radius graph algorithms
-- CAM-table (`dot1dTpFdbTable`) walk — the real collector (§4.1) now
-  exists, so this is a live, deliberately-deferred gap rather than a
-  hypothetical one: `Port.attrs.learned_macs` is never populated by
-  `push.py`, so rule 1's "MAC learned only via CAM table → appended to
-  `learned_macs`, no `Device` created" branch is currently unreachable
-  through the real pipeline (only the static seed fixture in §4
-  exercises it). See §11.
-- **LAG membership discovery** (`ifStackTable`/`ieee8023adTable` walk) —
-  `push.py` detects a LAG-type interface itself (`ifType`
-  `ieee8023adLag`, reported as `if_type: "lag"` in a port's blob entry),
-  but §4.1's blob schema was never specified to carry *which physical
-  ports are members of that LAG* — no `ifStackTable`/`ieee8023adTable`
-  walk was ever in scope, so there is no data for `ingest.php` to build a
-  `member_of_lag` edge from. `ingest.php` is not missing anything on its
-  end (it correctly creates no `member_of_lag` edge without the data); the
-  gap is entirely on the push/blob-schema side. A `Port` with
-  `if_type: "lag"` from the real collector today is expected to land
-  member-less. See §11.
+- CAM-table (`dot1dTpFdbTable`) walk — not relevant until the real collector exists
+- `ifStackTable`/`ieee8023adTable` walk for LAG membership — same status;
+  confirmed missing during real-collector implementation (§4.1), tracked
+  there rather than worked around in `ingest.php`
 
 If a requirement not listed above seems necessary while implementing, stop and
 flag it rather than silently expanding scope.
@@ -80,8 +66,8 @@ CREATE TABLE topo_nodes (
 CREATE TABLE topo_edges (
   id         BIGINT PRIMARY KEY AUTO_INCREMENT,
   type       VARCHAR(32) NOT NULL,   -- 'part_of' | 'physical_link' | 'member_of_lag' | 'represented_by' | 'monitored_by'
-  src_id     BIGINT NOT NULL REFERENCES topo_nodes(id),
-  dst_id     BIGINT NOT NULL REFERENCES topo_nodes(id),
+  src_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
+  dst_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   attrs      JSON NOT NULL DEFAULT ('{}'),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -94,6 +80,26 @@ CREATE INDEX idx_topo_edges_dst ON topo_edges(dst_id, type);
 works unmodified on both MySQL and PostgreSQL, since both treat multiple
 `NULL`s as non-conflicting under a `UNIQUE` constraint, and the column is
 `NULL` for every non-`host`/`proxy` node anyway.
+
+**The cascade chain must be complete, not just start at `host_ref`.** When a
+Zabbix `Host` is deleted, `host_ref`'s `ON DELETE CASCADE` removes the
+corresponding `topo_nodes` row — but without `ON DELETE CASCADE` on
+`topo_edges.src_id`/`dst_id` as well (now added above), that node deletion
+would be blocked by any edge still pointing at it (e.g. a `represented_by`
+edge from a `Device`), or silently orphan the edge if the constraint isn't
+enforced strictly. This was found via a real scenario, not hypothetically:
+deleting a Zabbix `Host` that already had topology data attached needs the
+full chain to work cleanly, not just the first hop.
+
+**Generic storage does not imply generic constraints — say this explicitly
+so a future reader doesn't assume otherwise.** `topo_edges` already needs
+five separate pieces of type-specific database logic layered on top of its
+generic shape: `represented_by` source uniqueness, `represented_by`
+destination uniqueness, `physical_link` pair uniqueness, `physical_link`
+source uniqueness, `physical_link` destination uniqueness (all detailed in
+§2.3). A single shared table does not mean a new edge type is free to add —
+each one brings its own constraint logic that has to be designed, not
+inherited automatically from the generic schema.
 
 **Edge-level uniqueness needs care — `topo_edges` is shared across types, so
 a plain column constraint isn't enough.** Two rules to enforce, detailed
@@ -112,26 +118,32 @@ while the model is still being validated.
 
 ### 2.2 Node attrs by type
 
+**Conceptual framing, sharpened after review — no behavior change, just
+precision.** `Device` represents an *observed network participant* that may
+exist independently of a Zabbix `Host` representation — not "the generic
+topology node." `represented_by` associates that participant with a Zabbix
+domain object without replacing the participant itself (this is why it
+persists after `/depromote`, per rule 3 in §3). `Port` represents a
+connectivity point of the observed participant — and **resolving the
+participant's identity and resolving a specific remote port on that
+participant are separate concerns**, not one combined resolution step; see
+the explicit rule on this in §3 (rule 1's follow-up note) for what happens
+when one succeeds and the other doesn't.
+
 - **device**: `{mac, chassis_id, mgmt_ip, sysname, vendor, last_seen}`.
   `sysname`/`chassis_id`/`vendor` come from LLDP/CDP data announced by network
   devices — untrusted input, not from Zabbix or the person operating this
   tool. See §9 before rendering any of these anywhere in the UI.
-- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: [], pseudo}`.
+- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: [], pseudo: false}`.
   Named `Port`, not `Interface`, specifically to avoid colliding with Zabbix's
   own `host.interfaces` (agent/SNMP/JMX/IPMI monitoring endpoints) — a
   different concept entirely. Use "port" consistently in code, comments, and
   endpoint names for this node type; reserve "interface" for Zabbix's own
   meaning when that comes up (e.g. `selectInterfaces`, `interfaces[]` in §3.2).
-  **`pseudo` (boolean)**: `true` when this `Port` was created only from a
-  *neighbor's* LLDP sighting of it (its owning `Device` has never pushed its
-  own `ports[]` data — real SNMP `ifIndex` unknown, so ingest fabricates one,
-  §4.1); `false` when it came from the owning `Device`'s own push. Exists to
-  drive the pseudo-port merge in §3 rule 4: when a `Device` that only had
-  pseudo-`Port`s eventually becomes a reporter itself and pushes its real
-  ports, a pseudo-`Port` that turns out to be the same physical port as a
-  newly-arrived real one needs to be recognized and merged rather than left
-  standing alongside it as a duplicate (see the `physical_link` duplication
-  note in §2.3 for the failure mode this prevents).
+  `pseudo: true` marks a `Port` created only from a neighbor's LLDP
+  observation (no real `if_index` from that device's own push) — see §3
+  rule 4's pseudo-port merge rule for what happens when the neighbor turns
+  out to be a reporter itself.
 - **host**: `{}` (or empty) — a thin pointer only. `host_ref` (see §2.1) is the
   single source of truth for identity; name, status, and any other display
   data are resolved with a live join against `hosts` at read time, never
@@ -202,26 +214,6 @@ above. Same root cause, same fix if it's ever needed (asymmetric constraint
 `Host`/`Proxy` panel), same "pick one `Device` to represent it, leave
 the rest topology-only or manually linked" workaround for now.
 
-**A reporter's own `Device` is `represented_by` its own `Host` deterministically —
-this is a separate path from §3.2's opportunistic MAC reconciliation, not a
-variant of it.** Ingest already knows, from the `item.get` call that located
-this reporter's `topology.discovery.raw` item in the first place, exactly
-which `hostid` that item belongs to (§4.1). There is no ambiguity to
-resolve — the reporter *is* that `Host`, by construction, regardless of
-whether its Zabbix inventory happens to carry a matching MAC. So ingest
-creates the `represented_by` edge directly from the reporter's `Device` to
-that exact `Host`, with `matched_by: "reporter_self"`, **without** calling
-into the §3.2 MAC-matching function for this edge at all. This does not
-change §3.2 itself — every entry in the blob's `neighbors[]` array still
-goes through the same opportunistic MAC reconciliation as before; only the
-reporter's *own* self-identification gets this deterministic shortcut,
-since only the reporter's identity is actually known for certain. The 1:1
-constraint above still applies in full: if the `Device` already carries a
-*different* active `represented_by` (e.g. a prior manual `/promote` to the
-wrong `Host`, or a stale match from before), this write is skipped and
-logged as a conflict — never silently overridden, same rule as every other
-`represented_by` write path.
-
 **`represented_by` can be created manually, independent of reconciliation.**
 The `/promote` endpoint (§6) is a deliberate user action and does **not**
 run the strong-key check from §3.2 — a person can link any `Device` to any
@@ -241,21 +233,22 @@ before insert. Combined with the uniqueness mechanism in §2.1 (unique on
 `(src_id, dst_id)` where `type='physical_link'`), this prevents both an
 exact duplicate and a reversed-direction duplicate of the same link.
 
-**Canonicalization alone does not prevent a same-cable duplicate when both
-endpoints are independently discovered.** Found in live testing: when both
-`Device`s on either end of a cable are themselves reporters, each one's own
-push independently reports the other as an LLDP neighbor. Ingest processes
-each reporter's blob separately, and — before the pseudo-port merge in §3
-rule 4 existed — had no way to recognize that a pseudo-`Port` it was about
-to fabricate for "the neighbor's port" was the *same* physical port a
-different ingest pass had already (or would later) create for real from
-that neighbor's own push. Canonicalizing `(src_id, dst_id)` only de-dupes
-when both sides already agree on the same two `Port` ids — it does nothing
-when each side's pass ends up minting its own distinct pseudo-`Port` for
-the other, producing two separate `physical_link` rows (and two phantom
-`Port`s) for one real cable. The fix is the pseudo-port merge (§3 rule 4,
-`Port.attrs.pseudo` in §2.2) — canonicalization still matters for the
-same-port-pair case, it just isn't sufficient on its own for this one.
+**This also resolves the case where both ends of a link are independent
+reporters — but only once the pseudo-port merge rule in §3 rule 4 has run;
+canonicalization alone was not sufficient, and an earlier version of this
+note overstated that it was.** E.g. `Core1` and `Core2` are both reporters
+and each independently asserts the same link from its own side (`Core1`'s
+blob says "my port X connects to Core2's port Y", `Core2`'s blob says the
+reverse). The first reporter processed creates a *pseudo*-`Port` for the
+other side (LLDP never exposes a real `if_index` for the far end — §3 rule
+4). Only once the second reporter's own push arrives and the merge rule
+re-points that pseudo-port's edges onto the now-real `Port` do both `Port`s
+resolve to the same node IDs — **at that point**, canonicalization collapses
+both assertions to the same `(src_id, dst_id)` pair and the second
+assertion becomes a clean upsert. Confirmed as a real, previously-missing
+step during implementation (the `Router1`↔`Switch1` case): without the
+merge, two separate edges and two fabricated ports persist instead of
+converging to one.
 
 **A `Port` can have at most one active `physical_link`.** This was missing
 from earlier passes on this spec — a physical port has exactly one cable in
@@ -267,6 +260,19 @@ mechanism as elsewhere (§2.1): unique on `src_id` where
 happens at the `member_of_lag` level, not by letting one physical port carry
 multiple `physical_link` rows; each physical member port still connects to
 exactly one specific port on the other side.
+
+**This makes the point-to-point assumption explicit, deliberate, and
+worth stating outright: the model assumes each port connects to exactly one
+other port.** It does not represent TAPs, SPAN/mirror destinations, optical
+splitters, or other passive one-to-many physical topologies — those need
+more than one active link per port by design, which this constraint
+excludes on purpose. If that becomes a real requirement later, it's a
+model change (relaxing this uniqueness for specific port roles), not a bug
+to patch quietly. The sharpest way to state the boundary: **topology
+represents operational peer relationships, not packet-replication paths.**
+Anyone questioning why a SPAN/TAP/mirror setup doesn't show up correctly
+should read this as the model correctly excluding a different kind of
+connection, not as a defect.
 
 **`monitored_by` semantics — do not conflate with an outage.** A `Proxy`
 becoming unreachable means Zabbix loses *visibility* into every `Host` it
@@ -299,8 +305,42 @@ These rules are the core of the model — implement them exactly, do not
    non-LLDP endpoints (PCs, phones, printers), and creating a node per MAC
    would flood the graph with noise that carries no topological value.
 
-2. **`Device` ↔ `Host`/`Proxy` matching uses MAC address only — not chassis
-   ID, despite what an earlier version of this rule said.** There is no
+   **Be precise about what this trade-off actually costs.** A switch
+   connected to a server with LLDP disabled on either end is invisible to
+   this model even though the physical link is real and the MAC is right
+   there in `learned_macs` — there is no fallback path that promotes a
+   learned MAC into a `Device` later. This is **coverage that is
+   intentionally incomplete**, not bad data being filtered out — say it
+   this way rather than "ignored," since the two read very differently to
+   someone auditing what the model can and can't see.
+
+   **A separate, previously-unaddressed case: the remote participant
+   resolves but the remote port doesn't.** Participant identity (chassis
+   ID / sysname, this rule) and remote port identity (`remote_port_id`
+   parsing, §4.1) are resolved independently — nothing guarantees both
+   succeed together. If a neighbor's `remote_chassis_id`/`remote_sysname`
+   resolves but `remote_port_id` doesn't parse into a usable `Port`
+   identifier (an unhandled `lldpRemPortIdSubtype`, a malformed value,
+   etc.), **the `Device` node is still created** — this rule (1) only
+   depends on participant identity, not port resolution — but **no
+   `physical_link` is created for that observation**, since `physical_link`
+   requires a resolved `Port` on both ends (§2.3) and there is currently no
+   "connected to this Device, exact port unknown" representation. The
+   connectivity information for that specific observation is silently
+   lost — the `Device` exists, but floats with no edge from this neighbor
+   relationship (it may still get one later, from a different, better-
+   resolved observation). This is a **deliberate MVP boundary, now decided
+   rather than left implicit**: `physical_link` stays strictly `Port` ↔
+   `Port`, never `Device` ↔ `Device` with one side unresolved. Relaxing
+   this (allowing a link with an unresolved remote port) is a real model
+   change, not a quick fix — see §11's backlog note on this exact
+   question if it needs revisiting.
+
+2. **This rule applies only to neighbor devices — a reporter's own `Device`
+   uses the separate, deterministic `reporter_self` association defined in
+   §4.1, not this rule.** Keep the two distinct: `Device` ↔ `Host`/`Proxy`
+   matching for anything found as a *neighbor* uses MAC address only — not
+   chassis ID, despite what an earlier version of this rule said. There is no
    generic Zabbix host field that carries an LLDP chassis ID (host
    inventory has `macaddress_a`/`macaddress_b` and serial-number fields,
    nothing called "chassis ID") — a chassis-ID-based match was never
@@ -354,51 +394,73 @@ These rules are the core of the model — implement them exactly, do not
    weaker signal than `chassis_id`/`mgmt_ip` on inspection. Match `Port` by
    `(device_id via part_of, if_index)`.
 
-   **Pseudo-port merge, run only when upserting a reporter's own real
-   ports** (never triggered by, and never part of, ordinary pseudo-port
-   creation from a neighbor observation under rule 1 — that path is
-   unaffected). After upserting a real `Port` (`pseudo: false`, §2.2) from
-   a reporter's own `ports[]`, look for an existing **pseudo** `Port`
-   (`pseudo: true`) on the *same* `Device` whose `name` matches the real
-   port's `name` after normalization (vendor long/short forms —
-   `GigabitEthernet` ↔ `Gi`, `TenGigabitEthernet` ↔ `Te`, and similarly for
-   other common SNMP `ifDescr`/`ifName` abbreviations — case-insensitive).
-   - **Exactly one match**: this is the same physical port, previously
-     fabricated as a pseudo-port because this `Device` hadn't pushed its
-     own data yet. Re-point every `physical_link` edge currently on the
-     pseudo-`Port` onto the real `Port`, then delete the pseudo-`Port`.
-   - **Zero matches, or more than one**: do nothing — leave every
-     pseudo-`Port` as-is. Never guess; an ambiguous match left alone is
-     recoverable (the next ingest pass gets another chance once the
-     ambiguity resolves itself, e.g. a second pseudo-port gets cleaned up
-     by some other means), a wrong merge is not.
-   - A `Device` that never becomes a reporter itself (e.g. an end device
-     with no SNMP/management access) keeps its pseudo-`Port`s forever —
-     there's nothing to merge them with, and that's the expected, correct
-     end state for such a device, not a gap to close.
+   **Known limitation, not a bug: a `sysname`-scoped `Device` doesn't
+   survive moving to a different port.** Because the match is scoped to
+   `(reporter, local_if_index)`, a neighbor identified only by `sysname`
+   that later shows up on a *different* port of the same reporter (cable
+   moved) won't match its old `Device` node — the old node is left behind
+   (never deleted, per rule 3) and a new one is created at the new port.
+   This is an accepted MVP trade-off, not something to silently work around
+   with a broader match — if it becomes a real problem in practice, it's a
+   candidate for the same future-iteration discussion as `represented_by`'s
+   1:1 constraint, not a quick fix now.
 
-   **This reactive merge alone does not converge — a second, proactive
-   check on the neighbor side is required too.** Found live, immediately
-   after implementing only the reactive half above: the merge only cleans
-   up a pseudo-`Port` that already existed *before* the current pass, but
-   rule 1's neighbor-port-creation step is unconditional — nothing stopped
-   it from fabricating a *fresh* pseudo-`Port` for a neighbor that already
-   has a matching real `Port` from an earlier pass. In a repeating cast of
-   reporters (the normal case), this meant the same duplicate reappeared
-   under a new `Port`/`physical_link` id every single ingest run, forever
-   — node/edge *counts* looked stable (one created, one deleted, every
-   cycle) even though the duplicate itself never actually went away.
-   **The fix needs both halves**: before rule 1's neighbor-port-creation
-   step fabricates a pseudo-`Port` at all, it must first check whether that
-   neighbor `Device` already has a real, non-pseudo `Port` whose name
-   normalizes to match (same normalization table, same "only act on an
-   unambiguous single match, never guess" rule as above) — and if so, link
-   directly to that real `Port` instead of ever creating a pseudo one.
-   Implementing only the reactive merge and treating stable node/edge
-   *counts* across repeated runs as proof of convergence is not
-   sufficient — verify by checking that the *specific* `Port`/edge ids
-   between a known reporter pair stop changing across consecutive runs,
-   not just that the totals do.
+   **Pseudo-port merge — confirmed as a real gap during implementation,
+   not previously specified.** When a `Device` is created from a neighbor
+   observation (rule 1), its `Port` is necessarily a **pseudo-port**
+   (`attrs.pseudo: true`, §2.2) — LLDP only tells you the neighbor's port
+   *name*/*ID*, never a real `if_index`, since that's private to the
+   neighbor's own SNMP tree. If that neighbor is, or later becomes, a
+   reporter itself, its own push independently creates its *real* `Port`
+   for the same physical port — and without reconciling the two, both a
+   pseudo-port and a real port end up representing one physical port, each
+   with its own `physical_link` to the same far end. This is exactly what
+   happened with `Router1`↔`Switch1` in testing: two edges, two fabricated
+   ports, one cable.
+
+   **Merge rule has two halves — both are required, the first alone is not
+   enough.** An initial implementation with only the reactive half looked
+   stable (node/edge counts held steady across repeated ingest runs) but
+   wasn't: one pseudo-port was being deleted and a fresh one immediately
+   fabricated each cycle, which canceled out in the totals while the actual
+   duplication never resolved. Confirmed only by checking entity IDs across
+   repeated runs, not counts — see the methodological note at the end of
+   this rule.
+
+   1. **Reactive half**: whenever ingest upserts a reporter's own real
+      `Port`s (the non-pseudo case in this rule), check whether that same
+      `Device` already has a **pseudo**-`Port` whose name matches the real
+      port's name after normalization (vendor long/short forms — e.g.
+      `GigabitEthernet0/24` ↔ `Gi0/24` — case-insensitive). If exactly one
+      pseudo-port matches: re-point every `physical_link` edge from the
+      pseudo-port to the real port, then delete the pseudo-port.
+   2. **Proactive half (the missing piece the first fix skipped)**: before
+      creating a *new* pseudo-port for a neighbor observation at all, check
+      whether that neighbor `Device` already has a **real** `Port` with a
+      matching normalized name. If so, link directly to that real port
+      instead of fabricating a pseudo-port in the first place. Without this
+      half, the reactive half above cleans up one generation of duplicate
+      only for the very next ingest pass to immediately recreate one, since
+      nothing stopped pseudo-port creation from running unconditionally
+      even when a matching real port already existed at that moment.
+
+   **If zero or more than one candidate matches in either half, do
+   nothing — same "don't auto-merge on ambiguous evidence" principle as the
+   `sysname` fallback above.** Together, both halves are what make the
+   multi-observer case in §2.3 (`Core1`/`Core2` both independently
+   reporting the same link) actually converge to one edge and *stay*
+   converged — canonicalization alone only merges two *already-real* ports;
+   it was never sufficient on its own when one side starts out as a
+   pseudo-port, which is the normal case for any newly-discovered reporter
+   pair.
+
+   **Methodological note, worth generalizing to other idempotency checks in
+   this spec**: stable node/edge *counts* across repeated runs are not
+   sufficient evidence of convergence — a create-one/delete-one cycle each
+   pass looks perfectly flat in aggregate counts while never actually
+   stabilizing. Verify by comparing entity **IDs** across repeated runs
+   (same rows persisting, not same row *count*), not just counts, for any
+   future check of this kind.
 
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
@@ -411,7 +473,57 @@ These rules are the core of the model — implement them exactly, do not
    creating a duplicate edge. Discovery must never delete a manually-created
    link — same non-destructive-upsert principle as rule 3 for `Device` nodes.
 
+   **Explicit conflict resolution when LLDP disagrees with an existing
+   manual link on the same port.** E.g. an operator manually links PortA↔PortB,
+   and a later discovery run reports PortA↔PortC instead — these can't both
+   exist (a `Port` has at most one active `physical_link`, above). **The
+   manual link wins**: this follows directly from the "discovery must never
+   delete a manually-created link" rule just stated, combined with the
+   port-uniqueness constraint — LLDP's conflicting observation for that port
+   is skipped and logged, not silently applied, and does not overwrite or
+   queue behind the manual link. If the manual link is genuinely wrong (the
+   cable really did move), an operator has to `DELETE` it (§6) before the
+   new LLDP-discovered link can take its place — this is not automatic, by
+   design, same as never auto-deleting a manual link in the first place.
+
+   **Explicit policy for a link that stops being reported by discovery
+   (not the same case as the conflict above — this is disappearance, not
+   contradiction).** If a `physical_link` with `discovered_via: "lldp"` was
+   present in a previous ingest run but is absent from the current one
+   (the neighbor moved, the cable was pulled, whatever the real cause),
+   **do not delete it and do not mark it differently** — this spec
+   deliberately has no lifecycle state machine (Active/Stale/Removed or
+   similar), only the `last_seen` timestamp already in `physical_link.attrs`
+   (§2.3). A link that isn't reconfirmed simply keeps its last known
+   `last_seen` value, unchanged, indefinitely. The only way to remove it is
+   the manual `DELETE` endpoint (§6) — same principle as manual links never
+   being auto-deleted, just applied here to LLDP-sourced ones that have
+   gone stale. If stale-link visibility or automatic cleanup becomes a real
+   need, that's a lifecycle-model addition for a future iteration (§11),
+   not something to improvise now.
+
 ## 4. Seed data (stands in for the discovery collector)
+
+**Discovery transport is provisional — read everything in this section
+(and §4.1) with that in mind.** This spec's stated goal (§0) is validating
+the data model, not building a production discovery pipeline. Trapper is
+documented below as the mechanism actually implemented and tested against
+a live SNMP lab — useful because running real, dynamic data through the
+pipeline surfaced genuine bugs in the *model* (the duplicate-`Device`
+upsert gap, the incomplete cascade chain, the wrong MAC source in
+reconciliation — see git history for context), not because the transport
+mechanism itself is architecturally significant. The transport could be
+replaced by static fixtures, local files, direct DB/API insertion, or
+anything else, without touching §2 (data model), §3 (reconciliation rules),
+or §7 (UI) at all, as long as the resulting `topo_nodes`/`topo_edges` shape
+stays the same. Don't treat §4.1's specific mechanism (Trapper, the
+push/ingest security boundary, template-based bootstrap, etc.) as something
+to keep defending or polishing — further transport refinement (deployment
+config shapes, alternate delivery mechanisms, Cloud compatibility, that
+class of question) is off the critical path from here on. The parts of this
+spec that actually matter are `Device`/`Port`/`physical_link`/
+`represented_by`, reconciliation, and the UI — that's where remaining
+effort should go.
 
 The SNMP/LLDP collector is deferred (see §1). To keep the data model, API,
 and UI work unblocked, load a static fixture directly into `topo_nodes` /
@@ -543,22 +655,36 @@ reach to the segment and network reach to the Trapper port.
   "reporter": {"sysname": "...", "chassis_id": "...", "mgmt_ip": "...", "vendor": "..."},
   "ports": [{"if_index": 1, "name": "Gi0/1", "if_type": "physical", "mac": "...", "admin_status": "up", "oper_status": "up"}],
   "neighbors": [{"local_if_index": 1, "remote_chassis_id": "...", "remote_sysname": "...", "remote_port_id": "...", "remote_port_id_subtype": "interfaceName", "remote_port_desc": "..."}],
-  "stats": {"neighbors_total": 0, "resolved": 0},
+  "stats": {"neighbors_total": 0, "resolved": 0, "device_only": 0},
   "collected_at": "2026-09-10T12:00:00Z"
 }
 ```
 
-**Known gap in this blob shape, symmetric to §1's CAM-table exclusion:**
-a `ports[]` entry with `if_type: "lag"` carries no information about which
-*other* `ports[]` entries (by `if_index`) are members of that LAG — the
-shape above was never extended with something like
-`"lag_members": [<if_index>, ...]`, and no `ifStackTable`/
-`ieee8023adTable` walk was ever specified to populate it. Concretely,
-until this is picked up: `push.py` can correctly identify a LAG port
-(`ifType` `ieee8023adLag`) and report it, but `ingest.php` has nothing to
-build a `member_of_lag` edge (§2.3) from — a LAG `Port` node from the real
-collector lands member-less, not a bug in `ingest.php`, a missing input.
-See §11 for both this and the CAM-table gap together.
+`stats.device_only` counts neighbors where the participant (chassis ID /
+sysname) resolved but the remote port didn't — the case decided in §3 rule
+1's follow-up note (`Device` created, no `physical_link`). Keep it distinct
+from `resolved` (fully resolved, link created) rather than lumping both
+into one success count — this is exactly the granularity the
+"discovery-quality visibility" backlog item (§11) needs, and it costs
+nothing extra to track since ingest already has this information at the
+point it decides not to create the edge.
+
+**Known gap, confirmed during implementation: this schema doesn't capture
+LAG membership, so `member_of_lag` edges (§2.3) are never created by the
+real collector today.** `push.py` detects `if_type: "lag"` from `ifType`
+(161), but nothing here walks `ifStackTable` or `ieee8023adTable` to find
+*which* physical ports roll up into a given LAG port — so a LAG port
+currently lands in `topo_nodes` as an isolated, member-less `Port`, and
+`ingest.php` has no membership data to build the edge from even though its
+own logic is otherwise correct. Fixing this needs two things together, not
+one: (1) `push.py` walks the relevant MIB to get the mapping, (2) the blob
+schema above gains a field for it (e.g. `"lag_members":
+[{"lag_if_index": 45, "member_if_index": 1}, ...]`) — don't build one
+without the other. Until then, LAG ports are correctly typed but
+incorrectly member-less; this is a real, tracked gap, not a silent one.
+Same status as the CAM-table/`learned_macs` gap noted in §1 (also not yet
+in this blob shape) — both are real collector work, not something to work
+around in `ingest.php`.
 
 Rules for the push component:
 - One blob per reporter — a single unresolvable/malformed device must never
@@ -588,14 +714,10 @@ Rules for the push component:
 
 **Ingest component**: reads the latest `topology.discovery.raw` value per
 reporter (via `item.get`/`history.get`), applies §3 exactly as already
-specified (evidence threshold, MAC-based reconciliation, upsert,
+specified (evidence threshold, MAC/chassis-ID reconciliation, upsert,
 `physical_link` canonicalization), writes to `topo_nodes`/`topo_edges`.
 Runs on its own schedule, independent of the push interval — they don't
-need to be synchronized. **A reporter's own `Device` is additionally
-`represented_by` its own `Host` deterministically** (§2.3) — since the
-`item.get` call that located this reporter already identifies its exact
-`hostid`, there is no need to fall back to opportunistic MAC matching for
-the reporter's own identity, only for the neighbors it reports.
+need to be synchronized.
 
 **Reporter discovery must be dynamic, not a static list.** The ingest
 component finds its set of reporters by calling `item.get` filtered on the
@@ -607,6 +729,23 @@ that reintroduces exactly the kind of manually-maintained registry this
 architecture was meant to avoid, and silently drifts out of sync with
 reality the moment a reporter is onboarded or decommissioned without
 someone remembering to update the file too.
+
+**A reporter's own `Device` node gets `represented_by` its own `Host`
+automatically and deterministically — this is not the same mechanism as
+§3.2, and not a weakening of it.** When ingest reads a reporter's blob via
+`item.get`, it already knows *which Host* that item belongs to — that's a
+direct fact of where the data came from, not something inferred from
+MAC/chassis-ID matching. The `Device` node built from the blob's `reporter.*`
+fields can therefore be linked to that exact `Host` with certainty, no
+opportunistic matching involved, subject to the same `represented_by` 1:1
+constraint as any other case (§2.3) — if that `Device` somehow already has
+a *different* active `represented_by`, don't silently override it, log and
+skip, same as any other conflict. Mark these edges `matched_by:
+"reporter_self"` (§2.3) to distinguish them from an opportunistic MAC match.
+**This applies only to the reporter's own `Device` — every neighbor in the
+blob's `neighbors[]` still goes through §3.2's opportunistic MAC-based
+reconciliation unchanged**, since there the identity genuinely is uncertain
+and needs a real matching decision, unlike the reporter's self-identity.
 
 ## 5. Zabbix API pull
 
@@ -724,39 +863,27 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
     though it shares the "monitored, has severity" styling
   - `Device` **with no `represented_by`**: rendered as its own node, dashed
     outline, neutral gray fill, no severity color.
-  - `Device` **with a `represented_by` edge**: **not rendered as its own
-    graph node at all.** An earlier version of this spec had it merge with
-    its `Host`/`Proxy` into a single split-square node (dashed left half +
-    solid right half, independently clickable halves); that design is
-    dropped in favor of something simpler — once a `Device` is
-    `represented_by` a `Host`/`Proxy`, only the `Host`/`Proxy` shows on the
-    graph, with its styling exactly as already described above (severity
-    color, disabled/maintenance/proxy-badge rules), completely unchanged by
-    whether it happens to have an associated `Device`. The `Device`'s data
-    (ports, etc.) isn't gone — it moves into a section of the `Host`/
-    `Proxy`'s side panel (see below), it just has no on-screen position of
-    its own anymore. No split shape, no half-and-half click routing to
-    maintain.
-  - **`represented_by` is never drawn as a line** — same rule as before,
-    just simpler to state now: since the `Device` side has no on-screen
-    position when `represented_by` is active, there's nothing for a line to
-    connect to on that end anyway. `monitored_by` (`Host → Proxy`) remains
-    the only edge type connecting monitoring-related nodes that's ever
-    drawn as a line, with its own distinct line style/color — not the
-    dashed/solid channel already used for `physical_link` provenance
-    (that's a separate meaning and shouldn't be reused here).
-  - `physical_link` **reattachment**: a `physical_link` whose endpoint
-    `Port` belongs to a `Device` that is `represented_by` something must
-    visually attach to that `Host`/`Proxy` node instead of the (now
-    off-graph) `Device` — same "attach to whatever's actually on screen"
-    principle the old merged-node design already applied, just pointing at
-    the `Host`/`Proxy` directly now instead of a merged node's bounding box.
-  - `physical_link` line style (unrelated to the reattachment above — this
-    is about the link's own provenance, §2.3): solid when `discovered_via:
-    "lldp"`, dashed when `discovered_via: "manual"`. Same dashed/solid
-    language as `Device` association status, reused deliberately rather
-    than inventing a new channel — but note it's carried by the edge here,
-    not the node.
+  - `Device` **with an active `represented_by`**: not rendered as a graph
+    node at all. Only its `Host`/`Proxy` is shown, using the exact same
+    styling it would have on its own — no visual change to signal the
+    association, no split, no badge, for now. (A small indicator icon
+    showing "this Host/Proxy has an associated Device" is a reasonable
+    future addition — deliberately deferred, not designed now.) The
+    `Device`'s own data (ports, etc.) moves into a section of the
+    `Host`/`Proxy`'s side panel instead — see below.
+  - `physical_link` connects to the `Host`/`Proxy` node when the underlying
+    `Device` is the endpoint of that link — since the `Device` has no
+    separate visual position once merged into its `Host`/`Proxy`, the edge
+    attaches to wherever that `Host`/`Proxy` node is drawn.
+  - `physical_link` line style: solid when `discovered_via: "lldp"`, dashed
+    when `discovered_via: "manual"`. Same dashed/solid language as `Device`
+    association status, reused deliberately rather than inventing a new
+    channel — but note it's carried by the edge here, not the node.
+- **`monitored_by` (`Host → Proxy`) gets its own distinct line style/color**
+  — not the dashed/solid channel already used for `physical_link`
+  provenance (that's a separate meaning and shouldn't be reused here).
+  `represented_by` is never drawn as a line at all (see above), so there's
+  no risk of confusing the two on screen.
 - **Blind-spot indicator**: when a `Proxy` node is unreachable, any `Host`
   connected to it via `monitored_by` must be visually marked as "monitoring
   blind spot" (e.g. a distinct badge/hatching), never rendered with the same
@@ -767,33 +894,31 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   disaster-level trigger renders differently from a quiet one. This is
   separate from the dashed/solid convention used for node association
   status; do not repurpose that same visual channel for link severity.
-- **Side panel — standalone `Device`** (no `represented_by`): click → call
+- **Side panel — `Device` with no `represented_by`**: click → call
   `/ports`, render the grouped table (port / status / connected-to / source
-  badge: `LLDP` / `MAC only` / `—`), same as always. Unchanged by this
-  section's rewrite below — this only ever applied to a `Device` that has
-  no on-screen `Host`/`Proxy` counterpart to begin with.
-- **Side panel — `Host`/`Proxy`: one panel, up to two sections** (replaces
-  the old two-panel / two-click-zone merged-node design above). A single
-  click on a `Host`/`Proxy` node opens one panel with:
-  - **Problems section** — always present: the same `/problems` call and
-    rendering as before (severity, name, age; empty state if none).
-  - **Device section** — present only when this `Host`/`Proxy` has an
-    active `represented_by`: the same grouped `/ports` table that used to
-    be the standalone `Device` panel's whole content, now living here
-    instead, with the **"Depromote" button** inside it (it belongs to the
-    `Device` side of the relationship, same as before — just relocated
-    from "inside the merged node's left half" to "inside this section").
-    If there's no associated `Device`, this section is simply absent — no
-    empty placeholder to fill the gap.
-- **"Promote to host" button**: unchanged — visible only on a standalone
-  `Device` node (no `represented_by`); calls `/promote`. Once promoted, the
-  `Device` stops being rendered as its own node (per the visual-encoding
-  rule above) — its data now lives in the Device section of its `Host`/
-  `Proxy`'s panel instead of a panel of its own.
-- **Depromote**: calling `/depromote` (from the Device section above)
-  reverses this exactly — the `Device` reappears as its own standalone
-  dashed node, and the Device section disappears from the `Host`/`Proxy`'s
-  panel, which goes back to Problems-only.
+  badge: `LLDP` / `MAC only` / `—`). Includes the "Promote to host" button
+  (below).
+- **Side panel — `Host`/`Proxy`**: click → one panel, up to two sections,
+  no half-click routing to worry about:
+  - **Problems section** (always present): call `/problems`, render active
+    problems (severity, name, age). Empty state, not a blank panel, when
+    there are none.
+  - **Device section** (present only when this `Host`/`Proxy` has an active
+    `represented_by`): the same grouped port table as the standalone
+    `Device` panel above, via `/ports` on the associated `Device`. Includes
+    the "Depromote" button (below). Omit this section entirely for a
+    `Host`/`Proxy` with no associated `Device` — most of the "unassociated
+    hosts" list falls here, and showing an empty Device section for all of
+    them would be noise, not signal.
+- **"Promote to host" button**: in the standalone `Device` panel (no
+  `represented_by` yet); calls the `/promote` endpoint. Once promoted, the
+  `Device` stops appearing as its own graph node (see above) and this
+  button no longer applies — the same data now shows in the Device section
+  of its `Host`/`Proxy`'s panel.
+- **"Depromote" button**: in the `Host`/`Proxy` panel's Device section;
+  calls the `/depromote` endpoint. After depromotion, the `Device` reappears
+  as its own standalone graph node (dashed), and the Device section
+  disappears from the `Host`/`Proxy`'s panel.
 
 ## 8. Acceptance criteria
 
@@ -808,14 +933,6 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - The UI graph correctly distinguishes `Host` (solid) from unassociated
   `Device` (dashed), and the port drill-down table groups ports the
   same way as in §7.
-- Running ingest for a reporter whose Zabbix `Host` has **no** inventory MAC
-  configured still produces a `represented_by` edge from that reporter's
-  `Device` to its own `Host`, with `matched_by: "reporter_self"` — confirms
-  the deterministic self-link (§2.3, §4.1) doesn't depend on §3.2's
-  opportunistic MAC matching at all. Manually `/promote`-ing a reporter's
-  `Device` to the *wrong* `Host` first, then running ingest, must log a
-  conflict and leave that (wrong) edge in place — never silently move it to
-  the correct `Host`.
 - Re-running the seed load **in its default (upsert) mode, without
   `--reset`**, does not create duplicate `Device`/`Port` nodes — this
   validates the upsert logic in §3.4 ahead of the real collector. (Running
@@ -851,6 +968,17 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - Attempting to `/link` a `Port` that already has an active `physical_link`
   to a third port is rejected — confirms the port-level uniqueness
   constraint from §2.3 is enforced, not just the (src, dst) pair uniqueness.
+- Two reporters that are each other's LLDP neighbor (the `Router1`↔`Switch1`
+  case) converge to **one** `physical_link` between their two real `Port`s,
+  with no leftover pseudo-`Port` on either side, regardless of which
+  reporter's push/ingest runs first — confirms both halves of the
+  pseudo-port merge rule in §3 rule 4 actually fire, not just
+  canonicalization. **Verify this by re-running ingest at least 5–7 times
+  in a row and confirming the same `Port`/`physical_link` row IDs persist
+  unchanged across runs — not just that the total counts stay flat.**
+  Stable counts alone do not prove convergence for this rule (see the
+  methodological note in §3 rule 4); a create-one/delete-one cycle each
+  pass would pass a counts-only check while never actually stabilizing.
 - A seed `Device` with an HTML/script payload in `sysname` (e.g.
   `<script>alert(1)</script>` or `<img src=x onerror=alert(1)>`) renders as
   inert text everywhere it appears — node label, port drill-down table,
@@ -863,16 +991,10 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - Onboarding a new reporter (template attached, at least one push already
   sent) and running ingest picks it up **without editing any config file**
   — confirms reporter discovery is live via `item.get`, not a static list.
-- Two `Device`s that are both reporters and see each other as an LLDP
-  neighbor end up with **exactly one** `physical_link` between them and
-  **no leftover pseudo-`Port`** on either side, regardless of which of the
-  two gets ingested first — confirms the pseudo-port merge (§3 rule 4)
-  actually converges, not just that it fires in one specific order. A
-  `Device` with two pseudo-`Port`s whose names would both plausibly
-  normalize to match one incoming real port name is left alone (no merge,
-  no guess) when that real port arrives. A neighbor that never becomes a
-  reporter (no real ports ever pushed) keeps its pseudo-`Port` indefinitely
-  — not a bug, the expected end state per rule 4.
+- A freshly onboarded reporter with **no inventory MAC configured** still
+  gets a `represented_by` edge to its own `Host` after ingest, with
+  `matched_by: "reporter_self"` — confirms the self-identity link doesn't
+  depend on the opportunistic MAC path from §3.2, unlike neighbor matching.
 
 ## 9. Security — untrusted network-sourced strings
 
@@ -965,10 +1087,81 @@ was flagged when it first came up.
 
 ## 11. Backlog (deliberately deferred, not required for §8)
 
+- **`represented_by` 1:1 constraint — the most likely redesign candidate if
+  this prototype proves out.** Nearly every documented limitation in this
+  spec (the split-identity and stacked-switch/MLAG cases in §2.3, the
+  BMC+OS multi-host-identity case) traces back to this single constraint.
+  It's the right MVP compromise — simple, safe, and the known workarounds
+  (pick one `Device`/`Host` to represent the physical entity, manually link
+  the rest) are usable in the meantime — but if the prototype demonstrates
+  real value, this is where the next iteration's architecture work should
+  start, not a peripheral feature. See §2.3's limitation notes for the
+  specific cases and what loosening the constraint would require (an
+  asymmetric constraint plus a §7 rendering redesign to show more than one
+  Device section on a single `Host`/`Proxy` panel, per that discussion).
+- **Blob generation/snapshot identifier** — the push blob (§4.1) currently
+  has `collected_at` but no sequence/version marker (e.g. `generation: 42`
+  or `snapshot_id: <uuid>`). Not needed for MVP, but worth adding before
+  push frequency increases enough that ingest could plausibly read a blob
+  from the middle of a sequence of rapid pushes rather than a clean
+  before/after snapshot — a generation counter would let ingest detect and
+  reason about that rather than silently processing an ambiguous read.
+- **Stale-`physical_link` lifecycle** — §3 rule 5 deliberately keeps a link
+  that's stopped being reported by discovery forever (only `last_seen` goes
+  stale, no deletion, no status marker), consistent with this spec having
+  no lifecycle state machine at all (§1). If stale links become an actual
+  operational nuisance — clutter on the graph, no way to tell "gone" from
+  "just not recently reconfirmed" — this is where a real lifecycle model
+  (something like the reference FR document's Active/Stale/Removed states)
+  would go. Don't improvise a partial version of it before then. **A much
+  cheaper interim step, worth trying first**: a purely computed UI
+  indicator (`last_seen > N days` → render the link visually differently)
+  needs zero data-model or ingest changes at all — it's a read-time
+  computation over data that already exists. This alone might resolve the
+  practical concern (can't tell current from long-stale at a glance)
+  without building any lifecycle machinery.
+- **Topology scope / admission policies** — right now, any LLDP-resolved
+  neighbor (§3 rule 1) becomes a `Device` node, unconditionally. At real
+  scale this raises a different question from either discovery-quality
+  visibility or reconciliation: which discovered neighbors should even be
+  admitted as nodes at all — e.g. excluding certain device classes
+  (printers, phones), certain VLANs, or requiring a specific LLDP
+  capability bit (e.g. Bridge) before admitting something as a `Device`.
+  This is a distinct concern from both other backlog items above: it's not
+  about matching quality or identity resolution, it's about deciding what's
+  in scope for the graph to represent in the first place. Not needed at
+  prototype scale — flagging so it isn't confused with either of the
+  above when it does come up.
 - **`Service` tree** — a second, symmetric projection of the graph (business
   impact / SLA, top-down) alongside the physical topology (bottom-up). Not a
   small extension of the current model, a parallel direction of work — see
-  the earlier design discussion for the full reasoning.
+  the earlier design discussion for the full reasoning. Structurally,
+  though, it fits the existing pattern cleanly, confirmed when stress-testing
+  the model against `Service → Host` as a candidate: `Service` would be a
+  thin pointer node exactly like `Host`/`Proxy` (`service_ref` FK, live
+  join), and `service_composed_of` (`Service → Host`) is a plain DAG edge —
+  many-to-many, no uniqueness constraint needed, nothing like
+  `represented_by`'s 1:1. This is why it's a parallel *direction* of work
+  (a second projection, plus filtering/UI to show it) rather than a
+  structural strain on the graph itself. **This is also the
+  trigger condition for revisiting "Perspectives"** (the reference FR
+  document's concept of multiple projections over one canonical graph —
+  which domain objects render, which relationship types show, filtering
+  behavior): with only the physical/monitoring layer that exists today,
+  there's one real graph, not several independently valuable slices of it,
+  so a full Perspectives system would be solving a problem that doesn't
+  exist yet. Once `Service` gives a genuine second, orthogonal projection,
+  revisit — not before.
+- **"Unassociated hosts" filter/panel** — a real, already-designed gap that
+  was discussed but never made it into this spec: `Host`/`Proxy` nodes with
+  no topology context (no `represented_by`, no `monitored_by`) currently
+  render scattered across the graph canvas with no relationship to anything
+  else, which gets noisy fast (see the very first prototype screenshot in
+  this project's history for a concrete example). The fix already designed
+  in that discussion: split the view into the connected topology graph plus
+  a separate, collapsible list of unassociated `Host`/`Proxy` nodes,
+  searchable once the list is long. This is a single filter, not a
+  Perspectives system — don't conflate the two when picking this up.
 - **`Proxy Group`** (Zabbix HA proxy clustering) — adds a `ProxyGroup` node
   (thin pointer, same pattern as `Host`/`Proxy`) and a `member_of` edge
   (`Proxy → ProxyGroup`). `monitored_by` (§2.3) would then point at either a
@@ -982,6 +1175,12 @@ was flagged when it first came up.
   e.g. in the side panel or as a graph filter. Not the same question as
   "should tags store the topology" (rejected — see the earlier design
   discussion); this is only about surfacing tags that already exist.
+- **Indicator icon for a `Host`/`Proxy` with an associated `Device`** — §7
+  currently shows no visual difference on the graph between a `Host`/`Proxy`
+  with a `represented_by` `Device` and one without; the only way to tell is
+  opening the side panel and checking for the Device section. A small icon
+  would surface this at a glance without reviving the split-node design
+  that was tried and abandoned for this purpose.
 - **`Device` type/role** — an additional attribute on `Device` (§2.2),
   e.g. `device_type: "switch"|"router"|"ap"|"firewall"|"server"|...`,
   eventually populated from LLDP capability bits (IEEE 802.1AB) once the
@@ -1004,6 +1203,35 @@ was flagged when it first came up.
   blast-radius calculation would miss every VM/container whose outage has
   nothing to do with the network path. Flagging this now specifically so
   it isn't rediscovered mid-implementation of the reachability feature.
+- **Passive infrastructure (patch panels, wall jacks, fiber patches)** —
+  a genuinely different kind of gap from the MAC-only case in §3 rule 1.
+  MAC-only neighbors at least generate *some* evidence (a MAC in the CAM
+  table), just not enough to clear the `Device` creation bar. Passive
+  infrastructure generates **no evidence at all, from any protocol,
+  ever** — it's not LLDP-silent, it's not a network endpoint in any sense
+  a poller could observe. There is currently no way to represent this even
+  manually: rule 5 explicitly forbids manual `Device` creation. If this is
+  ever needed (physical cable-plant topology, not just active-device
+  topology), it requires either relaxing that rule for a clearly-scoped
+  case or a different data source entirely (DCIM/cable-management import)
+  feeding a manual creation path that doesn't exist today.
+- **Wireless connectivity (AP → client)** — an AP↔switch link fits
+  `physical_link` fine, but an AP-to-wireless-client relationship doesn't:
+  there's no physical port on the client side for `Port`'s model to
+  attach to. If wireless visualization is ever wanted, `physical_link` is
+  the wrong name and likely the wrong shape for that edge — probably a
+  distinct relationship type (something like `connectivity`, not
+  physically portless) rather than a forced fit into the existing one.
+  Flagging the naming/semantic mismatch now so it isn't a surprise later.
+- **Relaxing `physical_link` to allow an unresolved remote port** — the
+  MVP decision in §3 rule 1 is strict: no `physical_link` without a
+  resolved `Port` on both ends, even when the remote *participant*
+  resolved fine (tracked separately via `stats.device_only`, §4.1). If
+  this connectivity loss turns out to matter in practice, the alternative
+  is a `Device`-to-`Device` (or `Port`-to-`Device`) connectivity edge for
+  the unresolved case — a real model change (a new edge shape or a
+  nullable endpoint), not a quick fix. Worth watching `stats.device_only`
+  in practice before deciding whether this is worth building.
 - **Node position + manual-link persistence with concurrency handling** — the
   graph currently has no server-side layout state at all (position is
   presumably recomputed on every load). Worth adding: persisted node
@@ -1026,24 +1254,6 @@ was flagged when it first came up.
   resolved vs. didn't, and why) as an operator-facing view, not just silent
   success/failure. Meaningless against static seed data; relevant the
   moment discovery runs against a real, imperfect network.
-- **CAM-table walk + LAG membership discovery** — two related, currently
-  unimplemented gaps in the real collector (§4.1, `push.py`/`ingest.php`),
-  documented together in §1's exclusions since they're both "the collector
-  doesn't walk a table it would need to for this" gaps, not modeling gaps:
-  - *CAM-table* (`dot1dTpFdbTable`): needed to populate
-    `Port.attrs.learned_macs` (§2.2) for real, so rule 1's MAC-only-port
-    branch is exercised by something other than the static seed fixture.
-  - *LAG membership* (`ifStackTable`/`ieee8023adTable`): needed so a
-    `Port` with `if_type: "lag"` can actually get its member ports wired
-    up via `member_of_lag` (§2.3) — `push.py` already detects the LAG
-    interface itself, it just has no membership data to put in the blob.
-    This needs a schema addition to §4.1's blob shape (some
-    `lag_members: [if_index, ...]` per LAG port, or equivalent) as well as
-    the SNMP walk itself; `ingest.php`'s side is a comparatively small
-    addition once the data exists.
-  Neither is required for §8's acceptance criteria against the real
-  collector (only the static seed fixture needs to demonstrate these
-  branches for §8); both are real, scoped follow-ups once picked up.
 - **Vendor-specific SNMP/LLDP variance** — not every vendor exposes a
   queryable LLDP neighbor table the same way (or at all — some devices only
   send LLDP without serving the neighbor table back, some need a controller
