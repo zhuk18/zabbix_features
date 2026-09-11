@@ -47,6 +47,51 @@ if (isset($options['help'])) {
 	exit(0);
 }
 
+// ---- Run lock + status file (spec §6/§7: shared by the CLI and the web controller that spawns this
+// same script — adding it once here, at the entrypoint every caller goes through, covers both without
+// any separate locking code on the API path). Lock/status files live next to this script so both a
+// CLI invocation and a web-spawned one (different cwd) resolve to the same path. Acquired after --help
+// (which should never be blocked by an in-progress run) but before argument validation, so even a
+// malformed invocation can't race a real run — it just fails fast under the lock and the shutdown
+// handler below turns that into a clean "error" status rather than leaving "running" stuck. ----
+
+const INGEST_LOCK_FILE = __DIR__.'/.ingest.lock';
+const INGEST_STATUS_FILE = __DIR__.'/.ingest-status.json';
+
+function write_status(array $status): void {
+	// Atomic-ish: write to a temp file then rename, so a concurrent GET /topo/ingest/status read never
+	// sees a half-written file.
+	$tmp = INGEST_STATUS_FILE.'.tmp';
+	file_put_contents($tmp, json_encode($status, JSON_THROW_ON_ERROR));
+	rename($tmp, INGEST_STATUS_FILE);
+}
+
+$lock_handle = fopen(INGEST_LOCK_FILE, 'c');
+if ($lock_handle === false || !flock($lock_handle, LOCK_EX | LOCK_NB)) {
+	fail('Ingest already running (lock held on '.INGEST_LOCK_FILE.') — exiting rather than running '.
+		'concurrently or blocking. Try again once the in-progress run finishes.');
+}
+// Lock is held for the lifetime of this process ($lock_handle stays open; PHP releases it on exit,
+// including on a fatal error) — no explicit unlock call needed, and none is safe to add mid-script
+// since a PHP fatal error would then skip it anyway.
+
+$run_started_at = time();
+write_status(['status' => 'running', 'started_at' => $run_started_at, 'finished_at' => null, 'summary' => null]);
+
+register_shutdown_function(static function () use ($run_started_at) {
+	// Catches every path that doesn't already write a terminal status itself: an uncaught Throwable
+	// escaping the whole script, a PHP fatal error (e.g. OOM), or an early fail()/exit(1) for bad args
+	// — all would otherwise leave the status file stuck on "running" forever, wedging the UI's poll loop.
+	$error = error_get_last();
+	$current = @file_get_contents(INGEST_STATUS_FILE);
+	$current = $current ? json_decode($current, true) : null;
+	if ($current !== null && $current['status'] === 'running') {
+		write_status(['status' => 'error', 'started_at' => $run_started_at, 'finished_at' => time(),
+			'summary' => null,
+			'error' => $error ? $error['message'] : 'ingest.php exited without reporting a final status']);
+	}
+});
+
 $api_url = $options['api-url'] ?? getenv('ZABBIX_API_URL') ?: null;
 $api_token = $options['api-token'] ?? getenv('ZABBIX_API_TOKEN') ?: null;
 $pdo_dsn = $options['pdo-dsn'] ?? getenv('TOPOLOGY_PDO_DSN') ?: null;
@@ -198,7 +243,11 @@ $last_insert_id = static function () use ($pdo): int {
 // When the sysname key is what resolved the match, attrs.matched_by is stamped 'sysname' per rule 4 — the
 // chassis_id/mgmt_ip matches don't get a matched_by (no existing convention for one; nothing else in this
 // codebase records "how a Device was matched" outside rule 4's own sysname-weak-signal requirement).
-$device = static function (array $attrs, ?int $local_port_id = null) use ($insert_node, $update_node, $now, $last_insert_id, $find_device): int {
+// $summary tallies create-vs-update counts for the §6 /topo/ingest/status endpoint. Just counting,
+// no change to the matching/upsert rules themselves.
+$summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0];
+
+$device = static function (array $attrs, ?int $local_port_id = null) use ($insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {
 	$match = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null, $local_port_id, $attrs['sysname'] ?? null);
 	if ($match !== null) {
 		[$existing_id, $matched_by] = $match;
@@ -206,14 +255,16 @@ $device = static function (array $attrs, ?int $local_port_id = null) use ($inser
 			$attrs['matched_by'] = 'sysname';
 		}
 		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
+		$summary['devices_updated']++;
 		return $existing_id;
 	}
 	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
+	$summary['devices_created']++;
 	return $last_insert_id();
 };
 
 // Rule 4: upsert Port by (device via part_of, if_index) + owns the part_of edge. Mirrors seed.php's $port().
-$port = static function (int $device_id, array $attrs) use ($insert_node, $update_node, $insert_edge, $now, $last_insert_id, $find_port): int {
+$port = static function (int $device_id, array $attrs) use ($insert_node, $update_node, $insert_edge, $now, $last_insert_id, $find_port, &$summary): int {
 	$existing_id = $find_port($device_id, $attrs['if_index']);
 	if ($existing_id !== null) {
 		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
@@ -222,6 +273,7 @@ $port = static function (int $device_id, array $attrs) use ($insert_node, $updat
 	$insert_node->execute(['port', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$port_id = $last_insert_id();
 	$insert_edge->execute(['part_of', $port_id, $device_id, '{}', $now]);
+	$summary['ports_created']++;
 	return $port_id;
 };
 
@@ -231,7 +283,7 @@ $port = static function (int $device_id, array $attrs) use ($insert_node, $updat
 // never let a repeated 'manual' call overwrite an existing edge at all. Discovery must never delete a
 // manually-created link (rule 5) — this function has no delete path, only upsert, satisfying that by
 // construction.
-$ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via) use ($pdo, $insert_edge, $now): void {
+$ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via) use ($pdo, $insert_edge, $now, &$summary): void {
 	if ($port_a > $port_b) {
 		[$port_a, $port_b] = [$port_b, $port_a];
 	}
@@ -251,6 +303,7 @@ $ensure_physical_link = static function (int $port_a, int $port_b, string $disco
 	}
 	$insert_edge->execute(['physical_link', $port_a, $port_b,
 		json_encode(['discovered_via' => $discovered_via, 'last_seen' => $now], JSON_THROW_ON_ERROR), $now]);
+	$summary['links_created']++;
 };
 
 // Byte-for-byte mirror of CTopologyPrototype::promote() (~line 599)'s 1:1-guard + insert, called only from
@@ -461,4 +514,13 @@ foreach ($reporter_hosts as $zabbix_host) {
 }
 
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
-exit($processed > 0 || $skipped === 0 ? 0 : 1);
+
+$ok = $processed > 0 || $skipped === 0;
+write_status([
+	'status' => $ok ? 'done' : 'error',
+	'started_at' => $run_started_at,
+	'finished_at' => time(),
+	'summary' => $summary,
+	'error' => $ok ? null : "{$skipped} reporter(s) failed and none succeeded — see stderr/run log for details.",
+]);
+exit($ok ? 0 : 1);

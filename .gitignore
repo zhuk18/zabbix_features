@@ -415,3 +415,7 @@ switch2.log
 .gitignore
 ups1.log
 ui/include/defines.inc.php
+database/topology/discovery/.ingest.lock
+database/topology/discovery/.ingest-status.json
+database/topology/discovery/.ingest-run.log
+database/topology/discovery/reporters.json

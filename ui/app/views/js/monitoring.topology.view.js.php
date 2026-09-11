@@ -71,6 +71,13 @@ const view = new class {
 			});
 			await this.loadDevices();
 		}));
+		this.ingest_status_element = document.getElementById('topology-ingest-status');
+		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
+			await this.runIngest();
+		}));
+		// A run may already be in progress from a previous page load (button click before a reload) or
+		// from the CLI — reflect that on load instead of only ever noticing it after this tab's own click.
+		this.pollIngestStatus({ignore_idle: true});
 		// Hostgroup / host+hops scope: read on "Apply", not on every multiselect change — a
 		// group multiselect can see several add/remove events in a row while the user is still
 		// picking, and firing a request per keystroke there would be wasteful.
@@ -101,6 +108,86 @@ const view = new class {
 			}
 		});
 		await this.loadDevices();
+	}
+
+	// "Run discovery ingest" (spec §7): starts POST topology.ingest.run, then polls
+	// topology.ingest.status until it's no longer "running". Deliberately not blocking anything else —
+	// no await on the poll loop from the caller, and every other control/handler stays untouched while
+	// this runs. this.ingest_polling guards against a second poll loop starting (e.g. a second click,
+	// or the on-load check below racing a user click) since the backend's own lock already means a
+	// second *run* would just be rejected/reflected as "running" — but two independent poll loops for
+	// the one run would still double up the eventual toast, which this avoids.
+	async runIngest() {
+		if (this.ingest_polling) {
+			return;
+		}
+		await this.request('topology.ingest.run', {
+			method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+		});
+		// The backend always attempts a spawn and reports {status: 'started'} regardless of whether a
+		// run was already in progress (a redundant spawn just loses the lock race and exits immediately,
+		// §6) — either way, polling topology.ingest.status is what actually reflects ground truth.
+		this.pollIngestStatus();
+	}
+
+	async pollIngestStatus({ignore_idle = false} = {}) {
+		if (this.ingest_polling) {
+			return;
+		}
+
+		const poll = async () => {
+			let status;
+			try {
+				status = await this.request('topology.ingest.status');
+			}
+			catch (error) {
+				this.ingest_polling = false;
+				this.ingest_status_element.textContent = '';
+				alert(error.message);
+				return;
+			}
+
+			if (status.status === 'running') {
+				this.ingest_polling = true;
+				this.ingest_status_element.textContent = <?= json_encode(_('Ingest running…')) ?>;
+				setTimeout(poll, 2000);
+				return;
+			}
+
+			const was_polling = this.ingest_polling;
+			this.ingest_polling = false;
+			this.ingest_status_element.textContent = '';
+
+			if (status.status === 'idle') {
+				// Nothing has ever run — expected on a normal page load (ignore_idle's caller); not
+				// reachable from runIngest()'s own poll, since that only starts once a run exists.
+				return;
+			}
+
+			// Only show a toast for a run this tab actually knows just finished — not for a "done"/
+			// "error" left over from long before this page was even loaded (ignore_idle's on-load call).
+			if (!was_polling && ignore_idle) {
+				return;
+			}
+
+			if (status.status === 'done') {
+				const summary = status.summary ?? {};
+				alert(<?= json_encode(_('Discovery ingest finished.')) ?> +
+					`\n${<?= json_encode(_('Devices created')) ?>}: ${summary.devices_created ?? 0}` +
+					`\n${<?= json_encode(_('Devices updated')) ?>}: ${summary.devices_updated ?? 0}` +
+					`\n${<?= json_encode(_('Ports created')) ?>}: ${summary.ports_created ?? 0}` +
+					`\n${<?= json_encode(_('Links created')) ?>}: ${summary.links_created ?? 0}`);
+				await this.loadDevices();
+			}
+			else if (status.status === 'error') {
+				alert(<?= json_encode(_('Discovery ingest failed:')) ?> + ' ' + (status.error ?? ''));
+			}
+		};
+
+		// If we're only checking on load (ignore_idle) and the very first read is already 'running',
+		// this still needs to mark ingest_polling before recursing so a same-tick click doesn't start
+		// a second loop; poll() itself sets ingest_polling once it sees 'running'.
+		await poll();
 	}
 
 	// Current hostgroup/host+hops filter state, read straight from the multiselects rather than

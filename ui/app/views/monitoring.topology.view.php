@@ -85,7 +85,9 @@ $page_styles = '
 							'manual' => _('Manual only')
 						]))
 				]))->addClass('topology-header-field'),
-				(new CButton('topology-host-pull', _('Pull Zabbix hosts & proxies')))->addClass(ZBX_STYLE_BTN_ALT)
+				(new CButton('topology-host-pull', _('Pull Zabbix hosts & proxies')))->addClass(ZBX_STYLE_BTN_ALT),
+				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
+				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status')
 			]))->addClass('topology-header'),
 			(new CForm())
 				->setId('topology-filter-bar')

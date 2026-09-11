@@ -511,6 +511,26 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   removing an LLDP-confirmed link by hand is allowed (e.g. correcting a
   stale/wrong observation); it will simply reappear on the next discovery
   run if LLDP still reports it, same as any other upsert.
+- `POST /topo/ingest/run` — starts an ingest run (§4.1's ingest component)
+  in the background and returns immediately (`{status: "started"}`), rather
+  than blocking the request for the run's duration. **Must call the exact
+  same ingest logic the CLI (`database/topology/discovery/ingest.php`)
+  already uses** — refactor that logic into a shared function/module if it
+  isn't already separated from the CLI's `argparse`/entrypoint code, so the
+  CLI and this endpoint both call the same thing. Do not write a second,
+  parallel implementation of §3's rules for the API path. **Must go through
+  the same run-lock as the CLI** — a concurrent run (whether triggered by
+  the CLI or by this endpoint) must be rejected or queued, never allowed to
+  run two ingest passes against `topo_nodes`/`topo_edges` at once. (As of
+  this endpoint being added, the CLI itself doesn't yet have such a lock —
+  adding it is part of this work, at the shared-function level, not
+  something bolted onto only the API path.)
+- `GET /topo/ingest/status` — current ingest run state:
+  `{status: "idle"|"running"|"done"|"error", started_at, finished_at,
+  summary: {devices_created, devices_updated, ports_created,
+  links_created}}`. Deliberately minimal — this is not the per-reporter
+  matched/unmatched diagnostic from the §11 "discovery-quality visibility"
+  backlog item, just enough for a UI toast.
 
 ## 7. Frontend
 
@@ -594,6 +614,16 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   after depromotion the merged node splits back into an unmerged `Device`
   (dashed) and an unmerged `Host`/`Proxy`, positioned near each other by the
   layout rather than re-drawn as a connected pair.
+- **"Run discovery ingest" button**: next to the existing "Pull Zabbix
+  hosts & proxies" control. Calls `POST /topo/ingest/run`, then polls
+  `GET /topo/ingest/status`: a spinner/running indicator while status is
+  `"running"`, a brief summary toast on `"done"` (from the endpoint's
+  `summary`), an error toast on `"error"`. Must not block the rest of the
+  UI while a run is in progress — the graph, side panels, and every other
+  control stay usable during polling. If a run is already in progress
+  (CLI- or button-triggered — the lock is shared, §6) and the button is
+  clicked again, reflect that as the same running state rather than firing
+  a second request that the backend will just reject.
 
 ## 8. Acceptance criteria
 
@@ -647,6 +677,14 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   inert text everywhere it appears — node label, port drill-down table,
   tooltips — never executes. Test this specifically; don't assume general
   framework escaping covers it without checking the actual render path (§9).
+- Triggering an ingest run via the CLI, then clicking "Run discovery
+  ingest" while it's still in progress, does not start a second concurrent
+  run — the shared lock (§6) rejects or queues the button-triggered
+  request. Triggering a run via the button alone (no CLI run active)
+  succeeds, and the graph reflects the ingest results afterward exactly as
+  it would after a CLI-triggered run — same code path, same data. The rest
+  of the UI (graph interaction, side panels, other buttons) stays
+  responsive while a run is in progress.
 
 ## 9. Security — untrusted network-sourced strings
 
