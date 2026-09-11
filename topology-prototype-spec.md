@@ -377,6 +377,29 @@ These rules are the core of the model — implement them exactly, do not
      there's nothing to merge them with, and that's the expected, correct
      end state for such a device, not a gap to close.
 
+   **This reactive merge alone does not converge — a second, proactive
+   check on the neighbor side is required too.** Found live, immediately
+   after implementing only the reactive half above: the merge only cleans
+   up a pseudo-`Port` that already existed *before* the current pass, but
+   rule 1's neighbor-port-creation step is unconditional — nothing stopped
+   it from fabricating a *fresh* pseudo-`Port` for a neighbor that already
+   has a matching real `Port` from an earlier pass. In a repeating cast of
+   reporters (the normal case), this meant the same duplicate reappeared
+   under a new `Port`/`physical_link` id every single ingest run, forever
+   — node/edge *counts* looked stable (one created, one deleted, every
+   cycle) even though the duplicate itself never actually went away.
+   **The fix needs both halves**: before rule 1's neighbor-port-creation
+   step fabricates a pseudo-`Port` at all, it must first check whether that
+   neighbor `Device` already has a real, non-pseudo `Port` whose name
+   normalizes to match (same normalization table, same "only act on an
+   unambiguous single match, never guess" rule as above) — and if so, link
+   directly to that real `Port` instead of ever creating a pseudo one.
+   Implementing only the reactive merge and treating stable node/edge
+   *counts* across repeated runs as proof of convergence is not
+   sufficient — verify by checking that the *specific* `Port`/edge ids
+   between a known reporter pair stop changing across consecutive runs,
+   not just that the totals do.
+
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
    between two `Port`s that already exist on already-existing `Device`
