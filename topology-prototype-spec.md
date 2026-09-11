@@ -417,11 +417,22 @@ Rules for the push component:
   (`topology.discovery.heartbeat`, just a timestamp) on the same interval.
   A `nodata()` trigger on it is the "is discovery even running" signal —
   standard Zabbix pattern, nothing custom needed.
-- **Bootstrap**: the push component may create its own Trapper item via
-  `item.create` on first run against a new reporter, rather than requiring
-  it to be pre-configured by hand — reduces (but doesn't eliminate) the
-  bootstrap requirement from §1/§4's opening notes; the reporter `Host`
-  itself must still already exist.
+- **Bootstrap**: a `Topology Discovery Reporter` template (both Trapper
+  items, plus the `nodata()` heartbeat trigger from the rule above, bundled
+  together) is attached to a reporter `Host` as part of onboarding it —
+  folded into the same manual step §1/§4's opening notes already require
+  ("at least one reporter must already exist as a Zabbix `Host`"), not a
+  separate step. The push component itself has **zero Zabbix API
+  dependency** — no auth token, no API client, nothing — its only two
+  dependencies are SNMP reach to the segment and network reach to
+  `zabbix_sender`'s target port. (An earlier iteration had the push
+  component create its own Trapper item via `item.create` on first run;
+  that traded a template-attachment step for an API credential the push
+  component otherwise has no reason to hold, so it was dropped in favor of
+  the template.) If `zabbix_sender` fails because the target item doesn't
+  exist (template not attached to that reporter yet), the push component
+  must surface this as a clear, specific onboarding error — not retry
+  silently, not crash uninformatively.
 
 **Ingest component**: reads the latest `topology.discovery.raw` value per
 reporter (via `item.get`/`history.get`), applies §3 exactly as already

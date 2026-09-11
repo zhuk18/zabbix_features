@@ -8,8 +8,16 @@ assembles one JSON blob per reporter matching spec §4.1's exact shape, and send
 plus a heartbeat value (`topology.discovery.heartbeat`) on the same run.
 
 No access to topo_nodes/topo_edges or DB here — only SNMP reach to the segment and network
-reach to zabbix_sender's trapper port, plus the Zabbix API for the item.create bootstrap
-(item.get/item.create only — no other API calls belong in this component).
+reach to zabbix_sender's trapper port. This component has **zero Zabbix API dependency** —
+no auth token, no API client, nothing. The two Trapper items it sends to
+(topology.discovery.raw, topology.discovery.heartbeat) must already exist on the reporter's
+Host, put there by attaching the `Topology Discovery Reporter` template (see
+database/topology/discovery/template_topology_discovery_reporter.yaml) as part of onboarding
+that Host — folded into the same manual "reporter must already exist as a Host" step §1/§4
+already require, not a separate step. An earlier iteration had this script bootstrap its own
+items via item.create against the Zabbix API; that traded the template-attachment step for
+an API credential this component otherwise has no reason to hold, so it was dropped in favor
+of the template (spec §4.1).
 
 Does NOT reimplement the trapper wire protocol — shells out to the zabbix_sender binary.
 Does NOT reimplement SNMP from scratch — shells out to net-snmp's snmpwalk/snmpget, which
@@ -20,19 +28,20 @@ this script — see the self-check notes in the delivery report for what that la
 doesn't).
 
 Credentials/config: never hardcoded (see topo-change-sender.sh at the repo root for the
-anti-pattern this deliberately avoids). Zabbix API base URL + token come from env vars
-(ZABBIX_API_URL / ZABBIX_API_TOKEN) or a --config reporters file; SNMP community strings
-live in that same reporters file, which is expected to be gitignored if it holds anything
-sensitive (see database/topology/discovery/reporters.example.json for the shape).
+anti-pattern this deliberately avoids). SNMP community strings live in the --config reporters
+file, which is expected to be gitignored if it holds anything sensitive (see
+database/topology/discovery/reporters.example.json for the shape).
 
 Usage:
   push.py --config reporters.json [--reporter Switch1] [--dry-run]
   push.py --name Switch1 --zabbix-host Switch1 --mgmt-ip 192.0.2.11 \\
           --snmp-target 127.0.0.1 --snmp-port 1611 --snmp-community zbxlab [--dry-run]
 
+If zabbix_sender reports the target item doesn't exist, that means the reporter's Host is
+missing the `Topology Discovery Reporter` template — attach it and re-run; this is a
+deployment/onboarding mistake to fix, not something this script retries around.
+
 Env vars:
-  ZABBIX_API_URL     e.g. http://127.0.0.1:8085/api_jsonrpc.php
-  ZABBIX_API_TOKEN    API token (Bearer) used only for the item.create bootstrap check
   ZABBIX_SENDER_SERVER  Zabbix server/proxy trapper host (default: 127.0.0.1)
   ZABBIX_SENDER_PORT    Zabbix server/proxy trapper port (default: 10051)
 """
@@ -47,8 +56,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
-import urllib.error
 from dataclasses import dataclass, field
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -377,53 +384,6 @@ def build_blob(cfg: ReporterConfig) -> dict:
     }
 
 
-# ---- Zabbix API (item.create bootstrap only — see module docstring) ----
-
-class ZabbixApi:
-    def __init__(self, url: str, token: str):
-        self.url = url
-        self.token = token
-        self._id = 0
-
-    def call(self, method: str, params: dict):
-        self._id += 1
-        payload = json.dumps({"jsonrpc": "2.0", "method": method, "params": params, "id": self._id}).encode()
-        req = urllib.request.Request(self.url, data=payload, headers={
-            "Content-Type": "application/json-rpc",
-            "Authorization": f"Bearer {self.token}",
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read())
-        if "error" in body:
-            raise RuntimeError(f"Zabbix API {method} failed: {body['error']}")
-        return body["result"]
-
-    def get_hostid(self, host: str) -> str:
-        result = self.call("host.get", {"output": ["hostid"], "filter": {"host": [host]}})
-        if not result:
-            raise RuntimeError(f"Reporter Host '{host}' does not exist in Zabbix — it must be "
-                                f"onboarded manually first (spec §4/§4.1 bootstrap requirement).")
-        return result[0]["hostid"]
-
-    def ensure_trapper_item(self, hostid: str, key: str, name: str, value_type: int):
-        existing = self.call("item.get", {"output": ["itemid"], "hostids": [hostid], "filter": {"key_": key}})
-        if existing:
-            return existing[0]["itemid"]
-        result = self.call("item.create", {
-            "hostid": hostid,
-            "name": name,
-            "key_": key,
-            "type": 2,  # Zabbix trapper
-            "value_type": value_type,
-        })
-        return result["itemids"][0]
-
-
-def bootstrap_items(api: ZabbixApi, hostid: str) -> None:
-    api.ensure_trapper_item(hostid, RAW_ITEM_KEY, "Topology discovery raw blob", value_type=4)  # text
-    api.ensure_trapper_item(hostid, HEARTBEAT_ITEM_KEY, "Topology discovery heartbeat", value_type=3)  # unsigned
-
-
 # ---- zabbix_sender ----
 
 def send_via_zabbix_sender(zabbix_host: str, raw_blob: dict, server: str, port: int, sender_bin: str) -> None:
@@ -438,9 +398,26 @@ def send_via_zabbix_sender(zabbix_host: str, raw_blob: dict, server: str, port: 
     try:
         cmd = [sender_bin, "-z", server, "-p", str(port), "-i", input_path]
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        print(result.stdout.strip())
-        if result.returncode != 0:
-            raise RuntimeError(f"zabbix_sender exited {result.returncode}: {result.stderr.strip()}")
+        output = result.stdout.strip()
+        print(output)
+        # zabbix_sender exits non-zero both when it can't reach the server at all AND when the
+        # server accepted the connection but rejected one or more values (e.g. "processed: 0;
+        # failed: 2; total: 2" for a Host missing the target item — the shape you get when the
+        # 'Topology Discovery Reporter' template hasn't been attached yet, spec §4.1). Its own
+        # per-run summary already says this clearly; the bug in the old message was that it only
+        # quoted stderr, which zabbix_sender leaves empty for this case — so the summary (on
+        # stdout, already printed above) got silently dropped from the exception text. Quote
+        # both, and always mention the template explicitly on a reported failure, since
+        # zabbix_sender doesn't name *why* a value failed (no such item vs. wrong value type,
+        # etc.) — the template is by far the most likely cause and the one deployment step this
+        # script depends on. This is a deployment mistake to surface immediately, not to retry.
+        if result.returncode != 0 or "failed: 0" not in output:
+            detail = output or result.stderr.strip() or f"(no output, exit code {result.returncode})"
+            raise RuntimeError(
+                f"zabbix_sender reported a failure sending to Host '{zabbix_host}' — most "
+                f"likely the 'Topology Discovery Reporter' template (topology.discovery.raw / "
+                f"topology.discovery.heartbeat items) is not attached to that Host yet; attach "
+                f"it and re-run. zabbix_sender output: {detail}")
     finally:
         os.unlink(input_path)
 
@@ -456,14 +433,6 @@ def run_reporter(cfg: ReporterConfig, args) -> bool:
     if args.dry_run:
         print(json.dumps(blob, indent=2))
         return True
-
-    api = ZabbixApi(args.api_url, args.api_token)
-    try:
-        hostid = api.get_hostid(cfg.zabbix_host)
-        bootstrap_items(api, hostid)
-    except RuntimeError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return False
 
     try:
         send_via_zabbix_sender(cfg.zabbix_host, blob, args.sender_server, args.sender_port, args.sender_bin)
@@ -487,9 +456,7 @@ def main() -> int:
     parser.add_argument("--snmp-port", type=int, default=161)
     parser.add_argument("--snmp-community", default="public")
     parser.add_argument("--snmp-version", default="2c")
-    parser.add_argument("--dry-run", action="store_true", help="print the assembled blob, don't bootstrap/send")
-    parser.add_argument("--api-url", default=os.environ.get("ZABBIX_API_URL"))
-    parser.add_argument("--api-token", default=os.environ.get("ZABBIX_API_TOKEN"))
+    parser.add_argument("--dry-run", action="store_true", help="print the assembled blob, don't send")
     parser.add_argument("--sender-server", default=os.environ.get("ZABBIX_SENDER_SERVER", "127.0.0.1"))
     parser.add_argument("--sender-port", type=int, default=int(os.environ.get("ZABBIX_SENDER_PORT", "10051")))
     parser.add_argument("--sender-bin", default=os.environ.get("ZABBIX_SENDER_BIN", ZABBIX_SENDER_BIN))
@@ -511,9 +478,6 @@ def main() -> int:
     else:
         parser.error("either --config or --name/--snmp-target is required")
         return 1
-
-    if not args.dry_run and not args.api_url:
-        parser.error("--api-url (or ZABBIX_API_URL) is required unless --dry-run")
 
     ok = True
     for cfg in reporters:
