@@ -7,8 +7,8 @@ declare(strict_types=1);
  * ingest.php — topology discovery "ingest" component (spec §4.1, Trapper delivery mechanism).
  *
  * Reads the latest `topology.discovery.raw` value per reporter (via the Zabbix API's
- * item.get/history.get), applies spec §3 exactly (evidence threshold / rule 1, MAC/chassis-ID
- * reconciliation / rule 2, never-delete-on-unlink / rule 3, upsert-by-natural-key / rule 4,
+ * item.get/history.get), applies spec §3 exactly (evidence threshold / rule 1, MAC-only Device<->
+ * Host/Proxy reconciliation / rule 2, never-delete-on-unlink / rule 3, upsert-by-natural-key / rule 4,
  * manual-link-never-downgraded / rule 5), and writes to topo_nodes/topo_edges.
  *
  * Runs standalone against the topology tables with plain PDO — the same approach as
@@ -20,15 +20,22 @@ declare(strict_types=1);
  * comments on each for the exact correspondence. Keep it that way: don't let this drift into
  * a second, subtly different set of rules (per the brief's explicit warning).
  *
- * host_inventory (macaddress_a/macaddress_b/chassis) is read with a direct SQL join against
+ * host_inventory (macaddress_a/macaddress_b) is read with a direct SQL join against
  * topo_nodes.host_ref, since ingest already holds a PDO connection to the very same Zabbix
  * database that host_inventory lives in — no second round trip through the Zabbix API is
  * needed for that part (§3.2's gotcha about host.get()'s selectInterfaces having no MAC field
  * doesn't apply here, since this never goes through selectInterfaces at all).
  *
+ * Reporter discovery is dynamic (spec §4.1, "Reporter discovery must be dynamic"): by default
+ * this script finds every reporter itself via a single item.get filtered on key
+ * 'topology.discovery.raw' across all hosts — no config file enumerating reporters by hand.
+ * --zabbix-host remains as an optional operator override to scope a run to specific host(s)
+ * (e.g. ad-hoc testing) — it is a filter on top of dynamic discovery, not a replacement
+ * registry, and omitting it (the default, no-args case) is what runs full dynamic discovery.
+ *
  * Usage:
  *   ingest.php --api-url <url> --api-token <token> --pdo-dsn <dsn> --pdo-user <user> \
- *       [--pdo-password <password>] (--config reporters.json | --zabbix-host <host> [--zabbix-host <host> ...])
+ *       [--pdo-password <password>] [--zabbix-host <host> ...]
  *
  * Env vars (fallbacks for the flags above): ZABBIX_API_URL, ZABBIX_API_TOKEN,
  * TOPOLOGY_PDO_DSN, TOPOLOGY_PDO_USER, TOPOLOGY_PDO_PASSWORD.
@@ -40,7 +47,7 @@ function fail(string $message): void {
 }
 
 $options = getopt('', ['api-url:', 'api-token:', 'pdo-dsn:', 'pdo-user:', 'pdo-password:',
-	'config:', 'zabbix-host:', 'help']);
+	'zabbix-host:', 'help']);
 
 if (isset($options['help'])) {
 	fwrite(STDOUT, "See the file header for usage.\n");
@@ -109,25 +116,17 @@ $pdo_password = $options['pdo-password'] ?? getenv('TOPOLOGY_PDO_PASSWORD') ?: '
 
 if (!$api_url || !$api_token || !$pdo_dsn || !$pdo_user) {
 	fail("Usage: {$argv[0]} --api-url <url> --api-token <token> --pdo-dsn <dsn> --pdo-user <user> ".
-		"[--pdo-password <password>] (--config reporters.json | --zabbix-host <host>...)\n\n".
+		"[--pdo-password <password>] [--zabbix-host <host> ...]\n\n".
 		"Credentials may also come from ZABBIX_API_URL / ZABBIX_API_TOKEN / TOPOLOGY_PDO_DSN / ".
 		"TOPOLOGY_PDO_USER / TOPOLOGY_PDO_PASSWORD env vars — never hardcode them in a script ".
-		"(see topo-change-sender.sh at the repo root for the anti-pattern this avoids).");
+		"(see topo-change-sender.sh at the repo root for the anti-pattern this avoids).\n\n".
+		"Reporters are discovered dynamically via item.get (spec §4.1) — no reporter list needed. ".
+		"--zabbix-host optionally scopes a run to specific host(s) for ad-hoc testing.");
 }
 
-$reporter_hosts = [];
-if (isset($options['config'])) {
-	$config = json_decode((string) file_get_contents($options['config']), true, 512, JSON_THROW_ON_ERROR);
-	foreach ($config as $reporter) {
-		$reporter_hosts[] = $reporter['zabbix_host'];
-	}
-}
-if (isset($options['zabbix-host'])) {
-	$reporter_hosts = array_merge($reporter_hosts, (array) $options['zabbix-host']);
-}
-if (!$reporter_hosts) {
-	fail('No reporters given — pass --config reporters.json or one or more --zabbix-host.');
-}
+// Optional operator scoping — a filter on top of dynamic discovery, never a substitute for it (see the
+// file header). Empty means "no filter": every host carrying topology.discovery.raw is a reporter.
+$zabbix_host_filter = isset($options['zabbix-host']) ? (array) $options['zabbix-host'] : [];
 
 // ---- Zabbix API (read-only: host.get/item.get/history.get) ----
 
@@ -160,20 +159,29 @@ final class ZabbixApi {
 		return $decoded['result'];
 	}
 
-	/** Returns [hostid, itemid] for the reporter's topology.discovery.raw item, or null if either is missing —
-	 * an absent item is a normal "push hasn't run against this reporter yet" state, not fatal to the run. */
-	public function findRawItem(string $host): ?array {
-		$hosts = $this->call('host.get', ['output' => ['hostid'], 'filter' => ['host' => [$host]]]);
-		if (!$hosts) {
-			return null;
+	/** Spec §4.1 "Reporter discovery must be dynamic": finds every reporter by querying item.get for the
+	 * topology.discovery.raw key across ALL hosts — no hostids filter, no config file. Every host carrying
+	 * that item (i.e. every host onboarded with the Topology Discovery Reporter template) is automatically
+	 * a reporter for this run. Returns one row per matching item: ['host' => ..., 'hostid' => ..., 'itemid' => ...]. */
+	public function findAllReporterItems(): array {
+		$items = $this->call('item.get', [
+			'output' => ['itemid', 'hostid'],
+			'filter' => ['key_' => 'topology.discovery.raw'],
+			// templated => false: item.get otherwise also returns the item as defined on the template
+			// itself (a pseudo-"host" row for the template, e.g. "Topology Discovery Reporter") — only
+			// items actually inherited onto a real reporter Host count as reporters.
+			'templated' => false,
+			'selectHosts' => ['host'],
+		]);
+		$rows = [];
+		foreach ($items as $item) {
+			$rows[] = [
+				'host' => $item['hosts'][0]['host'] ?? null,
+				'hostid' => $item['hostid'],
+				'itemid' => $item['itemid'],
+			];
 		}
-		$hostid = $hosts[0]['hostid'];
-		$items = $this->call('item.get', ['output' => ['itemid'], 'hostids' => [$hostid],
-			'filter' => ['key_' => 'topology.discovery.raw']]);
-		if (!$items) {
-			return null;
-		}
-		return [$hostid, $items[0]['itemid']];
+		return $rows;
 	}
 
 	/** Latest text history value for an item, or null if it has never received one. */
@@ -336,12 +344,15 @@ $promote = static function (int $device_id, int $target_nodeid, string $matched_
 	return true;
 };
 
-// Byte-for-byte mirror of CTopologyPrototype::reconcileHost() (~line 973)'s two lookups (Port.attrs.mac via
-// host_inventory.macaddress_a/b, then Device.attrs.chassis_id via host_inventory.chassis) — run per Device
-// instead of per Host, since ingest discovers/touches Devices, not Hosts (§5's Host/Proxy pull is a
-// separate, already-existing pull path this script doesn't duplicate). Only Host is reconciled against,
-// not Proxy — proxy.get/CProxy::get exposes no MAC/inventory concept at all (same gap noted in
-// CTopologyPrototype::pullProxies()), so there is nothing to reconcile a Proxy against here either.
+// Byte-for-byte mirror of CTopologyPrototype::reconcileHost()'s MAC lookup (Port.attrs.mac via
+// host_inventory.macaddress_a/b) — run per Device instead of per Host, since ingest discovers/touches
+// Devices, not Hosts (§5's Host/Proxy pull is a separate, already-existing pull path this script doesn't
+// duplicate). Only Host is reconciled against, not Proxy — proxy.get/CProxy::get exposes no MAC/inventory
+// concept at all (same gap noted in CTopologyPrototype::pullProxies()), so there is nothing to reconcile a
+// Proxy against here either. Rule 2 (spec §3): matching is MAC-only — there is no generic Zabbix host
+// field carrying an LLDP chassis ID (host_inventory.chassis is an unrelated free-text field), so
+// $device_attrs is unused here now; it stays a parameter only because callers pass it (see the neighbor
+// Device call below), not because this function reads it.
 $reconcile_device = static function (int $device_id, array $device_attrs, array $port_macs) use ($pdo, $promote): void {
 	foreach ($port_macs as $mac) {
 		if (!$mac) {
@@ -354,15 +365,6 @@ $reconcile_device = static function (int $device_id, array $device_attrs, array 
 		$stmt->execute([$mac, $mac]);
 		while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 			$promote($device_id, (int) $row['id'], 'mac', $mac);
-		}
-	}
-	if (!empty($device_attrs['chassis_id'])) {
-		$stmt = $pdo->prepare("SELECT node.id FROM topo_nodes node".
-			" JOIN host_inventory hi ON hi.hostid = node.host_ref".
-			" WHERE node.type = 'host' AND hi.chassis = ?");
-		$stmt->execute([$device_attrs['chassis_id']]);
-		while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			$promote($device_id, (int) $row['id'], 'chassis_id', null);
 		}
 	}
 };
@@ -397,17 +399,29 @@ $api = new ZabbixApi($api_url, $api_token);
 $processed = 0;
 $skipped = 0;
 
-foreach ($reporter_hosts as $zabbix_host) {
+$reporter_items = $api->findAllReporterItems();
+if ($zabbix_host_filter) {
+	$reporter_items = array_values(array_filter($reporter_items,
+		static fn (array $row): bool => in_array($row['host'], $zabbix_host_filter, true)));
+}
+
+if (!$reporter_items) {
+	// Zero reporters is a normal "nothing onboarded yet" state (spec §4.1), not an error — succeed with
+	// nothing to do rather than failing the run.
+	echo "No reporters found (no host carries the topology.discovery.raw item yet — nothing onboarded, ".
+		"or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
+	write_status(['status' => 'done', 'started_at' => $run_started_at, 'finished_at' => time(),
+		'summary' => ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0],
+		'error' => null]);
+	exit(0);
+}
+
+foreach ($reporter_items as $reporter_item) {
+	$zabbix_host = $reporter_item['host'] ?? "hostid:{$reporter_item['hostid']}";
 	echo "--- {$zabbix_host} ---\n";
 
 	try {
-		$located = $api->findRawItem($zabbix_host);
-		if ($located === null) {
-			echo "SKIP: no topology.discovery.raw item found for '{$zabbix_host}' (push hasn't run yet?)\n";
-			$skipped++;
-			continue;
-		}
-		[, $itemid] = $located;
+		$itemid = $reporter_item['itemid'];
 
 		$raw = $api->latestValue($itemid);
 		if ($raw === null) {
@@ -498,7 +512,7 @@ foreach ($reporter_hosts as $zabbix_host) {
 			}
 
 			// Rule 2: reconcile the neighbor Device too, not just the reporter — a neighbor discovered by
-			// LLDP might itself be an already-onboarded Zabbix Host with inventory MAC/chassis data.
+			// LLDP might itself be an already-onboarded Zabbix Host with inventory MAC data.
 			$reconcile_device($neighbor_device_id, $neighbor_attrs, array_filter([$neighbor_attrs['mac']]));
 		}
 

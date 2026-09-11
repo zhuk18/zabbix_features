@@ -595,7 +595,9 @@ class CTopologyPrototype {
 	// validation happens here, or ever — promotion is a deliberate user action per §3.2/§6, independent of the
 	// automatic reconciliation in reconcileHost()) vs. 'identity' when reconcileHost() calls this after a real
 	// match. $matched_by/$matched_mac are only meaningful for 'identity' (§2.3's attrs table: matched_by is
-	// "mac"|"chassis_id"|"manual" — for a manual promotion matched_by is always the literal string 'manual').
+	// "mac"|"manual" — for a manual promotion matched_by is always the literal string 'manual'. chassis_id is
+	// not a valid matched_by value here — Device<->Host/Proxy matching is MAC-only per §3 rule 2; chassis_id
+	// remains valid only for the unrelated Device-to-itself upsert match in rule 4).
 	public static function promote(string $deviceid, string $hostid, string $match_type = 'manual',
 			?string $matched_by = null, ?string $matched_mac = null): void {
 		if (self::isRepresented($deviceid)) {
@@ -622,7 +624,7 @@ class CTopologyPrototype {
 		$count = 0;
 		foreach (API::Host()->get([
 			'output' => ['hostid', 'proxyid', 'monitored_by'],
-			'selectInventory' => ['macaddress_a', 'macaddress_b', 'chassis']
+			'selectInventory' => ['macaddress_a', 'macaddress_b']
 		]) as $host) {
 			$host_nodeid = self::upsertPointerNode('host', 'host_ref', $host['hostid']);
 			self::reconcileHost($host_nodeid, $host['inventory'] ?? []);
@@ -798,7 +800,7 @@ class CTopologyPrototype {
 	// interpolating the proxy's exact name as the key parameter. This is a real, well-defined Zabbix
 	// convention, not a fuzzy/weak-key guess — but it only finds anything if some host in the instance has
 	// actually been set up to monitor this specific proxy via that convention; there's no structural guarantee
-	// one exists, same opportunistic caveat as MAC/chassis reconciliation in reconcileHost().
+	// one exists, same opportunistic caveat as MAC reconciliation in reconcileHost().
 	private static function getProxyHealthItemIds(string $proxy_name): array {
 		$needle = '['.$proxy_name.']';
 		$itemids = [];
@@ -966,10 +968,12 @@ class CTopologyPrototype {
 	// MAC source is host_inventory.macaddress_a/macaddress_b (host.get selectInventory), populated only when
 	// the host uses Automatic inventory mode with a system.hw.macaddr item — most hosts on a real instance
 	// won't have it set, and an empty/missing value is a normal non-match, not an error, same as any other
-	// unmatched host. §3.2's other strong key, chassis ID, is host_inventory.chassis vs. Device.attrs.chassis_id
-	// — a Device-level attribute, so this branch matches against Device rows directly, not via Port like MAC
-	// does. The same gap applies to Proxy for both keys (CProxy::get has no interface/inventory concept at
-	// all), so §5's "run Device reconciliation for each Proxy" is not implemented; see pullProxies() above.
+	// unmatched host. Device<->Host/Proxy matching is MAC-only (§3 rule 2, corrected) — there is no generic
+	// Zabbix host field carrying an LLDP chassis ID; host_inventory.chassis is an unrelated free-text
+	// inventory field, not a valid match key here (chassis_id remains valid only for the separate
+	// Device-to-itself upsert match in rule 4, which this method has nothing to do with). The same MAC gap
+	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so §5's "run Device
+	// reconciliation for each Proxy" is not implemented; see pullProxies() above.
 	private static function reconcileHost(string $host_nodeid, array $inventory): void {
 		foreach (['macaddress_a', 'macaddress_b'] as $field) {
 			if (empty($inventory[$field])) {
@@ -986,19 +990,6 @@ class CTopologyPrototype {
 					// §2.1's 1:1 constraint applies here too, not just to the manual endpoint: the device or
 					// this host is already represented elsewhere. Skip this candidate — it's a normal "no
 					// match" outcome for automatic reconciliation, not a failure worth aborting the pull over.
-					continue;
-				}
-			}
-		}
-
-		if (!empty($inventory['chassis'])) {
-			$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('device').
-				' AND attrs LIKE '.zbx_dbstr('%"chassis_id":"'.$inventory['chassis'].'"%'));
-			while ($device = DBfetch($result)) {
-				try {
-					self::promote($device['id'], $host_nodeid, 'identity', 'chassis_id');
-				}
-				catch (Exception $exception) {
 					continue;
 				}
 			}

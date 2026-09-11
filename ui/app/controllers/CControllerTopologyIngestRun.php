@@ -20,14 +20,10 @@
  *    the same Bearer header, so no new credential-management surface is needed.
  *  - --pdo-dsn/--pdo-user/--pdo-password: read from the frontend's own $DB global (populated from
  *    ui/conf/zabbix.conf.php), which is the same database ingest.php needs to reach directly via PDO.
- *  - --config: the reporters list has no frontend-side source yet (no UI for picking/managing reporters
- *    exists in this prototype) — this is a real product gap, not an implementation detail, so it's
- *    flagged here rather than guessed silently. For now this defaults to
- *    database/topology/discovery/reporters.json if that real (non-`.example`) config exists (the file
- *    push.py's own docstring already expects an operator to create, typically gitignored since it may
- *    carry SNMP community strings), falling back to reporters.example.json only so the button has
- *    something to run against in a fresh checkout / this lab environment. A real product decision is
- *    needed on how reporters are selected from the UI — this is a placeholder, not a design choice.
+ *  - No reporters argument is passed: ingest.php discovers its reporters itself, dynamically, via
+ *    item.get on the topology.discovery.raw key (spec §4.1, "Reporter discovery must be dynamic") —
+ *    every host onboarded with the template is automatically picked up. Reporter selection is not this
+ *    controller's concern at all; there is nothing here to source or flag.
  */
 class CControllerTopologyIngestRun extends CController {
 	protected function init(): void {
@@ -63,17 +59,6 @@ class CControllerTopologyIngestRun extends CController {
 		// PHP process — flock() itself is always released by the OS on process death, but a stale status
 		// read here wouldn't know that, whereas always attempting a fresh spawn self-heals it).
 
-		$config_path = is_file($discovery_dir.'/reporters.json')
-			? $discovery_dir.'/reporters.json'
-			: $discovery_dir.'/reporters.example.json';
-
-		if (!is_file($config_path)) {
-			$this->setResponse(new CControllerResponseData(['main_block' => json_encode([
-				'error' => ['messages' => ['No reporters config found ('.$config_path.').']]
-			])]));
-			return;
-		}
-
 		$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 		$host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1';
 		$base_path = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
@@ -95,8 +80,7 @@ class CControllerTopologyIngestRun extends CController {
 			'--api-token', $api_token,
 			'--pdo-dsn', $pdo_dsn,
 			'--pdo-user', $DB['USER'],
-			'--pdo-password', $DB['PASSWORD'],
-			'--config', $config_path
+			'--pdo-password', $DB['PASSWORD']
 		]));
 
 		// Detached background process: stdout/stderr redirected to a log file (not left connected to

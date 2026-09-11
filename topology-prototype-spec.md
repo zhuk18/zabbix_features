@@ -134,7 +134,7 @@ and status — never duplicated into `attrs`.
 | `part_of` | Port → Device | `{}` |
 | `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen}` |
 | `member_of_lag` | Port[physical] → Port[lag] | `{}` |
-| `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"chassis_id"\|"manual", matched_mac, created_at}` |
+| `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"manual", matched_mac, created_at}` |
 | `monitored_by` | Host → Proxy | `{}` |
 
 **`represented_by` is 1:1 in both directions.** A `Device` can have at most
@@ -234,8 +234,16 @@ These rules are the core of the model — implement them exactly, do not
    non-LLDP endpoints (PCs, phones, printers), and creating a node per MAC
    would flood the graph with noise that carries no topological value.
 
-2. **`Device` ↔ `Host`/`Proxy` matching uses a strong key only**: MAC address
-   (or chassis ID, if available from both sides). **The MAC source on the
+2. **`Device` ↔ `Host`/`Proxy` matching uses MAC address only — not chassis
+   ID, despite what an earlier version of this rule said.** There is no
+   generic Zabbix host field that carries an LLDP chassis ID (host
+   inventory has `macaddress_a`/`macaddress_b` and serial-number fields,
+   nothing called "chassis ID") — a chassis-ID-based match was never
+   actually implementable as stated, it just went unnoticed because a
+   chassis ID is frequently *itself* a MAC address (LLDP subtype 4), so
+   matches were silently going through the MAC path anyway. When a chassis
+   ID is a non-MAC value (e.g. subtype 5, a locally-assigned string), there
+   is no way to match it against a Host today. **The MAC source on the
    Zabbix side is `host.inventory.macaddress_a`/`macaddress_b`, not
    `host.interfaces[]`** — Zabbix's host interface object (`hostinterface`)
    has no MAC field at all (only `ip`/`dns`/`port`/`type`), so don't look
@@ -250,6 +258,10 @@ These rules are the core of the model — implement them exactly, do not
    do not auto-merge on a guess. The manual `/promote` path (§2.3, §6) is
    the intended way to cover every host that automatic matching can't reach
    for this reason — the two mechanisms are complementary, not redundant.
+   (`chassis_id` remains a valid key for `Device`-to-itself upsert in rule
+   4 below — that's a different match, `Device` recognizing the same
+   physical entity across ingest runs, not `Device`-to-`Host` linking, and
+   isn't affected by this correction.)
 
 3. **`Device` nodes are never deleted** when a `represented_by` edge is
    removed (e.g. a Zabbix host is decommissioned). The physical device may
@@ -257,30 +269,25 @@ These rules are the core of the model — implement them exactly, do not
 
 4. **Upsert, not insert**: re-running the collector against the same device
    must update existing nodes, not create duplicates. Match `Device` by
-   `chassis_id` if present, else `mgmt_ip`, else `sysname` **scoped to the
-   same `local_if_index` of the same reporter** (i.e. only against a
-   `Device` previously seen as the neighbor on that exact port of that
-   exact reporter — never a global `sysname` lookup across all `Device`
-   nodes). This third key exists for LLDP neighbors that announce a
-   `sysname` but no chassis ID and have no resolvable `mgmt_ip` — without
-   it, every re-run creates a fresh duplicate `Device` for that neighbor,
-   and (unlike `Host`, which has `/depromote` as a correction path) there
-   is no merge/cleanup operation for an accidentally-duplicated `Device` —
-   the growth is effectively irreversible, so this key is not optional
-   hardening, it's required for rule 4 to hold at all against real LLDP
-   data. Scoping it to (reporter, local_if_index) keeps the risk profile
-   different from the weak-key matching rule 2 (§3.2) deliberately
-   excludes: rule 2's risk was merging two different real identities
-   (`Device`↔`Host`), which is why it stays MAC/chassis-ID only — this
-   scoped `sysname` match instead risks only failing to recognize the same
-   neighbor across runs, and a false merge requires two physically
-   different devices sharing a `sysname` on the same port of the same
-   reporter, which is far narrower. When this key is what resolved the
-   match, set `Device.attrs.matched_by = "sysname"` so it's visible on
-   inspection as a weaker signal than `chassis_id`/`mgmt_ip`. Match `Port`
-   by `(device_id via part_of, if_index)`. If a neighbor has none of
-   `chassis_id`, `mgmt_ip`, or `sysname` — stop and flag it; do not invent
-   a fourth fallback key.
+   `chassis_id` if present, else `mgmt_ip`, **else `sysname` scoped to the
+   same local port of the same reporter** (i.e. match against a `Device`
+   previously seen as a neighbor on that exact `local_if_index` of that
+   exact reporter — never a global `sysname` match across the whole
+   network). This third key exists specifically for LLDP neighbors known
+   only by name (no chassis ID, no management IP exposed) — confirmed as a
+   real gap in live testing: without it, every ingest pass created a fresh
+   `Device` for these neighbors instead of recognizing the same one, with
+   unbounded growth on repeated runs. This is a different risk than the
+   weak-key prohibition in rule 2: rule 2 is about not conflating two
+   *different* real entities (`Device`↔`Host`/`Proxy`) on weak evidence;
+   this is about re-recognizing the *same* previously-seen neighbor between
+   ingest passes, which is why the narrow reporter+port scope is enough to
+   keep it safe — a false match here would require two physically distinct
+   devices sharing a `sysname` on the exact same port of the exact same
+   reporter, not just anywhere on the network. Mark `Device.attrs` with
+   `matched_by: "sysname"` when this key was used, so it's visibly a
+   weaker signal than `chassis_id`/`mgmt_ip` on inspection. Match `Port` by
+   `(device_id via part_of, if_index)`.
 
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
@@ -340,11 +347,38 @@ regardless of which is picked:
   §11's backlog notes on this) doesn't change between options below; only
   *how the result gets from the polled device into `topo_nodes`/`topo_edges`*
   changes.
-- **The bootstrap requirement is unavoidable in every option**: at least one
-  reporter must already exist as a Zabbix `Host` before any discovery can
-  happen. This doesn't weaken §3.1 — a reporter's *neighbors* are still
-  created as independent `Device` nodes regardless of whether they're
-  Zabbix hosts — it only means the very first reporter is onboarded manually.
+- **Reporter onboarding is deliberately out of scope for topology
+  itself — this is a scope boundary, not a gap.** A reporter must already
+  exist as a Zabbix `Host` (with the template from §4.1 attached) before
+  its data can be ingested. Topology doesn't care, and must never be made
+  to care, *how* that `Host` came to exist — manually, via Zabbix's own
+  Network Discovery + Discovery Actions, via the API, via a CMDB import,
+  anything. This spec should never grow a bespoke "find and register
+  reporters" mechanism of its own: Zabbix already owns host lifecycle, and
+  topology's job starts only once a reporter `Host` exists, full stop. If
+  faster reporter onboarding is wanted operationally, recommend configuring
+  Zabbix's own Network Discovery (an SNMP-check discovery rule over the
+  relevant range, with a Discovery Action that creates the `Host` and
+  attaches the template) as a **deployment pattern** — this is Zabbix
+  configuration a deployer chooses to do, not something this spec
+  implements or depends on.
+- **This is also where topology's real value over Network Discovery shows
+  up, and it's worth being precise about what that value actually is.**
+  Network Discovery only ever produces `Host`s — it cannot see a device
+  that doesn't answer whatever discovery check was configured (no SNMP, no
+  agent, nothing pollable). LLDP-sourced topology data still reveals such a
+  device as long as *some* onboarded reporter can see it as a neighbor —
+  e.g. `Switch1` (a `Host`, found by Network Discovery or onboarded by
+  hand) reports `Printer1` (never a `Host`, no discoverable service of its
+  own) as an LLDP neighbor, and topology still renders `Printer1` as an
+  unassociated `Device` node with a real `physical_link` to `Switch1`. This
+  is the concrete case for the unmanaged-device support this whole model
+  was built around (§1) — not a vaguer "topology discovers the network"
+  claim. Once enough `Host`s exist as reporters (by whatever means),
+  LLDP's role shifts from *finding new devices* to *finding relationships*
+  between what's already known plus whatever unmanaged neighbors those
+  reporters can see — that's the accurate framing, not "self-revealing
+  network discovery."
 - Whichever option is picked, an **ingest step still applies the exact same
   §3 rules** (evidence threshold, MAC/chassis-ID reconciliation, upsert,
   `physical_link` canonicalization) to turn the delivered data into
@@ -417,22 +451,17 @@ Rules for the push component:
   (`topology.discovery.heartbeat`, just a timestamp) on the same interval.
   A `nodata()` trigger on it is the "is discovery even running" signal —
   standard Zabbix pattern, nothing custom needed.
-- **Bootstrap**: a `Topology Discovery Reporter` template (both Trapper
-  items, plus the `nodata()` heartbeat trigger from the rule above, bundled
-  together) is attached to a reporter `Host` as part of onboarding it —
-  folded into the same manual step §1/§4's opening notes already require
-  ("at least one reporter must already exist as a Zabbix `Host`"), not a
-  separate step. The push component itself has **zero Zabbix API
-  dependency** — no auth token, no API client, nothing — its only two
-  dependencies are SNMP reach to the segment and network reach to
-  `zabbix_sender`'s target port. (An earlier iteration had the push
-  component create its own Trapper item via `item.create` on first run;
-  that traded a template-attachment step for an API credential the push
-  component otherwise has no reason to hold, so it was dropped in favor of
-  the template.) If `zabbix_sender` fails because the target item doesn't
-  exist (template not attached to that reporter yet), the push component
-  must surface this as a clear, specific onboarding error — not retry
-  silently, not crash uninformatively.
+- **Bootstrap — via template, not a runtime API call.** The push component
+  must never call `item.create` or any other Zabbix API method — that would
+  contradict its whole reason for existing as a separate component (no API
+  access needed, only SNMP + the Trapper port; see the opening of this
+  section). Instead, both Trapper items (`topology.discovery.raw`,
+  `topology.discovery.heartbeat`) are defined once on a Zabbix template,
+  which gets attached to a reporter `Host` at onboarding time — the same
+  step, by the same person/access-level, that already has to create the
+  `Host` itself per §1/§4's bootstrap requirement. The push component just
+  writes to an item that's already there by the time it runs; it never
+  provisions anything.
 
 **Ingest component**: reads the latest `topology.discovery.raw` value per
 reporter (via `item.get`/`history.get`), applies §3 exactly as already
@@ -440,6 +469,17 @@ specified (evidence threshold, MAC/chassis-ID reconciliation, upsert,
 `physical_link` canonicalization), writes to `topo_nodes`/`topo_edges`.
 Runs on its own schedule, independent of the push interval — they don't
 need to be synchronized.
+
+**Reporter discovery must be dynamic, not a static list.** The ingest
+component finds its set of reporters by calling `item.get` filtered on the
+key `topology.discovery.raw` (or a key prefix, e.g. `topology.discovery.`)
+across all hosts — every host with that item attached (i.e. every host
+onboarded with the template from the bootstrap rule above) is a reporter.
+**No config file (`reporters.json` or similar) listing reporters by hand** —
+that reintroduces exactly the kind of manually-maintained registry this
+architecture was meant to avoid, and silently drifts out of sync with
+reality the moment a reporter is onboarded or decommissioned without
+someone remembering to update the file too.
 
 ## 5. Zabbix API pull
 
@@ -511,29 +551,31 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   removing an LLDP-confirmed link by hand is allowed (e.g. correcting a
   stale/wrong observation); it will simply reappear on the next discovery
   run if LLDP still reports it, same as any other upsert.
-- `POST /topo/ingest/run` — starts an ingest run (§4.1's ingest component)
-  in the background and returns immediately (`{status: "started"}`), rather
-  than blocking the request for the run's duration. **Must call the exact
-  same ingest logic the CLI (`database/topology/discovery/ingest.php`)
-  already uses** — refactor that logic into a shared function/module if it
-  isn't already separated from the CLI's `argparse`/entrypoint code, so the
-  CLI and this endpoint both call the same thing. Do not write a second,
-  parallel implementation of §3's rules for the API path. **Must go through
-  the same run-lock as the CLI** — a concurrent run (whether triggered by
-  the CLI or by this endpoint) must be rejected or queued, never allowed to
-  run two ingest passes against `topo_nodes`/`topo_edges` at once. (As of
-  this endpoint being added, the CLI itself doesn't yet have such a lock —
-  adding it is part of this work, at the shared-function level, not
-  something bolted onto only the API path.)
-- `GET /topo/ingest/status` — current ingest run state:
+- `POST /topo/ingest/run` — manually trigger the ingest component (§4.1)
+  from the UI, alongside the existing "Pull Zabbix hosts" control for §5.
+  **Must call the exact same ingest code path as the CLI** (§4.1) — not a
+  separate implementation — so the file-lock against concurrent runs
+  already required there covers this entry point too without extra work.
+  Starts the run in the background and returns immediately (e.g.
+  `{status: "started"}`); must never block the HTTP request until the whole
+  ingest pass completes, since that risks a request timeout on a real
+  reporter count.
+- `GET /topo/ingest/status` — poll for the state of the most recent run:
   `{status: "idle"|"running"|"done"|"error", started_at, finished_at,
-  summary: {devices_created, devices_updated, ports_created,
-  links_created}}`. Deliberately minimal — this is not the per-reporter
-  matched/unmatched diagnostic from the §11 "discovery-quality visibility"
-  backlog item, just enough for a UI toast.
+  summary: {devices_created, devices_updated, ports_created, links_created}}`.
+  Enough for a toast/summary in the UI — this is not the same as the
+  per-reporter matched/unmatched diagnostics in §11's "discovery-quality
+  visibility" backlog item, which is a separate, heavier feature.
 
 ## 7. Frontend
 
+- **Global controls**: a "Run discovery ingest" button alongside the
+  existing "Pull Zabbix hosts" control (§5) — both are manual triggers for
+  a backend sync pass, same UI pattern. Calls `POST /topo/ingest/run`
+  (§6), shows a running/spinner state while `GET /topo/ingest/status`
+  reports `"running"`, then a brief summary (from `status`'s `summary`
+  field) on completion — don't block the button or the rest of the UI
+  while it runs, per §6's async requirement.
 - **Graph view**: nodes are `Device`/`Host`/`Proxy` only — never render
   `Port` as a graph node (see §4 of the earlier design discussion: a
   48-port device would make the graph unreadable). Progressive expansion via
@@ -614,26 +656,17 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   after depromotion the merged node splits back into an unmerged `Device`
   (dashed) and an unmerged `Host`/`Proxy`, positioned near each other by the
   layout rather than re-drawn as a connected pair.
-- **"Run discovery ingest" button**: next to the existing "Pull Zabbix
-  hosts & proxies" control. Calls `POST /topo/ingest/run`, then polls
-  `GET /topo/ingest/status`: a spinner/running indicator while status is
-  `"running"`, a brief summary toast on `"done"` (from the endpoint's
-  `summary`), an error toast on `"error"`. Must not block the rest of the
-  UI while a run is in progress — the graph, side panels, and every other
-  control stay usable during polling. If a run is already in progress
-  (CLI- or button-triggered — the lock is shared, §6) and the button is
-  clicked again, reflect that as the same running state rather than firing
-  a second request that the backend will just reject.
 
 ## 8. Acceptance criteria
 
 - Loading the seed data produces `Device` + `Port` nodes whose
   connected/disconnected/LAG/management counts match §4 exactly (40/4/2/2),
   with only 2 of the 40 connected ports resolving to a neighbor `Device`.
-- A Zabbix host **or proxy** matching the seed `Device` by the strong-key
-  rules from §3.2 (MAC or chassis ID — not just MAC on the host side) ends
-  up with a `represented_by` edge after the API pull runs. Test both
-  mechanisms, not just one, since the model explicitly allows either.
+- A Zabbix host **or proxy** matching the seed `Device` by MAC per §3.2
+  (via `inventory.macaddress_a`/`macaddress_b` — not chassis ID, which
+  isn't a valid `Device`↔`Host` match key; see rule 2's correction) ends
+  up with a `represented_by` edge after the API pull runs. Test both the
+  `Host` and `Proxy` paths, since the model allows either as the target.
 - The UI graph correctly distinguishes `Host` (solid) from unassociated
   `Device` (dashed), and the port drill-down table groups ports the
   same way as in §7.
@@ -677,14 +710,13 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   inert text everywhere it appears — node label, port drill-down table,
   tooltips — never executes. Test this specifically; don't assume general
   framework escaping covers it without checking the actual render path (§9).
-- Triggering an ingest run via the CLI, then clicking "Run discovery
-  ingest" while it's still in progress, does not start a second concurrent
-  run — the shared lock (§6) rejects or queues the button-triggered
-  request. Triggering a run via the button alone (no CLI run active)
-  succeeds, and the graph reflects the ingest results afterward exactly as
-  it would after a CLI-triggered run — same code path, same data. The rest
-  of the UI (graph interaction, side panels, other buttons) stays
-  responsive while a run is in progress.
+- Clicking "Run discovery ingest" while a CLI-triggered ingest run is
+  already in progress is rejected/queued by the same file-lock (§4.1), not
+  a second, independent run — confirms the button and the CLI share one
+  code path rather than two parallel implementations.
+- Onboarding a new reporter (template attached, at least one push already
+  sent) and running ingest picks it up **without editing any config file**
+  — confirms reporter discovery is live via `item.get`, not a static list.
 
 ## 9. Security — untrusted network-sourced strings
 
