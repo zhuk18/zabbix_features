@@ -46,6 +46,19 @@ nohup snmpsim-command-responder \
     --agent-udpv4-endpoint=172.18.0.104:1614 \
     >/tmp/ups1.log 2>&1 &
 
+# AccessSwitch1/AccessSwitch2 — deeper LLDP fanout added later (2 more hops past Switch2:
+# Switch2 -- AccessSwitch1 -- AccessSwitch2). Loopback-only, no 172.18.0.10x bridge alias —
+# that range is for the unrelated LibreNMS stack sharing this script, not needed here.
+nohup snmpsim-command-responder \
+    --data-dir=./snmpdata/accessswitch1 \
+    --agent-udpv4-endpoint=127.0.0.6:1611 \
+    >/tmp/accessswitch1.log 2>&1 &
+
+nohup snmpsim-command-responder \
+    --data-dir=./snmpdata/accessswitch2 \
+    --agent-udpv4-endpoint=127.0.0.7:1611 \
+    >/tmp/accessswitch2.log 2>&1 &
+
 sleep 3
 
 echo "[3/3] Listening sockets:"
@@ -57,6 +70,8 @@ echo "snmpget -On -v2c -c zbxlab 127.0.0.2:1611 .1.3.6.1.2.1.1.5.0   # router1"
 echo "snmpget -On -v2c -c zbxlab 127.0.0.3:1611 .1.3.6.1.2.1.1.5.0   # switch1"
 echo "snmpget -On -v2c -c zbxlab 127.0.0.4:1611 .1.3.6.1.2.1.1.5.0   # switch2"
 echo "snmpget -On -v2c -c zbxlab 127.0.0.5:1611 .1.3.6.1.2.1.1.5.0   # ups1"
+echo "snmpget -On -v2c -c zbxlab 127.0.0.6:1611 .1.3.6.1.2.1.1.5.0   # accessswitch1"
+echo "snmpget -On -v2c -c zbxlab 127.0.0.7:1611 .1.3.6.1.2.1.1.5.0   # accessswitch2"
 
 echo
 echo "=== Test commands (LibreNMS-side bridge endpoints) ==="

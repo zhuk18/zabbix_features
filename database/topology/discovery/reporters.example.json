@@ -34,5 +34,23 @@
     "snmp_port": 1611,
     "snmp_community": "zbxlab",
     "snmp_version": "2c"
+  },
+  {
+    "name": "AccessSwitch1",
+    "zabbix_host": "AccessSwitch1",
+    "mgmt_ip": "192.0.2.21",
+    "snmp_target": "127.0.0.6",
+    "snmp_port": 1611,
+    "snmp_community": "zbxlab",
+    "snmp_version": "2c"
+  },
+  {
+    "name": "AccessSwitch2",
+    "zabbix_host": "AccessSwitch2",
+    "mgmt_ip": "192.0.2.22",
+    "snmp_target": "127.0.0.7",
+    "snmp_port": 1611,
+    "snmp_community": "zbxlab",
+    "snmp_version": "2c"
   }
 ]
