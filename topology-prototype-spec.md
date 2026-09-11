@@ -37,7 +37,24 @@ Favor simplicity and readability over performance or completeness.
 - Automated confidence-scored / fuzzy identity matching
 - Scheduled or cron-based discovery
 - Reachability / SPOF / blast-radius graph algorithms
-- CAM-table (`dot1dTpFdbTable`) walk — not relevant until the real collector exists
+- CAM-table (`dot1dTpFdbTable`) walk — the real collector (§4.1) now
+  exists, so this is a live, deliberately-deferred gap rather than a
+  hypothetical one: `Port.attrs.learned_macs` is never populated by
+  `push.py`, so rule 1's "MAC learned only via CAM table → appended to
+  `learned_macs`, no `Device` created" branch is currently unreachable
+  through the real pipeline (only the static seed fixture in §4
+  exercises it). See §11.
+- **LAG membership discovery** (`ifStackTable`/`ieee8023adTable` walk) —
+  `push.py` detects a LAG-type interface itself (`ifType`
+  `ieee8023adLag`, reported as `if_type: "lag"` in a port's blob entry),
+  but §4.1's blob schema was never specified to carry *which physical
+  ports are members of that LAG* — no `ifStackTable`/`ieee8023adTable`
+  walk was ever in scope, so there is no data for `ingest.php` to build a
+  `member_of_lag` edge from. `ingest.php` is not missing anything on its
+  end (it correctly creates no `member_of_lag` edge without the data); the
+  gap is entirely on the push/blob-schema side. A `Port` with
+  `if_type: "lag"` from the real collector today is expected to land
+  member-less. See §11.
 
 If a requirement not listed above seems necessary while implementing, stop and
 flag it rather than silently expanding scope.
@@ -456,6 +473,18 @@ reach to the segment and network reach to the Trapper port.
   "collected_at": "2026-09-10T12:00:00Z"
 }
 ```
+
+**Known gap in this blob shape, symmetric to §1's CAM-table exclusion:**
+a `ports[]` entry with `if_type: "lag"` carries no information about which
+*other* `ports[]` entries (by `if_index`) are members of that LAG — the
+shape above was never extended with something like
+`"lag_members": [<if_index>, ...]`, and no `ifStackTable`/
+`ieee8023adTable` walk was ever specified to populate it. Concretely,
+until this is picked up: `push.py` can correctly identify a LAG port
+(`ifType` `ieee8023adLag`) and report it, but `ingest.php` has nothing to
+build a `member_of_lag` edge (§2.3) from — a LAG `Port` node from the real
+collector lands member-less, not a bug in `ingest.php`, a missing input.
+See §11 for both this and the CAM-table gap together.
 
 Rules for the push component:
 - One blob per reporter — a single unresolvable/malformed device must never
@@ -902,6 +931,24 @@ was flagged when it first came up.
   resolved vs. didn't, and why) as an operator-facing view, not just silent
   success/failure. Meaningless against static seed data; relevant the
   moment discovery runs against a real, imperfect network.
+- **CAM-table walk + LAG membership discovery** — two related, currently
+  unimplemented gaps in the real collector (§4.1, `push.py`/`ingest.php`),
+  documented together in §1's exclusions since they're both "the collector
+  doesn't walk a table it would need to for this" gaps, not modeling gaps:
+  - *CAM-table* (`dot1dTpFdbTable`): needed to populate
+    `Port.attrs.learned_macs` (§2.2) for real, so rule 1's MAC-only-port
+    branch is exercised by something other than the static seed fixture.
+  - *LAG membership* (`ifStackTable`/`ieee8023adTable`): needed so a
+    `Port` with `if_type: "lag"` can actually get its member ports wired
+    up via `member_of_lag` (§2.3) — `push.py` already detects the LAG
+    interface itself, it just has no membership data to put in the blob.
+    This needs a schema addition to §4.1's blob shape (some
+    `lag_members: [if_index, ...]` per LAG port, or equivalent) as well as
+    the SNMP walk itself; `ingest.php`'s side is a comparatively small
+    addition once the data exists.
+  Neither is required for §8's acceptance criteria against the real
+  collector (only the static seed fixture needs to demonstrate these
+  branches for §8); both are real, scoped follow-ups once picked up.
 - **Vendor-specific SNMP/LLDP variance** — not every vendor exposes a
   queryable LLDP neighbor table the same way (or at all — some devices only
   send LLDP without serving the neighbor table back, some need a controller
