@@ -124,13 +124,26 @@ def snmp_walk(target: str, port: int, community: str, version: str, oid: str) ->
     """Runs snmpwalk and returns a list of (oid, type, value) triples. Never raises for an
     empty/missing subtree (net-snmp prints "No Such Object"/"No more variables" — treated as
     zero rows, not an error, since not every device populates every table, e.g. lldpRemTable
-    on a device with no active LLDP neighbors right now)."""
+    on a device with no active LLDP neighbors right now) — but DOES raise when snmpwalk itself
+    exits non-zero, since that's how net-snmp reports a genuinely unreachable target (dead UDP
+    port, wrong community, etc.), not an empty-but-healthy subtree. Confirmed empirically: an
+    empty/nonexistent subtree on a live device ("No Such Instance...") exits 0, while a fully
+    unreachable target ("Timeout: No Response from ...") exits 1 — the two are reliably
+    distinguishable this way. Without this check, an unreachable device silently produced a
+    blob with a blank sysname/no chassis_id (still built successfully, since mgmt_ip always
+    comes from the reporter config, not SNMP) that ingest then had nothing to match against,
+    creating a new blank orphaned Device instead of failing loudly — found live against this
+    lab when snmpsim was stopped mid-testing."""
     cmd = ["snmpwalk", "-v", version, "-c", community, "-On", "-t", "3", "-r", "1",
            f"{target}:{port}", oid]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         raise SnmpError(f"snmpwalk failed for {oid} against {target}:{port}: {exc}") from exc
+
+    if out.returncode != 0:
+        detail = out.stderr.strip() or out.stdout.strip() or f"exit code {out.returncode}"
+        raise SnmpError(f"snmpwalk failed for {oid} against {target}:{port}: {detail}")
 
     rows = []
     for line in out.stdout.splitlines():
