@@ -12,35 +12,80 @@ Favor simplicity and readability over performance or completeness.
 
 ## 1. Scope
 
-**In scope:**
-- Node types: `Device`, `Port`, `Host`, `Proxy`
-- Edge types: `part_of`, `physical_link`, `member_of_lag`, `represented_by`, `monitored_by`
-- Static seed data standing in for the discovery collector (see §4)
-- Manually-triggered Zabbix API host pull
-- MAC-based reconciliation (strong-key match only)
-- Topology graph UI (Device/Host/Proxy nodes, click-to-expand neighbors)
-- Port drill-down table per device (grouped by connection type)
+**In scope — grouped by what each covers, not a flat list, since a lot has
+accumulated since this section was first written:**
+
+*Model* (§2):
+- Node types: `Device`, `Port` (independent physical-topology entities,
+  exist without a Zabbix counterpart), `Host`, `Proxy` (thin pointers into
+  Zabbix's own tables, never data copies)
+- Edge types: `part_of`, `physical_link`, `member_of_lag`, `represented_by`,
+  `monitored_by`
+
+*Identity resolution* (§3, §4.1):
+- Neighbor `Device`↔`Host`/`Proxy` matching: MAC-only, opportunistic
+  (§3 rule 2)
+- Reporter self-identification: deterministic `reporter_self` linking,
+  independent of MAC matching (§4.1)
+- `Device` self-recognition across ingest runs: upsert by `chassis_id` →
+  `mgmt_ip` → reporter+port-scoped `sysname` (§3 rule 4)
+- Pseudo-port merge, both the reactive and proactive halves (§3 rule 4)
+- Manual overrides, independent of automatic reconciliation: `/promote`,
+  `/depromote`, manual `physical_link` creation/deletion with explicit
+  LLDP-conflict resolution (§3 rule 5, §6)
+
+*Data source* (§4, §4.1):
+- Static seed data (two modes: default upsert, `--reset`) as the baseline
+  fixture
+- The Trapper-based push/ingest pipeline as currently implemented and
+  tested against a live SNMP lab — documented as **provisional transport**
+  (§4's opening note): what's actually built today, not a permanent
+  architectural commitment
+
+*API and UI* (§6, §7):
+- Manually-triggered Zabbix API host/proxy pull (§5) and manually-triggered
+  ingest, both from the CLI and from a UI button sharing the same code path
+  (§6)
+- Topology graph: `Device`/`Host`/`Proxy` nodes only, `Port` never rendered
+  as a node; a `Device` with an active `represented_by` is not drawn at all
+  — only its `Host`/`Proxy`, with the `Device`'s data moved into a section
+  of that node's side panel (§7)
+- Side panel: `Port` drill-down table (grouped by connection type),
+  `Host`/`Proxy` Problems section, conditional Device section
+- Visual states: severity, disabled, maintenance, blind-spot,
+  `physical_link` provenance (`discovered_via`) and severity styling,
+  `monitored_by` on its own distinct line style (§7)
+
+*Security* (§9):
+- Escaping/sanitizing every LLDP/CDP-sourced string wherever it renders —
+  treated as base implementation, not optional hardening
 
 **Explicitly out of scope for this prototype — do not build:**
-- The discovery collector itself — deferred to a later iteration to save
-  build time; §4 describes the seed data that replaces it for now. §4 also
-  compares several delivery mechanisms for when the real collector is
-  built (LLD item-per-neighbor, External check, Trapper, standalone daemon)
-  — no single one is designated as "the" choice at the spec level, since
-  the right pick depends on deployment specifics not yet known. Whichever
-  is chosen, the ingest logic (§3) is unaffected by where the raw data came
-  from, and the eventual output must still match the seed data's shape
-  exactly (§4) — nothing else in this spec has to change when it's added.
+- The discovery collector's raw SNMP-walking logic itself is implemented
+  (§4.1), but reporter *onboarding* (finding and registering new reporters)
+  is not — that's deliberately delegated to Zabbix's own mechanisms
+  (Network Discovery, manual, API, CMDB import), never built into this spec
+  (§4's "reporter onboarding is out of scope for topology itself" note)
+- Manual `Device` creation — rule 5 explicitly forbids it; a candidate
+  design exists (§11's "Passive infrastructure" item) but is not being
+  built now
 - `VLAN`, `Subnet`, `IPAddress` nodes/edges
 - `Service` tree and `APMService` nodes/edges
 - Temporal versioning (`valid_from`/`valid_to`) beyond a simple `last_seen` timestamp
-- Automated confidence-scored / fuzzy identity matching
-- Scheduled or cron-based discovery
+- Automated confidence-scored / fuzzy identity matching beyond what §3
+  already specifies (MAC-only, `reporter_self`, the narrowly-scoped
+  `sysname` fallback)
+- Scheduled or cron-based discovery — every trigger point (push, ingest,
+  API pull) is manual, whether from CLI or UI button
 - Reachability / SPOF / blast-radius graph algorithms
-- CAM-table (`dot1dTpFdbTable`) walk — not relevant until the real collector exists
-- `ifStackTable`/`ieee8023adTable` walk for LAG membership — same status;
-  confirmed missing during real-collector implementation (§4.1), tracked
-  there rather than worked around in `ingest.php`
+- CAM-table (`dot1dTpFdbTable`) walk — not relevant until vendor/LAG work
+  picks this up (§11)
+- `ifStackTable`/`ieee8023adTable` walk for LAG membership — confirmed
+  missing during implementation (§4.1), tracked in §11 rather than worked
+  around in `ingest.php`
+- Node position persistence, optimistic concurrency on writes, a lifecycle
+  state machine for stale `physical_link`s, and everything else listed in
+  §10 (scaling) and §11 (backlog) — all deliberately deferred, not gaps
 
 If a requirement not listed above seems necessary while implementing, stop and
 flag it rather than silently expanding scope.
@@ -787,7 +832,10 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   an implementation detail of the traversal, never part of the response.
   Each neighbor edge includes a `severity` field, derived live from the
   trigger(s) tied to the two endpoint ports' `zabbix_itemids` (see §2.3) —
-  highest active severity, or null if none.
+  highest active severity, or null if none. Each edge also includes the
+  underlying `physical_link.attrs.last_seen` value and a derived `stale`
+  boolean (`last_seen` older than the threshold in §7) — compute `stale`
+  server-side rather than shipping the raw threshold logic to the client.
 - `GET /topo/devices/{id}/ports` — full port list for the side-panel table, grouped as: connected via LLDP / connected MAC-only / disconnected / port-channel / management
 - `GET /topo/nodes/{id}/problems` — active problems/triggers for a `Host` or
   `Proxy` node (`id` here is a `Host`/`Proxy` node id, not a `Device` id —
@@ -894,6 +942,18 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   disaster-level trigger renders differently from a quiet one. This is
   separate from the dashed/solid convention used for node association
   status; do not repurpose that same visual channel for link severity.
+- **`physical_link` staleness indicator**: when `/neighbors`' `stale` flag
+  is `true` (`last_seen` older than **7 days**, computed server-side —
+  this threshold is a starting point, not tuned against real data yet),
+  render the link at reduced opacity (roughly 40–50%). This is a **third,
+  independent visual channel** — it must not touch the dash pattern
+  (provenance: manual vs. LLDP) or the color/weight (severity). A stale
+  manual link is still dashed, just faded; a stale link with an active
+  critical trigger is still colored for that severity, just faded. Don't
+  collapse staleness into either of the other two channels. This is
+  read-time-only — no data model or ingest change, per the reasoning
+  already in §11's lifecycle note; it doesn't replace a real lifecycle
+  model, just makes the existing `last_seen` fact visible.
 - **Side panel — `Device` with no `represented_by`**: click → call
   `/ports`, render the grouped table (port / status / connected-to / source
   badge: `LLDP` / `MAC only` / `—`). Includes the "Promote to host" button
@@ -979,6 +1039,11 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   Stable counts alone do not prove convergence for this rule (see the
   methodological note in §3 rule 4); a create-one/delete-one cycle each
   pass would pass a counts-only check while never actually stabilizing.
+- A `physical_link` with `last_seen` older than 7 days renders faded
+  (reduced opacity) regardless of its `discovered_via` (dashed or solid)
+  or severity color — confirms staleness is a genuinely independent visual
+  channel, not collapsed into either of the other two. A fresh link with
+  the same `discovered_via`/severity combination renders at full opacity.
 - A seed `Device` with an HTML/script payload in `sysname` (e.g.
   `<script>alert(1)</script>` or `<img src=x onerror=alert(1)>`) renders as
   inert text everywhere it appears — node label, port drill-down table,
@@ -1049,14 +1114,24 @@ here so they aren't rediscovered from scratch later.
    through `/neighbors` from that entry point, same as it already does for
    graph expansion.
 
-2. **Reconciliation needs an index on `mac`/`chassis_id`.** §2.1 deliberately
-   keeps node data in JSON `attrs` rather than typed columns, to keep the
-   schema stable while the model was still moving. But §3.2 reconciliation
-   matches on exactly those two fields, buried inside that JSON — without a
-   generated/indexed column over `attrs->>'mac'` (and `chassis_id`), every
-   Zabbix API pull becomes a full scan over all `Port` nodes at real scale.
-   Add generated columns with indexes for `mac` and `chassis_id` specifically
-   — this does not require reverting the JSON-attrs decision for anything else.
+2. **Reconciliation and self-upsert both need indexes, on different fields
+   for different reasons — don't conflate them.** §2.1 deliberately keeps
+   node data in JSON `attrs` rather than typed columns, to keep the schema
+   stable while the model was still moving. Two separate lookups both pay
+   for that today:
+   - §3.2's `Device`↔`Host`/`Proxy` reconciliation matches on `Device.attrs.mac`
+     only (per rule 2's correction — `chassis_id` is not used here). Without
+     a generated/indexed column over `attrs->>'mac'`, every Zabbix API pull
+     becomes a full scan over all `Device` nodes at real scale.
+   - §3 rule 4's `Device` self-upsert (recognizing the same physical entity
+     across ingest runs) and the pseudo-port merge (§3 rule 4) both match
+     on `Device.attrs.chassis_id`/`mgmt_ip` — a different lookup, for a
+     different purpose, needing its own index over `attrs->>'chassis_id'`
+     (and `mgmt_ip`).
+
+   Add generated columns with indexes for `mac` and `chassis_id`
+   specifically — this does not require reverting the JSON-attrs decision
+   for anything else.
 
    A related gap worth flagging in the same breath: `Device` upsert (§3 rule
    4) matches by `chassis_id` (falling back to `mgmt_ip`), but nothing at
@@ -1106,20 +1181,14 @@ was flagged when it first came up.
   from the middle of a sequence of rapid pushes rather than a clean
   before/after snapshot — a generation counter would let ingest detect and
   reason about that rather than silently processing an ambiguous read.
-- **Stale-`physical_link` lifecycle** — §3 rule 5 deliberately keeps a link
-  that's stopped being reported by discovery forever (only `last_seen` goes
-  stale, no deletion, no status marker), consistent with this spec having
-  no lifecycle state machine at all (§1). If stale links become an actual
-  operational nuisance — clutter on the graph, no way to tell "gone" from
-  "just not recently reconfirmed" — this is where a real lifecycle model
-  (something like the reference FR document's Active/Stale/Removed states)
-  would go. Don't improvise a partial version of it before then. **A much
-  cheaper interim step, worth trying first**: a purely computed UI
-  indicator (`last_seen > N days` → render the link visually differently)
-  needs zero data-model or ingest changes at all — it's a read-time
-  computation over data that already exists. This alone might resolve the
-  practical concern (can't tell current from long-stale at a glance)
-  without building any lifecycle machinery.
+- **Full `physical_link` lifecycle state machine** — §3 rule 5 deliberately
+  keeps a link that's stopped being reported by discovery forever (deletion
+  is manual only, per §6), consistent with this spec having no lifecycle
+  state machine at all (§1). A lightweight staleness *indicator* is now
+  implemented (§7) — this entry is only about a full state model
+  (something like the reference FR document's Active/Stale/Removed states,
+  with transitions, possibly automatic cleanup). Revisit only if the
+  indicator alone turns out not to be enough in practice.
 - **Topology scope / admission policies** — right now, any LLDP-resolved
   neighbor (§3 rule 1) becomes a `Device` node, unconditionally. At real
   scale this raises a different question from either discovery-quality
@@ -1287,3 +1356,76 @@ just deferred:
   logic, a different concern from the topology model. The graph could in
   principle inform trigger dependency configuration, but that's a distinct
   feature, not a gap in this spec.
+
+## 12. Anticipated review questions
+
+Rationale for two decisions likely to be challenged in review, written to
+be quoted directly rather than re-explained from scratch each time.
+
+### "Why not use Zabbix Network Discovery to collect LLDP data?"
+
+**Technical fact, not a design preference: Network Discovery cannot do
+this, regardless of how it's configured.** Its SNMP check queries exactly
+one OID per check, as a presence/alive probe — confirmed via Zabbix's own
+debug logging (`zbx_snmp_get_values() num:1`). It does not walk SNMP
+tables, and a check's result is never persisted as structured/historical
+data — no item, no history — it's used once to evaluate discovery status
+and trigger an Action, then discarded. `lldpRemTable` is a multi-row table
+that needs walking and needs its result kept for processing; that
+capability belongs to items + LLD, a structurally different Zabbix
+subsystem with its own polling engine and storage. "Extending" Network
+Discovery to do this would mean rebuilding LLD-style walking and storage
+inside the wrong subsystem, not a small patch on top of it.
+
+This is exactly why **LLD item-per-neighbor is already the first row of
+§4's comparison table** — it's the correct native mechanism for walking
+`lldpRemTable`, evaluated and not chosen for the reason already documented
+there (item/history namespace pollution — dozens of items per reporter,
+visible in ordinary item browsing). Wanting "LLDP via Network Discovery"
+is, in substance, wanting LLD under a different name. Network Discovery in
+this spec is used only for what it's actually built for: onboarding
+reporter `Host`s (§4.1's bootstrap note) — a job it's well-suited to,
+distinct from the data-collection job it can't do.
+
+### "Why not use Zabbix Tags to store topology relationships?"
+
+Considered early in this project's design (a community reference project,
+`zabbix-AutoMapper`, does exactly this for a narrower problem — see below)
+and rejected for structural reasons, not a style preference:
+
+- **Tags exist only on Zabbix domain objects** (`Host`/`Trigger`/`Item`) —
+  there is nowhere to put a tag on something that isn't one, which breaks
+  the unmanaged-device requirement (§1) at the root. Representing an
+  unmonitored neighbor would mean creating a fake `Host` just to have
+  somewhere to hang a tag — recreating exactly the "node-per-MAC noise"
+  problem §3 rule 1 exists to prevent, just via a different mechanism.
+- **Tags are flat key-value strings, not typed edges with attributes.**
+  `represented_by` carries `match_type`/`matched_by`/`created_at`;
+  `physical_link` carries `discovered_via`/`last_seen` (§2.3). Encoding
+  this in tags means either one tag per attribute (multiplying per edge)
+  or serializing a blob into a tag value — both break the normal
+  tag-based filtering/search tags exist for in the first place.
+- **No referential integrity.** A tag like `parent=core-switch-1` is just
+  a string; rename or delete the target and the tag dangles with no
+  signal. This model gets that for free via real foreign keys plus
+  `ON DELETE CASCADE` (§2.1).
+- **No structure suited to graph traversal.** Tag lookup is a value scan,
+  not adjacency — multi-hop traversal (root cause, blast radius, even the
+  simple `/neighbors` expansion in §6) would need a hand-rolled traversal
+  layer on top regardless, built on storage worse-suited to it than what
+  this spec already uses.
+- **Real-world precedent, already evaluated**: Pascal de Jessey's
+  `zabbix-AutoMapper` (Zabbix Summit 2024) uses host tags (`link`/`label`/
+  `type`) for exactly this. The author's own "Improvements" slide states
+  plainly that tags are *"convenient, but not specifically designed for
+  this purpose,"* and floats inventory fields as a better alternative he
+  hadn't yet built. That project solves a narrower problem than this one
+  (laying out already-known `Host`s on a map, not modeling unmonitored
+  devices plus typed relationships) — and even there, tags are acknowledged
+  as a workaround, not a good fit.
+
+Tags could cover a narrow, `Host`-only version of this problem with no
+unmanaged-device support. They don't structurally solve what this spec's
+data model needs, which is why they're used only for their legitimate role
+here — surfacing existing tags in the UI (§11's "Tag display" backlog
+item) — never for storing the graph itself.

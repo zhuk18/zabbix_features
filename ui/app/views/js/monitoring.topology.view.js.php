@@ -226,7 +226,8 @@ const view = new class {
 			source_port: relation.source_port, target_port: relation.target_port,
 			source_port_id: relation.source_port_id, target_port_id: relation.target_port_id,
 			source_status: relation.source_status, target_status: relation.target_status,
-			source_speed: relation.source_speed, target_speed: relation.target_speed
+			source_speed: relation.source_speed, target_speed: relation.target_speed,
+			stale: relation.stale
 		}));
 		this.unassigned = {
 			host: new Map(unassigned_hosts.map(node => [String(node.id), node])),
@@ -341,6 +342,7 @@ const view = new class {
 				this.links.push(link);
 			}
 			link.discovered_via = neighbor.discovered_via;
+			link.stale = neighbor.stale;
 			// neighbor.local_*/remote_* are from the CLICKED device's (node's) point of view —
 			// map them onto whichever of link.source/link.target actually IS node_id, same
 			// orientation concern as the undirected match above.
@@ -833,7 +835,12 @@ const view = new class {
 					return '2 2';
 				}
 				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
-			});
+			})
+			// §7 staleness indicator: a THIRD independent channel, deliberately on neither the dash
+			// pattern (provenance) nor the stroke color/width (connectivity) above — a stale manual
+			// link is still dashed, just faded; a stale link with a down/red endpoint is still red,
+			// just faded. Never collapse this into either of the other two.
+			.style('opacity', link => (link.type === 'physical_link' && link.stale) ? 0.45 : 1);
 		links.append('title').text(link => {
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'
@@ -850,7 +857,8 @@ const view = new class {
 				if (link.target_status) {
 					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
 				}
-				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}`;
+				const stale_note = link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '';
+				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
 			}
 			return '';
 		});

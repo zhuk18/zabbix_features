@@ -6,6 +6,16 @@ class CTopologyPrototype {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
 
+	// §7's physical_link staleness indicator: a starting-point threshold, not tuned against real
+	// data yet (spec §7's own note on this). Computed server-side (both here and by every caller)
+	// so the raw threshold never needs to ship to the client — the client only ever sees the
+	// already-derived boolean.
+	private const STALE_LINK_SECONDS = 7 * 24 * 60 * 60;
+
+	private static function isLinkStale(?int $last_seen): bool {
+		return $last_seen === null || (time() - $last_seen) > self::STALE_LINK_SECONDS;
+	}
+
 	/**
 	 * Every hostid the CURRENTLY LOGGED-IN user has read access to. Not a filter someone chose —
 	 * a floor that always applies, the same way every other Zabbix page (Problems, Latest data,
@@ -242,13 +252,17 @@ class CTopologyPrototype {
 			if (!isset($device_links[$key]) || $discovered_via === 'lldp') {
 				$port_a = $port_details[$row['port_a']] ?? [];
 				$port_b = $port_details[$row['port_b']] ?? [];
+				$last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 				$device_links[$key] = ['source' => $row['device_a'], 'target' => $row['device_b'],
 					'type' => 'physical_link', 'discovered_via' => $discovered_via,
 					'source_port' => $port_a['name'] ?? null, 'target_port' => $port_b['name'] ?? null,
 					// Ids, not just labels — port_status_of()/port_speed_of() below key on these too.
 					'source_port_id' => $row['port_a'], 'target_port_id' => $row['port_b'],
 					'source_status' => self::portStatus($port_a), 'target_status' => self::portStatus($port_b),
-					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null];
+					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null,
+					// §7 staleness indicator: rides along with whichever row won the discovered_via
+					// collapse above, same precedent — not a separate merge policy of its own.
+					'stale' => self::isLinkStale($last_seen)];
 			}
 		}
 		foreach ($device_links as $relation) {
@@ -391,6 +405,9 @@ class CTopologyPrototype {
 		// many neighbors there are.
 		$neighbors = [];
 		$discovered_via = [];
+		// §7 staleness indicator: last_seen of whichever physical_link row is currently "the" one
+		// shown for this neighbor — updated in lockstep with $link_ports below (same row wins both).
+		$last_seen = [];
 		// Which specific port pair to LABEL the link with, for the "Link details" panel — a
 		// neighbor reached via more than one physical_link (redundant cabling) still only shows
 		// one pair, upgraded to an LLDP-confirmed pair the same moment $discovered_via upgrades
@@ -409,11 +426,16 @@ class CTopologyPrototype {
 			// LLDP-discovered via a different port pair). Same "most-confirmed wins" precedent used
 			// throughout this class: if any one of them is LLDP-confirmed, render the neighbor link as such.
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			$row_last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 			if (($link_attrs['discovered_via'] ?? 'lldp') === 'lldp') {
 				if ($discovered_via[$row['id']] !== 'lldp') {
 					$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+					$last_seen[$row['id']] = $row_last_seen;
 				}
 				$discovered_via[$row['id']] = 'lldp';
+			}
+			elseif (!array_key_exists($row['id'], $last_seen)) {
+				$last_seen[$row['id']] = $row_last_seen;
 			}
 		}
 
@@ -428,6 +450,7 @@ class CTopologyPrototype {
 			$neighbor['represented'] = isset($represented_ids[$id]);
 			$neighbor['represented_hostid'] = $representing_hostids[$id] ?? null;
 			$neighbor['discovered_via'] = $discovered_via[$id];
+			$neighbor['stale'] = self::isLinkStale($last_seen[$id] ?? null);
 			// 'local'/'remote' from $deviceid's own point of view — local_port belongs to the
 			// clicked device, remote_port to this neighbor. Matches the naming already used for
 			// local_port_id/remote_port_id above. Ids ride along too (not just the display
