@@ -53,7 +53,7 @@ accumulated since this section was first written:**
 - Side panel: `Port` drill-down table (grouped by connection type),
   `Host`/`Proxy` Problems section, conditional Device section
 - Visual states: severity, disabled, maintenance, blind-spot,
-  `physical_link` provenance (`discovered_via`) and connectivity styling,
+  `physical_link` provenance (`discovered_via`) and severity styling,
   `monitored_by` on its own distinct line style (§7)
 
 *Security* (§9):
@@ -216,7 +216,7 @@ and status — never duplicated into `attrs`.
 | type | src → dst | attrs |
 |---|---|---|
 | `part_of` | Port → Device | `{}` |
-| `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen}` |
+| `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen, last_seen_src, last_seen_dst}` |
 | `member_of_lag` | Port[physical] → Port[lag] | `{}` |
 | `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"reporter_self"\|"manual", matched_mac, created_at}` |
 | `monitored_by` | Host → Proxy | `{}` |
@@ -269,6 +269,21 @@ intentional, not a gap to close: automatic reconciliation is opportunistic
 created manually, and there's no promotion to LLDP over time like
 `physical_link` has (§3.5) — a manual association stays manual unless
 someone `/depromote`s it and a fresh match happens some other way.
+
+**`physical_link` tracks `last_seen` per side, not just once — a link can
+have two independent reporters, and one of them can silently go stale
+while the other keeps confirming it.** If only a single aggregated
+`last_seen` were kept (whichever side confirmed most recently), one
+reporter's push pipeline breaking (a dead cron, a network issue) would be
+invisible as long as the *other* side of the same link keeps reporting —
+the link would look perfectly fresh in the existing staleness indicator
+(§7) while one whole source of truth for it has gone dark. `last_seen_src`
+and `last_seen_dst` record each side's most recent confirmation
+independently; `last_seen` (used by §7's indicator) stays `max(last_seen_src,
+last_seen_dst)` for backward compatibility with what's already built. For
+`discovered_via: "manual"` links, neither per-side field is populated —
+there's no reporter confirmation cycle to track, staleness works
+differently there (§3 rule 5) and doesn't need this.
 
 **`physical_link` direction must be canonicalized to prevent reversed
 duplicates.** Because `src_id`/`dst_id` are directional columns but a
@@ -327,16 +342,15 @@ as "monitoring blind spot behind this proxy", never as "these hosts are
 down". Silently treating a proxy outage as a host outage would make the
 graph actively misleading, not just incomplete.
 
-**`physical_link` connectivity styling — derived, not stored.** A link is
-styled by its two endpoint `Port`s' connectivity (see §6, §7), resolved
-live at read time from `Port.attrs.oper_status`/`admin_status` — same
-live-join spirit as everything else in §2.2, though this specific signal
-lives directly in `Port.attrs` already (§2.2), not behind a separate
-Zabbix API call. No new edge attrs are needed for this and none should be
-added. `portStatus()` (§6) collapses `admin_status`/`oper_status` into a
-single `up`/`down`/`disabled` value — an admin-disabled port is a deliberate
-state, not alarm-worthy, and deliberately doesn't render the same as an
-unexpected `down`.
+**`physical_link` problem styling — derived, not stored.** A link can be
+styled by Zabbix trigger severity (see §6, §7) by resolving the triggers
+attached to its two endpoint `Port`s' `zabbix_itemids`, live at read time —
+same live-join pattern as everything else in §2.2. No new edge attrs are
+needed for this and none should be added. Keep this signal distinct from
+the port's own `oper_status`: `oper_status` is a raw SNMP fact, a trigger is
+Zabbix's evaluated judgment on top of it — a link can be `oper_status: up`
+while still carrying an active trigger (e.g. on error rate), and the two
+must never be collapsed into a single indicator.
 
 ## 3. Node creation and reconciliation rules
 
@@ -439,6 +453,20 @@ These rules are the core of the model — implement them exactly, do not
    `matched_by: "sysname"` when this key was used, so it's visibly a
    weaker signal than `chassis_id`/`mgmt_ip` on inspection. Match `Port` by
    `(device_id via part_of, if_index)`.
+
+   **Device identity is independent of the reporter — say this explicitly,
+   don't leave it to be inferred.** The `chassis_id`/`mgmt_ip` keys above
+   are global lookups, not scoped to any particular reporter: if `Reporter
+   A` and `Reporter B` each independently see the same physical
+   `Switch-X` as a neighbor, both observations resolve to the *same*
+   `Device` node, because the match is on the device's own identity, not
+   on who observed it. Only the third, weak `sysname` fallback is
+   deliberately scoped to (reporter, port) — and that narrow scoping is
+   specific to that one weak key, not a property of matching in general.
+   A reporter is the *source of an observation*, never part of a device's
+   identity. Without this stated plainly, the reporter-scoping on the
+   `sysname` fallback right above could be misread as applying to the
+   whole rule.
 
    **Known limitation, not a bug: a `sysname`-scoped `Device` doesn't
    survive moving to a different port.** Because the match is scoped to
@@ -831,13 +859,12 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   traverse `Device → Port → physical_link → Port → Device` internally and
   return the resulting `Device`/`Host`/`Proxy` neighbors — `Port` nodes are
   an implementation detail of the traversal, never part of the response.
-  Each neighbor edge includes `source_status`/`target_status` fields,
-  derived live from each endpoint port's `attrs.oper_status`/`admin_status`
-  via `portStatus()` (see §2.3) — `up`/`down`/`disabled`. Each edge also
-  includes the underlying `physical_link.attrs.last_seen` value and a
-  derived `stale` boolean (`last_seen` older than the threshold in §7) —
-  compute `stale` server-side rather than shipping the raw threshold logic
-  to the client.
+  Each neighbor edge includes a `severity` field, derived live from the
+  trigger(s) tied to the two endpoint ports' `zabbix_itemids` (see §2.3) —
+  highest active severity, or null if none. Each edge also includes the
+  underlying `physical_link.attrs.last_seen` value and a derived `stale`
+  boolean (`last_seen` older than the threshold in §7) — compute `stale`
+  server-side rather than shipping the raw threshold logic to the client.
 - `GET /topo/devices/{id}/ports` — full port list for the side-panel table, grouped as: connected via LLDP / connected MAC-only / disconnected / port-channel / management
 - `GET /topo/nodes/{id}/problems` — active problems/triggers for a `Host` or
   `Proxy` node (`id` here is a `Host`/`Proxy` node id, not a `Device` id —
@@ -939,20 +966,19 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   blind spot" (e.g. a distinct badge/hatching), never rendered with the same
   problem-color styling used for an actual host-level issue — see the
   `monitored_by` semantics note in §2.3.
-- **`physical_link` connectivity styling**: color/weight the link using the
-  `source_status`/`target_status` fields from `/neighbors` (§6) — e.g. a
-  link with either endpoint port `down` renders differently from one where
-  both are `up`. This is separate from the dashed/solid convention used for
-  node association status; do not repurpose that same visual channel for
-  link connectivity.
+- **`physical_link` severity styling**: color/weight the link using the
+  `severity` field from `/neighbors` (§6) — e.g. a link carrying an active
+  disaster-level trigger renders differently from a quiet one. This is
+  separate from the dashed/solid convention used for node association
+  status; do not repurpose that same visual channel for link severity.
 - **`physical_link` staleness indicator**: when `/neighbors`' `stale` flag
   is `true` (`last_seen` older than **7 days**, computed server-side —
   this threshold is a starting point, not tuned against real data yet),
   render the link at reduced opacity (roughly 40–50%). This is a **third,
   independent visual channel** — it must not touch the dash pattern
-  (provenance: manual vs. LLDP) or the color/weight (connectivity). A stale
-  manual link is still dashed, just faded; a stale link between two `up`
-  ports is still colored for that status, just faded. Don't
+  (provenance: manual vs. LLDP) or the color/weight (severity). A stale
+  manual link is still dashed, just faded; a stale link with an active
+  critical trigger is still colored for that severity, just faded. Don't
   collapse staleness into either of the other two channels. This is
   read-time-only — no data model or ingest change, per the reasoning
   already in §11's lifecycle note; it doesn't replace a real lifecycle
@@ -1008,8 +1034,8 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   styling.
 - Clicking a `Host` with at least one active problem in the seed/test data
   shows that problem (severity, name, age) in the side panel via `/problems`.
-- A `physical_link` with a `down` endpoint port renders with the
-  corresponding connectivity styling from `/neighbors`, and this remains
+- A `physical_link` whose endpoint port has an active trigger renders with
+  the corresponding severity styling from `/neighbors`, and this remains
   visually distinct from the dashed/solid association-status styling on nodes.
 - Manually linking two ports on existing seed `Device`s via `/link` creates a
   `physical_link` with `discovered_via: "manual"`, renders dashed per §7, and
@@ -1044,10 +1070,15 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   pass would pass a counts-only check while never actually stabilizing.
 - A `physical_link` with `last_seen` older than 7 days renders faded
   (reduced opacity) regardless of its `discovered_via` (dashed or solid)
-  or connectivity color — confirms staleness is a genuinely independent
-  visual channel, not collapsed into either of the other two. A fresh link
-  with the same `discovered_via`/connectivity combination renders at full
-  opacity.
+  or severity color — confirms staleness is a genuinely independent visual
+  channel, not collapsed into either of the other two. A fresh link with
+  the same `discovered_via`/severity combination renders at full opacity.
+- For a `physical_link` between two reporters, stopping one reporter's
+  push while the other keeps confirming updates only that side's
+  `last_seen_src`/`last_seen_dst` — the other side's field, and the
+  aggregate `last_seen`, keep advancing. Confirms the two sides are
+  tracked independently, not silently masked by whichever side happens to
+  report more recently.
 - A seed `Device` with an HTML/script payload in `sysname` (e.g.
   `<script>alert(1)</script>` or `<img src=x onerror=alert(1)>`) renders as
   inert text everywhere it appears — node label, port drill-down table,
@@ -1160,7 +1191,7 @@ here so they aren't rediscovered from scratch later.
 
 What already holds up without changes: the per-device port table (§7) is
 bounded by port count on one device, not overall network size; `physical_link`
-connectivity via `/neighbors` (§6) is bounded to 1 hop from the selected node; and
+severity via `/neighbors` (§6) is bounded to 1 hop from the selected node; and
 the "unassociated hosts" list already needs search/collapse at scale, which
 was flagged when it first came up.
 
@@ -1330,7 +1361,7 @@ was flagged when it first came up.
   uses it at once.
 - **Continuous (weathermap-style) `physical_link` coloring** — color a link
   by continuous measured utilization (%) in addition to, or instead of, the
-  discrete up/down connectivity styling already in §7. Purely a rendering
+  discrete trigger-severity styling already in §7. Purely a rendering
   refinement on top of the existing `zabbix_itemids` join (§2.2, §6) —
   no model change.
 - **Discovery-quality visibility** — once the real collector exists (§1,

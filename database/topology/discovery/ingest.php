@@ -300,26 +300,53 @@ $port = static function (int $device_id, array $attrs) use ($insert_node, $updat
 // never let a repeated 'manual' call overwrite an existing edge at all. Discovery must never delete a
 // manually-created link (rule 5) — this function has no delete path, only upsert, satisfying that by
 // construction.
-$ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via) use ($pdo, $insert_edge, $now, &$summary): void {
+//
+// $reporter_port_id (spec §2.3): the port belonging to the reporter whose blob is being processed right
+// now — always $local_port_id at the one call site below, never the neighbor's (possibly pseudo-) port.
+// Once direction is canonicalized, that tells us which of last_seen_src/last_seen_dst is "this reporter's
+// side" of the edge, so a reporter whose push pipeline goes stale only stops advancing its own side —
+// the other reporter (if any) keeps confirming its side independently, and the aggregate last_seen (used
+// by §7's staleness indicator, unchanged) stays max(last_seen_src, last_seen_dst). Only ever 'lldp' here;
+// CTopologyPrototype::upsertPhysicalLink()'s 'manual' path has no reporter and leaves both fields unset.
+$ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via, int $reporter_port_id) use ($pdo, $insert_edge, $now, &$summary): void {
+	$reporter_is_a = $reporter_port_id === $port_a;
 	if ($port_a > $port_b) {
 		[$port_a, $port_b] = [$port_b, $port_a];
+		$reporter_is_a = !$reporter_is_a;
 	}
+	$reporter_side = $reporter_is_a ? 'last_seen_src' : 'last_seen_dst';
+
 	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link' AND src_id = ? AND dst_id = ?");
 	$stmt->execute([$port_a, $port_b]);
 	if ($existing = $stmt->fetch(PDO::FETCH_ASSOC)) {
 		$attrs = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		if ($discovered_via === 'lldp' && ($attrs['discovered_via'] ?? null) !== 'lldp') {
 			$attrs['discovered_via'] = 'lldp';
-			$attrs['last_seen'] = $now;
+		}
+		if ($discovered_via === 'lldp') {
+			// Update only this reporter's own side — the other side's last_seen_* is left exactly as
+			// it was, so a dead reporter on the other end shows up as that side going stale even while
+			// this confirmation keeps landing.
+			$attrs[$reporter_side] = $now;
+			$attrs['last_seen'] = max($attrs['last_seen_src'] ?? 0, $attrs['last_seen_dst'] ?? 0);
 			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
 				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $existing['id']]);
 		}
-		// discovered_via === 'manual' on an existing edge (of either provenance), or a repeated
-		// 'lldp' on an already-'lldp' edge: no-op by design (never downgrade, never duplicate).
+		// discovered_via === 'manual' on an existing edge (of either provenance): no-op by design
+		// (never downgrade, never duplicate, never touch the per-side fields).
 		return;
 	}
-	$insert_edge->execute(['physical_link', $port_a, $port_b,
-		json_encode(['discovered_via' => $discovered_via, 'last_seen' => $now], JSON_THROW_ON_ERROR), $now]);
+	$attrs = ['discovered_via' => $discovered_via];
+	if ($discovered_via === 'lldp') {
+		$attrs[$reporter_side] = $now;
+		$attrs['last_seen'] = $now;
+	}
+	else {
+		// 'manual': no reporter confirmation cycle — last_seen/last_seen_src/last_seen_dst all stay
+		// unset rather than being zero-initialized or defaulted to "now" (spec §2.3).
+		$attrs['last_seen'] = $now;
+	}
+	$insert_edge->execute(['physical_link', $port_a, $port_b, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
 	$summary['links_created']++;
 };
 
@@ -475,7 +502,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 	$pseudo_port_id = (int) $matches[0]['id'];
 
 	$edges_stmt = $pdo->prepare(
-		"SELECT id, src_id, dst_id FROM topo_edges WHERE type = 'physical_link' AND (src_id = ? OR dst_id = ?)");
+		"SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link' AND (src_id = ? OR dst_id = ?)");
 	$edges_stmt->execute([$pseudo_port_id, $pseudo_port_id]);
 	$edges = $edges_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -489,7 +516,22 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 			continue;
 		}
 		// §2.3: src_id is always the numerically smaller Port id — re-canonicalize for the new endpoint.
+		$pseudo_was_src = (int) $edge['src_id'] === $pseudo_port_id;
 		[$new_src, $new_dst] = $other_id < $real_port_id ? [$other_id, $real_port_id] : [$real_port_id, $other_id];
+		$real_is_src = $new_src === $real_port_id;
+
+		// last_seen_src/last_seen_dst (§2.3) are keyed to canonical src/dst position, not to a stable
+		// port identity — if replacing the pseudo-Port with the real one flips which of {other_id,
+		// real_port_id} is numerically smaller, the side that used to be "src" is now "dst" and vice
+		// versa. Swap the two fields along with src_id/dst_id so a reporter's already-recorded
+		// confirmation stays attributed to its own physical port, not to whichever side happens to be
+		// numerically smaller after the merge.
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if ($pseudo_was_src !== $real_is_src
+				&& (array_key_exists('last_seen_src', $attrs) || array_key_exists('last_seen_dst', $attrs))) {
+			[$attrs['last_seen_src'], $attrs['last_seen_dst']] =
+				[$attrs['last_seen_dst'] ?? null, $attrs['last_seen_src'] ?? null];
+		}
 
 		// Order-independence (§8): the OTHER side of this same cable may have already run its own merge
 		// first (e.g. real-real edge 167<->171 already exists because Switch1's pass merged its pseudo-Port
@@ -507,8 +549,8 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		}
 
 		try {
-			$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ? WHERE id = ?')
-				->execute([$new_src, $new_dst, $edge['id']]);
+			$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ?, attrs = ? WHERE id = ?')
+				->execute([$new_src, $new_dst, json_encode($attrs, JSON_THROW_ON_ERROR), $edge['id']]);
 		}
 		catch (PDOException $exception) {
 			// §2.3: a Port can have at most one active physical_link. This is the genuinely pathological
@@ -686,7 +728,7 @@ foreach ($reporter_items as $reporter_item) {
 			}
 
 			if ($local_port_id !== null) {
-				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp');
+				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp', $local_port_id);
 			}
 
 			// Rule 2: reconcile the neighbor Device too, not just the reporter — a neighbor discovered by

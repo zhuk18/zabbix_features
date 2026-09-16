@@ -702,6 +702,12 @@ class CTopologyPrototype {
 	// A 'manual' call on an existing edge never downgrades it — only 'lldp' is allowed to upgrade a prior
 	// 'manual' edge, and discovery must never delete a manual link on its own (§3.5); the DELETE endpoint
 	// (unlinkPorts) is the only thing that removes a link, of either provenance.
+	//
+	// This method is only ever called with discovered_via='manual' (the manual /link endpoint above) —
+	// discovery's own lldp-confirmed path lives in ingest.php's $ensure_physical_link(), which additionally
+	// tracks attrs.last_seen_src/last_seen_dst per reporter side (§2.3). There's no reporter to attribute a
+	// side to here, so per spec those two fields are deliberately left unset for manual links, never
+	// zero-initialized or defaulted — only attrs.last_seen (kept for §7's staleness indicator) is stamped.
 	private static function upsertPhysicalLink(string $port_a, string $port_b, string $discovered_via): void {
 		// §5: canonicalize direction (numerically smaller port id always src_id) so A→B and B→A collapse to
 		// the same row — both for the lookup below and for the DB-level unique index on (src_id, dst_id)
