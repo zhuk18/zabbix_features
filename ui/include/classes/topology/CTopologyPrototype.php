@@ -216,55 +216,51 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * @param array $groupids  Zabbix host group ids to restrict to; [] = unrestricted (today's
-	 *                         default). Only meaningful in hostgroup-filter mode — the tray isn't
-	 *                         restricted by the focus-host+depth mode, since an unassigned host
-	 *                         isn't a node in that graph to begin with and has no hop distance to
-	 *                         speak of. Proxies have no host-group concept in Zabbix at all, so
-	 *                         getUnassignedProxies() has no equivalent parameter.
+	 * §6: GET /topo/hosts/search?q= — the only host picker for /promote under §5's lazy-creation
+	 * policy: most Zabbix hosts have no `topo_nodes` row at all, so there's no local list to search
+	 * against. Thin wrapper over `host.get`, filtered by name/IP; writes nothing to `topo_nodes`.
 	 */
-	public static function getUnassignedHosts(array $groupids = []): array {
-		$nodes = [];
-		$filters = ['output' => ['hostid', 'name', 'status']];
-		if ($groupids) {
-			$filters['groupids'] = $groupids;
-		}
-		$promoted = self::getPromotedTargetIds('host');
-		foreach (API::Host()->get($filters) as $host) {
-			if (isset($promoted[$host['hostid']])) {
-				continue;
-			}
-			$nodes[] = [
-				'id' => $host['hostid'], 'type' => 'host', 'name' => $host['name'],
-				'hostid' => $host['hostid'], 'monitoring_state' => $host['status']
-			];
+	public static function searchHosts(string $q): array {
+		if ($q === '') {
+			return [];
 		}
 
-		return $nodes;
+		$hosts = API::Host()->get([
+			'output' => ['hostid', 'name', 'status'],
+			'search' => ['name' => $q, 'ip' => $q],
+			'searchByAny' => true,
+			'sortfield' => 'name',
+			'limit' => 20
+		]);
+
+		return array_map(static fn(array $host): array => [
+			'hostid' => $host['hostid'], 'name' => $host['name'], 'monitoring_state' => $host['status']
+		], $hosts);
 	}
 
-	public static function getUnassignedProxies(): array {
-		$nodes = [];
-		$promoted = self::getPromotedTargetIds('proxy');
+	// §6: GET /topo/proxies/search?q= — same role as searchHosts() above, for /promote's Proxy side.
+	public static function searchProxies(string $q): array {
+		if ($q === '') {
+			return [];
+		}
+
+		$proxies = API::Proxy()->get([
+			'output' => ['proxyid', 'name'],
+			'search' => ['name' => $q],
+			'sortfield' => 'name',
+			'limit' => 20
+		]);
 		$proxy_states = [];
-		$result = DBselect('SELECT proxyid,state FROM proxy_rtdata');
+		$result = DBselect('SELECT proxyid,state FROM proxy_rtdata WHERE '.
+			dbConditionId('proxyid', array_column($proxies, 'proxyid')));
 		while ($row = DBfetch($result)) {
 			$proxy_states[$row['proxyid']] = $row['state'];
 		}
-		$proxies = API::Proxy()->get(['output' => ['proxyid', 'name']]);
-		usort($proxies, static fn(array $left, array $right): int => strcmp($left['name'], $right['name']));
-		foreach ($proxies as $proxy) {
-			if (isset($promoted[$proxy['proxyid']])) {
-				continue;
-			}
-			$nodes[] = [
-				'id' => $proxy['proxyid'], 'type' => 'proxy', 'name' => $proxy['name'],
-				'proxyid' => $proxy['proxyid'],
-				'unreachable' => !self::isProxyOnline($proxy_states[$proxy['proxyid']] ?? null)
-			];
-		}
 
-		return $nodes;
+		return array_map(static fn(array $proxy): array => [
+			'proxyid' => $proxy['proxyid'], 'name' => $proxy['name'],
+			'unreachable' => !self::isProxyOnline($proxy_states[$proxy['proxyid']] ?? null)
+		], $proxies);
 	}
 
 	/**
@@ -281,8 +277,8 @@ class CTopologyPrototype {
 		// need this. Only the target (dst) side needs the floor: the source is always a 'device' node,
 		// which is never itself subject to this per-host visibility check. dbConditionId(..., true)
 		// already renders "exclude every host node" (1=1) when getVisibleHostIds() is empty, so no
-		// separate empty-array branch is needed here the way getDevices()/getUnassignedHosts() need
-		// one for their positive IN() case.
+		// separate empty-array branch is needed here the way getDevices() needs one for its
+		// positive IN() case.
 		$invisible_host_nodes = 'SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
 			' AND '.dbConditionId('host_ref', self::getVisibleHostIds(), true);
 		$sql = 'SELECT id,represented_by_node_id FROM topo_nodes WHERE type='.zbx_dbstr('device').
@@ -712,16 +708,35 @@ class CTopologyPrototype {
 
 	// §2.3's provenance invariant: all three represented_by_* columns clear together, never just
 	// represented_by_node_id — a partial clear would leave stale matched_by/at values behind.
+	// §5/§6's lazy-creation policy makes this asymmetric with Device (rule 3, §3): a Host/Proxy
+	// node has no independent existence the way a Device does (§2.2 — it's a thin pointer, trivially
+	// recreated from host_ref/proxy_ref on the next promote or reconciliation pass), so after
+	// clearing this Device's own link, delete the target node too unless some other Device still
+	// represents it (isRepresentedTarget() — covers both an automatic mac/reporter_self match and a
+	// manual promotion by someone else). Leaving an orphaned node behind would silently reintroduce
+	// the exact "node with nothing to show" clutter §5 exists to avoid.
 	public static function depromote(string $deviceid): void {
+		$device = DBfetch(DBselect('SELECT represented_by_node_id FROM topo_nodes WHERE id='.zbx_dbstr($deviceid)), false);
+		$target_nodeid = $device['represented_by_node_id'] ?? null;
+
 		DBexecute('UPDATE topo_nodes SET represented_by_node_id=NULL,represented_by_matched_by=NULL,'.
 			'represented_by_at=NULL WHERE id='.zbx_dbstr($deviceid));
+
+		if ($target_nodeid !== null && !self::isRepresentedTarget($target_nodeid)) {
+			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($target_nodeid).
+				' AND '.dbConditionString('type', ['host', 'proxy']));
+		}
 	}
 
+	// §5: proxy.get is not called by this pull at all — Proxy has no automatic matching path (no MAC
+	// source, reporter_self doesn't apply, §5's rationale), so there's nothing here to reconcile it
+	// against; a Proxy node is only ever created via manual /promote.
 	public static function pullHosts(): int {
-		self::pullProxies();
-
-		// §2.3/§5: monitoring assignment (Host->Proxy/ProxyGroup) is resolved live at read time
-		// (getMonitoringAssignments()), never stored — nothing to pull/upsert/retract for it here.
+		// §5: only on a match does a Host get a topo_nodes row at all — reconcileHost() (via
+		// promote()) upserts the node and sets the representation together, in the same step. No
+		// match → nothing written for that host. This does not reduce Zabbix API traffic versus the
+		// old eager-upsert design — inventory still has to be pulled for every host to know whether
+		// it matches — the savings are in topo_nodes row count and graph size, not API call volume.
 		$count = 0;
 		foreach (API::Host()->get([
 			'output' => ['hostid'],
@@ -730,16 +745,6 @@ class CTopologyPrototype {
 			self::reconcileHost($host['hostid'], $host['inventory'] ?? []);
 			$count++;
 		}
-
-		return $count;
-	}
-
-	public static function pullProxies(): int {
-		$count = 0;
-		// Reconciliation against Device nodes (§3.2, MAC-based) is intentionally not attempted here: unlike
-		// Host (which has host_inventory.macaddress_a/b, see reconcileHost()), CProxy::get() exposes no
-		// MAC/interface/inventory data at all — there is no source to reconcile a Proxy against.
-		$count = count(API::Proxy()->get(['output' => ['proxyid']]));
 
 		return $count;
 	}
@@ -806,19 +811,6 @@ class CTopologyPrototype {
 			zbx_dbstr($type).','.zbx_dbstr($ref_value).','.zbx_dbstr('{}').','.time().','.time().')');
 		return DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr($type).
 			' AND '.$ref_column.'='.zbx_dbstr($ref_value)))['id'];
-	}
-
-	private static function getPromotedTargetIds(string $type): array {
-		$ids = [];
-		$ref_column = $type === 'host' ? 'host_ref' : 'proxy_ref';
-		$result = DBselect('SELECT target.'.$ref_column.' FROM topo_nodes target'.
-			' JOIN topo_nodes device ON device.represented_by_node_id=target.id AND device.type='.zbx_dbstr('device').
-			' WHERE target.type='.zbx_dbstr($type));
-		while ($row = DBfetch($result)) {
-			$ids[$row[$ref_column]] = true;
-		}
-
-		return $ids;
 	}
 
 	private static function isProxyOnline($proxy_state): bool {
@@ -1044,7 +1036,8 @@ class CTopologyPrototype {
 	// inventory field, not a valid match key here (chassis_id remains valid only for the separate
 	// Device-to-itself upsert match in rule 4, which this method has nothing to do with). The same MAC gap
 	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so §5's "run Device
-	// reconciliation for each Proxy" is not implemented; see pullProxies() above.
+	// reconciliation for each Proxy" is not implemented, and pullHosts() never calls proxy.get at
+	// all — a Proxy node is only ever created via manual /promote.
 	private static function reconcileHost(string $hostid, array $inventory): void {
 		foreach (['macaddress_a', 'macaddress_b'] as $field) {
 			if (empty($inventory[$field])) {

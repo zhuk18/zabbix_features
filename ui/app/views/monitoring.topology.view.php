@@ -16,19 +16,12 @@ $page_styles = '
 .topology-header h1{margin:0}
 .topology-header-field{display:flex;align-items:center;gap:8px;font-size:12px}
 .topology-header-field label{margin:0}
-.topology-workspace{display:grid;grid-template-columns:180px minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
-.topology-tray{grid-column:1;grid-row:1;min-width:0;min-height:0;overflow-y:auto;border-right:1px solid #d9d9d9;padding:12px}
-.topology-tray h2{margin-top:0;font-size:13px}
-.topology-tray-item{cursor:grab;user-select:none;background:#2b7dbc;color:#fff;border-radius:4px;padding:6px 8px;margin-bottom:6px;font-size:12px}
-.topology-tray-item-proxy{background:#6b46c1}
-.topology-tray-item-proxy::before{content:"P ";font-weight:bold}
-.topology-tray-item.dragging{opacity:.4}
-#topology-canvas{grid-column:2;grid-row:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
-#topology-canvas.drop-target{background:#eef6fc}
-.topology-panel{grid-column:3;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
+.topology-workspace{display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
+#topology-canvas{grid-column:1;grid-row:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
 .topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;line-height:1.4;font-size:13px;cursor:pointer;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
-.topology-workspace.topology-panel-collapsed{grid-template-columns:180px minmax(0,1fr) 34px}
+.topology-workspace.topology-panel-collapsed{grid-template-columns:minmax(0,1fr) 34px}
 .topology-workspace.topology-panel-collapsed .topology-panel{padding:10px 4px;overflow:hidden}
 .topology-workspace.topology-panel-collapsed .topology-panel h2,
 .topology-workspace.topology-panel-collapsed .topology-panel #topology-details{display:none}
@@ -55,6 +48,13 @@ $page_styles = '
 .topology-source-lldp{background:#e3edf7;color:#1f5a8a}
 .topology-source-manual{background:#fdf1de;color:#8a5a1f}
 .topology-promote{margin-top:14px}
+.topology-promote-search{width:100%;box-sizing:border-box;margin-bottom:4px}
+.topology-promote-results{max-height:140px;overflow-y:auto;border:1px solid #d9d9d9;border-radius:3px;margin-bottom:6px}
+.topology-promote-results:empty{display:none;border:none}
+.topology-promote-result{padding:5px 8px;font-size:12px;cursor:pointer}
+.topology-promote-result:hover,.topology-promote-result.selected{background:#eef6fc}
+.topology-promote-result-proxy::before{content:"P ";font-weight:bold;color:#6b46c1}
+.topology-promote-selected{font-size:12px;color:#3d556a;margin-bottom:6px}
 .topology-severity-badge{display:inline-block;padding:2px 8px;border-radius:3px;color:#fff;font-size:11px;font-weight:bold}
 .topology-empty{color:#768d99;font-style:italic;padding:8px 0}
 .topology-link-pick{font-size:12px;color:#3d556a;background:#eef6fc;border:1px solid #bcd9ee;border-radius:4px;padding:6px 10px}
@@ -85,7 +85,7 @@ $page_styles = '
 							'manual' => _('Manual only')
 						]))
 				]))->addClass('topology-header-field'),
-				(new CButton('topology-host-pull', _('Pull Zabbix hosts & proxies')))->addClass(ZBX_STYLE_BTN_ALT),
+				(new CButton('topology-host-pull', _('Pull Zabbix hosts')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status')
 			]))->addClass('topology-header'),
@@ -140,10 +140,6 @@ $page_styles = '
 						->addClass('topology-filter-hint')
 				]),
 			(new CDiv([
-				(new CDiv([
-					(new CTag('h2', true, _('Unassigned hosts & proxies'))),
-					(new CDiv(_('No unassigned hosts or proxies.')))->setId('topology-tray-list')
-				]))->addClass('topology-tray'),
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
 					(new CButton('topology-panel-toggle', '«'))

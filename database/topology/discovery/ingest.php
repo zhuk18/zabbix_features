@@ -398,8 +398,8 @@ $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $l
 // host_inventory.macaddress_a/b) — run per Device instead of per Host, since ingest discovers/touches
 // Devices, not Hosts (§5's Host/Proxy pull is a separate, already-existing pull path this script doesn't
 // duplicate). Only Host is reconciled against, not Proxy — proxy.get/CProxy::get exposes no MAC/inventory
-// concept at all (same gap noted in CTopologyPrototype::pullProxies()), so there is nothing to reconcile a
-// Proxy against here either. Rule 2 (spec §3): matching is MAC-only — there is no generic Zabbix host
+// concept at all, so there is nothing to reconcile a Proxy against here either (a Proxy node is only ever
+// created via manual /promote, §5/§6). Rule 2 (spec §3): matching is MAC-only — there is no generic Zabbix host
 // field carrying an LLDP chassis ID (host_inventory.chassis is an unrelated free-text field), so
 // $device_attrs is unused here now; it stays a parameter only because callers pass it (see the neighbor
 // Device call below), not because this function reads it.

@@ -37,10 +37,8 @@ const view = new class {
 	async init() {
 		this.canvas = d3.select('#topology-canvas');
 		this.details = document.getElementById('topology-details');
-		this.tray_list = document.getElementById('topology-tray-list');
 		this.nodes = new Map();
 		this.links = [];
-		this.unassigned = {host: new Map(), proxy: new Map()};
 		this.link_pick = null;
 		// Automatic (LLDP) vs manual physical_link display — purely a client-side render filter,
 		// not a data-scope query like groupids/hostid above: the discovered_via a link needs is
@@ -90,23 +88,6 @@ const view = new class {
 			document.getElementById('topology-filter-hops').value = '1';
 			await this.loadDevices();
 		}));
-		const canvas_element = this.canvas.node();
-		canvas_element.addEventListener('dragover', event => {
-			if (event.dataTransfer.types.includes('text/topology-node-id')) {
-				event.preventDefault();
-				canvas_element.classList.add('drop-target');
-			}
-		});
-		canvas_element.addEventListener('dragleave', () => canvas_element.classList.remove('drop-target'));
-		canvas_element.addEventListener('drop', event => {
-			const node_id = event.dataTransfer.getData('text/topology-node-id');
-			const node_type = event.dataTransfer.getData('text/topology-node-type');
-			canvas_element.classList.remove('drop-target');
-			if (node_id && node_type) {
-				event.preventDefault();
-				this.dropNodeOnCanvas(node_id, node_type, event);
-			}
-		});
 		await this.loadDevices();
 	}
 
@@ -205,8 +186,7 @@ const view = new class {
 	}
 
 	async loadDevices() {
-		const {devices = [], relations = [], unassigned_hosts = [], unassigned_proxies = []} =
-			await this.request(`topology.devices.get${this.filterQuery()}`);
+		const {devices = [], relations = []} = await this.request(`topology.devices.get${this.filterQuery()}`);
 		devices.forEach(node => {
 			if (node.type === 'host' || node.type === 'proxy') {
 				node.linked = true;
@@ -240,60 +220,11 @@ const view = new class {
 				this.links.push({source: String(node.id), target: String(node.target_node_id), type: 'monitored_by'});
 			}
 		});
-		this.unassigned = {
-			host: new Map(unassigned_hosts.map(node => [String(node.id), node])),
-			proxy: new Map(unassigned_proxies.map(node => [String(node.id), node]))
-		};
-		this.renderTray();
 		this.render();
 		const first_device = devices.find(node => node.type === 'device');
 		if (first_device) {
 			await this.selectNode(first_device);
 		}
-	}
-
-	renderTray() {
-		this.tray_list.innerHTML = '';
-		const items = [...this.unassigned.host.values(), ...this.unassigned.proxy.values()];
-		if (items.length === 0) {
-			this.tray_list.textContent = <?= json_encode(_('No unassigned hosts or proxies.')) ?>;
-			return;
-		}
-		items.forEach(node => {
-			const item = document.createElement('div');
-			item.className = `topology-tray-item topology-tray-item-${node.type}`;
-			item.textContent = node.name;
-			item.draggable = true;
-			item.dataset.nodeId = node.id;
-			item.dataset.nodeType = node.type;
-			item.addEventListener('dragstart', event => {
-				event.dataTransfer.setData('text/topology-node-id', node.id);
-				event.dataTransfer.setData('text/topology-node-type', node.type);
-				event.dataTransfer.effectAllowed = 'move';
-				item.classList.add('dragging');
-			});
-			item.addEventListener('dragend', () => item.classList.remove('dragging'));
-			this.tray_list.appendChild(item);
-		});
-	}
-
-	dropNodeOnCanvas(node_id, node_type, event) {
-		const node = this.unassigned[node_type]?.get(node_id);
-		if (!node) {
-			return;
-		}
-		const element = this.canvas.node();
-		const bounds = element.getBoundingClientRect();
-		const view_box = element.viewBox.baseVal;
-		const scale_x = (view_box.width || bounds.width) / bounds.width;
-		const scale_y = (view_box.height || bounds.height) / bounds.height;
-		node.x = view_box.x + (event.clientX - bounds.left) * scale_x;
-		node.y = view_box.y + (event.clientY - bounds.top) * scale_y;
-		node.linked = false;
-		this.unassigned[node_type].delete(node_id);
-		this.nodes.set(node_id, node);
-		this.renderTray();
-		this.render();
 	}
 
 	async selectNode(node) {
@@ -623,17 +554,70 @@ const view = new class {
 				<td>${port_action(port)}</td>
 			</tr>`).join('')}
 			</tbody></table></section>`).join('');
-		const candidates = [
-			...[...this.nodes.values()].filter(candidate => (candidate.type === 'host' || candidate.type === 'proxy') && !candidate.linked),
-			...this.unassigned.host.values(),
-			...this.unassigned.proxy.values()
-		];
-		const type_labels = {host: 'Host', proxy: 'Proxy'};
-		const candidate_id = candidate => candidate.type === 'host' ? candidate.hostid : candidate.proxyid;
+		// §5/§6: under lazy-creation, most Zabbix hosts/proxies have no local topo_nodes row (and
+		// therefore no `this.nodes` entry) to build a candidate list from — the search-as-you-type
+		// picker below (wirePromoteSearch()) queries Zabbix directly via /topo/hosts/search and
+		// /topo/proxies/search instead of a pre-fetched candidate list.
 		const promotion = device.represented
-			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">Depromote</button></div>`
-			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.type + ':' + candidate_id(candidate))}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button><button type="button" class="btn-alt topology-create-host-button">+ Create host</button></div>`;
+			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">${this.escape(<?= json_encode(_('Depromote')) ?>)}</button></div>`
+			: `<div class="topology-promote">
+				<input type="text" class="topology-promote-search" placeholder="${this.escape(<?= json_encode(_('Search host or proxy by name/IP…')) ?>)}">
+				<div class="topology-promote-results"></div>
+				<div class="topology-promote-selected"></div>
+				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
+				<button type="button" class="btn-alt topology-create-host-button">${this.escape(<?= json_encode(_('+ Create host')) ?>)}</button>
+			</div>`;
 		return `${sections}${promotion}`;
+	}
+
+	// Search-as-you-type picker for the "Promote to host" panel (§6/§7): debounced, queries
+	// /topo/hosts/search and /topo/proxies/search in parallel (both are thin Zabbix API wrappers,
+	// §5 — neither reads nor writes topo_nodes), renders the merged results, and tracks the current
+	// selection on `this.promote_selection` so wirePortsFragment()'s Promote button can read it
+	// without re-querying. Re-created fresh on every buildPortsFragment() render, same lifecycle as
+	// the other per-panel wiring in wirePortsFragment().
+	wirePromoteSearch(device) {
+		this.promote_selection = null;
+		const search_input = this.details.querySelector('.topology-promote-search');
+		const results_container = this.details.querySelector('.topology-promote-results');
+		const selected_container = this.details.querySelector('.topology-promote-selected');
+		const promote_button = this.details.querySelector('.topology-promote-button');
+		if (!search_input) {
+			return;
+		}
+		const select = candidate => {
+			this.promote_selection = candidate;
+			results_container.innerHTML = '';
+			search_input.value = '';
+			selected_container.textContent = `${candidate.type === 'proxy' ? <?= json_encode(_('Proxy')) ?> : <?= json_encode(_('Host')) ?>}: ${candidate.name}`;
+			promote_button.disabled = false;
+		};
+		search_input.addEventListener('input', () => {
+			clearTimeout(this.promote_search_timer);
+			const q = search_input.value.trim();
+			if (!q) {
+				results_container.innerHTML = '';
+				return;
+			}
+			// Debounced — a request per keystroke would hit /topo/hosts/search and /topo/proxies/search
+			// far more often than the typing itself needs.
+			this.promote_search_timer = setTimeout(() => this.guard(async () => {
+				const [{hosts = []}, {proxies = []}] = await Promise.all([
+					this.request(`topology.hosts.search&q=${encodeURIComponent(q)}`),
+					this.request(`topology.proxies.search&q=${encodeURIComponent(q)}`)
+				]);
+				const candidates = [
+					...hosts.map(host => ({type: 'host', id: host.hostid, name: host.name})),
+					...proxies.map(proxy => ({type: 'proxy', id: proxy.proxyid, name: proxy.name}))
+				];
+				results_container.innerHTML = candidates.length
+					? candidates.map((candidate, index) => `<div class="topology-promote-result topology-promote-result-${candidate.type}" data-index="${index}">${this.escape(candidate.name)}</div>`).join('')
+					: `<div class="topology-promote-result">${this.escape(<?= json_encode(_('No matches.')) ?>)}</div>`;
+				results_container.querySelectorAll('.topology-promote-result[data-index]').forEach(item => {
+					item.addEventListener('click', () => select(candidates[Number(item.dataset.index)]));
+				});
+			}), 250);
+		});
 	}
 
 	// Wires the buttons buildPortsFragment() just rendered into this.details. `reselect_node` is what a
@@ -641,10 +625,14 @@ const view = new class {
 	// or the owning Host/Proxy node for the combined panel (showPanel()) — re-selecting the wrong one would
 	// swap the whole panel to the standalone Device view instead of refreshing the Device section in place.
 	wirePortsFragment(device, reselect_node) {
+		this.wirePromoteSearch(device);
 		const button = this.details.querySelector('.topology-promote-button');
 		if (button) {
 			button.addEventListener('click', () => this.guard(async () => {
-				const [target_type, target_id] = this.details.querySelector('.topology-host-select').value.split(':');
+				if (!this.promote_selection) {
+					return;
+				}
+				const {type: target_type, id: target_id} = this.promote_selection;
 				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id, target_type, target_id})});
 				await this.loadDevices();
 			}));
@@ -703,10 +691,11 @@ const view = new class {
 	}
 
 	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
-	// device's LLDP name, then tries to promote the result automatically. The create response carries no hostid
-	// (see CControllerHostCreate), so the only way back to it is a pull + a name lookup — which only works if
-	// the name wasn't changed in the popup. If it doesn't match, we don't guess: the new host still lands in the
-	// unassigned tray/select for a manual Promote, same as pulling it in via the existing "Pull hosts" button.
+	// device's LLDP name, then tries to promote the result automatically. The create response carries no
+	// hostid (see CControllerHostCreate), so the only way back to it is a name lookup — which only works if
+	// the name wasn't changed in the popup. §6's /topo/hosts/search queries Zabbix directly (host.get), so
+	// this needs no pull first, unlike the old tray-backed flow. If the name doesn't match exactly, we
+	// don't guess: the new host is still promotable manually via the search picker above.
 	async createHostForDevice(node) {
 		const overlay = ZABBIX.PopupManager.open('host.edit', {host: node.name});
 		if (!overlay) {
@@ -717,12 +706,8 @@ const view = new class {
 			overlay.$dialogue[0].addEventListener('dialogue.submit', resolve, {once: true});
 		});
 
-		await this.request('topology.hosts.pull', {
-			method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-		});
-
-		const {unassigned_hosts = []} = await this.request('topology.devices.get');
-		const match = unassigned_hosts.find(host => host.name === node.name);
+		const {hosts = []} = await this.request(`topology.hosts.search&q=${encodeURIComponent(node.name)}`);
+		const match = hosts.find(host => host.name === node.name);
 
 		if (match) {
 			await this.request('topology.promote', {
@@ -747,9 +732,10 @@ const view = new class {
 		// Device section — see selectNode()) and needs to keep the Device itself out of the simulation
 		// graph, same as the earlier split-node design did — only the "draw two halves" part is dropped, not
 		// the "the Device gets no simulation node of its own" part. Only counts when both sides are actually
-		// loaded (a promoted Host/Proxy still sitting in the tray, not yet dragged in, has nothing to attach
-		// to yet — same "both endpoints must be on the canvas" rule already used for every other link type
-		// here).
+		// loaded — under §5's lazy-creation policy a Device and its representation's Host/Proxy always
+		// arrive together in the same /topo/devices response, so this is normally satisfied by construction;
+		// still guarded defensively, same "both endpoints must be on the canvas" rule used for every other
+		// link type here.
 		const device_of_target = new Map(); // Host/Proxy id (string) -> its represented Device node object
 		const target_id_of_device = new Map(); // Device id (string) -> its represented_by target's id (string)
 		this.links.forEach(link => {

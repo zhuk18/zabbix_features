@@ -19,18 +19,17 @@ accumulated since this section was first written:**
 - Node types: `Device`, `Port` (independent physical-topology entities,
   exist without a Zabbix counterpart), `Host`, `Proxy` (thin pointers into
   Zabbix's own tables, never data copies)
-- Edge types: `physical_link`, `member_of_lag` — the only relationships
-  stored as `topo_edges` rows. (`represented_by` is stored too, but as
-  columns directly on the `Device` node, not an edge — see §2.1/§2.3.
-  `Host`↔`Proxy` monitoring assignment is resolved live from Zabbix, not
-  stored at all — see §2.3's note.)
+- Edge types: `physical_link`, `represented_by`. (LAG membership is a
+  structural `Port` reference — `Port.lag_id` — not an edge type; see
+  §2.1/§2.3 for why. `Host`↔`Proxy` monitoring assignment is resolved live
+  from Zabbix, not stored — see §2.3's note.)
 
 *Identity resolution* (§3, §4.1):
 - Neighbor `Device`↔`Host` matching: MAC-only, opportunistic (§3 rule 2).
   `Proxy` has no MAC source (no Zabbix inventory subsystem for proxies) and
   can't use `reporter_self` either (a Zabbix `Proxy` object can't own
   Trapper items) — manual `/promote` (§6) is the only way a `Proxy` ever
-  gets an active representation (`represented_by_node_id` set).
+  gets a `represented_by` edge.
 - Reporter self-identification: deterministic `reporter_self` linking,
   independent of MAC matching (§4.1)
 - `Device` self-recognition across ingest runs: upsert by `chassis_id` →
@@ -53,9 +52,9 @@ accumulated since this section was first written:**
   ingest, both from the CLI and from a UI button sharing the same code path
   (§6)
 - Topology graph: `Device`/`Host`/`Proxy` nodes only, `Port` never rendered
-  as a node; a `Device` with an active representation (`represented_by_node_id`
-  set) is not drawn at all — only its `Host`/`Proxy`, with the `Device`'s
-  data moved into a section of that node's side panel (§7)
+  as a node; a `Device` with an active `represented_by` is not drawn at all
+  — only its `Host`/`Proxy`, with the `Device`'s data moved into a section
+  of that node's side panel (§7)
 - Side panel: `Port` drill-down table (grouped by connection type),
   `Host`/`Proxy` Problems section, conditional Device section
 - Visual states: severity, disabled, maintenance, blind-spot,
@@ -105,37 +104,30 @@ flag it rather than silently expanding scope.
 **Semantics before schema — read this before the SQL below.** The model is
 two kinds of thing: **Nodes**, representing a topology entity (`Device`,
 `Port`, `Host`, `Proxy`), and **Relationships**, representing a semantic
-connection between two Nodes — but the three relationships in this model
-are not stored identically, and it matters why. `physical_link` (plus
-`member_of_lag`, a narrower case of the same idea) is a genuine edge,
-stored as a `topo_edges` row: it's confirmed independently by multiple
-reporters and has its own multi-source lifecycle (§2.3's `last_seen_src`/
-`last_seen_dst` reasoning). `represented_by`, a `Device`'s association
-with a `Host`/`Proxy`, is stored too, but directly as columns on the
-`Device` node rather than an edge — it's directed, single-valued (at most
-one *active* representation per `Device`), and has no reconciliation
-lifecycle of its own, so it doesn't need the generic edge machinery
-(§2.1/§2.3 explain the reasoning in full). `MONITORED_BY`, `Host`'s
-monitoring assignment to a `Proxy`/`ProxyGroup`, is real and semantically
-part of the model but is *resolved live from Zabbix, not stored at all* —
-§2.3 explains why, the same thin-pointer reasoning already applied to
-`Host`/`Proxy` themselves, just extended to this one relationship. This
-build spec uses lowercase names (`physical_link`, `represented_by`) for
-these two stored relationship types; the FR document uses
-`CONNECTED_TO`/`REPRESENTED_BY` for the same two — same concepts,
-different naming convention, and (for `represented_by`) a different
-storage shape than the FR document's edge-based framing, for the reasons
-above.
+connection between two Nodes (`physical_link`, `represented_by` — and
+`MONITORED_BY`, `Host`'s monitoring assignment to a `Proxy`/`ProxyGroup`,
+which is real and semantically part of the model but is *resolved live
+from Zabbix, not stored as our own edge* — §2.3 explains why, the same
+thin-pointer reasoning already applied to `Host`/`Proxy` themselves, just
+extended to this one relationship). This build spec uses lowercase names
+(`physical_link`, `represented_by`) for the two relationship types that
+*are* stored; the FR document uses `CONNECTED_TO`/`REPRESENTED_BY` for the
+same two — same concepts, different naming convention. LAG membership is
+**not** a relationship type in this model — `Port.lag_id` (§2.1) — for the
+same reason `Port`→`Device` isn't: it's a structural reference a Node
+carries about itself, not an independent topology fact with its own
+identity/lifecycle/provenance. §2.1 and §2.3 explain the line between the
+two categories, and why LAG membership landed on the reference side of it
+after being reconsidered.
 `Device`/`Port` exist on their own, independent of Zabbix, whether or not
 Zabbix ever knows about them; `Host`/`Proxy` are nodes too, but each one
 refers to an already-existing Zabbix object rather than being a new
 entity in its own right. The storage below is one way of representing
-that — a generic node/edge table for `physical_link`/`member_of_lag`, plus
-direct `device_id`/`represented_by_node_id` node references where a
-relationship is simple enough not to need the general case (§2.1's note
-explains why). Don't let the shape of the tables be read as the model
-itself; the model is the semantics above, the tables are just where it's
-currently persisted.
+that — a generic node/edge table pair, plus one direct `device_id`
+reference where the relationship is simple enough not to need the general
+case (§2.1's note explains why). Don't let the shape of the tables be
+read as the model itself; the model is the semantics above, the tables
+are just where it's currently persisted.
 
 ### 2.1 Storage
 
@@ -144,52 +136,70 @@ database (match the engine already in use — MySQL or PostgreSQL):
 
 ```sql
 CREATE TABLE topo_nodes (
-  id                        BIGINT PRIMARY KEY AUTO_INCREMENT,
-  type                      VARCHAR(32) NOT NULL,   -- 'device' | 'port' | 'host' | 'proxy'
-  host_ref                  BIGINT NULL UNIQUE REFERENCES hosts(hostid) ON DELETE CASCADE,  -- set only when type='host'
-  proxy_ref                 BIGINT NULL UNIQUE REFERENCES proxy(proxyid) ON DELETE CASCADE, -- set only when type='proxy'
-  device_id                 BIGINT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,  -- set only when type='port'; the Port's owning Device
-  represented_by_node_id    BIGINT NULL UNIQUE REFERENCES topo_nodes(id) ON DELETE SET NULL, -- set only when type='device'; the Host/Proxy it's represented by
-  represented_by_matched_by VARCHAR(16) NULL,   -- 'mac' | 'reporter_self' | 'manual' — only alongside a non-NULL represented_by_node_id
-  represented_by_at         TIMESTAMP NULL,      -- when the CURRENT representation was established — only alongside a non-NULL represented_by_node_id
-  attrs                     JSON NOT NULL,
-  created_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  id         BIGINT PRIMARY KEY AUTO_INCREMENT,
+  type       VARCHAR(32) NOT NULL,   -- 'device' | 'port' | 'host' | 'proxy'
+  host_ref   BIGINT NULL UNIQUE REFERENCES hosts(hostid) ON DELETE CASCADE,  -- set only when type='host'
+  proxy_ref  BIGINT NULL UNIQUE REFERENCES proxy(proxyid) ON DELETE CASCADE, -- set only when type='proxy'
+  device_id  BIGINT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,  -- set only when type='port'; the Port's owning Device
+  lag_id     BIGINT NULL REFERENCES topo_nodes(id) ON DELETE SET NULL, -- set only when type='port' and if_type='physical'; the LAG Port this member belongs to
+  attrs      JSON NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_topo_nodes_device_id ON topo_nodes(device_id);
+CREATE INDEX idx_topo_nodes_lag_id ON topo_nodes(lag_id);
 ```
 
 `device_id` is a plain, self-referential foreign key — not a `topo_edges`
 row. `Port`→`Device` is a stable 1:many relationship known at the moment a
 `Port` is created; it never needs the generic edge machinery (no
 cardinality question, no multiple relationship types between the same pair,
-nothing `physical_link`-style ever attaches to it). Using a real column
-here is simpler than the generic edge table and gets `ON DELETE CASCADE`
-for free — deleting a `Device` removes its `Port`s automatically, same
-pattern as `host_ref`/`proxy_ref`. This replaces what an earlier version
-of this spec modeled as a `part_of` edge; that edge type no longer exists.
+nothing `physical_link`/`represented_by`-style ever attaches to it). Using
+a real column here is simpler than the generic edge table and gets
+`ON DELETE CASCADE` for free — deleting a `Device` removes its `Port`s
+automatically, same pattern as `host_ref`/`proxy_ref`. This replaces what
+an earlier version of this spec modeled as a `part_of` edge; that edge
+type no longer exists.
 
-`represented_by_node_id`/`represented_by_matched_by`/`represented_by_at`
-are likewise a self-referential foreign key plus two provenance columns —
-not a `topo_edges` row either. This replaces what an earlier version of
-this spec modeled as a `represented_by` edge; that edge type no longer
-exists. Unlike `device_id`, this one *is* `UNIQUE` (giving the reverse-
-direction 1:1 constraint — a `Host`/`Proxy` can be the target of at most
-one `Device` — for free, the same way `host_ref`/`proxy_ref` already work:
-multiple `NULL`s don't conflict under `UNIQUE` on either engine), and
-`ON DELETE SET NULL` rather than `CASCADE` — depromoting a `Device` (or
-its `Host`/`Proxy` target being deleted) must never delete the `Device`
-node itself (§3 rule 3). The forward-direction constraint (a `Device` has
-at most one active representation) needs no separate index —
-`represented_by_node_id` is a single column on the `Device`'s own row, so
-there is structurally nowhere for a second value to live. See §2.3 for the
-full rationale and the two invariants this shape depends on.
+**`lag_id` follows the same structural-reference pattern as `device_id`,
+but is not a copy of it — two things about it are deliberately
+different, and worth stating explicitly since the two columns look alike
+enough to invite the wrong assumption by analogy.**
+
+1. **`ON DELETE SET NULL`, not `CASCADE`.** For `device_id`, cascade is
+   correct: a `Port` cannot physically exist without its `Device`, so
+   deleting the `Device` deleting the `Port` is the right behavior. For
+   `lag_id` this is wrong — if the LAG port is deleted or reconfigured
+   away, the physical member ports **do not disappear**: they are real
+   interfaces with their own `zabbix_itemids`, `learned_macs`, MAC address,
+   and monitoring history. `CASCADE` here would silently delete real,
+   independently-existing `Port` rows as a side effect of a LAG going
+   away. `SET NULL` is correct: the member port survives, simply reverts
+   to unaggregated (`if_type` stays `"physical"` — see §2.2 — `lag_id`
+   goes back to `NULL`).
+2. **`lag_id` is not fixed at creation like `device_id` is.** A `Port`'s
+   `device_id` is effectively permanent for the life of that row. LAG
+   membership is dynamic: a physical port can join a LAG, leave it, or move
+   to a different LAG over the device's operational life, and reconciliation
+   (§3) must treat re-pointing or nulling `lag_id` as an ordinary update,
+   not as evidence of a different physical port.
+
+**Invariant, enforced at the application layer, not the database:**
+`lag_id IS NOT NULL ⇒` the target row's `if_type = 'lag'`. This is a
+cross-row check — neither MySQL nor PostgreSQL can express "the row this
+FK points at must have column X = Y" as a plain `CHECK` constraint (a
+`CHECK` can't reference another row). So this must be validated in the
+ingest/API code path before every write to `lag_id`, the same way
+`topo_edges`' type-specific rules in §2.3 are already flagged as
+logic layered on top of generic storage, not something the schema itself
+guarantees. Don't go looking for this constraint in the schema — it isn't
+there by design, only in the write path.
 
 ```sql
 CREATE TABLE topo_edges (
   id         BIGINT PRIMARY KEY AUTO_INCREMENT,
-  type       VARCHAR(32) NOT NULL,   -- 'physical_link' | 'member_of_lag'
+  type       VARCHAR(32) NOT NULL,   -- 'physical_link' | 'represented_by'
   src_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   dst_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   attrs      JSON NOT NULL DEFAULT ('{}'),
@@ -209,39 +219,32 @@ works unmodified on both MySQL and PostgreSQL, since both treat multiple
 Zabbix `Host` is deleted, `host_ref`'s `ON DELETE CASCADE` removes the
 corresponding `topo_nodes` row — but without `ON DELETE CASCADE` on
 `topo_edges.src_id`/`dst_id` as well (now added above), that node deletion
-would be blocked by any edge still pointing at it (e.g. a `physical_link`
-edge from one of that Host's represented Device's Ports), or silently
-orphan the edge if the constraint isn't enforced strictly. This was found
-via a real scenario, not hypothetically: deleting a Zabbix `Host` that
-already had topology data attached needs the full chain to work cleanly,
-not just the first hop. (`represented_by_node_id`'s own `ON DELETE SET
-NULL`, not `CASCADE` — see §2.1 above — covers the equivalent case for the
-`Device`↔`Host`/`Proxy` representation itself: deleting the `Host` clears
-the `Device`'s representation rather than deleting the `Device`, per §3
-rule 3.)
+would be blocked by any edge still pointing at it (e.g. a `represented_by`
+edge from a `Device`), or silently orphan the edge if the constraint isn't
+enforced strictly. This was found via a real scenario, not hypothetically:
+deleting a Zabbix `Host` that already had topology data attached needs the
+full chain to work cleanly, not just the first hop.
 
 **Generic storage does not imply generic constraints — say this explicitly
-so a future reader doesn't assume otherwise.** `topo_edges` still needs
-three separate pieces of type-specific database logic layered on top of
-its generic shape, all for `physical_link`: pair uniqueness, source
-uniqueness, destination uniqueness (all detailed in §2.3). A single shared
-table does not mean a new edge type is free to add — each one brings its
-own constraint logic that has to be designed, not inherited automatically
-from the generic schema. (`represented_by`'s uniqueness is no longer part
-of this list — it's enforced by a plain `UNIQUE` index directly on
-`topo_nodes.represented_by_node_id`, §2.1 above, not by anything
-`topo_edges`-shaped.)
+so a future reader doesn't assume otherwise.** `topo_edges` already needs
+five separate pieces of type-specific database logic layered on top of its
+generic shape: `represented_by` source uniqueness, `represented_by`
+destination uniqueness, `physical_link` pair uniqueness, `physical_link`
+source uniqueness, `physical_link` destination uniqueness (all detailed in
+§2.3). A single shared table does not mean a new edge type is free to add —
+each one brings its own constraint logic that has to be designed, not
+inherited automatically from the generic schema.
 
 **Edge-level uniqueness needs care — `topo_edges` is shared across types, so
-a plain column constraint isn't enough.** The one rule left to enforce,
-detailed where it's most relevant: `physical_link` duplicate/reversed-pair
-prevention (§2.3). This requires a uniqueness check scoped to `type`,
-which is straightforward as a partial index on PostgreSQL (`CREATE UNIQUE
-INDEX ... ON topo_edges(src_id) WHERE type='physical_link'`) but needs the
-generated-column workaround on MySQL (a virtual column that's `src_id`
-when `type='physical_link'` else `NULL`, with a plain `UNIQUE` on that
-column) — pick whichever matches the engine actually in use, per §2.1's
-original engine note.
+a plain column constraint isn't enough.** Two rules to enforce, detailed
+where they're most relevant: `represented_by` 1:1 cardinality (§2.3) and
+`physical_link` duplicate/reversed-pair prevention (§2.3). Both require a
+uniqueness check scoped to `type`, which is straightforward as a partial
+index on PostgreSQL (`CREATE UNIQUE INDEX ... ON topo_edges(src_id) WHERE
+type='represented_by'`) but needs the generated-column workaround on MySQL
+(a virtual column that's `src_id` when `type='represented_by'` else `NULL`,
+with a plain `UNIQUE` on that column) — pick whichever matches the engine
+actually in use, per §2.1's original engine note.
 
 Do not create separate typed tables per node/edge type for this prototype —
 the JSON-attrs approach is deliberately chosen to keep the schema stable
@@ -274,20 +277,27 @@ when one succeeds and the other doesn't.
   `confirmed: false` marks a `Port` created only from a neighbor's LLDP
   observation (no real `if_index` from that device's own push) — see §3
   rule 4's unconfirmed port merge rule for what happens when the neighbor turns
-  out to be a reporter itself.
+  out to be a reporter itself. **`if_type` and LAG membership are
+  orthogonal, not the same axis — a physical port that joins a LAG stays
+  `if_type: "physical"`, it does not become some third value like
+  `"lag_member"`.** The interface is physically the same kind of thing
+  whether or not it's currently aggregated; membership is expressed
+  separately via `lag_id` (§2.1: nullable, points at another `Port` node
+  whose own `if_type` is `"lag"`). Only the aggregate itself — the logical
+  port LACP/static-LAG exposes — gets `if_type: "lag"`, and a `Port` with
+  `if_type: "lag"` never itself has a non-null `lag_id` (enforced as
+  described in §2.1's invariant note).
 - **host**: `{}` (or empty) — a thin pointer only. `host_ref` (see §2.1) is the
   single source of truth for identity; name, status, and any other display
   data are resolved with a live join against `hosts` at read time, never
-  copied into `attrs`. This node exists so a `Device`'s
-  `represented_by_node_id` (and later edges like `runs_on`,
-  `service_composed_of`) have a stable target to point at.
+  copied into `attrs`. This node exists only so `represented_by` (and later
+  `runs_on`, `service_composed_of`) have a stable graph endpoint to point at.
 - **proxy**: `{}` (or empty) — same thin-pointer pattern as `host`, via
   `proxy_ref` (see §2.1). A `Proxy` is a Zabbix monitoring object
   representing proxy infrastructure, but it has no inventory/MAC source
-  and cannot own Zabbix items. Therefore it can only become the target of a
-  Device's `represented_by_node_id` through explicit manual `/promote`; it
-  does not participate in automatic MAC-based reconciliation or
-  `reporter_self` (§3.2, §4.1, §5).
+  and cannot own Zabbix items. Therefore it can receive a `represented_by`
+  edge only through explicit manual `/promote`; it does not participate in
+  automatic MAC-based reconciliation or `reporter_self` (§3.2, §4.1, §5).
   If the physical machine running the proxy is also monitored as a Zabbix
   `Host`, that `Host` is a separate topology node and may independently be
   associated with a `Device`.
@@ -311,11 +321,36 @@ and status — never duplicated into `attrs`.
 | type | src → dst | attrs |
 |---|---|---|
 | `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen, last_seen_src, last_seen_dst}` |
-| `member_of_lag` | Port[physical] → Port[lag] | `{}` |
+| `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"reporter_self"\|"manual", matched_mac, created_at}` |
 
-`represented_by` is not in this table — it's stored as columns directly on
-the `Device` row in `topo_nodes` (§2.1), not a `topo_edges` row. See the
-two notes below for why, in each stored/unstored direction.
+**LAG membership is deliberately not in this table — reconsidered and
+settled on `Port.lag_id` (§2.1) instead of a `member_of_lag` edge.** The
+question that decides it: is membership an independent topology fact with
+its own identity/lifecycle/provenance, the way `physical_link` and
+`represented_by` are, or is it a structural property one `Port` carries
+about itself, the way `device_id` is? The case for treating it as an edge
+— generic graph traversal, room for future attributes like a per-member
+LACP state, an independent staleness/lifecycle — is real, but rests on a
+premise this project's architecture doesn't currently have:
+**independent observability.** `physical_link` needs `last_seen_src`/
+`last_seen_dst` tracked separately (§2.3 below) specifically because two
+different reporters can each confirm their own side on independent
+schedules, so one can go stale while the other doesn't. LAG membership has
+no equivalent multi-source path today — per §4.1, `lag_members` is
+proposed as a field on the *same* push blob that creates and updates the
+`Port` itself, not a separately-collected fact. A member port and its
+membership therefore go stale in lockstep with the `Port` row they're
+part of; there is nothing for a separate `last_seen`/`discovered_via` to
+track that the `Port`'s own update doesn't already cover. Combined with
+`if_type` already needing the "physical stays physical, aggregation is
+orthogonal" distinction (§2.2), the structural-reference side of the
+line fits better for now. **This is a deliberate, revisitable call, not a
+closed one** — see §11's backlog note: if LAG membership ever becomes
+independently observable (its own collection path, its own staleness
+apart from the `Port` row), that is the trigger to promote it into
+`topo_edges` as `member_of_lag`, the same way `represented_by`'s 1:1
+constraint and the sparse-`Port` model are both flagged elsewhere in this
+spec as decisions to reopen if their triggering condition arrives.
 
 **`Host`↔`Proxy` monitoring assignment (`MONITORED_BY` in the FR document)
 is not a stored edge — resolve it live from Zabbix, the same thin-pointer
@@ -335,72 +370,14 @@ until the next `/5` pull — exactly the staleness problem the thin-pointer
 pattern exists to avoid, just at the relationship level instead of the
 node-attribute level.
 
-**Reconsidered — `represented_by` moved from `topo_edges` to `topo_nodes`.**
-`represented_by` is a relationship, but it is not an independently evolving
-topology entity. Unlike `physical_link`, it is directed, has at most one
-*active* representation per Device (not single-valued across the Device's
-whole history — a Device can be promoted, depromoted, and promoted again
-to a different target over time), is not confirmed independently by
-multiple reporters, and has no stale or reconciliation lifecycle. It
-therefore does not require generic edge infrastructure — see §2.1 for the
-`represented_by_node_id`/`represented_by_matched_by`/`represented_by_at`
-columns this is stored in.
-
-The target uses the existing `topo_nodes.id` namespace, where `Host` and
-`Proxy` are already node types. This is therefore a native self-referencing
-foreign key, not a polymorphic external reference: the FK target is always
-`topo_nodes.id`, so referential integrity and `ON DELETE SET NULL` are
-preserved — the same pattern already used for `device_id` and (once LAG
-membership is implemented, §11) `lag_id`.
-
-**Two invariants, enforced at the application layer, not the database** —
-the same category as the existing `device_id IS NOT NULL ⇒ target.type =
-'device'` rule in §2.1 (a cross-row check neither MySQL nor PostgreSQL can
-express as a plain `CHECK`):
-
-1. **Representation target must be a Host or a Proxy:**
-   `represented_by_node_id IS NOT NULL ⇒ target node.type ∈ {host, proxy}`.
-2. **Provenance fields exist only alongside an active representation:**
-   `represented_by_node_id IS NULL ⇒ represented_by_matched_by IS NULL ⇒
-   represented_by_at IS NULL`. `/depromote` (§6) must therefore clear all
-   three fields together, not just `represented_by_node_id`.
-
-`represented_by_matched_by` and `represented_by_at` are retained because
-they are required to distinguish the established representation mechanism
-and its establishment time — `matched_by` in particular is what §8's
-acceptance criterion for `reporter_self` linking checks directly.
-`matched_mac` is **not** persisted (unlike the old edge-based `attrs`
-shape, which carried it): it has no consumer in the current API, UI, or
-acceptance criteria, and would represent a potentially stale snapshot (the
-underlying `host.inventory.macaddress_a/b` can change after the match)
-rather than active topology state. If a genuine need for reconciliation
-audit/debug history arises later, that is a separate, more general
-mechanism (a decision log, not a node column) — the same category as the
-"discovery-quality visibility" backlog item in §11, not a field to carry in
-`topo_nodes` on the strength of hypothetical future use.
-
-**Net effect on this section's storage shape:** `topo_edges` now holds only
-`physical_link`/`member_of_lag`. This is not just the removal of one edge
-type — it leaves `topo_edges` semantically homogeneous: every row in it is
-now an independently evolving topology relationship with its own
-multi-source lifecycle (this section's `last_seen_src`/`last_seen_dst`
-reasoning applies to every remaining row, with no exception to carve out).
-`represented_by`, in turn, is no longer modeled as an edge between two peer
-entities — it is a property of `Device`: the field that connects a
-topology identity to a monitoring identity.
-
 **`represented_by` is 1:1 in both directions.** A `Device` can have at most
-one active representation (to a `Host` *or* a `Proxy`, never both at once),
-and a given `Host`/`Proxy` can be the target of at most one `Device`'s
-representation. The forward direction needs no enforcement beyond the
-column shape itself (§2.1: `represented_by_node_id` is a single column, so
-there is nowhere for a second value to live); the reverse direction is
-enforced by the plain `UNIQUE` index on `represented_by_node_id` (§2.1) —
-the same mechanism `host_ref`/`proxy_ref` already use, not the old partial
-index this replaced. Creating a second representation for either side must
-fail (a straightforward unique-constraint violation on the reverse side,
-an application-layer check on the forward side), or must first require an
-explicit `/depromote` (§6) — never silently replace the existing one.
+one active `represented_by` edge (to a `Host` *or* a `Proxy`, never both at
+once), and a given `Host`/`Proxy` can be the target of at most one
+`represented_by` edge. Enforce this with the uniqueness mechanism described
+in §2.1 (partial index on `src_id` where `type='represented_by'`, and
+separately on `dst_id` where `type='represented_by'`). Creating a second
+`represented_by` for either side must fail, or must first require an
+explicit `/depromote` (§6) — never silently replace the existing edge.
 
 **Known limitation, deliberately accepted for MVP: "split" topologies aren't
 representable.** A single physical device monitored as two separate Zabbix
@@ -408,29 +385,26 @@ identities (e.g. an OS-agent host and an IPMI/BMC host for the same server,
 or separate SNMP and agent hosts for one box) cannot both be linked to the
 same `Device` — the 1:1 rule above blocks the second `/promote`. This is a
 conscious MVP simplification, not an oversight: supporting it would require
-making the constraint asymmetric (a `Device` allowed more than one active
-representation, while the reverse `UNIQUE` on `represented_by_node_id`
-stays as is) and would break §7's rendering design, which assumes exactly
-one `Device` per `Host`/`Proxy` (a `Host`/`Proxy`'s side panel has at most
-one Device section — see §7). If this becomes a real need later, treat it
-as a design task, not a quick constraint tweak — it touches §2.1, §6's
+making the constraint asymmetric (drop uniqueness on `src_id`, keep it on
+`dst_id`) and would break §7's rendering design, which assumes exactly one
+`Device` per `Host`/`Proxy` (a `Host`/`Proxy`'s side panel has at most one
+Device section — see §7). If this becomes a real need later, treat it as a
+design task, not a quick constraint tweak — it touches §2.1, §6's
 `/promote` validation, §7's rendering, and §8's acceptance criteria all at
 once. For now, if a device genuinely has two Zabbix
-identities, pick one to represent it and leave the other unassociated (or
-linked to the first via a manual `physical_link`, per §3.5, as a
+identities, pick one to `represented_by` and leave the other unassociated
+(or linked to the first via a manual `physical_link`, per §3.5, as a
 workaround if the relationship needs to be visible at all).
 
 **The same limitation holds in reverse, and this direction is more likely to
-come up in practice.** Just as one `Device` can't represent two `Host`s,
-the `UNIQUE` index on `represented_by_node_id` means one `Host` can't be
-represented by two `Device`s. This blocks representing **stacked switches**
-(multiple physical chassis, each with its own `chassis_id` over LLDP,
-managed and monitored as one logical Zabbix host) or an **MLAG pair** —
-both are common enterprise topologies, more likely to be hit than the
-split-identity case above. Same root cause, same fix if it's ever needed
-(loosen the `UNIQUE` index, or reintroduce a proper edge table if the
-relationship ever needs its own multi-valued lifecycle, plus a §7
-rendering redesign to show more than one Device section on a single
+come up in practice.** Just as one `Device` can't `represented_by` two
+`Host`s, the `dst_id` uniqueness means one `Host` can't be `represented_by`
+by two `Device`s. This blocks representing **stacked switches** (multiple
+physical chassis, each with its own `chassis_id` over LLDP, managed and
+monitored as one logical Zabbix host) or an **MLAG pair** — both are common
+enterprise topologies, more likely to be hit than the split-identity case
+above. Same root cause, same fix if it's ever needed (asymmetric constraint
++ a §7 rendering redesign to show more than one Device section on a single
 `Host`/`Proxy` panel), same "pick one `Device` to represent it, leave
 the rest topology-only or manually linked" workaround for now.
 
@@ -440,12 +414,10 @@ run the strong-key check from §3.2 — a person can link any `Device` to any
 `Host`/`Proxy` they choose, with no MAC/chassis-ID match required. This is
 intentional, not a gap to close: automatic reconciliation is opportunistic
 (see §3.2 on why the match data isn't always available), and manual
-`/promote` is the explicit fallback for every case it doesn't cover.
-Representations set manually, same as ones set automatically, don't get
-promoted to a different `matched_by` over time the way `physical_link` gets
-promoted from `"manual"` to `"lldp"` (§3.5) — a manual association stays
-manual unless someone `/depromote`s it and a fresh match happens some
-other way.
+`/promote` is the explicit fallback for every case it doesn't cover. Edges
+created manually, and there's no promotion to LLDP over time like
+`physical_link` has (§3.5) — a manual association stays manual unless
+someone `/depromote`s it and a fresh match happens some other way.
 
 **`physical_link` tracks `last_seen` per side, not just once — a link can
 have two independent reporters, and one of them can silently go stale
@@ -522,7 +494,7 @@ it, so nothing should allow a second `physical_link` row from (or to) a
 mechanism as elsewhere (§2.1): unique on `src_id` where
 `type='physical_link'`, and separately on `dst_id` where
 `type='physical_link'`. This holds even for LAG member ports — aggregation
-happens at the `member_of_lag` level, not by letting one physical port carry
+is expressed via `lag_id` (§2.1), not by letting one physical port carry
 multiple `physical_link` rows; each physical member port still connects to
 exactly one specific port on the other side.
 
@@ -639,10 +611,9 @@ These rules are the core of the model — implement them exactly, do not
    physical entity across ingest runs, not `Device`-to-`Host` linking, and
    isn't affected by this correction.)
 
-3. **`Device` nodes are never deleted** when its representation is cleared
-   (`represented_by_node_id` set back to `NULL`, e.g. a Zabbix host is
-   decommissioned). The physical device may still exist and participate in
-   the network; only the representation goes away.
+3. **`Device` nodes are never deleted** when a `represented_by` edge is
+   removed (e.g. a Zabbix host is decommissioned). The physical device may
+   still exist and participate in the network; only the edge goes away.
 
 4. **Upsert, not insert**: re-running the collector against the same device
    must update existing nodes, not create duplicates. Match `Device` by
@@ -765,7 +736,34 @@ These rules are the core of the model — implement them exactly, do not
    pass looks perfectly flat in aggregate counts while never actually
    stabilizing. Verify by comparing entity **IDs** across repeated runs
    (same rows persisting, not same row *count*), not just counts, for any
-   future check of this kind.
+   future check of this kind. **This applies to LAG membership too, not
+   just the unconfirmed-port merge above.** `lag_id` reconciliation
+   (immediately below) rewrites a `Port` row in place rather than creating
+   or deleting one, so a naive count check would never even look flat or
+   unstable — it would just look untouched. Verify LAG reconciliation by
+   comparing the actual `lag_id` value on the same `Port` ID across
+   repeated runs, not merely by confirming the row count of `Port`s with
+   `if_type: "lag"` hasn't changed — a port silently flapping between two
+   LAG ids each run, or drifting to a third `Device`'s LAG by a bad match,
+   would pass a count-only check while the model quietly gets it wrong.
+
+   **`lag_id` reconciliation on ingest**: when a reporter's push blob
+   reports LAG membership for one of its ports (`lag_members`, §4.1), the
+   LAG `Port` itself is found or created by the same `(device_id,
+   if_index)` upsert as any other `Port` (this section) **before** any
+   member's `lag_id` is written — a member can't point at a LAG `Port`
+   that doesn't exist yet. If a push reports a port with `lag_id` set to a
+   different LAG than what's currently stored, treat it as an ordinary
+   update to that field (the port moved to a different aggregate) — not as
+   evidence of a new or different physical port; `if_index`/`chassis_id`/
+   `mgmt_ip` identity is unaffected by which LAG a port happens to belong
+   to right now. If a previously-aggregated port is reported without
+   `lag_id`/`lag_if_index` in a given push at all, set `lag_id` to `NULL`
+   explicitly — the blob is authoritative for what it reports about a port
+   in that pass (same "silence overwrites, doesn't get skipped" principle
+   already applied to upsert generally in this rule), so a port dropping
+   out of LAG membership is a real, immediate fact, not something to leave
+   stale until some other signal arrives.
 
 5. **Manual `physical_link` creation is allowed, manual `Device` creation is
    not.** A person can draw a `physical_link` (`discovered_via: "manual"`)
@@ -844,7 +842,7 @@ against a known-correct picture:
     other 38 are `learned_macs`-only, per the rule in §3.1 — no node created for them
   - 4 disconnected ports (`oper_status: down`, no `physical_link`)
   - 2 `Port` nodes with `if_type: "lag"`, each with two physical member
-    ports joined via `member_of_lag`
+    ports (`if_type: "physical"`) whose `lag_id` points at it
   - 2 management ports (`if_type: "mgmt"`, no `physical_link` expected)
 - One of the two neighbor `Device`s from the "40 connected ports" bullet above
   should have `sysname` set to an HTML/script payload (e.g.
@@ -976,21 +974,28 @@ nothing extra to track since ingest already has this information at the
 point it decides not to create the edge.
 
 **Known gap, confirmed during implementation: this schema doesn't capture
-LAG membership, so `member_of_lag` edges (§2.3) are never created by the
-real collector today.** `push.py` detects `if_type: "lag"` from `ifType`
-(161), but nothing here walks `ifStackTable` or `ieee8023adTable` to find
-*which* physical ports roll up into a given LAG port — so a LAG port
-currently lands in `topo_nodes` as an isolated, member-less `Port`, and
-`ingest.php` has no membership data to build the edge from even though its
-own logic is otherwise correct. Fixing this needs two things together, not
-one: (1) `push.py` walks the relevant MIB to get the mapping, (2) the blob
-schema above gains a field for it (e.g. `"lag_members":
-[{"lag_if_index": 45, "member_if_index": 1}, ...]`) — don't build one
-without the other. Until then, LAG ports are correctly typed but
-incorrectly member-less; this is a real, tracked gap, not a silent one.
-Same status as the CAM-table/`learned_macs` gap noted in §1 (also not yet
-in this blob shape) — both are real collector work, not something to work
-around in `ingest.php`.
+LAG membership, so no `Port.lag_id` (§2.1) is ever set by the real
+collector today.** `push.py` detects `if_type: "lag"` from `ifType` (161),
+but nothing here walks `ifStackTable` or `ieee8023adTable` to find *which*
+physical ports roll up into a given LAG port — so a LAG port currently
+lands in `topo_nodes` as an isolated, member-less `Port`, and `ingest.php`
+has no membership data to set `lag_id` from on the member ports, even
+though its own upsert logic (§3 rule 4) is otherwise correct and ready to
+apply it. Fixing this needs two things together, not one: (1) `push.py`
+walks the relevant MIB to get the mapping, (2) the blob schema above gains
+a field for it (e.g. `"lag_members": [{"lag_if_index": 45,
+"member_if_index": 1}, ...]`) — don't build one without the other. Until
+then, LAG ports are correctly typed but every member port's `lag_id` stays
+`NULL`; this is a real, tracked gap, not a silent one. Same status as the
+CAM-table/`learned_macs` gap noted in §1 (also not yet in this blob
+shape) — both are real collector work, not something to work around in
+`ingest.php`. Note also that because `lag_members` lands in the *same*
+blob that creates/updates the `Port`s themselves, once this is built LAG
+membership will go stale in lockstep with the `Port` row it belongs to —
+this is the concrete basis for §2.3's decision to model membership as
+`lag_id` rather than a separately-tracked edge; see that note if this
+gap's fix ever changes shape (e.g. a future separate LAG-discovery path)
+in a way that breaks that assumption.
 
 Rules for the push component:
 - One blob per reporter — a single unresolvable/malformed device must never
@@ -1054,14 +1059,12 @@ produce a `Device`-level duplicate that the unconfirmed-port merge rule
 the same "this thing was seen before it became a reporter" problem, and
 both have to fire correctly for the full transition to work. Once the
 correct (possibly pre-existing) `Device` is resolved this way, it can be
-represented by that exact `Host` with certainty, no opportunistic matching
+linked to that exact `Host` with certainty, no opportunistic matching
 involved, subject to the same `represented_by` 1:1 constraint as any other
 case (§2.3) — if that `Device` somehow already has a *different* active
-representation (`represented_by_node_id IS NOT NULL AND
-represented_by_node_id != <this Host's id>`), don't silently override it,
-log and skip, same as any other conflict. Set
-`represented_by_matched_by = 'reporter_self'` (§2.1/§2.3) to distinguish
-these from an opportunistic MAC match.
+`represented_by`, don't silently override it, log and skip, same as any
+other conflict. Mark these edges `matched_by: "reporter_self"` (§2.3) to
+distinguish them from an opportunistic MAC match.
 **This applies only to the reporter's own `Device` — every neighbor in the
 blob's `neighbors[]` still goes through §3.2's opportunistic MAC-based
 reconciliation unchanged**, since there the identity genuinely is uncertain
@@ -1069,18 +1072,43 @@ and needs a real matching decision, unlike the reporter's self-identity.
 
 ## 5. Zabbix API pull
 
-- `host.get` with `selectInterfaces` **and `selectInventory`** → upsert
-  `Host` nodes. `selectInventory` is not optional here — §3.2 reconciliation
-  reads MAC from `inventory.macaddress_a`/`macaddress_b`, which isn't
-  returned at all unless explicitly requested via `selectInventory`.
-  Upsert here means ensuring a `topo_nodes` row with `type='host'` and
-  `host_ref=hostid` exists — do not write `name`/`status` into `attrs`
-  (see §2.2).
-- `proxy.get` → upsert `Proxy` nodes the same way, via `proxy_ref`.
-- For each `Host`, attempt Device reconciliation per §3.2 against existing
-  `Device`/`Port` MACs. (Monitoring assignment to a `Proxy`/`ProxyGroup` is
-  not part of this pull at all — it's resolved live at read time, §2.3, §6
-  — there is nothing to store here.)
+**`topo_nodes` rows for `Host`/`Proxy` are created lazily, not for every
+Zabbix object — this is a deliberate design decision, not the default you'd
+get from a naive reading of `host.get`/`proxy.get`.** A `Host`/`Proxy` only
+gets a `topo_nodes` row when there is an actual reason for it to exist in
+the topology: a MAC match under §3.2 below, `reporter_self` (§4.1, happens
+during ingest, not this pull), or explicit manual `/promote` (§6). A Zabbix
+host with no network-topology role — most application/VM hosts in a
+typical instance — never gets a `topo_nodes` row at all, and is never
+rendered, searched, or paginated as part of the topology graph. This is
+what the FR document's "shows the real network topology" (§0) actually
+implies once taken literally: mirroring every Zabbix host into the
+topology store regardless of relevance was never the goal. It also removes
+the need for a separate "unassociated hosts" filter/panel (§11's backlog
+item, now superseded) — there's nothing left to filter once irrelevant
+hosts never become nodes in the first place.
+
+- `host.get` with `selectInterfaces` **and `selectInventory`**, across all
+  hosts. `selectInventory` is not optional — §3.2 reconciliation reads MAC
+  from `inventory.macaddress_a`/`macaddress_b`, which isn't returned at all
+  unless explicitly requested. This call is read-only against Zabbix and by
+  itself writes nothing to `topo_nodes` — it's purely the data source for
+  the matching step below. (This does not reduce Zabbix API traffic versus
+  the earlier eager-upsert design — inventory still has to be pulled for
+  every host to know whether it matches — the savings are in `topo_nodes`
+  row count and graph size, not API call volume.)
+- For each `Host` returned, attempt Device reconciliation per §3.2 against
+  existing `Device`/`Port` MACs. **Only on a match**: upsert a `topo_nodes`
+  row (`type='host'`, `host_ref=hostid` — do not write `name`/`status` into
+  `attrs`, see §2.2) and create the `represented_by` edge in the same step.
+  No match → no node, no edge, nothing written for that host. (Monitoring
+  assignment to a `Proxy`/`ProxyGroup` is not part of this pull at all —
+  it's resolved live at read time, §2.3, §6, and is only ever shown for a
+  `Host` that already has a node for some other reason.)
+- `proxy.get` is **not** called by this pull at all, since `Proxy` has no
+  automatic matching path (see below) and so nothing to reconcile it
+  against. A `Proxy` node is created only via manual `/promote` (§6), which
+  upserts it on demand.
 - **`Proxy` does not go through §3.2's MAC reconciliation — there is no
   MAC source for it.** Confirmed via the Zabbix API's Proxy object: it has
   no `inventory` field at all (inventory is a `Host`-only subsystem), so
@@ -1092,11 +1120,12 @@ and needs a real matching decision, unlike the reporter's self-identity.
   names a `Host`, never a proxy (confirmed against Zabbix's own docs/
   forum guidance). If the physical machine running a proxy needs to be a
   reporter, it has to be onboarded as its own separate `Host` — the
-  resulting `reporter_self` representation then attaches to *that* `Host`,
-  not to the `Proxy` topology node. **The only way a `Proxy` ever becomes a
-  Device's `represented_by_node_id` target is manual `/promote` (§6).** Do
-  not implement or advertise any automatic path for `Device`↔`Proxy`
-  linking — neither MAC-based nor `reporter_self`-based exists for it.
+  resulting `reporter_self` link then attaches to *that* `Host`, not to
+  the `Proxy` topology node. **The only way a `Proxy` gets a
+  `represented_by` edge — or a `topo_nodes` row at all — is manual
+  `/promote` (§6).** Do not implement or advertise any automatic path for
+  `Device`↔`Proxy` linking — neither MAC-based nor `reporter_self`-based
+  exists for it.
 - **The Host+Proxy same-pull race this used to describe no longer applies.**
   An earlier version of this rule handled the case where a `Host` and a
   `Proxy` processed in the same pull both matched the same `Device` — that
@@ -1115,20 +1144,12 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 (see §2.2).
 
 - `GET /topo/devices` — all `Device`+`Host`+`Proxy` nodes (id, type, display
-  name, monitoring state) for the graph view. For `Device` nodes, whether it
-  has an active representation (needed for §7's "merge into Host/Proxy,
-  don't render as a separate node" rule) is a plain read of that Device's
-  own `represented_by_node_id` (§2.1) — no join needed at all, unlike the
-  old edge-based model. For a `Host`/`Proxy` node, "does this have an
-  associated Device" is the reverse lookup (`SELECT ... FROM topo_nodes
-  WHERE represented_by_node_id = <this node's id>`) — still a lookup, but a
-  single indexed one against the `UNIQUE` index on that column (§2.1), not
-  a `topo_edges` scan. For `Host` nodes, include `maintenance_status`
-  (live-joined from `hosts.maintenance_status`/`maintenanceid`, never
-  cached into `attrs`) — this is needed at the graph level, not only in a
-  side panel, since it changes how the node's severity color should be
-  read at a glance. **Also for `Host` nodes**: include the live-resolved
-  monitoring assignment (§2.3) — `monitored_by`, `proxyid`,
+  name, monitoring state) for the graph view. For `Host` nodes, include
+  `maintenance_status` (live-joined from `hosts.maintenance_status`/
+  `maintenanceid`, never cached into `attrs`) — this is needed at the graph
+  level, not only in a side panel, since it changes how the node's severity
+  color should be read at a glance. **Also for `Host` nodes**: include the
+  live-resolved monitoring assignment (§2.3) — `monitored_by`, `proxyid`,
   `proxy_groupid`, and `assigned_proxyid` (only meaningful in the
   proxy-group case) straight from `host.get`, plus the resolved target
   node id (whichever of `proxyid`/`assigned_proxyid` actually applies) so
@@ -1166,28 +1187,42 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   config object itself. Don't invent a heuristic for it (e.g. "if the
   proxy's machine happens to also be a monitored host"); a `Proxy` node
   simply has no Problems section in the UI (§7).
-- `POST /topo/devices/{id}/promote {host_id}` — manually establish a
-  representation: `UPDATE topo_nodes SET represented_by_node_id = ?,
-  represented_by_matched_by = 'manual', represented_by_at = now() WHERE id
-  = ? AND type = 'device'` (§2.1). Deliberate user action, never automatic,
-  and does **not** run the §3.2 strong-key check — see the "manual
-  override" and "1:1 cardinality" notes under §2.3 for the exact rules this
-  endpoint must enforce: reject if the source `Device` already has an
-  active representation (an existence check on `represented_by_node_id`
-  before the update), and reject if the target `Host`/`Proxy` is already
-  represented by some other `Device` (surfaced as the `UNIQUE` index on
-  `represented_by_node_id`, §2.1, being violated — a straightforward
-  unique-constraint error, not custom logic). Must also validate the
-  target is a `Host` or `Proxy` node (invariant 1, §2.3) before writing.
-- `POST /topo/devices/{id}/depromote` — manually clear a `Device`'s
-  representation: `UPDATE topo_nodes SET represented_by_node_id = NULL,
-  represented_by_matched_by = NULL, represented_by_at = NULL WHERE id = ?`
-  (§2.1) — **all three columns together** (§2.3's provenance invariant);
-  clearing only `represented_by_node_id` and leaving stale
-  `matched_by`/`at` values behind is a bug, not a partial success. No
-  soft-delete or `valid_to` marker (temporal versioning is out of scope,
-  see §1). Does not touch the `Device` node's other columns/`attrs` — it
-  reverts to the same unassociated state described in §3.3.
+- `GET /topo/hosts/search?q=` — search Zabbix hosts by name/IP directly via
+  `host.get`, **not** against `topo_nodes`. This is the only host picker for
+  `/promote` below: under §5's lazy-creation policy, most Zabbix hosts have
+  no `topo_nodes` row at all, so there's no local list to search against.
+  Returns `hostid`/name/status only; writes nothing. `GET
+  /topo/proxies/search?q=`, backed by `proxy.get`, serves the same role for
+  promoting to a `Proxy`.
+- `POST /topo/devices/{id}/promote {host_id}` — manually create a
+  `represented_by` edge, where `host_id` is a **Zabbix `hostid`** (from the
+  search endpoint above), not a `topo_nodes` id — the target `Host` may not
+  have a `topo_nodes` row yet. This endpoint must itself upsert the `Host`
+  node (`host_ref=hostid`) if it doesn't already exist, using the same
+  upsert-not-insert discipline as §3 rule 4, before creating the edge — a
+  second `/promote` against an already-materialized `Host` must not create
+  a duplicate node. Deliberate user action, never automatic, and does
+  **not** run the §3.2 strong-key check — see the "manual override" and
+  "1:1 cardinality" notes under §2.3 for the exact rules this endpoint must
+  enforce (reject if either side already has an active `represented_by`). A
+  `{proxy_id}` variant (a Zabbix `proxyid`) works the same way for `Proxy`.
+- `POST /topo/devices/{id}/depromote` — manually delete the `represented_by`
+  edge for this `Device`. Hard-deletes the edge row; no soft-delete or
+  `valid_to` marker (temporal versioning is out of scope, see §1). Does not
+  touch the `Device` node itself — it reverts to the same unassociated state
+  described in §3.3. **Also deletes the `Host`/`Proxy` `topo_nodes` row this
+  edge pointed at, unless something else still gives it a reason to exist**
+  (a MAC match under §3.2, or `reporter_self`) — under §5's lazy-creation
+  policy a `Host`/`Proxy` node has no independent existence the way a
+  `Device` does (§2.2: it's a thin pointer, trivially recreated from
+  `host_ref`/`proxy_ref` on the next promote or reconciliation pass), so
+  leaving an orphaned node behind after depromote would silently
+  reintroduce the exact "node with nothing to show" clutter §5 exists to
+  avoid. This is a deliberate asymmetry with `Device` (rule 3, §3): `Device`
+  represents a real physical entity that persists whether or not Zabbix
+  knows about it, so it is never deleted; `Host`/`Proxy` is only ever a
+  pointer into Zabbix's own tables, so deleting and recreating it costs
+  nothing.
 - `POST /topo/ports/{src_port_id}/link {dst_port_id}` — manually create a
   `physical_link` between two existing `Port`s (`discovered_via: "manual"`,
   per §3.5). Both ports must already exist on already-existing `Device`
@@ -1310,12 +1345,17 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
     `represented_by`): the same grouped port table as the standalone
     `Device` panel above, via `/ports` on the associated `Device`. Includes
     the "Depromote" button (below). Omit this section entirely for a
-    `Host`/`Proxy` with no associated `Device` — most of the "unassociated
-    hosts" list falls here, and showing an empty Device section for all of
-    them would be noise, not signal.
-  - A `Proxy` panel, then, may show only the Device section (or be
-    entirely empty if it also has no `represented_by`) — that's expected,
-    not a missing feature.
+    `Host`/`Proxy` with no associated `Device` — under §5's lazy-creation
+    policy this should be a rare, transitional case rather than the common
+    one: a `Host`/`Proxy` node now only exists in the first place *because*
+    it has (or briefly had, mid-depromote) a `represented_by` edge, unlike
+    an earlier version of this spec where most of a large "unassociated
+    hosts" list would hit this branch. Still worth handling defensively in
+    the UI rather than assumed impossible.
+  - A `Proxy` panel, then, should effectively always have a Device section
+    under §5's lazy-creation policy — a `Proxy` node with no
+    `represented_by` shouldn't normally exist to be clicked on in the first
+    place.
 - **"Promote to host" button**: in the standalone `Device` panel (no
   `represented_by` yet); calls the `/promote` endpoint. Once promoted, the
   `Device` stops appearing as its own graph node (see above) and this
@@ -1337,15 +1377,14 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   parent is a plain column rather than a `topo_edges` row.
 - A Zabbix host matching the seed `Device` by MAC per §3.2 (via
   `inventory.macaddress_a`/`macaddress_b` — not chassis ID, which isn't a
-  valid `Device`↔`Host` match key; see rule 2's correction) ends up with
-  `represented_by_node_id` set (and `represented_by_matched_by = 'mac'`)
-  after the API pull runs. **This MAC-based path is `Host`-only** — do not
-  write an equivalent test for `Proxy`, since `Proxy` has no MAC source and
-  never goes through this path (§5).
-- A seed `Proxy` never gets an automatic representation — not by MAC, not
-  by `reporter_self`. Confirm the API pull does *not* attempt or claim to
-  auto-match a `Proxy` at all; the only way `represented_by_node_id` ends
-  up set for it is a manual `/promote` call.
+  valid `Device`↔`Host` match key; see rule 2's correction) ends up with a
+  `represented_by` edge after the API pull runs. **This MAC-based path is
+  `Host`-only** — do not write an equivalent test for `Proxy`, since
+  `Proxy` has no MAC source and never goes through this path (§5).
+- A seed `Proxy` never gets a `represented_by` edge automatically — not by
+  MAC, not by `reporter_self`. Confirm the API pull does *not* attempt or
+  claim to auto-match a `Proxy` at all; the only way it gets one is a
+  manual `/promote` call.
 - The UI graph correctly distinguishes `Host` (solid) from unassociated
   `Device` (dashed), and the port drill-down table groups ports the
   same way as in §7.
@@ -1382,20 +1421,26 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   severity color, and a `Host` in maintenance with at least one active
   problem still shows its severity color plus a separate maintenance badge —
   not the blind-spot badge, not a muted/disabled style.
-- Attempting to `/promote` a second `Device` onto a `Host`/`Proxy` that is
-  already the target of another `Device`'s `represented_by_node_id` is
-  rejected (or requires an explicit `/depromote` first) — confirms the 1:1
-  constraint from §2.3 is actually enforced (now via the `UNIQUE` index on
-  `represented_by_node_id`, §2.1), not just documented.
-- Promoting a `Device`, then depromoting it, clears **all three**
-  `represented_by_*` columns — not just `represented_by_node_id`. Assert
-  `represented_by_matched_by` and `represented_by_at` are both `NULL` after
-  `/depromote`, not just `represented_by_node_id`. This directly exercises
-  §2.3's provenance invariant, which is new enforcement surface the old
-  edge-based model didn't have: deleting a `topo_edges` row deleted all its
-  `attrs` atomically for free, but three separate columns being cleared
-  together on the same `UPDATE` is not automatically atomic unless the
-  code does it deliberately.
+- A Zabbix host with no MAC match to any seed `Device` and never manually
+  `/promote`d never gets a `topo_nodes` row at all — confirms the
+  lazy-creation policy in §5, not just that MAC matching itself works
+  correctly on hosts that do match.
+- Promoting a `Device` to a `Host` that has never previously matched by MAC
+  (no prior `topo_nodes` row for it) creates that `Host`'s node and the
+  `represented_by` edge in the same `/promote` call — confirms the
+  on-demand upsert path in §6, not just edge creation against an
+  already-existing node.
+- Depromoting a `Device` whose `Host` has no other reason to exist in
+  topology (no MAC match, not a reporter) removes that `Host`'s
+  `topo_nodes` row along with the edge. Depromoting a `Device` whose `Host`
+  is itself a reporter (`reporter_self` gives it an independent reason to
+  exist, per §6) leaves that `Host`'s node in place — confirms the
+  depromote cleanup rule in §6 checks for other reasons to exist, not a
+  blanket delete.
+- Attempting to `/promote` a second `Device` onto a `Host`/`Proxy` that
+  already has an active `represented_by` edge is rejected (or requires an
+  explicit `/depromote` first) — confirms the 1:1 constraint from §2.3 is
+  actually enforced, not just documented.
 - Attempting to `/link` a `Port` that already has an active `physical_link`
   to a third port is rejected — confirms the port-level uniqueness
   constraint from §2.3 is enforced, not just the (src, dst) pair uniqueness.
@@ -1446,8 +1491,7 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   port. (2) `SwitchB` is later onboarded and starts pushing as a reporter
   in its own right — confirms `Device(B)` is **reused, not duplicated**
   (rule 4 upsert via `chassis_id`, per this section's correction), gets
-  `represented_by_node_id` set to its own `Host` (with
-  `represented_by_matched_by = 'reporter_self'`), its unconfirmed
+  `represented_by` to its own `Host` via `reporter_self`, its unconfirmed
   `Port` is merged into the newly-created real one (§3 rule 4's merge),
   and the `physical_link` from step 1 ends up pointing at real `Port`s on
   both ends with no duplicate edge. (3) If `SwitchB`'s own push also
@@ -1467,10 +1511,9 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   sent) and running ingest picks it up **without editing any config file**
   — confirms reporter discovery is live via `item.get`, not a static list.
 - A freshly onboarded reporter with **no inventory MAC configured** still
-  gets `represented_by_node_id` set to its own `Host` after ingest, with
-  `represented_by_matched_by = 'reporter_self'` — confirms the
-  self-identity link doesn't depend on the opportunistic MAC path from
-  §3.2, unlike neighbor matching.
+  gets a `represented_by` edge to its own `Host` after ingest, with
+  `matched_by: "reporter_self"` — confirms the self-identity link doesn't
+  depend on the opportunistic MAC path from §3.2, unlike neighbor matching.
 
 ## 9. Security — untrusted network-sourced strings
 
@@ -1523,7 +1566,12 @@ here so they aren't rediscovered from scratch later.
    once. This endpoint needs to become a search/entry-point (by name, IP,
    host group) instead of a full listing; all further exploration should go
    through `/neighbors` from that entry point, same as it already does for
-   graph expansion.
+   graph expansion. **§5's lazy `Host`/`Proxy` creation shrinks this
+   response's likely size** — most Zabbix hosts never become `topo_nodes`
+   rows at all now — but doesn't make this entry stop applying: `Device`
+   count is driven by LLDP-discovered neighbors, not by Zabbix's host
+   population, and can still be large on a dense real network regardless of
+   how few Host/Proxy nodes end up alongside it.
 
 2. **Reconciliation and self-upsert both need indexes, on different fields
    for different reasons — don't conflate them.** §2.1 deliberately keeps
@@ -1593,8 +1641,11 @@ here so they aren't rediscovered from scratch later.
 What already holds up without changes: the per-device port table (§7) is
 bounded by port count on one device, not overall network size; `physical_link`
 severity via `/neighbors` (§6) is bounded to 1 hop from the selected node; and
-the "unassociated hosts" list already needs search/collapse at scale, which
-was flagged when it first came up.
+the host/proxy search endpoints added in §6 (`/topo/hosts/search`,
+`/topo/proxies/search`) already query Zabbix directly rather than a locally
+stored list, so they need no separate scaling fix of their own — unlike the
+"unassociated hosts" list §11 used to describe, which no longer exists as a
+feature under §5's lazy-creation policy.
 
 ## 11. Backlog (deliberately deferred, not required for §8)
 
@@ -1641,6 +1692,20 @@ was flagged when it first came up.
   specific cases and what loosening the constraint would require (an
   asymmetric constraint plus a §7 rendering redesign to show more than one
   Device section on a single `Host`/`Proxy` panel, per that discussion).
+- **Promoting LAG membership from `Port.lag_id` to a `member_of_lag` edge
+  in `topo_edges`** — reconsidered during design and deliberately kept as
+  a structural `Port` reference for now (§2.1, §2.3), not an independent
+  relationship, specifically because §4.1's proposed `lag_members` data
+  arrives in the same blob that creates/updates the `Port` itself, giving
+  membership no independent staleness/provenance to track. **The explicit
+  trigger to revisit**: if LAG membership ever becomes observable through
+  a separate path from ordinary `Port` discovery — its own collection
+  schedule, its own possible staleness independent of the `Port` row, or a
+  need for per-member attributes like LACP active/standby state — promote
+  it to `topo_edges` as `member_of_lag` (`Port[physical] → Port[lag]`),
+  the same category of redesign trigger as `represented_by`'s 1:1
+  constraint above and the sparse-`Port` model earlier in this section.
+  Until that trigger arrives, `lag_id` is the simpler, sufficient model.
 - **Blob generation/snapshot identifier** — the push blob (§4.1) currently
   has `collected_at` but no sequence/version marker (e.g. `generation: 42`
   or `snapshot_id: <uuid>`). Not needed for MVP, but worth adding before
@@ -1688,17 +1753,16 @@ was flagged when it first came up.
   so a full Perspectives system would be solving a problem that doesn't
   exist yet. Once `Service` gives a genuine second, orthogonal projection,
   revisit — not before.
-- **"Unassociated hosts" filter/panel** — a real, already-designed gap that
-  was discussed but never made it into this spec: `Host`/`Proxy` nodes with
-  no topology context (no `represented_by`, no monitoring-assignment line
-  to anything relevant) currently render scattered across the graph canvas
-  with no relationship to anything else, which gets noisy fast (see the
-  very first prototype screenshot in this project's history for a concrete
-  example). The fix already designed in that discussion: split the view
-  into the connected topology graph plus a separate, collapsible list of
-  unassociated `Host`/`Proxy` nodes, searchable once the list is long.
-  This is a single filter, not a Perspectives system — don't conflate the
-  two when picking this up.
+- ~~**"Unassociated hosts" filter/panel**~~ — **superseded by the
+  lazy-creation policy in §5.** This item assumed a `Host`/`Proxy` node is
+  always created for every Zabbix object (via `host.get`/`proxy.get`) and
+  then has to be hidden or filtered after the fact once it turns out to
+  have no topology context. Under §5's current policy, a `Host`/`Proxy`
+  with no `represented_by` (no MAC match, not a reporter, never promoted)
+  never gets a `topo_nodes` row in the first place, so there's nothing left
+  to filter — the clutter this item was designed to fix no longer occurs
+  by construction. Left here, struck through, so the original reasoning
+  isn't lost if lazy creation is ever reconsidered.
 - **`Proxy Group`** (Zabbix HA proxy clustering) — largely resolved
   already, not by a new node/edge design but by the same live-resolution
   approach now used for ordinary `Host`↔`Proxy` assignment (§2.3, §6):
@@ -1879,16 +1943,12 @@ and rejected for structural reasons, not a style preference:
   unmonitored neighbor would mean creating a fake `Host` just to have
   somewhere to hang a tag — recreating exactly the "node-per-MAC noise"
   problem §3 rule 1 exists to prevent, just via a different mechanism.
-- **Tags are flat key-value strings, not typed relationships with
-  structured attributes.** `physical_link` carries `discovered_via`/
-  `last_seen_src`/`last_seen_dst` as edge attrs (§2.3); `represented_by`
-  carries `represented_by_matched_by`/`represented_by_at` as dedicated
-  columns on the `Device` row (§2.1) rather than edge attrs, but the
-  argument is the same either way — these are structured, typed fields,
-  not a single flat string value. Encoding either in tags means either one
-  tag per field (multiplying per relationship) or serializing a blob into
-  a tag value — both break the normal tag-based filtering/search tags
-  exist for in the first place.
+- **Tags are flat key-value strings, not typed edges with attributes.**
+  `represented_by` carries `match_type`/`matched_by`/`created_at`;
+  `physical_link` carries `discovered_via`/`last_seen` (§2.3). Encoding
+  this in tags means either one tag per attribute (multiplying per edge)
+  or serializing a blob into a tag value — both break the normal
+  tag-based filtering/search tags exist for in the first place.
 - **No referential integrity.** A tag like `parent=core-switch-1` is just
   a string; rename or delete the target and the tag dangles with no
   signal. This model gets that for free via real foreign keys plus

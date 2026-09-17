@@ -134,3 +134,36 @@ Two traps along the way:
 - If the script lives in `/tmp` but you `cd` into the app directory first, `__DIR__`
   inside the script still resolves to `/tmp` (it's the *script's* path, not the cwd) —
   build paths from the app's absolute path, not `__DIR__`, when the two differ.
+
+**This minimal chain is enough for DB-only code (`DBselect`/`DBexecute`), but breaks the
+moment the code under test calls `API::Host()->get()` or anything else through Zabbix's
+own API layer** — `promote()`'s new target-existence check (§5/§6, lazy Host/Proxy node
+creation) is exactly this case. The failure mode is a `getObject() on null` fatal from
+deep inside `API::getApiService()`: the minimal chain above never calls
+`API::setApiServiceFactory()`, which only real HTTP bootstrap (or the recipe below) sets
+up. Reaching for `CWebUser::$data = [...]` by hand does *not* fix this — the API layer
+checks `CApiService::$userData` (set only by a real `CUser::checkAuthentication()` call
+going through the wrapper) and `CApiWrapper::$auth['type']` (set only by the full request
+bootstrap this script also skips), neither of which `CWebUser::$data` touches.
+
+The actual working recipe, found by tracing the fatal down through
+`CApiWrapper::callClientMethod()` → `CLocalApiClient::isAllowedMethod()`:
+
+```php
+chdir('/abs/path/to/ui');
+$_SERVER['REMOTE_ADDR'] = '127.0.0.1'; // CWebUser::getIp() dereferences this unconditionally
+require_once 'include/classes/core/APP.php';
+APP::getInstance()->run(APP::EXEC_MODE_API); // sets up DB/config/API service factory
+API::getWrapper()->auth = ['type' => 0]; // MUST be set before the first authenticated call —
+                                          // real HTTP bootstrap does this, this doesn't
+$session = DBfetch(DBselect("SELECT sessionid FROM sessions WHERE status=0 ORDER BY lastaccess DESC", 1));
+CWebUser::checkAuthentication($session['sessionid']); // reuses an already-active session
+                                                        // (e.g. a logged-in browser tab) —
+                                                        // this is what actually populates
+                                                        // CApiService::$userData
+```
+
+After this, `API::Host()->get()` etc. work exactly as they would from a real controller,
+with that session's real permissions. If no session is currently active in the `sessions`
+table, there's nothing to authenticate against — treat that as "skip this check," not a
+bug, rather than trying to fabricate credentials.
