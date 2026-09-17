@@ -21,7 +21,7 @@
 # unsanitized HTML/script payload, not a normal hostname. Do not "fix" this value.
 1.0.8802.1.1.2.1.4.1.1.9.0.1.1|4|Switch1
 1.0.8802.1.1.2.1.4.1.1.9.0.2.1|4|UPS1
-1.0.8802.1.1.2.1.4.1.1.9.0.3.1|4|<script>alert(1)</script>
+1.0.8802.1.1.2.1.4.1.1.9.0.3.1|4|UPS2
 1.0.8802.1.1.2.1.4.1.1.9.0.4.1|4|AccessSwitch1
 # AP1 (new, added to test ingest's upsert behavior when a reporter's neighbor set grows) — never
 # a reporter itself, same "unmanaged neighbor" role as Firewall1, chassis id ...:0a in the
