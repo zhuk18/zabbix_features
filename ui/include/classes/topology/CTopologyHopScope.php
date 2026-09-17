@@ -10,9 +10,10 @@
  * module, generalized to start from MULTIPLE seed nodes at once (needed for the group-filter
  * case: every host in the selected group(s) is a seed) rather than a single host.
  *
- * The graph is treated as undirected: a represented_by/monitored_by/physical_link edge counts
- * as one hop in either direction. Kept free of API calls and controller state, same as
- * CTopologyPrototype's other query methods — adjacency in, node-id list out.
+ * The graph is treated as undirected: a represented_by/physical_link edge, or a live-resolved
+ * Host->Proxy monitoring pair (§2.3 — no stored edge for that one), counts as one hop in either
+ * direction. Kept free of API calls and controller state itself — CTopologyPrototype::getAdjacency()
+ * is the one that resolves the live piece; this class only walks the flat pairs it returns.
  */
 class CTopologyHopScope {
 

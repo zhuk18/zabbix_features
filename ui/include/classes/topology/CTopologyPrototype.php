@@ -41,16 +41,12 @@ class CTopologyPrototype {
 		$visible_hostids = self::getVisibleHostIds();
 		$sql = 'SELECT node.id,node.type,node.attrs,node.host_ref,'.
 				'host.name AS host_name,host.status AS host_status,host.maintenance_status AS host_maintenance_status,'.
-				'proxy.name AS proxy_name,proxy_rt.state AS proxy_state,'.
-				'mon.id AS mon_id,mon_proxy_rt.state AS mon_proxy_state'.
+				'proxy.name AS proxy_name,proxy_rt.state AS proxy_state'.
 			' FROM topo_nodes node'.
 			' LEFT JOIN hosts host ON host.hostid=node.host_ref'.
 			' LEFT JOIN proxy ON proxy.proxyid=node.proxy_ref'.
 			' LEFT JOIN proxy_rtdata proxy_rt ON proxy_rt.proxyid=proxy.proxyid'.
 			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
-			' LEFT JOIN topo_edges mon ON mon.type='.zbx_dbstr('monitored_by').' AND mon.src_id=node.id'.
-			' LEFT JOIN topo_nodes mon_proxy ON mon_proxy.id=mon.dst_id'.
-			' LEFT JOIN proxy_rtdata mon_proxy_rt ON mon_proxy_rt.proxyid=mon_proxy.proxy_ref'.
 			' WHERE ('.
 				'node.type='.zbx_dbstr('device').
 				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL AND rep.id IS NOT NULL'.
@@ -65,15 +61,13 @@ class CTopologyPrototype {
 		}
 		$result = DBselect($sql);
 
-		// DBfetch()'s default $convertNulls=true turns every unmatched LEFT JOIN column (mon.id included)
-		// into the string '0' instead of leaving it null, which would make the blind_spot check below always
-		// true. Pass false here to keep real SQL NULLs distinguishable from an actual '0' id/state value.
 		// 'represented'/'represented_hostid' for device rows are patched in AFTER this loop
 		// (batched below) rather than resolved inline per row — one isRepresented() call per
 		// device was itself a lingering N+1 here, same class of fix as getNeighbors()/getPorts()
 		// got earlier; adding the hostid lookup the same naive way would have doubled it.
 		$device_ids = [];
-		while ($row = DBfetch($result, false)) {
+		$host_rows = [];
+		while ($row = DBfetch($result)) {
 			$attrs = self::attrs($row);
 			$node = ['id' => $row['id'], 'type' => $row['type'], 'monitoring_state' => null];
 
@@ -92,8 +86,10 @@ class CTopologyPrototype {
 					$node['monitoring_state'] = $row['host_status'];
 					$node['disabled'] = ((int) $row['host_status']) === HOST_STATUS_NOT_MONITORED;
 					$node['maintenance'] = ((int) $row['host_maintenance_status']) === HOST_MAINTENANCE_STATUS_ON;
-					$node['blind_spot'] = $row['mon_id'] !== null && !self::isProxyOnline($row['mon_proxy_state']);
 					$node += self::describeSeverity($node['disabled'] ? null : self::getMaxActiveSeverityForHost($row['host_ref']));
+					// §2.3/§6: monitoring assignment is resolved live below (batched), never from a stored
+					// edge — 'blind_spot'/'monitored_by'/etc. are patched onto this node after the loop.
+					$host_rows[$row['id']] = $row['host_ref'];
 					break;
 
 				case 'proxy':
@@ -111,6 +107,9 @@ class CTopologyPrototype {
 
 		$represented_ids = self::getRepresentedIds($device_ids);
 		$representing_hostids = self::getRepresentingHostIds($device_ids, $visible_hostids);
+		// §2.3/§6: one batched host.get call for every Host node's live monitoring assignment —
+		// never one call per host (§10 point 3). $host_rows maps topo_nodes.id => hostid.
+		$assignments = self::getMonitoringAssignments(array_values($host_rows));
 		foreach ($nodes as &$node) {
 			if ($node['type'] === 'device') {
 				$node['represented'] = isset($represented_ids[$node['id']]);
@@ -119,10 +118,99 @@ class CTopologyPrototype {
 				// the representing host isn't visible to this caller.
 				$node['represented_hostid'] = $representing_hostids[$node['id']] ?? null;
 			}
+			elseif ($node['type'] === 'host') {
+				$hostid = $host_rows[$node['id']];
+				$assignment = $assignments[$hostid] ?? null;
+				$node['monitored_by'] = $assignment['monitored_by'] ?? ZBX_MONITORED_BY_SERVER;
+				$node['proxyid'] = $assignment['proxyid'] ?? null;
+				$node['proxy_groupid'] = $assignment['proxy_groupid'] ?? null;
+				$node['assigned_proxyid'] = $assignment['assigned_proxyid'] ?? null;
+				// Resolved topo_nodes.id of whichever proxy actually applies (proxyid or
+				// assigned_proxyid, depending on monitored_by) — spares the frontend from
+				// replicating that branching itself (§6). Null when server-monitored, or when the
+				// target proxy has no topo_nodes row yet (never pulled).
+				$node['target_node_id'] = $assignment['target_node_id'] ?? null;
+				$node['blind_spot'] = $assignment['blind_spot'] ?? false;
+			}
 		}
 		unset($node);
 
 		return $nodes;
+	}
+
+	/**
+	 * Live-resolved Host->Proxy/ProxyGroup monitoring assignment (§2.3/§6) — replaces the old stored
+	 * `monitored_by` edge entirely. One batched host.get() call for every hostid given, never one per
+	 * host (§10 point 3).
+	 *
+	 * @param array $hostids  Zabbix hostids (not topo_nodes.id) to resolve.
+	 *
+	 * @return array hostid => ['monitored_by' => int, 'proxyid' => ?string, 'proxy_groupid' => ?string,
+	 *               'assigned_proxyid' => ?string, 'target_node_id' => ?string, 'blind_spot' => bool].
+	 */
+	private static function getMonitoringAssignments(array $hostids): array {
+		if (!$hostids) {
+			return [];
+		}
+
+		$hosts = API::Host()->get([
+			'output' => ['hostid', 'monitored_by', 'proxyid', 'proxy_groupid', 'assigned_proxyid'],
+			'hostids' => $hostids
+		]);
+
+		$target_proxyids = [];
+		foreach ($hosts as $host) {
+			$target_proxyid = self::resolveTargetProxyId($host);
+			if ($target_proxyid !== null) {
+				$target_proxyids[$target_proxyid] = true;
+			}
+		}
+		$target_proxyids = array_keys($target_proxyids);
+
+		// topo_nodes.id for each target proxy — only exists once that Proxy has been pulled (§5); a
+		// target proxy that was never pulled simply has no graph node to point the line/badge at yet.
+		$node_by_proxyid = [];
+		// Live proxy_rtdata state for each target proxy — independent of whether it has a topo_nodes
+		// row, so blind_spot is correct even for a target proxy that was never pulled.
+		$online_by_proxyid = [];
+		if ($target_proxyids) {
+			$result = DBselect('SELECT id,proxy_ref FROM topo_nodes WHERE type='.zbx_dbstr('proxy').
+				' AND '.dbConditionId('proxy_ref', $target_proxyids));
+			while ($row = DBfetch($result)) {
+				$node_by_proxyid[$row['proxy_ref']] = $row['id'];
+			}
+
+			$result = DBselect('SELECT proxyid,state FROM proxy_rtdata WHERE '.
+				dbConditionId('proxyid', $target_proxyids));
+			while ($row = DBfetch($result)) {
+				$online_by_proxyid[$row['proxyid']] = self::isProxyOnline($row['state']);
+			}
+		}
+
+		$assignments = [];
+		foreach ($hosts as $host) {
+			$target_proxyid = self::resolveTargetProxyId($host);
+			$assignments[$host['hostid']] = [
+				'monitored_by' => (int) $host['monitored_by'],
+				'proxyid' => $host['proxyid'] !== '0' ? $host['proxyid'] : null,
+				'proxy_groupid' => $host['proxy_groupid'] !== '0' ? $host['proxy_groupid'] : null,
+				'assigned_proxyid' => $host['assigned_proxyid'] ?: null,
+				'target_node_id' => $target_proxyid !== null ? ($node_by_proxyid[$target_proxyid] ?? null) : null,
+				'blind_spot' => $target_proxyid !== null && !($online_by_proxyid[$target_proxyid] ?? false)
+			];
+		}
+
+		return $assignments;
+	}
+
+	// §2.3: proxy_groupid alone doesn't say which proxy is actually serving a proxy-group-monitored
+	// host — assigned_proxyid (host.get's server-computed answer) is the one that matters there.
+	private static function resolveTargetProxyId(array $host): ?string {
+		return match ((int) $host['monitored_by']) {
+			ZBX_MONITORED_BY_PROXY => $host['proxyid'] !== '0' ? $host['proxyid'] : null,
+			ZBX_MONITORED_BY_PROXY_GROUP => $host['assigned_proxyid'] ?: null,
+			default => null
+		};
 	}
 
 	/**
@@ -196,17 +284,17 @@ class CTopologyPrototype {
 	 */
 	public static function getRelations(?array $node_ids = null): array {
 		$relations = [];
-		// Permission floor, always applied: represented_by (device->host) and monitored_by
-		// (host->proxy) are the only edge types that ever touch a 'host' topo_node, so excluding
-		// any row whose src/dst is a host the caller can't see is enough — physical_link rows
-		// (added below) are device-to-device only and never need this. dbConditionId(..., true)
-		// already renders "exclude every host node" (1=1) when getVisibleHostIds() is empty, so
-		// no separate empty-array branch is needed here the way getDevices()/getUnassignedHosts()
-		// need one for their positive IN() case.
+		// Permission floor, always applied: represented_by (device->host) is the only stored edge
+		// type that ever touches a 'host' topo_node (monitoring assignment is resolved live from
+		// /topo/devices instead — §2.3/§6, no stored edge to filter here), so excluding any row
+		// whose src/dst is a host the caller can't see is enough — physical_link rows (added below)
+		// are device-to-device only and never need this. dbConditionId(..., true) already renders
+		// "exclude every host node" (1=1) when getVisibleHostIds() is empty, so no separate
+		// empty-array branch is needed here the way getDevices()/getUnassignedHosts() need one for
+		// their positive IN() case.
 		$invisible_host_nodes = 'SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
 			' AND '.dbConditionId('host_ref', self::getVisibleHostIds(), true);
-		$sql = 'SELECT src_id,dst_id,type FROM topo_edges WHERE type IN ('.
-			zbx_dbstr('represented_by').','.zbx_dbstr('monitored_by').')'.
+		$sql = 'SELECT src_id,dst_id,type FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
 			' AND src_id NOT IN ('.$invisible_host_nodes.')'.
 			' AND dst_id NOT IN ('.$invisible_host_nodes.')';
 		if ($node_ids !== null) {
@@ -286,18 +374,18 @@ class CTopologyPrototype {
 
 	/**
 	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every
-	 * represented_by/monitored_by pair (same source as getRelations()) plus every
-	 * device-to-device pair implied by a physical_link — the same port.device_id ->
-	 * physical_link -> port.device_id join chain getNeighbors() runs per-device below, but for
-	 * every physical_link at once instead of one device's ports.
+	 * represented_by pair (same source as getRelations()) plus every device-to-device pair
+	 * implied by a physical_link — the same port.device_id -> physical_link -> port.device_id
+	 * join chain getNeighbors() runs per-device below, but for every physical_link at once
+	 * instead of one device's ports — plus every live-resolved Host->Proxy monitoring pair
+	 * (§2.3/§6: no stored edge for this one, so it's resolved the same way getDevices() does).
 	 *
 	 * @return array list of [id_a, id_b] pairs.
 	 */
 	public static function getAdjacency(): array {
 		$pairs = [];
 
-		$result = DBselect('SELECT src_id,dst_id FROM topo_edges WHERE type IN ('.
-			zbx_dbstr('represented_by').','.zbx_dbstr('monitored_by').')');
+		$result = DBselect('SELECT src_id,dst_id FROM topo_edges WHERE type='.zbx_dbstr('represented_by'));
 		while ($row = DBfetch($result)) {
 			$pairs[] = [$row['src_id'], $row['dst_id']];
 		}
@@ -311,6 +399,20 @@ class CTopologyPrototype {
 		);
 		while ($row = DBfetch($result)) {
 			$pairs[] = [$row['device_a'], $row['device_b']];
+		}
+
+		$host_nodes = []; // hostid => topo_nodes.id
+		$result = DBselect('SELECT id,host_ref FROM topo_nodes WHERE type='.zbx_dbstr('host'));
+		while ($row = DBfetch($result)) {
+			$host_nodes[$row['host_ref']] = $row['id'];
+		}
+		if ($host_nodes) {
+			$assignments = self::getMonitoringAssignments(array_keys($host_nodes));
+			foreach ($assignments as $hostid => $assignment) {
+				if ($assignment['target_node_id'] !== null) {
+					$pairs[] = [$host_nodes[$hostid], $assignment['target_node_id']];
+				}
+			}
 		}
 
 		return $pairs;
@@ -467,24 +569,20 @@ class CTopologyPrototype {
 		return array_values($neighbors);
 	}
 
-	// §6: /topo/nodes/{id}/problems — id is a Host or Proxy node id (never a Device id). Proxy nodes use this
-	// too (§7's Proxy severity/panel), resolved via getProblemsForProxy()'s item-key convention below.
+	// §6: /topo/nodes/{id}/problems — id is a Host node id (never a Device or Proxy id). Zabbix has no
+	// clean "this problem belongs to this proxy" semantics (problems attach to triggers, which attach
+	// to hosts/items, not to the Proxy config object itself) — don't invent a heuristic for it; a
+	// Proxy node simply has no Problems section in the UI (§7).
 	public static function getProblems(string $nodeid): array {
-		// DBfetch(..., false) — see GOTCHAS.md #1: with the default $convertNulls=true, a Device node's NULL
-		// host_ref/proxy_ref would come back as the string '0' instead of null, defeating these checks.
-		$node = DBfetch(DBselect('SELECT node.type,node.host_ref,node.proxy_ref,proxy.name AS proxy_name'.
-			' FROM topo_nodes node LEFT JOIN proxy ON proxy.proxyid=node.proxy_ref WHERE node.id='.zbx_dbstr($nodeid)), false);
-		if (!$node) {
+		// DBfetch(..., false) — see GOTCHAS.md #1: with the default $convertNulls=true, a Device/Proxy
+		// node's NULL host_ref would come back as the string '0' instead of null, defeating this check.
+		$node = DBfetch(DBselect('SELECT node.type,node.host_ref FROM topo_nodes node'.
+			' WHERE node.id='.zbx_dbstr($nodeid)), false);
+		if (!$node || $node['type'] !== 'host' || $node['host_ref'] === null) {
 			return [];
 		}
-		if ($node['type'] === 'host' && $node['host_ref'] !== null) {
-			return self::getProblemsForHost($node['host_ref']);
-		}
-		if ($node['type'] === 'proxy' && $node['proxy_ref'] !== null) {
-			return self::getProblemsForProxy($node['proxy_name']);
-		}
 
-		return [];
+		return self::getProblemsForHost($node['host_ref']);
 	}
 
 	private static function getProblemsForHost(string $hostid): array {
@@ -492,29 +590,6 @@ class CTopologyPrototype {
 		foreach (API::Problem()->get([
 			'output' => ['eventid', 'name', 'severity', 'clock'],
 			'hostids' => [$hostid],
-			'sortfield' => ['eventid'],
-			'sortorder' => ZBX_SORT_DOWN
-		]) as $problem) {
-			$problems[] = array_merge([
-				'eventid' => $problem['eventid'],
-				'name' => $problem['name'],
-				'age' => time() - (int) $problem['clock']
-			], self::describeSeverity((int) $problem['severity']));
-		}
-
-		return $problems;
-	}
-
-	private static function getProblemsForProxy(string $proxy_name): array {
-		$triggerids = self::getProxyHealthTriggerIds($proxy_name);
-		if (!$triggerids) {
-			return [];
-		}
-
-		$problems = [];
-		foreach (API::Problem()->get([
-			'output' => ['eventid', 'name', 'severity', 'clock'],
-			'objectids' => $triggerids,
 			'sortfield' => ['eventid'],
 			'sortorder' => ZBX_SORT_DOWN
 		]) as $problem) {
@@ -640,27 +715,15 @@ class CTopologyPrototype {
 	public static function pullHosts(): int {
 		self::pullProxies();
 
+		// §2.3/§5: monitoring assignment (Host->Proxy/ProxyGroup) is resolved live at read time
+		// (getMonitoringAssignments()), never stored — nothing to pull/upsert/retract for it here.
 		$count = 0;
 		foreach (API::Host()->get([
-			'output' => ['hostid', 'proxyid', 'monitored_by'],
+			'output' => ['hostid'],
 			'selectInventory' => ['macaddress_a', 'macaddress_b']
 		]) as $host) {
 			$host_nodeid = self::upsertPointerNode('host', 'host_ref', $host['hostid']);
 			self::reconcileHost($host_nodeid, $host['inventory'] ?? []);
-
-			// hosts.proxyid can be non-zero even when monitored_by=ZBX_MONITORED_BY_SERVER (a stale/leftover
-			// value from a past proxy assignment) — monitored_by is the actual source of truth for who's
-			// polling the host, not the presence of a proxyid.
-			if ((int) $host['monitored_by'] === ZBX_MONITORED_BY_PROXY) {
-				$proxy_nodeid = self::upsertPointerNode('proxy', 'proxy_ref', $host['proxyid']);
-				self::linkMonitoredBy($host_nodeid, $proxy_nodeid);
-			}
-			else {
-				// Re-pulling must also retract a stale edge left over from a previous pull, e.g. a host that
-				// was switched from proxy-monitored back to server-monitored in Zabbix since the last pull.
-				self::unlinkMonitoredBy($host_nodeid);
-			}
-
 			$count++;
 		}
 
@@ -744,24 +807,6 @@ class CTopologyPrototype {
 			' AND '.$ref_column.'='.zbx_dbstr($ref_value)))['id'];
 	}
 
-	private static function linkMonitoredBy(string $host_nodeid, string $proxy_nodeid): void {
-		$existing = DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('monitored_by').
-			' AND src_id='.zbx_dbstr($host_nodeid).' AND dst_id='.zbx_dbstr($proxy_nodeid)));
-		if ($existing) {
-			return;
-		}
-
-		// A host can only be monitored by one proxy at a time, so re-pointing to a different proxy must
-		// replace the old edge, not add a second one.
-		self::unlinkMonitoredBy($host_nodeid);
-		DBexecute('INSERT INTO topo_edges (type,src_id,dst_id,attrs,created_at) VALUES ('.
-			zbx_dbstr('monitored_by').','.zbx_dbstr($host_nodeid).','.zbx_dbstr($proxy_nodeid).','.zbx_dbstr('{}').','.time().')');
-	}
-
-	private static function unlinkMonitoredBy(string $host_nodeid): void {
-		DBexecute('DELETE FROM topo_edges WHERE type='.zbx_dbstr('monitored_by').' AND src_id='.zbx_dbstr($host_nodeid));
-	}
-
 	private static function isProxyOnline($proxy_state): bool {
 		return $proxy_state !== null && (int) $proxy_state === ZBX_PROXY_STATE_ONLINE;
 	}
@@ -784,7 +829,9 @@ class CTopologyPrototype {
 	}
 
 	// §7: Proxy shares Host's severity-colored fill, but Zabbix has no proxyid linkage on problem/trigger/item
-	// to resolve it from — see getProxyHealthTriggerIds() for how this is actually found.
+	// to resolve it from — see getProxyHealthItemIds() for how this is actually found. (Note: this is
+	// the Proxy node's own graph fill color, unrelated to §6's Problems side-panel section, which is
+	// Host-only and has no Proxy equivalent at all — see getProblems().)
 	private static function getMaxActiveSeverityForProxy(string $proxy_name): ?int {
 		return self::getMaxActiveSeverityForItemIds(self::getProxyHealthItemIds($proxy_name));
 	}
@@ -807,15 +854,6 @@ class CTopologyPrototype {
 		}
 
 		return $max_severity;
-	}
-
-	private static function getProxyHealthTriggerIds(string $proxy_name): array {
-		$itemids = self::getProxyHealthItemIds($proxy_name);
-		if (!$itemids) {
-			return [];
-		}
-
-		return array_column(API::Trigger()->get(['output' => ['triggerid'], 'itemids' => $itemids]), 'triggerid');
 	}
 
 	// Zabbix has no proxyid column on problem/trigger/item — a Proxy's own health problems are only reachable

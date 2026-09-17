@@ -595,6 +595,21 @@ $find_matching_real_port = static function (int $device_id, string $name) use ($
 	return count($matches) === 1 ? (int) $matches[0]['id'] : null;
 };
 
+// ---- Testability hook, no effect on a normal CLI invocation (the constant is never defined
+// there) ----
+//
+// test_reconciliation_scenarios.php includes this script with TOPOLOGY_INGEST_TEST_HOOK defined
+// as a callable, so it can exercise the exact upsert/matching closures above ($device, $port,
+// $find_device, $ensure_physical_link, $promote, $merge_pseudo_port, ...) against a throwaway DB
+// without going through the Zabbix API, the file lock, or the per-reporter loop below — none of
+// which a pure DB-layer reconciliation test needs or can safely drive in an automated run. This
+// runs after every closure is defined and before $api is ever touched, so nothing below this
+// point executes when the hook is present.
+if (defined('TOPOLOGY_INGEST_TEST_HOOK')) {
+	(TOPOLOGY_INGEST_TEST_HOOK)(get_defined_vars());
+	return;
+}
+
 $api = new ZabbixApi($api_url, $api_token);
 $processed = 0;
 $skipped = 0;

@@ -229,6 +229,17 @@ const view = new class {
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale
 		}));
+		// §2.3/§6: monitoring assignment is no longer a stored edge — relations never carries a
+		// 'monitored_by' entry. Synthesize the line here from each Host's own live-resolved
+		// target_node_id (topology.devices.get, §6) instead; target_node_id is null when
+		// server-monitored, or when the target proxy has no graph node yet (never pulled) — in the
+		// latter case there's simply nothing to draw to yet, same as any other not-yet-loaded node
+		// (GOTCHAS.md #5: render() already filters simulation_links to nodes that currently exist).
+		devices.forEach(node => {
+			if (node.type === 'host' && node.target_node_id !== null && node.target_node_id !== undefined) {
+				this.links.push({source: String(node.id), target: String(node.target_node_id), type: 'monitored_by'});
+			}
+		});
 		this.unassigned = {
 			host: new Map(unassigned_hosts.map(node => [String(node.id), node])),
 			proxy: new Map(unassigned_proxies.map(node => [String(node.id), node]))
@@ -286,13 +297,17 @@ const view = new class {
 	}
 
 	async selectNode(node) {
-		// Host/Proxy: one combined panel, always Problems, plus a Device section when this node has an
-		// active represented_by (node.device, set in render() from the same represented_by edges that
-		// used to drive the old split-node merge — see render()'s device_of_target map). A represented
+		// Host/Proxy: one combined panel, plus a Device section when this node has an active
+		// represented_by (node.device, set in render() from the same represented_by edges that used
+		// to drive the old split-node merge — see render()'s device_of_target map). A represented
 		// Device has no on-screen position of its own (§7), so its /neighbors + /ports are fetched here,
 		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
+		// Problems section is Host-only (§6 /problems, §7) — Zabbix has no clean "this problem
+		// belongs to this proxy" semantics, so a Proxy panel never fetches or shows one.
 		if (node.type === 'host' || node.type === 'proxy') {
-			const {problems} = await this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`);
+			const problems = node.type === 'host'
+				? (await this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`)).problems
+				: null;
 			let groups = null;
 			if (node.device) {
 				const [neighbor_groups] = await Promise.all([
@@ -426,8 +441,9 @@ const view = new class {
 		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw]) =>
 			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`;
 		// Only physical_link is a real, user/LLDP-declared topo_edges row a person can remove —
-		// monitored_by comes from pullHosts() syncing actual Zabbix host config and would just
-		// reappear on the next pull, so there's nothing meaningful to "delete" there.
+		// monitored_by is a synthesized line, not a stored row at all (§2.3/§6): it's resolved live
+		// from Zabbix host config on every load, so there's nothing to "delete" there — reassigning
+		// the host to a different proxy in Zabbix is what changes it, not this UI.
 		const delete_button = link.type === 'physical_link' && link.source_port_id && link.target_port_id
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-delete-link-button">` +
 				`${this.escape(<?= json_encode(_('Delete link')) ?>)}</button></div>`
@@ -531,10 +547,9 @@ const view = new class {
 		});
 	}
 
-	// Problems section fragment only — no title, no this.details assignment. Used both standalone
-	// (never happens today, since every Host/Proxy click always includes a Problems section — see
-	// showPanel()) and, going forward, exclusively via showPanel(); kept as its own method rather than
-	// inlined there so the table markup stays next to formatAge()/cssColor(), same as before.
+	// Problems section fragment only — no title, no this.details assignment. Called from showPanel()
+	// only for a Host (never a Proxy, §6/§7 — showPanel() guards on `problems !== null`); kept as its
+	// own method rather than inlined there so the table markup stays next to formatAge()/cssColor().
 	buildProblemsFragment(problems) {
 		return `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Problems')) ?>)}</h3>${problems.length
 			? `<table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
@@ -547,17 +562,19 @@ const view = new class {
 			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`}</section>`;
 	}
 
-	// Host/Proxy side panel (§7): one panel, always a Problems section; a Device section too when
-	// `node.device` is set (this Host/Proxy has an active represented_by — see render()'s
-	// device_of_target map, which populates node.device). `groups` is the represented Device's /ports
-	// response, or null when there's no represented Device at all — in which case the Device section is
-	// simply omitted, not rendered empty.
+	// Host/Proxy side panel (§7): a Problems section for a Host (never for a Proxy — `problems` is
+	// null there, §6), plus a Device section when `node.device` is set (this Host/Proxy has an
+	// active represented_by — see render()'s device_of_target map, which populates node.device).
+	// `groups` is the represented Device's /ports response, or null when there's no represented
+	// Device at all — in which case the Device section is simply omitted, not rendered empty. A
+	// Proxy with no represented Device gets an entirely empty panel — expected, not a bug (§7).
 	showPanel(node, problems, groups) {
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
+		const problems_section = problems !== null ? this.buildProblemsFragment(problems) : '';
 		const device_section = groups !== null
 			? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Device')) ?>)}</h3>${this.buildPortsFragment(node.device, groups)}</section>`
 			: '';
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${this.buildProblemsFragment(problems)}${device_section}`;
+		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${problems_section}${device_section}`;
 		if (groups !== null) {
 			this.wirePortsFragment(node.device, node);
 		}
@@ -582,8 +599,11 @@ const view = new class {
 	// showPanel() (Device section inside a Host/Proxy's combined panel, §7) — `device` is always the
 	// actual Device node either way, never the Host/Proxy that might be showing it.
 	buildPortsFragment(device, groups) {
+		// §6/§7: "Partial connectivity evidence" (not "connected MAC-only") — a MAC-only port has no
+		// physical_link (§3 rule 1), so labeling it "connected" the same way as an LLDP-confirmed one
+		// invites the reasonable but wrong question "where's the physical link for this port?".
 		const labels = {
-			connected_lldp: 'Connected via LLDP', connected_mac_only: 'Connected MAC-only',
+			connected_lldp: 'Connected (LLDP)', connected_mac_only: 'Partial connectivity evidence',
 			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
 		};
 		const port_action = port => port.linked_port_id

@@ -19,12 +19,16 @@ accumulated since this section was first written:**
 - Node types: `Device`, `Port` (independent physical-topology entities,
   exist without a Zabbix counterpart), `Host`, `Proxy` (thin pointers into
   Zabbix's own tables, never data copies)
-- Edge types: `physical_link`, `member_of_lag`, `represented_by`,
-  `monitored_by`
+- Edge types: `physical_link`, `member_of_lag`, `represented_by`. (`Host`↔
+  `Proxy` monitoring assignment is resolved live from Zabbix, not stored —
+  see §2.3's note.)
 
 *Identity resolution* (§3, §4.1):
-- Neighbor `Device`↔`Host`/`Proxy` matching: MAC-only, opportunistic
-  (§3 rule 2)
+- Neighbor `Device`↔`Host` matching: MAC-only, opportunistic (§3 rule 2).
+  `Proxy` has no MAC source (no Zabbix inventory subsystem for proxies) and
+  can't use `reporter_self` either (a Zabbix `Proxy` object can't own
+  Trapper items) — manual `/promote` (§6) is the only way a `Proxy` ever
+  gets a `represented_by` edge.
 - Reporter self-identification: deterministic `reporter_self` linking,
   independent of MAC matching (§4.1)
 - `Device` self-recognition across ingest runs: upsert by `chassis_id` →
@@ -54,7 +58,8 @@ accumulated since this section was first written:**
   `Host`/`Proxy` Problems section, conditional Device section
 - Visual states: severity, disabled, maintenance, blind-spot,
   `physical_link` provenance (`discovered_via`) and severity styling,
-  `monitored_by` on its own distinct line style (§7)
+  `Host`↔`Proxy` monitoring assignment on its own distinct line style,
+  drawn from live Zabbix data (§7)
 
 *Security* (§9):
 - Escaping/sanitizing every LLDP/CDP-sourced string wherever it renders —
@@ -78,8 +83,11 @@ accumulated since this section was first written:**
 - Scheduled or cron-based discovery — every trigger point (push, ingest,
   API pull) is manual, whether from CLI or UI button
 - Reachability / SPOF / blast-radius graph algorithms
-- CAM-table (`dot1dTpFdbTable`) walk — not relevant until vendor/LAG work
-  picks this up (§11)
+- CAM-table (`dot1dTpFdbTable`) collection — not implemented in the
+  current push schema; `learned_macs` remains part of the topology model
+  (§2.2) and the seed fixture (§4) populates it, but the real collector
+  (§4.1) does not yet — model supports it, seed supports it, collector
+  doesn't populate it yet. Tracked in §11.
 - `ifStackTable`/`ieee8023adTable` walk for LAG membership — confirmed
   missing during implementation (§4.1), tracked in §11 rather than worked
   around in `ingest.php`
@@ -91,6 +99,29 @@ If a requirement not listed above seems necessary while implementing, stop and
 flag it rather than silently expanding scope.
 
 ## 2. Data model
+
+**Semantics before schema — read this before the SQL below.** The model is
+two kinds of thing: **Nodes**, representing a topology entity (`Device`,
+`Port`, `Host`, `Proxy`), and **Relationships**, representing a semantic
+connection between two Nodes (`physical_link`, `represented_by` — plus
+`member_of_lag`, a narrower case of the same idea — and `MONITORED_BY`,
+`Host`'s monitoring assignment to a `Proxy`/`ProxyGroup`, which is real
+and semantically part of the model but is *resolved live from Zabbix, not
+stored as our own edge* — §2.3 explains why, the same thin-pointer
+reasoning already applied to `Host`/`Proxy` themselves, just extended to
+this one relationship). This build spec uses lowercase names
+(`physical_link`, `represented_by`) for the two relationship types that
+*are* stored; the FR document uses `CONNECTED_TO`/`REPRESENTED_BY` for the
+same two — same concepts, different naming convention.
+`Device`/`Port` exist on their own, independent of Zabbix, whether or not
+Zabbix ever knows about them; `Host`/`Proxy` are nodes too, but each one
+refers to an already-existing Zabbix object rather than being a new
+entity in its own right. The storage below is one way of representing
+that — a generic node/edge table pair, plus one direct `device_id`
+reference where the relationship is simple enough not to need the general
+case (§2.1's note explains why). Don't let the shape of the tables be
+read as the model itself; the model is the semantics above, the tables
+are just where it's currently persisted.
 
 ### 2.1 Storage
 
@@ -126,7 +157,7 @@ type no longer exists.
 ```sql
 CREATE TABLE topo_edges (
   id         BIGINT PRIMARY KEY AUTO_INCREMENT,
-  type       VARCHAR(32) NOT NULL,   -- 'physical_link' | 'member_of_lag' | 'represented_by' | 'monitored_by'
+  type       VARCHAR(32) NOT NULL,   -- 'physical_link' | 'member_of_lag' | 'represented_by'
   src_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   dst_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   attrs      JSON NOT NULL DEFAULT ('{}'),
@@ -211,10 +242,14 @@ when one succeeds and the other doesn't.
   copied into `attrs`. This node exists only so `represented_by` (and later
   `runs_on`, `service_composed_of`) have a stable graph endpoint to point at.
 - **proxy**: `{}` (or empty) — same thin-pointer pattern as `host`, via
-  `proxy_ref` (see §2.1). A `Proxy` is itself an ordinary physical/virtual
-  machine, so it can also get its own `represented_by` edge from a `Device`,
-  exactly like a `Host` — it is not a special case in the model, just a
-  different `monitored_by` destination.
+  `proxy_ref` (see §2.1). A `Proxy` is a Zabbix monitoring object
+  representing proxy infrastructure, but it has no inventory/MAC source
+  and cannot own Zabbix items. Therefore it can receive a `represented_by`
+  edge only through explicit manual `/promote`; it does not participate in
+  automatic MAC-based reconciliation or `reporter_self` (§3.2, §4.1, §5).
+  If the physical machine running the proxy is also monitored as a Zabbix
+  `Host`, that `Host` is a separate topology node and may independently be
+  associated with a `Device`.
 
 `Port`'s parent `Device` is resolved via the `device_id` column (§2.1), a
 real foreign key — not a `topo_edges` row. This was modeled as a `part_of`
@@ -237,7 +272,24 @@ and status — never duplicated into `attrs`.
 | `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen, last_seen_src, last_seen_dst}` |
 | `member_of_lag` | Port[physical] → Port[lag] | `{}` |
 | `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"reporter_self"\|"manual", matched_mac, created_at}` |
-| `monitored_by` | Host → Proxy | `{}` |
+
+**`Host`↔`Proxy` monitoring assignment (`MONITORED_BY` in the FR document)
+is not a stored edge — resolve it live from Zabbix, the same thin-pointer
+principle already applied to `Host`/`Proxy` nodes themselves.** Zabbix's
+`host.get` already returns everything needed: `monitored_by` (server /
+proxy / proxy group), `proxyid`, `proxy_groupid`, and — for the proxy-group
+case specifically — `assigned_proxyid` (the proxy Zabbix's server actually
+assigned within that group; a host can be assigned to a *group* while the
+*specific* member proxy handling it is a separate, server-computed fact,
+so don't assume `proxy_groupid` alone tells you which proxy is serving a
+given host). `host.get` batches (`proxyids`/`proxy_groupids` filters, or a
+single call across all relevant `hostid`s), so this is one query per
+render, not N+1 — same batching discipline as every other live join in
+this spec (§10 point 3). Storing this as our own edge would mean it goes
+stale the moment someone reassigns a host to a different proxy in Zabbix,
+until the next `/5` pull — exactly the staleness problem the thin-pointer
+pattern exists to avoid, just at the relationship level instead of the
+node-attribute level.
 
 **`represented_by` is 1:1 in both directions.** A `Device` can have at most
 one active `represented_by` edge (to a `Host` *or* a `Proxy`, never both at
@@ -303,6 +355,34 @@ last_seen_dst)` for backward compatibility with what's already built. For
 there's no reporter confirmation cycle to track, staleness works
 differently there (§3 rule 5) and doesn't need this.
 
+**Be precise about what "src"/"dst" mean here — it's not ingest order or
+"whichever reporter sent this particular push."** `last_seen_src` and
+`last_seen_dst` refer to the reporter corresponding to the *canonicalized*
+`src_id`/`dst_id` (below) — i.e. the device owning whichever `Port` ended
+up as `src` after canonicalization (numerically smaller `Port` id), not
+whichever side happened to report first or most recently. E.g. for
+`Port 17 ↔ Port 42`, canonicalization makes `src_id=17`/`dst_id=42`
+regardless of which of the two actually sent the confirming push — so
+`last_seen_src` always means "last confirmation from the device owning
+Port 17," even on a push that came from Port 42's device confirming the
+same link. Get this backwards and the two fields silently swap meaning
+depending on which side happens to be numerically smaller, which is not
+something to leave to interpretation.
+
+**Update semantics, made explicit rather than left to interpretation:**
+
+| Situation | `last_seen_src` | `last_seen_dst` | `last_seen` |
+|---|---|---|---|
+| Link just created — only the discovering reporter's side has ever confirmed it (the other device isn't a reporter yet, or hasn't pushed since) | set to now | `null` | = `last_seen_src` |
+| That same side keeps confirming on every subsequent push; the other device still isn't a reporter | advances each time | stays `null` | advances with it |
+| The other device becomes a reporter (or was already one) and its push confirms the same link for the first time | unchanged | set to now | advances if this is now the max |
+| Both sides are reporters and both keep confirming normally | advances each time | advances each time | advances with whichever is newer |
+| One side stops pushing (dead cron, network issue) while the other keeps confirming | **frozen at its last value** — never reverts to `null` once set | keeps advancing | keeps advancing (masks the frozen side — this is exactly why the two fields are tracked separately, not just the aggregate) |
+
+A field only ever moves forward or stays frozen — it never reverts to
+`null` once it has a real timestamp, even if that side's reporter later
+stops confirming.
+
 **`physical_link` direction must be canonicalized to prevent reversed
 duplicates.** Because `src_id`/`dst_id` are directional columns but a
 physical link is not (A↔B and B↔A are the same cable), always write
@@ -352,13 +432,14 @@ Anyone questioning why a SPAN/TAP/mirror setup doesn't show up correctly
 should read this as the model correctly excluding a different kind of
 connection, not as a defect.
 
-**`monitored_by` semantics — do not conflate with an outage.** A `Proxy`
-becoming unreachable means Zabbix loses *visibility* into every `Host` it
-monitors — it does not mean those hosts are actually down. Any UI or logic
-that walks `monitored_by` backwards from a broken `Proxy` must present this
-as "monitoring blind spot behind this proxy", never as "these hosts are
-down". Silently treating a proxy outage as a host outage would make the
-graph actively misleading, not just incomplete.
+**Monitoring-assignment semantics — do not conflate with an outage.** A
+`Proxy` becoming unreachable means Zabbix loses *visibility* into every
+`Host` it monitors — it does not mean those hosts are actually down. Any UI
+or logic that resolves this relationship (live, per the note above — no
+`monitored_by` edge to walk) must present it as "monitoring blind spot
+behind this proxy", never as "these hosts are down". Silently treating a
+proxy outage as a host outage would make the graph actively misleading,
+not just incomplete.
 
 **`physical_link` problem styling — derived, not stored.** A link can be
 styled by Zabbix trigger severity (see §6, §7) by resolving the triggers
@@ -441,6 +522,11 @@ These rules are the core of the model — implement them exactly, do not
    do not auto-merge on a guess. The manual `/promote` path (§2.3, §6) is
    the intended way to cover every host that automatic matching can't reach
    for this reason — the two mechanisms are complementary, not redundant.
+   **This entire rule applies to `Host` only.** `Proxy` has no MAC source
+   at all — the Zabbix Proxy object has no `inventory` field (inventory is
+   a `Host`-only subsystem) — so a `Proxy` never goes through this rule.
+   See §5 for why `reporter_self` doesn't reach `Proxy` either, and why
+   manual `/promote` is its only path.
    (`chassis_id` remains a valid key for `Device`-to-itself upsert in rule
    4 below — that's a different match, `Device` recognizing the same
    physical entity across ingest runs, not `Device`-to-`Host` linking, and
@@ -456,7 +542,26 @@ These rules are the core of the model — implement them exactly, do not
    same local port of the same reporter** (i.e. match against a `Device`
    previously seen as a neighbor on that exact `local_if_index` of that
    exact reporter — never a global `sysname` match across the whole
-   network). This third key exists specifically for LLDP neighbors known
+   network).
+
+   **When a lower-priority key finds the match, overwrite the stored
+   higher-priority identity — don't treat a changed `chassis_id` as a new
+   `Device`.** E.g. a device previously stored with `chassis_id=A`,
+   `mgmt_ip=X` shows up in a later scan with `chassis_id=B`, `mgmt_ip=X`
+   (a chassis ID can legitimately change — a card swap, a firmware
+   reset). The `chassis_id` lookup finds nothing (no `Device` has
+   `chassis_id=B` yet), falls through to `mgmt_ip`, and matches the
+   existing `Device` via `X`. At that point, **update the stored
+   `chassis_id` from `A` to `B` on that same `Device` row** — don't create
+   a second `Device`. The match that succeeded is what's authoritative for
+   that pass, and every attribute the blob provides gets refreshed on the
+   matched row, not just the key that happened to find it. Without this
+   stated explicitly, it's easy to assume a changed `chassis_id` means a
+   new physical entity — it doesn't, by itself; §3.5's stacked-switch/MLAG
+   limitation is the case where a genuinely different physical mapping is
+   the concern, not an ordinary attribute change on the same box.
+
+   This third key exists specifically for LLDP neighbors known
    only by name (no chassis ID, no management IP exposed) — confirmed as a
    real gap in live testing: without it, every ingest pass created a fresh
    `Device` for these neighbors instead of recognizing the same one, with
@@ -594,7 +699,7 @@ These rules are the core of the model — implement them exactly, do not
    need, that's a lifecycle-model addition for a future iteration (§11),
    not something to improvise now.
 
-## 4. Seed data (stands in for the discovery collector)
+## 4. Seed data (baseline fixture, alongside the real collector in §4.1)
 
 **Discovery transport is provisional — read everything in this section
 (and §4.1) with that in mind.** This spec's stated goal (§0) is validating
@@ -617,9 +722,10 @@ spec that actually matter are `Device`/`Port`/`physical_link`/
 `represented_by`, reconciliation, and the UI — that's where remaining
 effort should go.
 
-The SNMP/LLDP collector is deferred (see §1). To keep the data model, API,
-and UI work unblocked, load a static fixture directly into `topo_nodes` /
-`topo_edges` instead of collecting it live. The fixture must model the same
+The SNMP/LLDP collector is implemented as the Trapper push component
+described in §4.1. For the prototype's baseline UI/model validation,
+however, load a static fixture directly into `topo_nodes` / `topo_edges`
+instead of relying on live collection. The fixture must model the same
 switch used in the earlier port-table mockup, so the UI can be checked
 against a known-correct picture:
 
@@ -827,13 +933,25 @@ automatically and deterministically — this is not the same mechanism as
 §3.2, and not a weakening of it.** When ingest reads a reporter's blob via
 `item.get`, it already knows *which Host* that item belongs to — that's a
 direct fact of where the data came from, not something inferred from
-MAC/chassis-ID matching. The `Device` node built from the blob's `reporter.*`
-fields can therefore be linked to that exact `Host` with certainty, no
-opportunistic matching involved, subject to the same `represented_by` 1:1
-constraint as any other case (§2.3) — if that `Device` somehow already has
-a *different* active `represented_by`, don't silently override it, log and
-skip, same as any other conflict. Mark these edges `matched_by:
-"reporter_self"` (§2.3) to distinguish them from an opportunistic MAC match.
+MAC/chassis-ID matching. **Building "the `Device` node" from the blob's
+`reporter.*` fields means the same rule 4 upsert (§3) as anywhere else —
+match by `chassis_id`, then `mgmt_ip` — never an unconditional create.**
+This matters specifically for the case where the device was already seen
+as someone else's LLDP neighbor before it became a reporter itself: rule 4
+must find and reuse that pre-existing `Device` row (created earlier as a
+neighbor observation), not create a second one. Skipping this check would
+produce a `Device`-level duplicate that the unconfirmed-port merge rule
+(§3 rule 4) cannot fix, since that merge operates on `Port`s, not on
+`Device` identity itself — the two mechanisms solve different layers of
+the same "this thing was seen before it became a reporter" problem, and
+both have to fire correctly for the full transition to work. Once the
+correct (possibly pre-existing) `Device` is resolved this way, it can be
+linked to that exact `Host` with certainty, no opportunistic matching
+involved, subject to the same `represented_by` 1:1 constraint as any other
+case (§2.3) — if that `Device` somehow already has a *different* active
+`represented_by`, don't silently override it, log and skip, same as any
+other conflict. Mark these edges `matched_by: "reporter_self"` (§2.3) to
+distinguish them from an opportunistic MAC match.
 **This applies only to the reporter's own `Device` — every neighbor in the
 blob's `neighbors[]` still goes through §3.2's opportunistic MAC-based
 reconciliation unchanged**, since there the identity genuinely is uncertain
@@ -850,16 +968,32 @@ and needs a real matching decision, unlike the reporter's self-identity.
   (see §2.2).
 - `proxy.get` → upsert `Proxy` nodes the same way, via `proxy_ref`.
 - For each `Host`, attempt Device reconciliation per §3.2 against existing
-  `Device`/`Port` MACs, **and** create the `monitored_by` edge to its
-  `Proxy` node (from `host.get`'s `proxyid` field) if one is assigned.
-- For each `Proxy`, attempt the same Device reconciliation per §3.2 — a
-  proxy is a machine like any other and can get its own `represented_by` edge.
-- **If both a `Host` and a `Proxy` processed in the same pull match the same
-  `Device`** (rare, but possible if they happen to share MAC/chassis-ID
-  data), only the first one processed gets the `represented_by` edge — the
-  1:1 constraint (§2.3) rejects the second. Log this as a skipped match, not
-  an error, and continue the pull; one unresolved match in a large batch
-  must never abort the rest of the run.
+  `Device`/`Port` MACs. (Monitoring assignment to a `Proxy`/`ProxyGroup` is
+  not part of this pull at all — it's resolved live at read time, §2.3, §6
+  — there is nothing to store here.)
+- **`Proxy` does not go through §3.2's MAC reconciliation — there is no
+  MAC source for it.** Confirmed via the Zabbix API's Proxy object: it has
+  no `inventory` field at all (inventory is a `Host`-only subsystem), so
+  there is nothing analogous to `host.inventory.macaddress_a/b` to read.
+  **`reporter_self` (§4.1) doesn't apply to `Proxy` either — not
+  opportunistically, not ever.** `reporter_self`'s certainty comes from
+  knowing which `Host` a Trapper item belongs to, and a Zabbix `Proxy`
+  object cannot own items at all — `zabbix_sender`'s `-s` flag always
+  names a `Host`, never a proxy (confirmed against Zabbix's own docs/
+  forum guidance). If the physical machine running a proxy needs to be a
+  reporter, it has to be onboarded as its own separate `Host` — the
+  resulting `reporter_self` link then attaches to *that* `Host`, not to
+  the `Proxy` topology node. **The only way a `Proxy` gets a
+  `represented_by` edge at all is manual `/promote` (§6).** Do not
+  implement or advertise any automatic path for `Device`↔`Proxy` linking —
+  neither MAC-based nor `reporter_self`-based exists for it.
+- **The Host+Proxy same-pull race this used to describe no longer applies.**
+  An earlier version of this rule handled the case where a `Host` and a
+  `Proxy` processed in the same pull both matched the same `Device` — that
+  scenario is now impossible via automatic matching, since `Proxy` never
+  auto-matches at all (see above). The general 1:1 rejection behavior
+  (§2.3) still covers any *manual* conflict (e.g. two people racing to
+  `/promote` the same `Device`), just not as a pull-specific case anymore.
 - Run manually — no scheduler in this prototype.
 
 ## 6. Backend API surface
@@ -870,7 +1004,21 @@ display name/status, and every endpoint returning port item info must
 join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 (see §2.2).
 
-- `GET /topo/devices` — all `Device`+`Host`+`Proxy` nodes (id, type, display name, monitoring state) for the graph view. For `Host` nodes, include `maintenance_status` (live-joined from `hosts.maintenance_status`/`maintenanceid`, never cached into `attrs`) — this is needed at the graph level, not only in a side panel, since it changes how the node's severity color should be read at a glance.
+- `GET /topo/devices` — all `Device`+`Host`+`Proxy` nodes (id, type, display
+  name, monitoring state) for the graph view. For `Host` nodes, include
+  `maintenance_status` (live-joined from `hosts.maintenance_status`/
+  `maintenanceid`, never cached into `attrs`) — this is needed at the graph
+  level, not only in a side panel, since it changes how the node's severity
+  color should be read at a glance. **Also for `Host` nodes**: include the
+  live-resolved monitoring assignment (§2.3) — `monitored_by`, `proxyid`,
+  `proxy_groupid`, and `assigned_proxyid` (only meaningful in the
+  proxy-group case) straight from `host.get`, plus the resolved target
+  node id (whichever of `proxyid`/`assigned_proxyid` actually applies) so
+  the frontend doesn't need to replicate that branching logic itself. This
+  is what §7's monitoring-assignment line and blind-spot indicator render
+  from — batch this across all returned `Host`s in one `host.get` call
+  (`proxyids`/`proxy_groupids` filters, or a single call scoped to the
+  returned `hostid`s), never one call per host (§10 point 3).
 - `GET /topo/devices/{id}/neighbors` — 1-hop `physical_link` neighbors, for
   progressive graph expansion (never return the full graph in one call).
   Since the graph view never renders `Port` nodes (§7), this endpoint must
@@ -883,14 +1031,23 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   underlying `physical_link.attrs.last_seen` value and a derived `stale`
   boolean (`last_seen` older than the threshold in §7) — compute `stale`
   server-side rather than shipping the raw threshold logic to the client.
-- `GET /topo/devices/{id}/ports` — full port list for the side-panel table, grouped as: connected via LLDP / connected MAC-only / disconnected / port-channel / management
-- `GET /topo/nodes/{id}/problems` — active problems/triggers for a `Host` or
-  `Proxy` node (`id` here is a `Host`/`Proxy` node id, not a `Device` id —
-  hence the different path prefix from the `Device`-rooted endpoints above,
-  which all take a `Device` id). Live-joined from Zabbix (`problem.get`/
-  `trigger.get`), never stored in `attrs`. `Proxy` nodes use this endpoint
-  too when they themselves have a `represented_by` and their own problems
-  (§7); not applicable to an unassociated `Device`.
+- `GET /topo/devices/{id}/ports` — full port list for the side-panel table,
+  grouped as: **Connected (LLDP)** / **Partial connectivity evidence** /
+  Disconnected / Port-channel / Management. Not "connected MAC-only" —
+  a MAC-only port has no `physical_link` (§3 rule 1), so labeling it
+  "connected" the same way as an LLDP-confirmed one invites the reasonable
+  but wrong question "where's the physical link for this port?" The
+  group name must make clear this is partial evidence, not a connection.
+- `GET /topo/nodes/{id}/problems` — active problems/triggers for a `Host`
+  node only (`id` here is a `Host` node id, not a `Device` id — hence the
+  different path prefix from the `Device`-rooted endpoints above, which
+  all take a `Device` id). Live-joined from Zabbix (`problem.get`/
+  `trigger.get`), never stored in `attrs`. **Not for `Proxy`**: Zabbix has
+  no clean "this problem belongs to this proxy" semantics — problems
+  attach to triggers, which attach to hosts/items, not to the `Proxy`
+  config object itself. Don't invent a heuristic for it (e.g. "if the
+  proxy's machine happens to also be a monitored host"); a `Proxy` node
+  simply has no Problems section in the UI (§7).
 - `POST /topo/devices/{id}/promote {host_id}` — manually create a
   `represented_by` edge. Deliberate user action, never automatic, and does
   **not** run the §3.2 strong-key check — see the "manual override" and
@@ -974,16 +1131,20 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
     when `discovered_via: "manual"`. Same dashed/solid language as `Device`
     association status, reused deliberately rather than inventing a new
     channel — but note it's carried by the edge here, not the node.
-- **`monitored_by` (`Host → Proxy`) gets its own distinct line style/color**
-  — not the dashed/solid channel already used for `physical_link`
-  provenance (that's a separate meaning and shouldn't be reused here).
-  `represented_by` is never drawn as a line at all (see above), so there's
-  no risk of confusing the two on screen.
+- **`Host`↔`Proxy`/`ProxyGroup` monitoring assignment gets its own
+  distinct line style/color** — not the dashed/solid channel already used
+  for `physical_link` provenance (that's a separate meaning and shouldn't
+  be reused here). Drawn from the live-resolved data in `/topo/devices`
+  (§6) — there is no stored edge to draw from. `represented_by` is never
+  drawn as a line at all (see above), so there's no risk of confusing the
+  two on screen.
 - **Blind-spot indicator**: when a `Proxy` node is unreachable, any `Host`
-  connected to it via `monitored_by` must be visually marked as "monitoring
-  blind spot" (e.g. a distinct badge/hatching), never rendered with the same
-  problem-color styling used for an actual host-level issue — see the
-  `monitored_by` semantics note in §2.3.
+  whose live-resolved monitoring assignment (§6) points at it — or, for
+  the proxy-group case, whose `assigned_proxyid` currently resolves to it
+  — must be visually marked as "monitoring blind spot" (e.g. a distinct
+  badge/hatching), never rendered with the same problem-color styling used
+  for an actual host-level issue — see the monitoring-assignment semantics
+  note in §2.3.
 - **`physical_link` severity styling**: color/weight the link using the
   `severity` field from `/neighbors` (§6) — e.g. a link carrying an active
   disaster-level trigger renders differently from a quiet one. This is
@@ -1007,9 +1168,10 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   (below).
 - **Side panel — `Host`/`Proxy`**: click → one panel, up to two sections,
   no half-click routing to worry about:
-  - **Problems section** (always present): call `/problems`, render active
-    problems (severity, name, age). Empty state, not a blank panel, when
-    there are none.
+  - **Problems section** (`Host` only — never shown for `Proxy`, per
+    `/problems`'s scope above): call `/problems`, render active problems
+    (severity, name, age). Empty state, not a blank panel, when there
+    are none.
   - **Device section** (present only when this `Host`/`Proxy` has an active
     `represented_by`): the same grouped port table as the standalone
     `Device` panel above, via `/ports` on the associated `Device`. Includes
@@ -1017,6 +1179,9 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
     `Host`/`Proxy` with no associated `Device` — most of the "unassociated
     hosts" list falls here, and showing an empty Device section for all of
     them would be noise, not signal.
+  - A `Proxy` panel, then, may show only the Device section (or be
+    entirely empty if it also has no `represented_by`) — that's expected,
+    not a missing feature.
 - **"Promote to host" button**: in the standalone `Device` panel (no
   `represented_by` yet); calls the `/promote` endpoint. Once promoted, the
   `Device` stops appearing as its own graph node (see above) and this
@@ -1036,11 +1201,16 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   (via `device_id`'s `ON DELETE CASCADE`, §2.1) — confirms the cascade
   works the same way it does for `host_ref`/`proxy_ref`, now that `Port`'s
   parent is a plain column rather than a `topo_edges` row.
-- A Zabbix host **or proxy** matching the seed `Device` by MAC per §3.2
-  (via `inventory.macaddress_a`/`macaddress_b` — not chassis ID, which
-  isn't a valid `Device`↔`Host` match key; see rule 2's correction) ends
-  up with a `represented_by` edge after the API pull runs. Test both the
-  `Host` and `Proxy` paths, since the model allows either as the target.
+- A Zabbix host matching the seed `Device` by MAC per §3.2 (via
+  `inventory.macaddress_a`/`macaddress_b` — not chassis ID, which isn't a
+  valid `Device`↔`Host` match key; see rule 2's correction) ends up with a
+  `represented_by` edge after the API pull runs. **This MAC-based path is
+  `Host`-only** — do not write an equivalent test for `Proxy`, since
+  `Proxy` has no MAC source and never goes through this path (§5).
+- A seed `Proxy` never gets a `represented_by` edge automatically — not by
+  MAC, not by `reporter_self`. Confirm the API pull does *not* attempt or
+  claim to auto-match a `Proxy` at all; the only way it gets one is a
+  manual `/promote` call.
 - The UI graph correctly distinguishes `Host` (solid) from unassociated
   `Device` (dashed), and the port drill-down table groups ports the
   same way as in §7.
@@ -1049,11 +1219,16 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   validates the upsert logic in §3.4 ahead of the real collector. (Running
   with `--reset` trivially avoids duplicates too, but proves nothing about
   upsert matching — see §4.)
-- After the Zabbix API pull, a `Host` assigned to a `Proxy` in Zabbix shows a
-  `monitored_by` edge to the corresponding `Proxy` node.
-- Manually marking a seed `Proxy` as unreachable renders its `monitored_by`
-  hosts with the blind-spot indicator from §7, not with problem/severity
-  styling.
+- A `Host` assigned to a `Proxy` in Zabbix shows the correct live-resolved
+  monitoring assignment in `/topo/devices` (§6) — no separate pull step
+  required for this, unlike `represented_by`, since it's never stored.
+  Reassign the same host to a different proxy directly in Zabbix and
+  confirm the very next `/topo/devices` call reflects it immediately, with
+  no ingest/pull run in between — this is the concrete difference from a
+  stored edge worth explicitly testing.
+- Manually marking a seed `Proxy` as unreachable renders its
+  live-resolved `Host`s with the blind-spot indicator from §7, not with
+  problem/severity styling.
 - Clicking a `Host` with at least one active problem in the seed/test data
   shows that problem (severity, name, age) in the side panel via `/problems`.
 - A `physical_link` whose endpoint port has an active trigger renders with
@@ -1090,6 +1265,10 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   Stable counts alone do not prove convergence for this rule (see the
   methodological note in §3 rule 4); a create-one/delete-one cycle each
   pass would pass a counts-only check while never actually stabilizing.
+- A seed `Device` re-ingested with the same `mgmt_ip` but a **changed**
+  `chassis_id` updates the existing `Device` row's `chassis_id` in place —
+  it does not create a second `Device`. Confirms the lower-priority-match
+  overwrites-identity rule in §3 rule 4, not just the matching order.
 - A `physical_link` with `last_seen` older than 7 days renders faded
   (reduced opacity) regardless of its `discovered_via` (dashed or solid)
   or severity color — confirms staleness is a genuinely independent visual
@@ -1101,6 +1280,34 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   aggregate `last_seen`, keep advancing. Confirms the two sides are
   tracked independently, not silently masked by whichever side happens to
   report more recently.
+- **Dedicated test, not just covered incidentally by the above: an
+  observation confirming a link updates the field matching its
+  *canonicalized* side, not the identity of whichever reporter sent the
+  push.** Set up a link canonicalized as `src_id=17`/`dst_id=42` (per
+  §2.3's canonicalization rule), then send a push from `Port 42`'s
+  reporter confirming the link — assert `last_seen_dst` updates, not
+  `last_seen_src`, even though the push came "from the Port 42 side."
+  This is exactly the mapping described in §2.3's `last_seen_src`/`dst`
+  semantics note and table — worth its own test specifically because it's
+  easy to implement backwards (updating whichever field matches "the
+  reporter that sent this," rather than "whichever canonical side that
+  reporter's port maps to") and have every other test still pass by
+  coincidence on a symmetric fixture.
+- **The full neighbor-to-reporter lifecycle transition, tested end to end
+  as one scenario, not just as separate unit tests of the three
+  mechanisms it touches.** Sequence: (1) `Reporter A` pushes, sees
+  `SwitchB` as an LLDP neighbor — confirms exactly one `Device(B)` is
+  created, with an unconfirmed `Port` and a `physical_link` to `A`'s real
+  port. (2) `SwitchB` is later onboarded and starts pushing as a reporter
+  in its own right — confirms `Device(B)` is **reused, not duplicated**
+  (rule 4 upsert via `chassis_id`, per this section's correction), gets
+  `represented_by` to its own `Host` via `reporter_self`, its unconfirmed
+  `Port` is merged into the newly-created real one (§3 rule 4's merge),
+  and the `physical_link` from step 1 ends up pointing at real `Port`s on
+  both ends with no duplicate edge. (3) If `SwitchB`'s own push also
+  reports `A` as its neighbor (reciprocal LLDP), confirms this still
+  converges to the same single edge, not a second one. Check the end
+  state by ID, not just by count, per the methodological note in §3 rule 4.
 - A seed `Device` with an HTML/script payload in `sysname` (e.g.
   `<script>alert(1)</script>` or `<img src=x onerror=alert(1)>`) renders as
   inert text everywhere it appears — node label, port drill-down table,
@@ -1176,10 +1383,12 @@ here so they aren't rediscovered from scratch later.
    node data in JSON `attrs` rather than typed columns, to keep the schema
    stable while the model was still moving. Two separate lookups both pay
    for that today:
-   - §3.2's `Device`↔`Host`/`Proxy` reconciliation matches on `Device.attrs.mac`
-     only (per rule 2's correction — `chassis_id` is not used here). Without
-     a generated/indexed column over `attrs->>'mac'`, every Zabbix API pull
-     becomes a full scan over all `Device` nodes at real scale.
+   - §3.2's `Device`↔`Host` reconciliation matches on `Device.attrs.mac`
+     only (per rule 2's correction — `chassis_id` is not used here, and
+     `Proxy` isn't part of this lookup at all, since it has no MAC source —
+     see §5). Without a generated/indexed column over `attrs->>'mac'`,
+     every Zabbix API pull becomes a full scan over all `Device` nodes at
+     real scale.
    - §3 rule 4's `Device` self-upsert (recognizing the same physical entity
      across ingest runs) and the unconfirmed-port merge (§3 rule 4) both match
      on `Device.attrs.chassis_id`/`mgmt_ip` — a different lookup, for a
@@ -1203,8 +1412,10 @@ here so they aren't rediscovered from scratch later.
    which are enforced `UNIQUE` from the start per §2.1).
 
 3. **Live joins must be batched, not per-node.** The live-join rule (never
-   copy `Host`/`Proxy` name/status/problems into `attrs` — see §2.2, §6) is
-   correct on the data side, but doesn't specify the query shape. A naive
+   copy `Host` name/status/problems or `Proxy` name/status into `attrs` —
+   see §2.2, §6; `Proxy` has no problems to copy in the first place, per
+   §6's note on this) is correct on the data side, but doesn't specify the
+   query shape. A naive
    implementation issuing one query per node while assembling a list
    response is an N+1 query pattern that will dominate response time at
    scale. Every endpoint that returns a list of nodes must resolve their
@@ -1332,23 +1543,36 @@ was flagged when it first came up.
   revisit — not before.
 - **"Unassociated hosts" filter/panel** — a real, already-designed gap that
   was discussed but never made it into this spec: `Host`/`Proxy` nodes with
-  no topology context (no `represented_by`, no `monitored_by`) currently
-  render scattered across the graph canvas with no relationship to anything
-  else, which gets noisy fast (see the very first prototype screenshot in
-  this project's history for a concrete example). The fix already designed
-  in that discussion: split the view into the connected topology graph plus
-  a separate, collapsible list of unassociated `Host`/`Proxy` nodes,
-  searchable once the list is long. This is a single filter, not a
-  Perspectives system — don't conflate the two when picking this up.
-- **`Proxy Group`** (Zabbix HA proxy clustering) — adds a `ProxyGroup` node
-  (thin pointer, same pattern as `Host`/`Proxy`) and a `member_of` edge
-  (`Proxy → ProxyGroup`). `monitored_by` (§2.3) would then point at either a
-  `Proxy` or a `ProxyGroup`. The one non-additive change: the blind-spot rule
-  in §2.3 currently assumes a single `Proxy`, and does not hold for a group —
-  one member proxy going down in an HA group is not a blind spot if others
-  in the group are still serving. When this is implemented, blind-spot status
-  for a group-monitored `Host` must read `ProxyGroup.state` (Zabbix computes
-  this itself) live, rather than inferring it from individual `Proxy` status.
+  no topology context (no `represented_by`, no monitoring-assignment line
+  to anything relevant) currently render scattered across the graph canvas
+  with no relationship to anything else, which gets noisy fast (see the
+  very first prototype screenshot in this project's history for a concrete
+  example). The fix already designed in that discussion: split the view
+  into the connected topology graph plus a separate, collapsible list of
+  unassociated `Host`/`Proxy` nodes, searchable once the list is long.
+  This is a single filter, not a Perspectives system — don't conflate the
+  two when picking this up.
+- **`Proxy Group`** (Zabbix HA proxy clustering) — largely resolved
+  already, not by a new node/edge design but by the same live-resolution
+  approach now used for ordinary `Host`↔`Proxy` assignment (§2.3, §6):
+  `host.get`'s `monitored_by`/`proxy_groupid`/`assigned_proxyid` fields
+  already tell you whether a `Host` is assigned to a group and which
+  specific proxy is currently serving it — no stored edge, no `ProxyGroup`
+  node required for basic display. **The blind-spot case still needs care,
+  though — don't oversimplify it to "just check `assigned_proxyid`
+  reachability."** Proxy groups have a `failover_delay`
+  (`proxygroup.get`): during that window, `assigned_proxyid` can still
+  point at a proxy that just went down while the group itself is mid-
+  failover, not actually blind. The correct signal is `ProxyGroup.state`
+  (which Zabbix computes itself — online/recovering/offline), read live,
+  the same conclusion reached earlier when this was first discussed —
+  resolving `assigned_proxyid` alone and inferring health from that one
+  proxy's reachability would reintroduce exactly the false-positive risk
+  the group feature exists to avoid. A `ProxyGroup` **node** purely as a
+  visual/grouping entity on the graph (e.g. a box representing the whole
+  HA group, showing `ProxyGroup.state` as a group-level health indicator)
+  remains optional/cosmetic — but the *state resolution logic* itself is
+  not optional if group support is added at all.
 - **Tag display** — showing existing Zabbix tags (on `Host`, etc.) in the UI,
   e.g. in the side panel or as a graph filter. Not the same question as
   "should tags store the topology" (rejected — see the earlier design
