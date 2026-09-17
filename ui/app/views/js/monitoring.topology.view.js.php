@@ -629,9 +629,10 @@ const view = new class {
 			...this.unassigned.proxy.values()
 		];
 		const type_labels = {host: 'Host', proxy: 'Proxy'};
+		const candidate_id = candidate => candidate.type === 'host' ? candidate.hostid : candidate.proxyid;
 		const promotion = device.represented
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">Depromote</button></div>`
-			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.id)}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button><button type="button" class="btn-alt topology-create-host-button">+ Create host</button></div>`;
+			: `<div class="topology-promote"><select class="topology-host-select" ${candidates.length ? '' : 'disabled'}>${candidates.map(candidate => `<option value="${this.escape(candidate.type + ':' + candidate_id(candidate))}">${this.escape(type_labels[candidate.type])}: ${this.escape(candidate.name)}</option>`).join('')}</select><button type="button" class="btn-alt topology-promote-button" ${candidates.length ? '' : 'disabled'}>Promote to host</button><button type="button" class="btn-alt topology-create-host-button">+ Create host</button></div>`;
 		return `${sections}${promotion}`;
 	}
 
@@ -643,8 +644,8 @@ const view = new class {
 		const button = this.details.querySelector('.topology-promote-button');
 		if (button) {
 			button.addEventListener('click', () => this.guard(async () => {
-				const host_id = this.details.querySelector('.topology-host-select').value;
-				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id, host_id})});
+				const [target_type, target_id] = this.details.querySelector('.topology-host-select').value.split(':');
+				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id, target_type, target_id})});
 				await this.loadDevices();
 			}));
 		}
@@ -726,7 +727,7 @@ const view = new class {
 		if (match) {
 			await this.request('topology.promote', {
 				method: 'POST', headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({id: node.id, host_id: match.id})
+				body: JSON.stringify({id: node.id, target_type: 'host', target_id: match.hostid})
 			});
 		}
 

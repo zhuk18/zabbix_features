@@ -348,24 +348,28 @@ $ensure_physical_link = static function (int $port_a, int $port_b, string $disco
 	$summary['links_created']++;
 };
 
-// Byte-for-byte mirror of CTopologyPrototype::promote() (~line 599)'s 1:1-guard + insert, called only from
-// $reconcile_device() below with match_type='identity' — same as reconcileHost() calling promote() with
-// 'identity', never 'manual' (manual promotion is the separate /promote endpoint's job, §2.3, not ingest's).
-$promote = static function (int $device_id, int $target_nodeid, string $matched_by, ?string $matched_mac) use ($pdo, $insert_edge, $now): bool {
-	$represented = $pdo->prepare("SELECT 1 FROM topo_edges WHERE type = 'represented_by' AND src_id = ?");
+// Byte-for-byte mirror of CTopologyPrototype::promote()'s 1:1-guard + write, called only from
+// $reconcile_device() below with matched_by='mac' (never 'manual' — manual promotion is the separate
+// /promote endpoint's job, §2.3, not ingest's) and from the reporter_self call in the main loop below
+// with matched_by='reporter_self'. §2.1/§2.3: represented_by is stored as three columns directly on
+// the Device's own topo_nodes row, not a topo_edges row — matched_mac is deliberately not accepted or
+// stored here (no consumer in the new column-based model, per the spec addendum).
+$promote = static function (int $device_id, int $target_nodeid, string $matched_by) use ($pdo, $now): bool {
+	$represented = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_node_id IS NOT NULL");
 	$represented->execute([$device_id]);
 	if ($represented->fetch()) {
-		return false; // this Device already has a represented_by edge — not an error, just no match (§2.3 1:1).
+		return false; // this Device is already represented — not an error, just no match (§2.3 1:1).
 	}
-	$represented_target = $pdo->prepare("SELECT 1 FROM topo_edges WHERE type = 'represented_by' AND dst_id = ?");
+	$represented_target = $pdo->prepare(
+		"SELECT 1 FROM topo_nodes WHERE type = 'device' AND represented_by_node_id = ?");
 	$represented_target->execute([$target_nodeid]);
 	if ($represented_target->fetch()) {
-		return false; // this Host/Proxy is already represented_by some other Device.
+		return false; // this Host/Proxy is already represented by some other Device.
 	}
-	$insert_edge->execute(['represented_by', $device_id, $target_nodeid, json_encode([
-		'match_type' => 'identity', 'matched_by' => $matched_by, 'matched_mac' => $matched_mac,
-		'created_at' => $now,
-	], JSON_THROW_ON_ERROR), $now]);
+	$pdo->prepare(
+		"UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ?, represented_by_at = ?".
+		" WHERE id = ? AND type = 'device'"
+	)->execute([$target_nodeid, $matched_by, $now, $device_id]);
 	return true;
 };
 
@@ -410,7 +414,7 @@ $reconcile_device = static function (int $device_id, array $device_attrs, array 
 			" WHERE node.type = 'host' AND (LOWER(hi.macaddress_a) = ? OR LOWER(hi.macaddress_b) = ?)");
 		$stmt->execute([$mac, $mac]);
 		while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			$promote($device_id, (int) $row['id'], 'mac', $mac);
+			$promote($device_id, (int) $row['id'], 'mac');
 		}
 	}
 };
@@ -753,7 +757,7 @@ foreach ($reporter_items as $reporter_item) {
 		// row that located this reporter in the first place), so there's no ambiguity to resolve via MAC
 		// matching, and no need to wait on a MAC even existing in inventory at all.
 		$reporter_host_nodeid = $find_or_create_host_node((string) $reporter_item['hostid']);
-		if ($promote($reporter_device_id, $reporter_host_nodeid, 'reporter_self', null)) {
+		if ($promote($reporter_device_id, $reporter_host_nodeid, 'reporter_self')) {
 			echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} represented_by its own host ".
 				"node #{$reporter_host_nodeid} (matched_by: reporter_self)\n";
 		}
@@ -763,7 +767,7 @@ foreach ($reporter_items as $reporter_item) {
 			// linked to this exact host node — distinguish the two here purely for clearer logging
 			// ($promote() itself stays untouched, per scope).
 			$already_correct = $pdo->prepare(
-				"SELECT 1 FROM topo_edges WHERE type = 'represented_by' AND src_id = ? AND dst_id = ?");
+				"SELECT 1 FROM topo_nodes WHERE id = ? AND type = 'device' AND represented_by_node_id = ?");
 			$already_correct->execute([$reporter_device_id, $reporter_host_nodeid]);
 			if ($already_correct->fetch()) {
 				echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} already represented_by ".

@@ -143,13 +143,12 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use ($pdo, &$result
 	$link_id_after_step2 = (int) $link_row['src_id'].'-'.(int) $link_row['dst_id'];
 
 	$host_node_b = $find_or_create_host_node('90001');
-	$promoted = $promote($device_b_id_step2, $host_node_b, 'reporter_self', null);
+	$promoted = $promote($device_b_id_step2, $host_node_b, 'reporter_self');
 	check($promoted, 'step 2: Device(B) gets represented_by its own Host via reporter_self');
 	$matched_by = $pdo->query(
-		"SELECT JSON_UNQUOTE(JSON_EXTRACT(attrs, '$.matched_by')) FROM topo_edges".
-		" WHERE type = 'represented_by' AND src_id = {$device_b_id_step2}"
+		"SELECT represented_by_matched_by FROM topo_nodes WHERE id = {$device_b_id_step2}"
 	)->fetchColumn();
-	check($matched_by === 'reporter_self', 'step 2: represented_by edge is stamped matched_by=reporter_self');
+	check($matched_by === 'reporter_self', 'step 2: Device(B) is stamped represented_by_matched_by=reporter_self');
 
 	// (3) SwitchB's own push also reports A as its neighbor (reciprocal LLDP).
 	$device_a_id_step3 = $device(['mac' => null, 'chassis_id' => 'chassis-A', 'mgmt_ip' => '10.0.0.1',

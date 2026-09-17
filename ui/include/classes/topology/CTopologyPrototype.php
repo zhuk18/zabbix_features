@@ -39,14 +39,14 @@ class CTopologyPrototype {
 	public static function getDevices(?array $node_ids = null): array {
 		$nodes = [];
 		$visible_hostids = self::getVisibleHostIds();
-		$sql = 'SELECT node.id,node.type,node.attrs,node.host_ref,'.
+		$sql = 'SELECT node.id,node.type,node.attrs,node.host_ref,node.proxy_ref,'.
 				'host.name AS host_name,host.status AS host_status,host.maintenance_status AS host_maintenance_status,'.
 				'proxy.name AS proxy_name,proxy_rt.state AS proxy_state'.
 			' FROM topo_nodes node'.
 			' LEFT JOIN hosts host ON host.hostid=node.host_ref'.
 			' LEFT JOIN proxy ON proxy.proxyid=node.proxy_ref'.
 			' LEFT JOIN proxy_rtdata proxy_rt ON proxy_rt.proxyid=proxy.proxyid'.
-			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
+			' LEFT JOIN topo_nodes rep ON rep.type='.zbx_dbstr('device').' AND rep.represented_by_node_id=node.id'.
 			' WHERE ('.
 				'node.type='.zbx_dbstr('device').
 				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL AND rep.id IS NOT NULL'.
@@ -83,6 +83,7 @@ class CTopologyPrototype {
 					// would be shown. Maintenance is a *different* state: still monitored, keeps its real
 					// severity color, just adds a badge — the two must not be conflated.
 					$node['name'] = $row['host_name'];
+					$node['hostid'] = $row['host_ref'];
 					$node['monitoring_state'] = $row['host_status'];
 					$node['disabled'] = ((int) $row['host_status']) === HOST_STATUS_NOT_MONITORED;
 					$node['maintenance'] = ((int) $row['host_maintenance_status']) === HOST_MAINTENANCE_STATUS_ON;
@@ -96,6 +97,7 @@ class CTopologyPrototype {
 					// §7: Proxy shares Host's "monitored, has severity" styling — resolved via the
 					// zabbix.proxy.*[name] internal item convention, see getProxyHealthItemIds().
 					$node['name'] = $row['proxy_name'];
+					$node['proxyid'] = $row['proxy_ref'];
 					$node['unreachable'] = !self::isProxyOnline($row['proxy_state']);
 					$node['represented'] = self::isRepresentedTarget($row['id']);
 					$node += self::describeSeverity(self::getMaxActiveSeverityForProxy($row['proxy_name']));
@@ -223,37 +225,18 @@ class CTopologyPrototype {
 	 */
 	public static function getUnassignedHosts(array $groupids = []): array {
 		$nodes = [];
-		$sql = 'SELECT node.id,node.host_ref,host.name AS host_name,host.status AS host_status'.
-			' FROM topo_nodes node JOIN hosts host ON host.hostid=node.host_ref'.
-			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
-			' WHERE node.type='.zbx_dbstr('host').' AND rep.id IS NULL';
-		// Permission floor, always applied — same as getDevices(); a raw `hosts` join enforces
-		// nothing on its own, unlike the API call below.
-		$visible_hostids = self::getVisibleHostIds();
-		$sql .= $visible_hostids ? ' AND '.dbConditionId('host.hostid', $visible_hostids) : ' AND 1=0';
+		$filters = ['output' => ['hostid', 'name', 'status']];
 		if ($groupids) {
-			// API::Host()->get() (not a raw hosts_groups join) for the same reason resolveScope()
-			// uses it: this makes the group filter ACL-safe for free, consistent with how the
-			// main graph's own group scoping already behaves. Redundant with the floor above for
-			// a non-Super-Admin caller, but cheap, and keeps this branch correct on its own even
-			// if the floor's implementation ever changes.
-			$member_hostids = array_column(API::Host()->get([
-				'output' => ['hostid'],
-				'groupids' => $groupids
-			]), 'hostid');
-			$sql .= $member_hostids ? ' AND '.dbConditionId('host.hostid', $member_hostids) : ' AND 1=0';
+			$filters['groupids'] = $groupids;
 		}
-		$sql .= ' ORDER BY host.name';
-		$result = DBselect($sql);
-
-		while ($row = DBfetch($result)) {
+		$promoted = self::getPromotedTargetIds('host');
+		foreach (API::Host()->get($filters) as $host) {
+			if (isset($promoted[$host['hostid']])) {
+				continue;
+			}
 			$nodes[] = [
-				'id' => $row['id'], 'type' => 'host', 'name' => $row['host_name'],
-				// Raw Zabbix hostid alongside the topo_nodes pointer id — lets a caller that just created a host
-				// via the API (and knows its hostid, not this pointer id) find its match after a pull without
-				// relying on the name staying exactly as it was when the host was first created.
-				'hostid' => $row['host_ref'],
-				'monitoring_state' => $row['host_status']
+				'id' => $host['hostid'], 'type' => 'host', 'name' => $host['name'],
+				'hostid' => $host['hostid'], 'monitoring_state' => $host['status']
 			];
 		}
 
@@ -262,16 +245,22 @@ class CTopologyPrototype {
 
 	public static function getUnassignedProxies(): array {
 		$nodes = [];
-		$result = DBselect('SELECT node.id,proxy.name AS proxy_name,proxy_rt.state AS proxy_state'.
-			' FROM topo_nodes node JOIN proxy ON proxy.proxyid=node.proxy_ref'.
-			' LEFT JOIN proxy_rtdata proxy_rt ON proxy_rt.proxyid=proxy.proxyid'.
-			' LEFT JOIN topo_edges rep ON rep.type='.zbx_dbstr('represented_by').' AND rep.dst_id=node.id'.
-			' WHERE node.type='.zbx_dbstr('proxy').' AND rep.id IS NULL ORDER BY proxy.name');
-
+		$promoted = self::getPromotedTargetIds('proxy');
+		$proxy_states = [];
+		$result = DBselect('SELECT proxyid,state FROM proxy_rtdata');
 		while ($row = DBfetch($result)) {
+			$proxy_states[$row['proxyid']] = $row['state'];
+		}
+		$proxies = API::Proxy()->get(['output' => ['proxyid', 'name']]);
+		usort($proxies, static fn(array $left, array $right): int => strcmp($left['name'], $right['name']));
+		foreach ($proxies as $proxy) {
+			if (isset($promoted[$proxy['proxyid']])) {
+				continue;
+			}
 			$nodes[] = [
-				'id' => $row['id'], 'type' => 'proxy', 'name' => $row['proxy_name'],
-				'unreachable' => !self::isProxyOnline($row['proxy_state'])
+				'id' => $proxy['proxyid'], 'type' => 'proxy', 'name' => $proxy['name'],
+				'proxyid' => $proxy['proxyid'],
+				'unreachable' => !self::isProxyOnline($proxy_states[$proxy['proxyid']] ?? null)
 			];
 		}
 
@@ -284,32 +273,31 @@ class CTopologyPrototype {
 	 */
 	public static function getRelations(?array $node_ids = null): array {
 		$relations = [];
-		// Permission floor, always applied: represented_by (device->host) is the only stored edge
-		// type that ever touches a 'host' topo_node (monitoring assignment is resolved live from
-		// /topo/devices instead — §2.3/§6, no stored edge to filter here), so excluding any row
-		// whose src/dst is a host the caller can't see is enough — physical_link rows (added below)
-		// are device-to-device only and never need this. dbConditionId(..., true) already renders
-		// "exclude every host node" (1=1) when getVisibleHostIds() is empty, so no separate
-		// empty-array branch is needed here the way getDevices()/getUnassignedHosts() need one for
-		// their positive IN() case.
+		// Permission floor, always applied: represented_by (device->host, resolved below straight off
+		// the Device row — §2.1/§2.3, no topo_edges row for this anymore) is the only relationship here
+		// that ever touches a 'host' topo_node (monitoring assignment is resolved live from
+		// /topo/devices instead — §2.3/§6), so excluding any row whose target is a host the caller
+		// can't see is enough — physical_link rows (added below) are device-to-device only and never
+		// need this. Only the target (dst) side needs the floor: the source is always a 'device' node,
+		// which is never itself subject to this per-host visibility check. dbConditionId(..., true)
+		// already renders "exclude every host node" (1=1) when getVisibleHostIds() is empty, so no
+		// separate empty-array branch is needed here the way getDevices()/getUnassignedHosts() need
+		// one for their positive IN() case.
 		$invisible_host_nodes = 'SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
 			' AND '.dbConditionId('host_ref', self::getVisibleHostIds(), true);
-		$sql = 'SELECT src_id,dst_id,type FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
-			' AND src_id NOT IN ('.$invisible_host_nodes.')'.
-			' AND dst_id NOT IN ('.$invisible_host_nodes.')';
+		$sql = 'SELECT id,represented_by_node_id FROM topo_nodes WHERE type='.zbx_dbstr('device').
+			' AND represented_by_node_id IS NOT NULL'.
+			' AND represented_by_node_id NOT IN ('.$invisible_host_nodes.')';
 		if ($node_ids !== null) {
 			$sql .= $node_ids
-				? ' AND '.dbConditionId('src_id', $node_ids).' AND '.dbConditionId('dst_id', $node_ids)
+				? ' AND '.dbConditionId('id', $node_ids).' AND '.dbConditionId('represented_by_node_id', $node_ids)
 				: ' AND 1=0';
 		}
 		$result = DBselect($sql);
-
 		while ($row = DBfetch($result)) {
-			$relations[] = ['source' => $row['src_id'], 'target' => $row['dst_id'], 'type' => $row['type']];
+			$relations[] = ['source' => $row['id'], 'target' => $row['represented_by_node_id'], 'type' => 'represented_by'];
 		}
 
-		// Device-to-device physical_link pairs, so the canvas shows the actual LLDP/manual wiring
-		// on first load instead of only after a user clicks each device in turn.
 		$link_sql = 'SELECT src_port.device_id AS device_a,dst_port.device_id AS device_b,'.
 				'link.src_id AS port_a,link.dst_id AS port_b,link.attrs AS link_attrs'.
 			' FROM topo_edges link'.
@@ -385,9 +373,10 @@ class CTopologyPrototype {
 	public static function getAdjacency(): array {
 		$pairs = [];
 
-		$result = DBselect('SELECT src_id,dst_id FROM topo_edges WHERE type='.zbx_dbstr('represented_by'));
+		$result = DBselect('SELECT id,represented_by_node_id FROM topo_nodes WHERE type='.zbx_dbstr('device').
+			' AND represented_by_node_id IS NOT NULL');
 		while ($row = DBfetch($result)) {
-			$pairs[] = [$row['src_id'], $row['dst_id']];
+			$pairs[] = [$row['id'], $row['represented_by_node_id']];
 		}
 
 		$result = DBselect(
@@ -684,32 +673,48 @@ class CTopologyPrototype {
 			') OR (src_id='.zbx_dbstr($dst_port_id).' AND dst_id='.zbx_dbstr($src_port_id).'))');
 	}
 
-	// §2.1: represented_by is 1:1 on both ends. This never replaces an existing edge on either side — the
-	// caller must depromote() first. $match_type is 'manual' for the user-triggered /promote endpoint (no MAC
-	// validation happens here, or ever — promotion is a deliberate user action per §3.2/§6, independent of the
-	// automatic reconciliation in reconcileHost()) vs. 'identity' when reconcileHost() calls this after a real
-	// match. $matched_by/$matched_mac are only meaningful for 'identity' (§2.3's attrs table: matched_by is
-	// "mac"|"manual" — for a manual promotion matched_by is always the literal string 'manual'. chassis_id is
-	// not a valid matched_by value here — Device<->Host/Proxy matching is MAC-only per §3 rule 2; chassis_id
-	// remains valid only for the unrelated Device-to-itself upsert match in rule 4).
-	public static function promote(string $deviceid, string $hostid, string $match_type = 'manual',
-			?string $matched_by = null, ?string $matched_mac = null): void {
+	// §2.1/§2.3: represented_by is 1:1 on both ends, stored as three columns on the Device's own row
+	// (represented_by_node_id/represented_by_matched_by/represented_by_at) — not a topo_edges row.
+	// $matched_by defaults to 'manual' for the user-triggered /promote endpoint (no MAC validation
+	// happens here, or ever — promotion is a deliberate user action per §3.2/§6, independent of the
+	// automatic reconciliation in reconcileHost()); reconcileHost() passes 'mac' explicitly, and
+	// ingest.php's mirror passes 'reporter_self'. matched_mac is deliberately NOT accepted/stored here
+	// — it has no consumer in the API/UI/acceptance criteria and would be a potentially stale snapshot
+	// (§2.3's addendum). chassis_id is not a valid $matched_by value here — Device<->Host/Proxy
+	// matching is MAC-only per §3 rule 2; chassis_id remains valid only for the unrelated
+	// Device-to-itself upsert match in rule 4.
+	public static function promote(string $deviceid, string $target_type, string $target_id,
+			string $matched_by = 'manual'): void {
+		if (!in_array($target_type, ['host', 'proxy'], true)) {
+			throw new Exception('The representation target must be a host or proxy.');
+		}
+		$ref_column = $target_type === 'host' ? 'host_ref' : 'proxy_ref';
+		$target = $target_type === 'host'
+			? API::Host()->get(['hostids' => [$target_id], 'output' => ['hostid'], 'limit' => 1])
+			: API::Proxy()->get(['proxyids' => [$target_id], 'output' => ['proxyid'], 'limit' => 1]);
+		if (!$target) {
+			throw new Exception('The selected host or proxy does not exist or is not accessible.');
+		}
 		if (self::isRepresented($deviceid)) {
 			throw new Exception('This device is already represented by a host or proxy — depromote it first.');
 		}
-		if (self::isRepresentedTarget($hostid)) {
+		$target_node = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr($target_type).
+			' AND '.$ref_column.'='.zbx_dbstr($target_id)), false);
+		if ($target_node && self::isRepresentedTarget($target_node['id'])) {
 			throw new Exception('This host/proxy is already represented by a device — depromote it first.');
 		}
+		$target_nodeid = $target_node['id'] ?? self::upsertPointerNode($target_type, $ref_column, $target_id);
 
-		DBexecute('INSERT INTO topo_edges (type,src_id,dst_id,attrs,created_at) VALUES ('.
-			zbx_dbstr('represented_by').','.zbx_dbstr($deviceid).','.zbx_dbstr($hostid).','.zbx_dbstr(json_encode([
-				'match_type' => $match_type, 'matched_by' => $match_type === 'identity' ? $matched_by : 'manual',
-				'matched_mac' => $matched_mac, 'created_at' => time()
-			])).','.time().')');
+		DBexecute('UPDATE topo_nodes SET represented_by_node_id='.zbx_dbstr($target_nodeid).
+			',represented_by_matched_by='.zbx_dbstr($matched_by).',represented_by_at='.time().
+			' WHERE id='.zbx_dbstr($deviceid).' AND type='.zbx_dbstr('device'));
 	}
 
+	// §2.3's provenance invariant: all three represented_by_* columns clear together, never just
+	// represented_by_node_id — a partial clear would leave stale matched_by/at values behind.
 	public static function depromote(string $deviceid): void {
-		DBexecute('DELETE FROM topo_edges WHERE type='.zbx_dbstr('represented_by').' AND src_id='.zbx_dbstr($deviceid));
+		DBexecute('UPDATE topo_nodes SET represented_by_node_id=NULL,represented_by_matched_by=NULL,'.
+			'represented_by_at=NULL WHERE id='.zbx_dbstr($deviceid));
 	}
 
 	public static function pullHosts(): int {
@@ -722,8 +727,7 @@ class CTopologyPrototype {
 			'output' => ['hostid'],
 			'selectInventory' => ['macaddress_a', 'macaddress_b']
 		]) as $host) {
-			$host_nodeid = self::upsertPointerNode('host', 'host_ref', $host['hostid']);
-			self::reconcileHost($host_nodeid, $host['inventory'] ?? []);
+			self::reconcileHost($host['hostid'], $host['inventory'] ?? []);
 			$count++;
 		}
 
@@ -735,10 +739,7 @@ class CTopologyPrototype {
 		// Reconciliation against Device nodes (§3.2, MAC-based) is intentionally not attempted here: unlike
 		// Host (which has host_inventory.macaddress_a/b, see reconcileHost()), CProxy::get() exposes no
 		// MAC/interface/inventory data at all — there is no source to reconcile a Proxy against.
-		foreach (API::Proxy()->get(['output' => ['proxyid']]) as $proxy) {
-			self::upsertPointerNode('proxy', 'proxy_ref', $proxy['proxyid']);
-			$count++;
-		}
+		$count = count(API::Proxy()->get(['output' => ['proxyid']]));
 
 		return $count;
 	}
@@ -805,6 +806,19 @@ class CTopologyPrototype {
 			zbx_dbstr($type).','.zbx_dbstr($ref_value).','.zbx_dbstr('{}').','.time().','.time().')');
 		return DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr($type).
 			' AND '.$ref_column.'='.zbx_dbstr($ref_value)))['id'];
+	}
+
+	private static function getPromotedTargetIds(string $type): array {
+		$ids = [];
+		$ref_column = $type === 'host' ? 'host_ref' : 'proxy_ref';
+		$result = DBselect('SELECT target.'.$ref_column.' FROM topo_nodes target'.
+			' JOIN topo_nodes device ON device.represented_by_node_id=target.id AND device.type='.zbx_dbstr('device').
+			' WHERE target.type='.zbx_dbstr($type));
+		while ($row = DBfetch($result)) {
+			$ids[$row[$ref_column]] = true;
+		}
+
+		return $ids;
 	}
 
 	private static function isProxyOnline($proxy_state): bool {
@@ -888,8 +902,8 @@ class CTopologyPrototype {
 	}
 
 	private static function isRepresented(string $deviceid): bool {
-		return (bool) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
-			' AND src_id='.zbx_dbstr($deviceid), 1));
+		return (bool) DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.zbx_dbstr($deviceid).
+			' AND represented_by_node_id IS NOT NULL', 1));
 	}
 
 	/**
@@ -905,10 +919,10 @@ class CTopologyPrototype {
 		}
 
 		$represented = [];
-		$result = DBselect('SELECT DISTINCT src_id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
-			' AND '.dbConditionId('src_id', $ids));
+		$result = DBselect('SELECT id FROM topo_nodes WHERE represented_by_node_id IS NOT NULL'.
+			' AND '.dbConditionId('id', $ids));
 		while ($row = DBfetch($result)) {
-			$represented[$row['src_id']] = true;
+			$represented[$row['id']] = true;
 		}
 
 		return $represented;
@@ -930,12 +944,11 @@ class CTopologyPrototype {
 		}
 
 		$map = [];
-		$result = DBselect('SELECT rep.src_id AS device_id,host.hostid'.
-			' FROM topo_edges rep'.
-			' JOIN topo_nodes host_node ON host_node.id=rep.dst_id AND host_node.type='.zbx_dbstr('host').
+		$result = DBselect('SELECT dev.id AS device_id,host.hostid'.
+			' FROM topo_nodes dev'.
+			' JOIN topo_nodes host_node ON host_node.id=dev.represented_by_node_id AND host_node.type='.zbx_dbstr('host').
 			' JOIN hosts host ON host.hostid=host_node.host_ref'.
-			' WHERE rep.type='.zbx_dbstr('represented_by').
-				' AND '.dbConditionId('rep.src_id', $device_ids).
+			' WHERE '.dbConditionId('dev.id', $device_ids).
 				' AND '.dbConditionId('host.hostid', $visible_hostids));
 		while ($row = DBfetch($result)) {
 			$map[$row['device_id']] = $row['hostid'];
@@ -945,8 +958,8 @@ class CTopologyPrototype {
 	}
 
 	private static function isRepresentedTarget(string $target_id): bool {
-		return (bool) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('represented_by').
-			' AND dst_id='.zbx_dbstr($target_id), 1));
+		return (bool) DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('device').
+			' AND represented_by_node_id='.zbx_dbstr($target_id), 1));
 	}
 
 	private static function getLinkedDeviceName(string $portid): ?string {
@@ -981,9 +994,6 @@ class CTopologyPrototype {
 		);
 		while ($row = DBfetch($result)) {
 			$name = self::attrs($row)['sysname'];
-			// Whichever end of this physical_link is one of our ports gets the OTHER end's
-			// device name — same CASE logic as the single-port version, just evaluated for both
-			// possible sides since this query no longer has one fixed $portid to pivot on.
 			if (in_array($row['src_id'], $portids)) {
 				$names[$row['src_id']] = $name;
 			}
@@ -1035,7 +1045,7 @@ class CTopologyPrototype {
 	// Device-to-itself upsert match in rule 4, which this method has nothing to do with). The same MAC gap
 	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so §5's "run Device
 	// reconciliation for each Proxy" is not implemented; see pullProxies() above.
-	private static function reconcileHost(string $host_nodeid, array $inventory): void {
+	private static function reconcileHost(string $hostid, array $inventory): void {
 		foreach (['macaddress_a', 'macaddress_b'] as $field) {
 			if (empty($inventory[$field])) {
 				continue;
@@ -1046,7 +1056,7 @@ class CTopologyPrototype {
 				' AND port.attrs LIKE '.zbx_dbstr('%"mac":"'.$mac.'"%'));
 			while ($device = DBfetch($result)) {
 				try {
-					self::promote($device['device_id'], $host_nodeid, 'identity', 'mac', $mac);
+					self::promote($device['device_id'], 'host', $hostid, 'mac');
 				}
 				catch (Exception $exception) {
 					// §2.1's 1:1 constraint applies here too, not just to the manual endpoint: the device or
