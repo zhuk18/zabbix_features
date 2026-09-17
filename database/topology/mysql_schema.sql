@@ -3,15 +3,21 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	type VARCHAR(32) NOT NULL,
 	host_ref BIGINT UNSIGNED NULL,
 	proxy_ref BIGINT UNSIGNED NULL,
+	-- Set only when type='port' — the owning Device's topo_nodes.id. Port->Device is a stable 1:many
+	-- relationship, so it's a plain FK column rather than a generic topo_edges row (see
+	-- mysql_migrate_device_id.sql's header comment for why this replaced the old 'part_of' edge type).
+	device_id BIGINT UNSIGNED NULL,
 	attrs JSON NOT NULL,
 	created_at INT UNSIGNED NOT NULL DEFAULT 0,
 	updated_at INT UNSIGNED NOT NULL DEFAULT 0,
 	PRIMARY KEY (id),
 	KEY topo_nodes_1 (type),
+	KEY idx_topo_nodes_device_id (device_id),
 	UNIQUE KEY topo_nodes_host_ref_uq (host_ref),
 	UNIQUE KEY topo_nodes_proxy_ref_uq (proxy_ref),
 	CONSTRAINT topo_nodes_1 FOREIGN KEY (host_ref) REFERENCES hosts (hostid) ON DELETE CASCADE,
-	CONSTRAINT topo_nodes_3 FOREIGN KEY (proxy_ref) REFERENCES proxy (proxyid) ON DELETE CASCADE
+	CONSTRAINT topo_nodes_3 FOREIGN KEY (proxy_ref) REFERENCES proxy (proxyid) ON DELETE CASCADE,
+	CONSTRAINT topo_nodes_4 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- represented_by_* / physical_link_* are STORED GENERATED COLUMNS, NULL for every edge except the one type

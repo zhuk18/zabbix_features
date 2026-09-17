@@ -19,7 +19,7 @@ accumulated since this section was first written:**
 - Node types: `Device`, `Port` (independent physical-topology entities,
   exist without a Zabbix counterpart), `Host`, `Proxy` (thin pointers into
   Zabbix's own tables, never data copies)
-- Edge types: `part_of`, `physical_link`, `member_of_lag`, `represented_by`,
+- Edge types: `physical_link`, `member_of_lag`, `represented_by`,
   `monitored_by`
 
 *Identity resolution* (§3, §4.1):
@@ -29,7 +29,7 @@ accumulated since this section was first written:**
   independent of MAC matching (§4.1)
 - `Device` self-recognition across ingest runs: upsert by `chassis_id` →
   `mgmt_ip` → reporter+port-scoped `sysname` (§3 rule 4)
-- Pseudo-port merge, both the reactive and proactive halves (§3 rule 4)
+- Unconfirmed-port merge, both the reactive and proactive halves (§3 rule 4)
 - Manual overrides, independent of automatic reconciliation: `/promote`,
   `/depromote`, manual `physical_link` creation/deletion with explicit
   LLDP-conflict resolution (§3 rule 5, §6)
@@ -103,14 +103,30 @@ CREATE TABLE topo_nodes (
   type       VARCHAR(32) NOT NULL,   -- 'device' | 'port' | 'host' | 'proxy'
   host_ref   BIGINT NULL UNIQUE REFERENCES hosts(hostid) ON DELETE CASCADE,  -- set only when type='host'
   proxy_ref  BIGINT NULL UNIQUE REFERENCES proxy(proxyid) ON DELETE CASCADE, -- set only when type='proxy'
+  device_id  BIGINT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,  -- set only when type='port'; the Port's owning Device
   attrs      JSON NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX idx_topo_nodes_device_id ON topo_nodes(device_id);
+```
+
+`device_id` is a plain, self-referential foreign key — not a `topo_edges`
+row. `Port`→`Device` is a stable 1:many relationship known at the moment a
+`Port` is created; it never needs the generic edge machinery (no
+cardinality question, no multiple relationship types between the same pair,
+nothing `physical_link`/`represented_by`-style ever attaches to it). Using
+a real column here is simpler than the generic edge table and gets
+`ON DELETE CASCADE` for free — deleting a `Device` removes its `Port`s
+automatically, same pattern as `host_ref`/`proxy_ref`. This replaces what
+an earlier version of this spec modeled as a `part_of` edge; that edge
+type no longer exists.
+
+```sql
 CREATE TABLE topo_edges (
   id         BIGINT PRIMARY KEY AUTO_INCREMENT,
-  type       VARCHAR(32) NOT NULL,   -- 'part_of' | 'physical_link' | 'member_of_lag' | 'represented_by' | 'monitored_by'
+  type       VARCHAR(32) NOT NULL,   -- 'physical_link' | 'member_of_lag' | 'represented_by' | 'monitored_by'
   src_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   dst_id     BIGINT NOT NULL REFERENCES topo_nodes(id) ON DELETE CASCADE,
   attrs      JSON NOT NULL DEFAULT ('{}'),
@@ -179,15 +195,15 @@ when one succeeds and the other doesn't.
   `sysname`/`chassis_id`/`vendor` come from LLDP/CDP data announced by network
   devices — untrusted input, not from Zabbix or the person operating this
   tool. See §9 before rendering any of these anywhere in the UI.
-- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: [], pseudo: false}`.
+- **port**: `{if_index, name, if_type: "physical"|"lag"|"mgmt", mac, speed, admin_status, oper_status, learned_macs: [], zabbix_itemids: [], confirmed: true}`.
   Named `Port`, not `Interface`, specifically to avoid colliding with Zabbix's
   own `host.interfaces` (agent/SNMP/JMX/IPMI monitoring endpoints) — a
   different concept entirely. Use "port" consistently in code, comments, and
   endpoint names for this node type; reserve "interface" for Zabbix's own
   meaning when that comes up (e.g. `selectInterfaces`, `interfaces[]` in §3.2).
-  `pseudo: true` marks a `Port` created only from a neighbor's LLDP
+  `confirmed: false` marks a `Port` created only from a neighbor's LLDP
   observation (no real `if_index` from that device's own push) — see §3
-  rule 4's pseudo-port merge rule for what happens when the neighbor turns
+  rule 4's unconfirmed port merge rule for what happens when the neighbor turns
   out to be a reporter itself.
 - **host**: `{}` (or empty) — a thin pointer only. `host_ref` (see §2.1) is the
   single source of truth for identity; name, status, and any other display
@@ -200,9 +216,12 @@ when one succeeds and the other doesn't.
   exactly like a `Host` — it is not a special case in the model, just a
   different `monitored_by` destination.
 
-`Port` does not carry a redundant `device_id` attribute — its parent is
-always resolved via the `part_of` edge. Do not duplicate this for query
-convenience; keep the edge as the single source of truth.
+`Port`'s parent `Device` is resolved via the `device_id` column (§2.1), a
+real foreign key — not a `topo_edges` row. This was modeled as a `part_of`
+edge in an earlier version of this spec; the plain column replaced it once
+the relationship's cardinality (always exactly one `Device` per `Port`,
+known at creation time) made the generic edge machinery unnecessary
+overhead rather than useful flexibility.
 
 `zabbix_itemids` holds real foreign keys into `items.itemid` (the items that
 monitor this port — e.g. `ifInOctets`, `ifOperStatus`). There is no
@@ -215,7 +234,6 @@ and status — never duplicated into `attrs`.
 
 | type | src → dst | attrs |
 |---|---|---|
-| `part_of` | Port → Device | `{}` |
 | `physical_link` | Port → Port | `{discovered_via: "lldp"\|"manual", last_seen, last_seen_src, last_seen_dst}` |
 | `member_of_lag` | Port[physical] → Port[lag] | `{}` |
 | `represented_by` | Device → Host or Proxy | `{match_type: "identity"\|"manual", matched_by: "mac"\|"reporter_self"\|"manual", matched_mac, created_at}` |
@@ -294,15 +312,15 @@ before insert. Combined with the uniqueness mechanism in §2.1 (unique on
 exact duplicate and a reversed-direction duplicate of the same link.
 
 **This also resolves the case where both ends of a link are independent
-reporters — but only once the pseudo-port merge rule in §3 rule 4 has run;
+reporters — but only once the unconfirmed-port merge rule in §3 rule 4 has run;
 canonicalization alone was not sufficient, and an earlier version of this
 note overstated that it was.** E.g. `Core1` and `Core2` are both reporters
 and each independently asserts the same link from its own side (`Core1`'s
 blob says "my port X connects to Core2's port Y", `Core2`'s blob says the
-reverse). The first reporter processed creates a *pseudo*-`Port` for the
+reverse). The first reporter processed creates an unconfirmed `Port` for the
 other side (LLDP never exposes a real `if_index` for the far end — §3 rule
 4). Only once the second reporter's own push arrives and the merge rule
-re-points that pseudo-port's edges onto the now-real `Port` do both `Port`s
+re-points that unconfirmed port's edges onto the now-real `Port` do both `Port`s
 resolve to the same node IDs — **at that point**, canonicalization collapses
 both assertions to the same `(src_id, dst_id)` pair and the second
 assertion becomes a clean upsert. Confirmed as a real, previously-missing
@@ -452,7 +470,7 @@ These rules are the core of the model — implement them exactly, do not
    reporter, not just anywhere on the network. Mark `Device.attrs` with
    `matched_by: "sysname"` when this key was used, so it's visibly a
    weaker signal than `chassis_id`/`mgmt_ip` on inspection. Match `Port` by
-   `(device_id via part_of, if_index)`.
+   `(device_id, if_index)`.
 
    **Device identity is independent of the reporter — say this explicitly,
    don't leave it to be inferred.** The `chassis_id`/`mgmt_ip` keys above
@@ -479,15 +497,15 @@ These rules are the core of the model — implement them exactly, do not
    candidate for the same future-iteration discussion as `represented_by`'s
    1:1 constraint, not a quick fix now.
 
-   **Pseudo-port merge — confirmed as a real gap during implementation,
+   **Unconfirmed-port merge — confirmed as a real gap during implementation,
    not previously specified.** When a `Device` is created from a neighbor
-   observation (rule 1), its `Port` is necessarily a **pseudo-port**
-   (`attrs.pseudo: true`, §2.2) — LLDP only tells you the neighbor's port
+   observation (rule 1), its `Port` is necessarily an **unconfirmed port**
+   (`attrs.confirmed: false`, §2.2) — LLDP only tells you the neighbor's port
    *name*/*ID*, never a real `if_index`, since that's private to the
    neighbor's own SNMP tree. If that neighbor is, or later becomes, a
    reporter itself, its own push independently creates its *real* `Port`
-   for the same physical port — and without reconciling the two, both a
-   pseudo-port and a real port end up representing one physical port, each
+   for the same physical port — and without reconciling the two, both an
+   unconfirmed port and a real port end up representing one physical port, each
    with its own `physical_link` to the same far end. This is exactly what
    happened with `Router1`↔`Switch1` in testing: two edges, two fabricated
    ports, one cable.
@@ -495,27 +513,27 @@ These rules are the core of the model — implement them exactly, do not
    **Merge rule has two halves — both are required, the first alone is not
    enough.** An initial implementation with only the reactive half looked
    stable (node/edge counts held steady across repeated ingest runs) but
-   wasn't: one pseudo-port was being deleted and a fresh one immediately
+   wasn't: one unconfirmed port was being deleted and a fresh one immediately
    fabricated each cycle, which canceled out in the totals while the actual
    duplication never resolved. Confirmed only by checking entity IDs across
    repeated runs, not counts — see the methodological note at the end of
    this rule.
 
    1. **Reactive half**: whenever ingest upserts a reporter's own real
-      `Port`s (the non-pseudo case in this rule), check whether that same
-      `Device` already has a **pseudo**-`Port` whose name matches the real
+      `Port`s (the confirmed case in this rule), check whether that same
+      `Device` already has an unconfirmed `Port` whose name matches the real
       port's name after normalization (vendor long/short forms — e.g.
       `GigabitEthernet0/24` ↔ `Gi0/24` — case-insensitive). If exactly one
-      pseudo-port matches: re-point every `physical_link` edge from the
-      pseudo-port to the real port, then delete the pseudo-port.
+      unconfirmed port matches: re-point every `physical_link` edge from the
+      unconfirmed port to the real port, then delete the unconfirmed port.
    2. **Proactive half (the missing piece the first fix skipped)**: before
-      creating a *new* pseudo-port for a neighbor observation at all, check
+      creating a *new* unconfirmed port for a neighbor observation at all, check
       whether that neighbor `Device` already has a **real** `Port` with a
       matching normalized name. If so, link directly to that real port
-      instead of fabricating a pseudo-port in the first place. Without this
+      instead of fabricating an unconfirmed port in the first place. Without this
       half, the reactive half above cleans up one generation of duplicate
       only for the very next ingest pass to immediately recreate one, since
-      nothing stopped pseudo-port creation from running unconditionally
+      nothing stopped unconfirmed port creation from running unconditionally
       even when a matching real port already existed at that moment.
 
    **If zero or more than one candidate matches in either half, do
@@ -524,8 +542,8 @@ These rules are the core of the model — implement them exactly, do not
    multi-observer case in §2.3 (`Core1`/`Core2` both independently
    reporting the same link) actually converge to one edge and *stay*
    converged — canonicalization alone only merges two *already-real* ports;
-   it was never sufficient on its own when one side starts out as a
-   pseudo-port, which is the normal case for any newly-discovered reporter
+   it was never sufficient on its own when one side starts out as an
+   unconfirmed port, which is the normal case for any newly-discovered reporter
    pair.
 
    **Methodological note, worth generalizing to other idempotency checks in
@@ -606,7 +624,7 @@ switch used in the earlier port-table mockup, so the UI can be checked
 against a known-correct picture:
 
 - One `Device` node for the 48-port switch (`mac`, `chassis_id`, `mgmt_ip`, `sysname`, `vendor`)
-- 48 `Port` nodes with `part_of` edges to that `Device`, covering:
+- 48 `Port` nodes, each with `device_id` set to that `Device`, covering:
   - 40 connected ports — only 2 with a resolvable neighbor (create a second,
     neighbor `Device` + `Port` + `physical_link` edge for those); the
     other 38 are `learned_macs`-only, per the rule in §3.1 — no node created for them
@@ -1014,6 +1032,10 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
 - Loading the seed data produces `Device` + `Port` nodes whose
   connected/disconnected/LAG/management counts match §4 exactly (40/4/2/2),
   with only 2 of the 40 connected ports resolving to a neighbor `Device`.
+- Deleting a `Device` node removes all of its `Port` nodes automatically
+  (via `device_id`'s `ON DELETE CASCADE`, §2.1) — confirms the cascade
+  works the same way it does for `host_ref`/`proxy_ref`, now that `Port`'s
+  parent is a plain column rather than a `topo_edges` row.
 - A Zabbix host **or proxy** matching the seed `Device` by MAC per §3.2
   (via `inventory.macaddress_a`/`macaddress_b` — not chassis ID, which
   isn't a valid `Device`↔`Host` match key; see rule 2's correction) ends
@@ -1059,9 +1081,9 @@ join `zabbix_itemids` against `items` — never read stale copies from `attrs`
   constraint from §2.3 is enforced, not just the (src, dst) pair uniqueness.
 - Two reporters that are each other's LLDP neighbor (the `Router1`↔`Switch1`
   case) converge to **one** `physical_link` between their two real `Port`s,
-  with no leftover pseudo-`Port` on either side, regardless of which
+  with no leftover unconfirmed `Port` on either side, regardless of which
   reporter's push/ingest runs first — confirms both halves of the
-  pseudo-port merge rule in §3 rule 4 actually fire, not just
+  unconfirmed-port merge rule in §3 rule 4 actually fire, not just
   canonicalization. **Verify this by re-running ingest at least 5–7 times
   in a row and confirming the same `Port`/`physical_link` row IDs persist
   unchanged across runs — not just that the total counts stay flat.**
@@ -1134,7 +1156,7 @@ manual review alone.
 
 ## 10. Scaling considerations (not yet implemented — flagging for a deployment with thousands of hosts)
 
-The seed/prototype scale (tens of nodes) hides three issues that will matter
+The seed/prototype scale (tens of nodes) hides four issues that will matter
 before this is used against a real multi-thousand-host environment. None of
 these are required for the current acceptance criteria (§8) — they're listed
 here so they aren't rediscovered from scratch later.
@@ -1159,7 +1181,7 @@ here so they aren't rediscovered from scratch later.
      a generated/indexed column over `attrs->>'mac'`, every Zabbix API pull
      becomes a full scan over all `Device` nodes at real scale.
    - §3 rule 4's `Device` self-upsert (recognizing the same physical entity
-     across ingest runs) and the pseudo-port merge (§3 rule 4) both match
+     across ingest runs) and the unconfirmed-port merge (§3 rule 4) both match
      on `Device.attrs.chassis_id`/`mgmt_ip` — a different lookup, for a
      different purpose, needing its own index over `attrs->>'chassis_id'`
      (and `mgmt_ip`).
@@ -1189,6 +1211,27 @@ here so they aren't rediscovered from scratch later.
    live-joined data (`hosts`, `proxy`, `items`, `problem`) with a single
    batched query against the whole result set, not one query per node.
 
+4. **Raw row count in `topo_nodes` is a storage-volume concern, separate
+   from the query-performance issues above — don't conflate the two.**
+   `Port` rows are never filtered down to only linked ones (§2.2/§7's port
+   drill-down deliberately needs disconnected and MAC-only ports too — see
+   the seed fixture's 40/4/2 breakdown, §4, and its acceptance criteria,
+   §8). At real scale this adds up: 1,000 switches × 48 ports ≈ 48,000
+   `Port` rows alone, on top of `Device`/`Host`/`Proxy` and every edge
+   type. This is not a query-performance problem — every read path that
+   touches ports is already scoped to one device via the indexed
+   `device_id` column (`idx_topo_nodes_device_id`, §2.1), so total table size
+   doesn't affect any single query's cost. It's purely about how much the
+   table grows over time, and most of that growth is low-signal rows
+   (unused or MAC-only ports, per the same 40-of-48 pattern already
+   observed in testing). No retention/archival mechanism exists for this
+   today, and none is proposed here — this entry exists so the volume
+   question isn't mistaken for a performance regression, and so retention
+   for genuinely stale, low-signal rows (e.g. a MAC-only port with no
+   `learned_macs` activity on a device that hasn't reported in a long
+   time) is treated as a real, separate design task if it comes up, not an
+   emergency query-optimization fix.
+
 What already holds up without changes: the per-device port table (§7) is
 bounded by port count on one device, not overall network size; `physical_link`
 severity via `/neighbors` (§6) is bounded to 1 hop from the selected node; and
@@ -1196,6 +1239,37 @@ the "unassociated hosts" list already needs search/collapse at scale, which
 was flagged when it first came up.
 
 ## 11. Backlog (deliberately deferred, not required for §8)
+
+- **Sparse `Port` model — an alternative architecture, tied to a specific
+  trigger, not a replacement for the current design.** Proposed: store
+  only `Port`s that participate in an actual (discovered or manual)
+  connection — no disconnected/MAC-only/management ports at all — cutting
+  `Port` rows per device from the full inventory (up to 48+) down to just
+  the handful that matter for connectivity. Rejected as the current
+  design for three concrete reasons, not as a bad idea in the abstract:
+  1. The full-inventory `Port` model is what surfaced real implementation
+     gaps during testing (the LAG-membership gap, the missing
+     `learned_macs` collection, the basis for discovery-quality stats) —
+     it's an already-proven diagnostic tool, not incidental weight.
+  2. MAC-only ports are partial connectivity evidence with an unresolved
+     far end (§3 rule 1), not "no connectivity" — a real sparse model
+     would need its own answer for them, which this proposal doesn't
+     resolve; on real hardware they're the majority of "connected" ports
+     (§4's 40-of-48 breakdown), so this isn't a minor edge case.
+  3. It solves §10 point 4's storage-volume concern with a much more
+     drastic tool (don't collect the data at all) than that entry itself
+     calls for (explicitly speculative, no retention mechanism proposed,
+     revisit only if it's a real problem in practice).
+
+  **Revisit only if §10 point 4 turns from a speculative concern into an
+  actual operational problem** — not before. One smaller piece of the
+  proposal was worth taking independently and already has been: the
+  generic `part_of` edge was replaced with a plain `device_id` foreign key
+  column on `Port` (§2.1) — that part didn't need to wait for a decision
+  on full vs. sparse storage. Still open, and still independent of that
+  question: renaming `Port` to something like `Topology Port`/`Endpoint`,
+  if the current name is genuinely causing confusion with a full interface
+  inventory.
 
 - **`represented_by` 1:1 constraint — the most likely redesign candidate if
   this prototype proves out.** Nearly every documented limitation in this

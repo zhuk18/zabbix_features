@@ -203,7 +203,7 @@ $now = time();
 // sysname): it only matches a Device that was previously created/matched as the neighbor discovered on this
 // exact (reporter, local_if_index) pair — i.e. a Device already reachable by walking the physical_link edge
 // off $local_port_id (the local reporter Port at that if_index) to its far-side Port, then that Port's
-// owning Device via part_of. $local_port_id/$sysname are only ever passed for neighbor Devices (see the
+// owning Device via device_id. $local_port_id/$sysname are only ever passed for neighbor Devices (see the
 // $device() calls below) — the reporter Device itself is never matched this way.
 $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname) use ($pdo): ?array {
 	if ($chassis_id) {
@@ -224,8 +224,7 @@ $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $loc
 		$stmt = $pdo->prepare(
 			"SELECT dev.id FROM topo_edges link".
 			" JOIN topo_nodes port ON port.id = (CASE WHEN link.src_id = ? THEN link.dst_id ELSE link.src_id END)".
-			" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
-			" JOIN topo_nodes dev ON dev.id = part_of.dst_id".
+			" JOIN topo_nodes dev ON dev.id = port.device_id".
 			" WHERE link.type = 'physical_link' AND (link.src_id = ? OR link.dst_id = ?)".
 			" AND port.type = 'port' AND dev.type = 'device'".
 			" AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ?"
@@ -239,15 +238,15 @@ $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $loc
 };
 
 $find_port = static function (int $device_id, int $if_index) use ($pdo): ?int {
-	$stmt = $pdo->prepare("SELECT port.id FROM topo_nodes port".
-		" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
-		" WHERE part_of.dst_id = ? AND port.type = 'port' AND JSON_EXTRACT(port.attrs, '\$.if_index') = ?");
+	$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
+		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
 	$stmt->execute([$device_id, $if_index]);
 	$row = $stmt->fetch(PDO::FETCH_ASSOC);
 	return $row ? (int) $row['id'] : null;
 };
 
 $insert_node = $pdo->prepare('INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES (?, ?, ?, ?)');
+$insert_port_node = $pdo->prepare('INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
 $update_node = $pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?');
 $insert_edge = $pdo->prepare('INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES (?, ?, ?, ?, ?)');
 $last_insert_id = static function () use ($pdo): int {
@@ -280,16 +279,15 @@ $device = static function (array $attrs, ?int $local_port_id = null) use ($inser
 	return $last_insert_id();
 };
 
-// Rule 4: upsert Port by (device via part_of, if_index) + owns the part_of edge. Mirrors seed.php's $port().
-$port = static function (int $device_id, array $attrs) use ($insert_node, $update_node, $insert_edge, $now, $last_insert_id, $find_port, &$summary): int {
+// Rule 4: upsert Port by (device_id, if_index), setting device_id directly on insert. Mirrors seed.php's $port().
+$port = static function (int $device_id, array $attrs) use ($insert_port_node, $update_node, $now, $last_insert_id, $find_port, &$summary): int {
 	$existing_id = $find_port($device_id, $attrs['if_index']);
 	if ($existing_id !== null) {
 		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
 		return $existing_id;
 	}
-	$insert_node->execute(['port', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
+	$insert_port_node->execute(['port', $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$port_id = $last_insert_id();
-	$insert_edge->execute(['part_of', $port_id, $device_id, '{}', $now]);
 	$summary['ports_created']++;
 	return $port_id;
 };
@@ -479,10 +477,9 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 	$normalized_real = $normalize_port_name($real_port_name);
 
 	$stmt = $pdo->prepare(
-		"SELECT port.id, JSON_UNQUOTE(JSON_EXTRACT(port.attrs, '\$.name')) AS name FROM topo_nodes port".
-		" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
-		" WHERE part_of.dst_id = ? AND port.type = 'port' AND port.id != ?".
-		" AND JSON_EXTRACT(port.attrs, '\$.pseudo') = true");
+		"SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
+		" WHERE device_id = ? AND type = 'port' AND id != ?".
+		" AND JSON_EXTRACT(attrs, '\$.pseudo') = true");
 	$stmt->execute([$reporter_device_id, $real_port_id]);
 	$pseudo_ports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -569,7 +566,6 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		return;
 	}
 
-	// Deletes the part_of edge too via topo_edges.src_id's ON DELETE CASCADE FK onto topo_nodes.id.
 	$pdo->prepare("DELETE FROM topo_nodes WHERE id = ? AND type = 'port'")->execute([$pseudo_port_id]);
 	echo "OK: merged pseudo-Port #{$pseudo_port_id} into real Port #{$real_port_id} ('{$real_port_name}') ".
 		"on device #{$reporter_device_id}\n";
@@ -590,9 +586,8 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 $find_matching_real_port = static function (int $device_id, string $name) use ($pdo, $normalize_port_name): ?int {
 	$normalized = $normalize_port_name($name);
 	$stmt = $pdo->prepare(
-		"SELECT port.id, JSON_UNQUOTE(JSON_EXTRACT(port.attrs, '\$.name')) AS name FROM topo_nodes port".
-		" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
-		" WHERE part_of.dst_id = ? AND port.type = 'port' AND JSON_EXTRACT(port.attrs, '\$.pseudo') = false");
+		"SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
+		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = false");
 	$stmt->execute([$device_id]);
 	$matches = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
 		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized));

@@ -33,6 +33,7 @@ try {
 	}
 
 	$insert_node = $pdo->prepare('INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES (?, ?, ?, ?)');
+	$insert_port_node = $pdo->prepare('INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
 	$update_node = $pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?');
 	$insert_edge = $pdo->prepare('INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES (?, ?, ?, ?, ?)');
 	$update_edge_attrs = $pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?');
@@ -40,7 +41,7 @@ try {
 		return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
 	};
 
-	// §3 rule 4 upsert keys: Device by chassis_id, else mgmt_ip; Port by (device via part_of, if_index).
+	// §3 rule 4 upsert keys: Device by chassis_id, else mgmt_ip; Port by (device_id, if_index).
 	$find_device = static function(string $chassis_id, string $mgmt_ip) use ($pdo): ?int {
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?");
 		$stmt->execute([$chassis_id]);
@@ -53,9 +54,8 @@ try {
 		return $row ? (int) $row['id'] : null;
 	};
 	$find_port = static function(int $device_id, int $if_index) use ($pdo): ?int {
-		$stmt = $pdo->prepare("SELECT port.id FROM topo_nodes port".
-			" JOIN topo_edges part_of ON part_of.type = 'part_of' AND part_of.src_id = port.id".
-			" WHERE part_of.dst_id = ? AND port.type = 'port' AND JSON_EXTRACT(port.attrs, '\$.if_index') = ?");
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
+			" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
 		$stmt->execute([$device_id, $if_index]);
 		$row = $stmt->fetch(PDO::FETCH_ASSOC);
 		return $row ? (int) $row['id'] : null;
@@ -73,25 +73,22 @@ try {
 		return $last_insert_id();
 	};
 
-	// Port upsert — also owns the part_of edge to its device, since the upsert key (device, if_index) needs
-	// the device id up front and a newly-inserted port always needs a fresh part_of edge; an already-matched
-	// port's part_of edge is left untouched (a port's parent device is assumed stable across reseeds).
-	$port = static function(int $device_id, array $attrs) use ($insert_node, $update_node, $insert_edge, $now, $last_insert_id, $find_port): int {
+	// Port upsert — sets device_id directly on insert, since the upsert key (device_id, if_index) needs the
+	// device id up front; an already-matched port's device_id is left untouched (a port's parent device is
+	// assumed stable across reseeds).
+	$port = static function(int $device_id, array $attrs) use ($insert_node, $update_node, $insert_port_node, $now, $last_insert_id, $find_port): int {
 		$existing_id = $find_port($device_id, $attrs['if_index']);
 		if ($existing_id !== null) {
 			$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
 			return $existing_id;
 		}
-		$insert_node->execute(['port', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
-		$port_id = $last_insert_id();
-		$insert_edge->execute(['part_of', $port_id, $device_id, '{}', $now]);
-		return $port_id;
+		$insert_port_node->execute(['port', $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
+		return $last_insert_id();
 	};
 
-	// Edge upsert for everything besides part_of (which $port() owns). $canonicalize mirrors
-	// CTopologyPrototype::upsertPhysicalLink()'s direction canonicalization for physical_link — both node ids
-	// are now stable across reseeds (matched by key), so the same two ports always produce the same
-	// (src_id, dst_id) pair here, same as at request time.
+	// Edge upsert. $canonicalize mirrors CTopologyPrototype::upsertPhysicalLink()'s direction canonicalization
+	// for physical_link — both node ids are now stable across reseeds (matched by key), so the same two ports
+	// always produce the same (src_id, dst_id) pair here, same as at request time.
 	$ensure_edge = static function(string $type, int $src, int $dst, array $attrs, bool $canonicalize = false)
 			use ($pdo, $insert_edge, $update_edge_attrs, $now): void {
 		if ($canonicalize && $src > $dst) {

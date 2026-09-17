@@ -222,17 +222,15 @@ class CTopologyPrototype {
 
 		// Device-to-device physical_link pairs, so the canvas shows the actual LLDP/manual wiring
 		// on first load instead of only after a user clicks each device in turn.
-		$link_sql = 'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b,'.
+		$link_sql = 'SELECT src_port.device_id AS device_a,dst_port.device_id AS device_b,'.
 				'link.src_id AS port_a,link.dst_id AS port_b,link.attrs AS link_attrs'.
 			' FROM topo_edges link'.
-			' JOIN topo_edges local_part ON local_part.type='.zbx_dbstr('part_of').
-				' AND local_part.src_id=link.src_id'.
-			' JOIN topo_edges remote_part ON remote_part.type='.zbx_dbstr('part_of').
-				' AND remote_part.src_id=link.dst_id'.
+			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
+			' JOIN topo_nodes dst_port ON dst_port.id=link.dst_id'.
 			' WHERE link.type='.zbx_dbstr('physical_link');
 		if ($node_ids !== null) {
 			$link_sql .= $node_ids
-				? ' AND '.dbConditionId('local_part.dst_id', $node_ids).' AND '.dbConditionId('remote_part.dst_id', $node_ids)
+				? ' AND '.dbConditionId('src_port.device_id', $node_ids).' AND '.dbConditionId('dst_port.device_id', $node_ids)
 				: ' AND 1=0';
 		}
 		$rows = DBfetchArray(DBselect($link_sql));
@@ -289,9 +287,9 @@ class CTopologyPrototype {
 	/**
 	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every
 	 * represented_by/monitored_by pair (same source as getRelations()) plus every
-	 * device-to-device pair implied by a physical_link — the same part_of -> physical_link ->
-	 * part_of join chain getNeighbors() runs per-device below, but for every physical_link at
-	 * once instead of one device's ports.
+	 * device-to-device pair implied by a physical_link — the same port.device_id ->
+	 * physical_link -> port.device_id join chain getNeighbors() runs per-device below, but for
+	 * every physical_link at once instead of one device's ports.
 	 *
 	 * @return array list of [id_a, id_b] pairs.
 	 */
@@ -305,12 +303,10 @@ class CTopologyPrototype {
 		}
 
 		$result = DBselect(
-			'SELECT local_part.dst_id AS device_a,remote_part.dst_id AS device_b'.
+			'SELECT src_port.device_id AS device_a,dst_port.device_id AS device_b'.
 			' FROM topo_edges link'.
-			' JOIN topo_edges local_part ON local_part.type='.zbx_dbstr('part_of').
-				' AND local_part.src_id=link.src_id'.
-			' JOIN topo_edges remote_part ON remote_part.type='.zbx_dbstr('part_of').
-				' AND remote_part.src_id=link.dst_id'.
+			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
+			' JOIN topo_nodes dst_port ON dst_port.id=link.dst_id'.
 			' WHERE link.type='.zbx_dbstr('physical_link')
 		);
 		while ($row = DBfetch($result)) {
@@ -386,15 +382,15 @@ class CTopologyPrototype {
 		// physical_link (e.g. redundant cabling) needs every one of those links' port pairs collected so the
 		// severity aggregation below sees every relevant port, not just whichever row happened to come first.
 		$result = DBselect(
-			'SELECT device.id,device.type,device.attrs,link.attrs AS link_attrs,local_part.src_id AS local_port_id,'.
-				'remote_part.src_id AS remote_port_id'.
-			' FROM topo_edges local_part'.
+			'SELECT device.id,device.type,device.attrs,link.attrs AS link_attrs,local_port.id AS local_port_id,'.
+				'remote_port.id AS remote_port_id'.
+			' FROM topo_nodes local_port'.
 			' JOIN topo_edges link ON link.type='.zbx_dbstr('physical_link').
-				' AND (link.src_id=local_part.src_id OR link.dst_id=local_part.src_id)'.
-			' JOIN topo_edges remote_part ON remote_part.type='.zbx_dbstr('part_of').
-				' AND remote_part.src_id=CASE WHEN link.src_id=local_part.src_id THEN link.dst_id ELSE link.src_id END'.
-			' JOIN topo_nodes device ON device.id=remote_part.dst_id AND device.type='.zbx_dbstr('device').
-			' WHERE local_part.type='.zbx_dbstr('part_of').' AND local_part.dst_id='.zbx_dbstr($deviceid)
+				' AND (link.src_id=local_port.id OR link.dst_id=local_port.id)'.
+			' JOIN topo_nodes remote_port ON remote_port.id='.
+				'CASE WHEN link.src_id=local_port.id THEN link.dst_id ELSE link.src_id END'.
+			' JOIN topo_nodes device ON device.id=remote_port.device_id AND device.type='.zbx_dbstr('device').
+			' WHERE local_port.device_id='.zbx_dbstr($deviceid)
 		);
 
 		// $discovered_via buffered per neighbor during the fetch loop, same as before — what
@@ -539,10 +535,10 @@ class CTopologyPrototype {
 		$result = DBselect(
 			'SELECT port.id,port.attrs,link.id AS linkid,link.attrs AS link_attrs,'.
 				'CASE WHEN link.src_id=port.id THEN link.dst_id ELSE link.src_id END AS linked_port_id'.
-			' FROM topo_edges part_of JOIN topo_nodes port ON port.id=part_of.src_id'.
+			' FROM topo_nodes port'.
 			' LEFT JOIN topo_edges link ON link.type='.zbx_dbstr('physical_link').
 				' AND (link.src_id=port.id OR link.dst_id=port.id)'.
-			' WHERE part_of.type='.zbx_dbstr('part_of').' AND part_of.dst_id='.zbx_dbstr($deviceid).
+			' WHERE port.type='.zbx_dbstr('port').' AND port.device_id='.zbx_dbstr($deviceid).
 			' ORDER BY port.id'
 		);
 
@@ -685,11 +681,10 @@ class CTopologyPrototype {
 	}
 
 	// linkPorts()'s whole job is linking, never creating identity — reject a port id that doesn't exist, or
-	// that exists but isn't part_of a Device, rather than silently creating anything as a side effect.
+	// that exists but has no device_id, rather than silently creating anything as a side effect.
 	private static function assertPortOnDevice(string $port_id): void {
 		$port = DBfetch(DBselect('SELECT node.id FROM topo_nodes node'.
-			' JOIN topo_edges part_of ON part_of.type='.zbx_dbstr('part_of').' AND part_of.src_id=node.id'.
-			' JOIN topo_nodes device ON device.id=part_of.dst_id AND device.type='.zbx_dbstr('device').
+			' JOIN topo_nodes device ON device.id=node.device_id AND device.type='.zbx_dbstr('device').
 			' WHERE node.id='.zbx_dbstr($port_id).' AND node.type='.zbx_dbstr('port'), 1));
 
 		if (!$port) {
@@ -917,9 +912,9 @@ class CTopologyPrototype {
 	}
 
 	private static function getLinkedDeviceName(string $portid): ?string {
-		$row = DBfetch(DBselect('SELECT device.attrs FROM topo_edges link JOIN topo_edges part_of ON part_of.type='.zbx_dbstr('part_of').
-			' AND part_of.src_id=CASE WHEN link.src_id='.zbx_dbstr($portid).' THEN link.dst_id ELSE link.src_id END'.
-			' JOIN topo_nodes device ON device.id=part_of.dst_id WHERE link.type='.zbx_dbstr('physical_link').
+		$row = DBfetch(DBselect('SELECT device.attrs FROM topo_edges link'.
+			' JOIN topo_nodes port ON port.id=CASE WHEN link.src_id='.zbx_dbstr($portid).' THEN link.dst_id ELSE link.src_id END'.
+			' JOIN topo_nodes device ON device.id=port.device_id WHERE link.type='.zbx_dbstr('physical_link').
 			' AND (link.src_id='.zbx_dbstr($portid).' OR link.dst_id='.zbx_dbstr($portid).')', 1));
 		return $row ? self::attrs($row)['sysname'] : null;
 	}
@@ -940,10 +935,9 @@ class CTopologyPrototype {
 		$result = DBselect(
 			'SELECT link.src_id,link.dst_id,device.attrs'.
 			' FROM topo_edges link'.
-			' JOIN topo_edges part_of ON part_of.type='.zbx_dbstr('part_of').
-				' AND part_of.src_id=CASE WHEN '.dbConditionId('link.src_id', $portids).
-					' THEN link.dst_id ELSE link.src_id END'.
-			' JOIN topo_nodes device ON device.id=part_of.dst_id'.
+			' JOIN topo_nodes port ON port.id=CASE WHEN '.dbConditionId('link.src_id', $portids).
+				' THEN link.dst_id ELSE link.src_id END'.
+			' JOIN topo_nodes device ON device.id=port.device_id'.
 			' WHERE link.type='.zbx_dbstr('physical_link').
 				' AND ('.dbConditionId('link.src_id', $portids).' OR '.dbConditionId('link.dst_id', $portids).')'
 		);
@@ -1009,11 +1003,12 @@ class CTopologyPrototype {
 				continue;
 			}
 			$mac = strtolower($inventory[$field]);
-			$result = DBselect('SELECT part_of.dst_id FROM topo_nodes port JOIN topo_edges part_of ON part_of.src_id=port.id'.
-				' WHERE port.type='.zbx_dbstr('port').' AND port.attrs LIKE '.zbx_dbstr('%"mac":"'.$mac.'"%'));
+			$result = DBselect('SELECT device_id FROM topo_nodes port'.
+				' WHERE port.type='.zbx_dbstr('port').' AND port.device_id IS NOT NULL'.
+				' AND port.attrs LIKE '.zbx_dbstr('%"mac":"'.$mac.'"%'));
 			while ($device = DBfetch($result)) {
 				try {
-					self::promote($device['dst_id'], $host_nodeid, 'identity', 'mac', $mac);
+					self::promote($device['device_id'], $host_nodeid, 'identity', 'mac', $mac);
 				}
 				catch (Exception $exception) {
 					// §2.1's 1:1 constraint applies here too, not just to the manual endpoint: the device or
