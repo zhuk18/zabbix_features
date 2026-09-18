@@ -362,6 +362,7 @@ class ZBase {
 			$this->root_dir.'/include/classes/pagefilter',
 			$this->root_dir.'/include/classes/xml',
 			$this->root_dir.'/include/classes/vaults',
+			$this->root_dir.'/include/classes/topology',
 			$this->root_dir.'/local/app/controllers',
 			$this->root_dir.'/app/controllers'
 		];
