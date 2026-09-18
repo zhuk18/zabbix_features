@@ -15,6 +15,9 @@ declare(strict_types=1);
  *   - Promote: associates an unmanaged identity with an existing Host in one call, no DB record.
  *   - Promote validation: an identity already claimed by another Host is rejected (§5 rule 2).
  *   - Depromote: removes the association; the identity reappears as unmanaged if still observed.
+ *   - Link/Unlink: linkPort() writes a `topology.neighbor.*` pair on BOTH sides (ports UI's manual
+ *     Link button); unlinkPort() removes only the invoking side's tag, leaving the reciprocal side's
+ *     observation (and therefore the derived link) intact per §13.
  *   - Disappearance: clearing a Host's topology tags removes it from the graph entirely (§5's
  *     lazy-relevance principle — no separate cleanup step needed, nothing was ever persisted).
  *
@@ -169,6 +172,54 @@ $ids = array_column($devices, 'id');
 // reappear as unmanaged — no topology entity was ever deleted or recreated (§6/§11).
 check(in_array('unmanaged:XX:XX:XX:XX:XX:XX', $ids, true),
 	'X reappears as unmanaged after depromote (still observed by A) — nothing to delete/recreate');
+
+echo "\n=== Manual Link/Unlink (ports UI) ===\n";
+// Add a second port to A (ifIndex 99) so linkPort() has a real local port to target — leaves A's
+// existing port.24/neighbor.24 tags (used above) untouched.
+$current_a = API::Host()->get(['hostids' => [$hostA['hostid']], 'output' => [], 'selectTags' => 'extend'])[0]['tags'];
+set_tags($hostA['hostid'], array_merge(
+	array_map(static fn(array $tag): array => ['tag' => $tag['tag'], 'value' => $tag['value']], $current_a),
+	[['tag' => 'topology.port.99.name', 'value' => 'Gi0/99']]
+));
+
+CTopologyPrototype::linkPort($hostA['hostid'], 99, $hostB['hostid'], 1);
+
+$a_tags = [];
+foreach (API::Host()->get(['hostids' => [$hostA['hostid']], 'output' => [], 'selectTags' => 'extend'])[0]['tags'] as $tag) {
+	$a_tags[$tag['tag']] = $tag['value'];
+}
+$b_tags = [];
+foreach (API::Host()->get(['hostids' => [$hostB['hostid']], 'output' => [], 'selectTags' => 'extend'])[0]['tags'] as $tag) {
+	$b_tags[$tag['tag']] = $tag['value'];
+}
+check(($a_tags['topology.neighbor.99.chassis_id'] ?? null) === 'BB:BB:BB:BB:BB:BB', 'linkPort() writes A-side neighbor tag');
+check(($a_tags['topology.neighbor.99.port'] ?? null) === 'Gi0/1', 'linkPort() records the target port label on A');
+check(($b_tags['topology.neighbor.1.chassis_id'] ?? null) === 'AA:AA:AA:AA:AA:AA', 'linkPort() also writes the reciprocal B-side neighbor tag');
+check(($a_tags['topology.port.24.name'] ?? null) === 'Gi0/24', "linkPort() doesn't disturb A's existing port/neighbor tags on a different ifIndex");
+
+$relations = CTopologyPrototype::getRelations();
+$found_manual_link = false;
+foreach ($relations as $relation) {
+	$pair = [$relation['source'], $relation['target']];
+	sort($pair);
+	if ($pair === $expected_pair_ab) {
+		$found_manual_link = true;
+	}
+}
+check($found_manual_link, 'manually linked A/B ports produce an A<->B relation in the derived graph');
+
+CTopologyPrototype::unlinkPort($hostA['hostid'], 99);
+$a_tags = [];
+foreach (API::Host()->get(['hostids' => [$hostA['hostid']], 'output' => [], 'selectTags' => 'extend'])[0]['tags'] as $tag) {
+	$a_tags[$tag['tag']] = $tag['value'];
+}
+$b_tags = [];
+foreach (API::Host()->get(['hostids' => [$hostB['hostid']], 'output' => [], 'selectTags' => 'extend'])[0]['tags'] as $tag) {
+	$b_tags[$tag['tag']] = $tag['value'];
+}
+check(!isset($a_tags['topology.neighbor.99.chassis_id']), 'unlinkPort() removes only the A-side neighbor tag');
+check(($b_tags['topology.neighbor.1.chassis_id'] ?? null) === 'AA:AA:AA:AA:AA:AA',
+	"unlinkPort() from A's side leaves B's reciprocal observation untouched (§13: no reciprocal required)");
 
 echo "\n=== Disappearance / lazy relevance (§5, §11) ===\n";
 set_tags($hostA['hostid'], []);

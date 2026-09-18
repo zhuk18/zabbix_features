@@ -32,14 +32,23 @@ $page_styles = '
 .topology-group{margin:14px 0}
 .topology-group h3{font-size:14px;margin:0 0 6px}
 .topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
-.topology-col-port{width:34%}
-.topology-col-status{width:18%}
-.topology-col-connected{width:48%}
+.topology-col-port{width:26%}
+.topology-col-status{width:14%}
+.topology-col-connected{width:36%}
+.topology-col-action{width:24%}
 .topology-group th,.topology-group td{padding:6px 6px;border-bottom:1px solid #e5e7eb;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .topology-port-name{font-family:monospace;font-size:11px}
 .topology-status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .topology-status-up{background:#2ecc71}
 .topology-status-down{background:#e74c3c}
+.topology-port-link-row td{white-space:normal;overflow:visible}
+.topology-port-link-picker{display:flex;flex-direction:column;gap:4px;padding:4px 0}
+.topology-port-link-picker input,.topology-port-link-picker select{width:100%;box-sizing:border-box;font-size:11.5px}
+.topology-port-link-results{max-height:100px;overflow-y:auto;border:1px solid #d9d9d9;border-radius:3px}
+.topology-port-link-results:empty{display:none;border:none}
+.topology-port-link-result{padding:4px 6px;font-size:11.5px;cursor:pointer}
+.topology-port-link-result:hover{background:#eef6fc}
+.topology-port-link-actions{display:flex;gap:6px}
 .topology-promote{margin-top:14px}
 .topology-promote-search{width:100%;box-sizing:border-box;margin-bottom:4px}
 .topology-promote-results{max-height:140px;overflow-y:auto;border:1px solid #d9d9d9;border-radius:3px;margin-bottom:6px}

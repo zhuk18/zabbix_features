@@ -408,6 +408,8 @@ final class CRouter {
 		'topology.hosts.search'					=> [CControllerTopologyHostsSearch::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.ingest.run'					=> [CControllerTopologyIngestRun::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.ingest.status'				=> [CControllerTopologyIngestStatus::class,				ZBX_LAYOUT_JSON,		null],
+		'topology.port.link'					=> [CControllerTopologyPortLink::class,					ZBX_LAYOUT_JSON,		null],
+		'topology.port.unlink'					=> [CControllerTopologyPortUnlink::class,					ZBX_LAYOUT_JSON,		null],
 		'toptriggers.list'							=> [CControllerTopTriggersList::class,							ZBX_LAYOUT_HTMLPAGE,	'reports.toptriggers.list'],
 		'trigdisplay.edit'							=> [CControllerTrigDisplayEdit::class,							ZBX_LAYOUT_HTMLPAGE,	'administration.trigdisplay.edit'],
 		'trigdisplay.update'						=> [CControllerTrigDisplayUpdate::class, 						ZBX_LAYOUT_JSON,		null],

@@ -208,10 +208,13 @@ class CTopologyPrototype {
 	/**
 	 * §12/§13: a link is derived whenever a neighbor observation points from one topology identity to
 	 * another — canonicalized (sorted node id pair) so a reciprocal observation from both sides
-	 * collapses to one rendered link instead of two. There is no persistent `physical_link` record,
-	 * no `discovered_via` (no manual-link concept exists in this model at all — §24), and no
-	 * staleness (no `last_seen` is ever stored — the tags themselves only ever hold the CURRENT
-	 * snapshot, §15).
+	 * collapses to one rendered link instead of two. There is no persistent `physical_link` record
+	 * and no staleness (no `last_seen` is ever stored — the tags themselves only ever hold the CURRENT
+	 * snapshot, §15). A manual link/unlink (see linkPort()/unlinkPort() below) writes/removes the same
+	 * `topology.neighbor.*` tags discovery would — there is no separate `discovered_via`/provenance
+	 * marker distinguishing the two once written (§24 rules out any extra persistence for that), so a
+	 * manual link is indistinguishable from a discovered one until the next ingest run overwrites it
+	 * (GOTCHAS.md #7).
 	 *
 	 * @param array|null $node_ids  restrict to relations where BOTH ends are in this set; null =
 	 *                              unrestricted.
@@ -488,6 +491,63 @@ class CTopologyPrototype {
 		self::removeHostTag($hostid, self::TAG_IDENTITY);
 	}
 
+	/**
+	 * Manually link two ports by writing `topology.neighbor.<if_index>.*` on BOTH sides, the same tag
+	 * shape discovery itself writes (§9) — there is no separate manual/discovered marker (§24 rules out
+	 * any extra persistence for one), so this is indistinguishable from an LLDP-discovered link once
+	 * written, and will be overwritten the next time either host's reporter is ingested (GOTCHAS.md #7).
+	 * Writing both sides (rather than just the port the user clicked from) gives a real bidirectional
+	 * pair immediately, matching what two reciprocally-reporting reporters would produce (§13) — either
+	 * side can then be independently unlinked (unlinkPort() only ever touches one side, per §9's
+	 * per-reporter tag ownership).
+	 */
+	public static function linkPort(string $hostid, int $if_index, string $target_hostid, int $target_if_index): void {
+		if ($hostid === $target_hostid) {
+			throw new Exception('A port cannot be linked to a port on the same host.');
+		}
+
+		$topology_hosts = self::getTopologyHosts([$hostid, $target_hostid]);
+		if (!isset($topology_hosts[$hostid]['ports'][$if_index])) {
+			throw new Exception('The selected port does not exist.');
+		}
+		if (!isset($topology_hosts[$target_hostid])) {
+			throw new Exception('The target host has no topology data.');
+		}
+		if (!isset($topology_hosts[$target_hostid]['ports'][$target_if_index])) {
+			throw new Exception('The selected target port does not exist.');
+		}
+
+		$host = $topology_hosts[$hostid];
+		$target_host = $topology_hosts[$target_hostid];
+		$identity = self::effectiveIdentity($host);
+		$target_identity = self::effectiveIdentity($target_host);
+		if ($identity === null) {
+			throw new Exception('This host has no topology identity (chassis_id) to link from.');
+		}
+		if ($target_identity === null) {
+			throw new Exception('The target host has no topology identity (chassis_id) to link against.');
+		}
+
+		$port_name = $host['ports'][$if_index]['name'] ?? (string) $if_index;
+		$target_port_name = $target_host['ports'][$target_if_index]['name'] ?? (string) $target_if_index;
+
+		self::replaceNeighborTags($hostid, $if_index, [
+			'chassis_id' => $target_identity, 'port' => $target_port_name, 'name' => $target_host['name']
+		]);
+		self::replaceNeighborTags($target_hostid, $target_if_index, [
+			'chassis_id' => $identity, 'port' => $port_name, 'name' => $host['name']
+		]);
+	}
+
+	// Removes only THIS host's own `topology.neighbor.<if_index>.*` observation — the reciprocal side
+	// (if any) is left untouched, same as an ordinary reporter that simply stops seeing its neighbor on
+	// one side (§13: a link never requires a reciprocal observation, so this alone is enough to make
+	// the link disappear from this side while the other side's observation, if still present, keeps it
+	// visible from there).
+	public static function unlinkPort(string $hostid, int $if_index): void {
+		self::replaceNeighborTags($hostid, $if_index, null);
+	}
+
 	// §6: GET /topo/hosts/search?q= — the host picker for /promote. Thin wrapper over host.get,
 	// filtered by name/IP; writes nothing.
 	public static function searchHosts(string $q): array {
@@ -541,6 +601,27 @@ class CTopologyPrototype {
 		}
 
 		return $tags;
+	}
+
+	// Same read-modify-write shape as replaceHostTag(), but for the whole `topology.neighbor.<if_index>.*`
+	// tag group at once, since linkPort()/unlinkPort() write/remove several properties (chassis_id, port,
+	// name) as one atomic host.update() call rather than one tag at a time.
+	private static function replaceNeighborTags(string $hostid, int $if_index, ?array $neighbor): void {
+		$hosts = API::Host()->get(['hostids' => [$hostid], 'output' => [], 'selectTags' => 'extend']);
+		$existing = $hosts ? $hosts[0]['tags'] : [];
+		$prefix = "topology.neighbor.{$if_index}.";
+		$tags = array_values(array_filter(
+			array_map(static fn(array $tag): array => ['tag' => $tag['tag'], 'value' => $tag['value']], $existing),
+			static fn(array $tag): bool => strncmp($tag['tag'], $prefix, strlen($prefix)) !== 0
+		));
+		if ($neighbor !== null) {
+			foreach ($neighbor as $property => $value) {
+				if ($value !== null && $value !== '') {
+					$tags[] = ['tag' => $prefix.$property, 'value' => (string) $value];
+				}
+			}
+		}
+		API::Host()->update([['hostid' => $hostid, 'tags' => $tags]]);
 	}
 
 	private static function describeSeverity(?int $severity): array {

@@ -116,7 +116,11 @@ const view = new class {
 		return groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
 	}
 
-	async loadDevices() {
+	// §14.2-style refresh-in-place: a plain reload always re-selects the first host, which would throw
+	// away whatever port/device panel the user was looking at right after a Link/Unlink action mutates
+	// the very graph they're inspecting. preferred_id, when it's still present in the reloaded node set,
+	// keeps that same node selected instead of jumping back to the top.
+	async loadDevices(preferred_id = null) {
 		const {devices = [], relations = []} = await this.request(`topology.devices.get${this.filterQuery()}`);
 		this.nodes = new Map(devices.map(node => [String(node.id), node]));
 		this.links = relations.map(relation => ({
@@ -124,9 +128,10 @@ const view = new class {
 			source_port: relation.source_port, target_port: relation.target_port
 		}));
 		this.render();
-		const first_host = devices.find(node => node.type === 'host');
-		if (first_host) {
-			await this.selectNode(first_host);
+		const target = (preferred_id && this.nodes.get(String(preferred_id)))
+			|| devices.find(node => node.type === 'host');
+		if (target) {
+			await this.selectNode(target);
 		}
 	}
 
@@ -173,12 +178,13 @@ const view = new class {
 				`<tr><th>${this.escape(label)}</th><td>${this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`
 			: '';
 		const problems_section = this.buildProblemsFragment(problems);
-		const ports_section = this.buildPortsFragment(groups);
+		const ports_section = this.buildPortsFragment(groups, node);
 		// §6: a Host only has a Depromote button when IT is the one carrying an explicit
 		// topology.identity (i.e. it was manually /promote'd to represent some observed device) —
 		// a reporter Host identified purely by its own topology.chassis_id has nothing to depromote.
 		const depromote_section = node.identity ? this.depromoteButtonFragment() : '';
 		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${meta}${problems_section}${ports_section}${depromote_section}`;
+		this.wirePortsFragment(node);
 		if (node.identity) {
 			this.details.querySelector('.topology-depromote-button').addEventListener('click', () => this.guard(async () => {
 				await this.request('topology.depromote', {
@@ -204,23 +210,131 @@ const view = new class {
 
 	// §8/§21: ports are pure tag-derived metadata — no separate port entity, no MAC-only/partial
 	// group (no CAM-table data exists in this model at all, §24), just connected/disconnected plus
-	// the two optional if_type-driven groups.
-	buildPortsFragment(groups) {
+	// the two optional if_type-driven groups. The Link/Unlink button writes/removes
+	// topology.neighbor.<if_index>.* directly (CTopologyPrototype::linkPort()/unlinkPort()) — there is
+	// no separate manual-link entity, so a manual link looks exactly like a discovered one afterwards.
+	buildPortsFragment(groups, node) {
 		const labels = {
 			connected: 'Connected', disconnected: 'Disconnected',
 			port_channel: 'Port-channel', management: 'Management'
 		};
 		const sections = Object.entries(groups).filter(([, ports]) => ports.length).map(([group, ports]) => `
 			<section class="topology-group"><h3>${labels[group]}</h3><table><colgroup>
-				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected">
-			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th></tr></thead><tbody>
-			${ports.map(port => `<tr>
+				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected"><col class="topology-col-action">
+			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th></th></tr></thead><tbody>
+			${ports.map(port => `<tr data-if-index="${port.if_index}">
 				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}</td>
 				<td>${port.status ? `<span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}` : ''}</td>
 				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}</td>
+				<td class="topology-col-action">${port.connected_to
+					? `<button type="button" class="btn-alt topology-port-unlink-button" data-if-index="${port.if_index}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
+					: `<button type="button" class="btn-alt topology-port-link-button" data-if-index="${port.if_index}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`}</td>
 			</tr>`).join('')}
 			</tbody></table></section>`).join('');
 		return sections || `<div class="topology-empty">${this.escape(<?= json_encode(_('No ports reported.')) ?>)}</div>`;
+	}
+
+	wirePortsFragment(node) {
+		this.details.querySelectorAll('.topology-port-unlink-button').forEach(button => {
+			button.addEventListener('click', () => this.guard(async () => {
+				await this.request('topology.port.unlink', {
+					method: 'POST', headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({hostid: node.hostid, if_index: button.dataset.ifIndex})
+				});
+				await this.loadDevices(node.id);
+			}));
+		});
+		this.details.querySelectorAll('.topology-port-link-button').forEach(button => {
+			button.addEventListener('click', () => this.togglePortLinkPicker(node, button));
+		});
+	}
+
+	// Inline picker row, opened directly under the port that was clicked: search for a target host,
+	// then pick one of ITS ports from a <select> (populated via a second /topo/ports/get call), then
+	// confirm. Only one picker is ever open at a time — opening a second one, or clicking the same
+	// button again, closes whichever is already there first.
+	togglePortLinkPicker(node, button) {
+		const existing = this.details.querySelector('.topology-port-link-row');
+		const reopening_same = existing && existing.dataset.ifIndex === button.dataset.ifIndex;
+		if (existing) {
+			existing.remove();
+		}
+		if (reopening_same) {
+			return;
+		}
+
+		const if_index = button.dataset.ifIndex;
+		const row = document.createElement('tr');
+		row.className = 'topology-port-link-row';
+		row.dataset.ifIndex = if_index;
+		row.innerHTML = `<td colspan="4"><div class="topology-port-link-picker">
+			<input type="text" class="topology-port-link-search" placeholder="${this.escape(<?= json_encode(_('Search target host by name/IP…')) ?>)}">
+			<div class="topology-port-link-results"></div>
+			<select class="topology-port-link-target-port" disabled>
+				<option value="">${this.escape(<?= json_encode(_('Select a host first')) ?>)}</option>
+			</select>
+			<div class="topology-port-link-actions">
+				<button type="button" class="btn-alt topology-port-link-confirm" disabled>${this.escape(<?= json_encode(_('Link')) ?>)}</button>
+				<button type="button" class="btn-alt topology-port-link-cancel">${this.escape(<?= json_encode(_('Cancel')) ?>)}</button>
+			</div>
+		</div></td>`;
+		button.closest('tr').insertAdjacentElement('afterend', row);
+
+		const search_input = row.querySelector('.topology-port-link-search');
+		const results_container = row.querySelector('.topology-port-link-results');
+		const port_select = row.querySelector('.topology-port-link-target-port');
+		const confirm_button = row.querySelector('.topology-port-link-confirm');
+
+		row.querySelector('.topology-port-link-cancel').addEventListener('click', () => row.remove());
+
+		search_input.addEventListener('input', () => {
+			clearTimeout(this.port_link_search_timer);
+			const q = search_input.value.trim();
+			if (!q) {
+				results_container.innerHTML = '';
+				return;
+			}
+			this.port_link_search_timer = setTimeout(() => this.guard(async () => {
+				const {hosts = []} = await this.request(`topology.hosts.search&q=${encodeURIComponent(q)}`);
+				const candidates = hosts.filter(host => String(host.hostid) !== String(node.hostid));
+				results_container.innerHTML = candidates.length
+					? candidates.map((host, index) => `<div class="topology-port-link-result" data-index="${index}">${this.escape(host.name)}</div>`).join('')
+					: `<div class="topology-port-link-result">${this.escape(<?= json_encode(_('No matches.')) ?>)}</div>`;
+				results_container.querySelectorAll('.topology-port-link-result[data-index]').forEach(item => {
+					item.addEventListener('click', () => this.guard(async () => {
+						const target_host = candidates[Number(item.dataset.index)];
+						results_container.innerHTML = '';
+						search_input.value = target_host.name;
+						port_select.disabled = true;
+						confirm_button.disabled = true;
+						port_select.innerHTML = `<option value="">${this.escape(<?= json_encode(_('Loading ports…')) ?>)}</option>`;
+
+						const {groups: target_groups = {}} = await this.request(`topology.ports.get&id=${encodeURIComponent(`host:${target_host.hostid}`)}`);
+						const target_ports = Object.values(target_groups).flat();
+						port_select.innerHTML = target_ports.length
+							? target_ports.map(port => `<option value="${port.if_index}">${this.escape(port.port)}</option>`).join('')
+							: `<option value="">${this.escape(<?= json_encode(_('This host has no ports reported.')) ?>)}</option>`;
+						port_select.disabled = target_ports.length === 0;
+						confirm_button.disabled = target_ports.length === 0;
+						confirm_button.dataset.targetHostid = target_host.hostid;
+					}));
+				});
+			}), 250);
+		});
+
+		confirm_button.addEventListener('click', () => this.guard(async () => {
+			if (!confirm_button.dataset.targetHostid || !port_select.value) {
+				return;
+			}
+			await this.request('topology.port.link', {
+				method: 'POST', headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({
+					hostid: node.hostid, if_index, target_hostid: confirm_button.dataset.targetHostid,
+					target_if_index: port_select.value
+				})
+			});
+			await this.loadDevices(node.id);
+		}));
 	}
 
 	// §5/§6: search-as-you-type picker for /promote, backed by /topo/hosts/search (a thin host.get
