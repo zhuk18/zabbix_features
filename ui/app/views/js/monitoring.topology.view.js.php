@@ -54,7 +54,48 @@ const view = new class {
 			document.getElementById('topology-filter-hops').value = '1';
 			await this.loadDevices();
 		}));
+
+		this.ingest_button = document.getElementById('topology-ingest-run');
+		this.ingest_status = document.getElementById('topology-ingest-status');
+		this.ingest_button.addEventListener('click', () => this.guard(() => this.runIngest()));
+		await this.pollIngestStatus({silent: true});
+
 		await this.loadDevices();
+	}
+
+	// §14.2: "Run discovery ingest" button — POSTs to the same code path ingest.php's CLI form
+	// uses (CControllerTopologyIngestRun just shells out to that script), then polls
+	// topology.ingest.status until the run leaves "running", refreshing the graph on completion
+	// so newly-ingested tags show up without a manual reload.
+	async runIngest() {
+		this.ingest_button.disabled = true;
+		this.ingest_status.textContent = <?= json_encode(_('Starting…')) ?>;
+		await this.request('topology.ingest.run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+		await this.pollIngestStatus({refresh_on_done: true});
+	}
+
+	async pollIngestStatus({silent = false, refresh_on_done = false} = {}) {
+		const status = await this.request('topology.ingest.status');
+		if (status.status === 'running') {
+			this.ingest_button.disabled = true;
+			this.ingest_status.textContent = <?= json_encode(_('Running…')) ?>;
+			setTimeout(() => this.guard(() => this.pollIngestStatus({refresh_on_done: true})), 1500);
+			return;
+		}
+		this.ingest_button.disabled = false;
+		if (status.status === 'done' && status.summary) {
+			this.ingest_status.textContent = sprintf(<?= json_encode(_('Done: %1$s reporter(s), %2$s tag(s) written, %3$s error(s).')) ?>,
+				status.summary.reporters_processed, status.summary.tags_written, status.summary.errors);
+		}
+		else if (status.status === 'error') {
+			this.ingest_status.textContent = `${<?= json_encode(_('Ingest failed: ')) ?>}${status.error ?? ''}`;
+		}
+		else if (!silent) {
+			this.ingest_status.textContent = '';
+		}
+		if (refresh_on_done) {
+			await this.loadDevices();
+		}
 	}
 
 	filterQuery() {

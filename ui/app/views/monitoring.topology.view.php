@@ -106,6 +106,10 @@ $page_styles = '
 					]))->addClass('topology-filter-field'),
 					(new CButton('topology-filter-apply', _('Apply filter')))->addClass(ZBX_STYLE_BTN_ALT),
 					(new CButton('topology-filter-clear', _('Show all')))->addClass(ZBX_STYLE_BTN_ALT),
+					(new CDiv([
+						(new CButton('topology-ingest-run', _('Run discovery ingest'))),
+						(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status')
+					]))->addClass('topology-filter-field'),
 					(new CDiv(_('Show whole host groups, or center the map on one host and limit how far out it '.
 						'expands. A focus host overrides the group selection. "Show all" clears both and displays '.
 						'every relation at once. The graph is derived live from Host tags on every load — there is '.

@@ -552,6 +552,85 @@ The topology component reads the resulting Host tags and builds the graph.
 
 ---
 
+# 14.1 Tag write mechanics (read-modify-write)
+
+**`host.update`'s `tags` parameter replaces the entire tag array — there is
+no API operation to add or remove a single tag.** Every write described in
+this spec (discovery ingest, promote, depromote) must therefore follow the
+same read-modify-write sequence, never a partial update:
+
+```text
+1. host.get(hostid, output=['host'], selectTags=true)
+2. Take the host's current tags[]
+3. Split it into three groups:
+   a. non-topology tags — anything not starting with "topology." — never touched
+   b. topology.identity — the manual association (§4); only promote/depromote
+      may add, change, or remove this tag. Discovery ingest must carry it
+      through unchanged.
+   c. topology.chassis_id / topology.type / topology.port.* / topology.neighbor.*
+      — the discovery-owned namespace (§7, §8, §9); fully rebuilt on every
+      ingest run per §15's replace-the-snapshot semantics
+4. Build the new topology.* tag set for this write:
+   - discovery ingest: chassis_id/type from the current blob, plus a freshly
+     rebuilt port.*/neighbor.* set (§15) — drop every previous port.*/neighbor.*
+     tag not present in the new blob
+   - promote: add/replace topology.identity, leave chassis_id/type/port.*/
+     neighbor.* untouched
+   - depromote: remove topology.identity only, leave everything else untouched
+5. Concatenate: [non-topology tags] + [topology.identity, if present] +
+   [chassis_id, type, port.*, neighbor.*, as applicable to this write]
+6. host.update(hostid, tags=<concatenated array>)
+```
+
+**Concurrency**: ingest and promote/depromote can race — both do
+read-modify-write against the same host. Read tags immediately before
+writing (step 1), never reuse a tag snapshot read earlier in the same
+process or cached from a previous call. This is a best-effort mitigation,
+not a guarantee — Zabbix's API has no compare-and-swap on `tags`; if a
+stricter guarantee is ever required, that is a new requirement to design
+for explicitly, not something this read-modify-write pattern provides for
+free.
+
+**Tag namespace ownership is exclusive, not advisory**: ingest must never
+write or clear `topology.identity`, and promote/depromote must never write
+or clear `topology.chassis_id`/`topology.type`/`topology.port.*`/
+`topology.neighbor.*`. Mixing ownership inside one write is the most likely
+source of a "tags silently disappeared" bug — enforce the split in step 3
+as a hard rule, not a convention.
+
+# 14.2 Ingest trigger — API and UI
+
+Discovery ingest is not automatic in this model, same as it wasn't in the
+previous DB-backed spec — it must be explicitly triggerable, from both the
+CLI and a UI button sharing the same code path.
+
+- `POST /topology/ingest/run` — reads the latest `topology.discovery.raw`
+  value for every reporter (Hosts carrying that Trapper item — discovered
+  dynamically via `item.get`, never a static list, same principle as §14),
+  applies the read-modify-write in §14.1 to each one, and starts the run in
+  the background. Returns immediately, e.g. `{status: "started"}` — must
+  never block the HTTP request until the whole pass completes, since that
+  risks a request timeout on a real reporter count.
+- `GET /topology/ingest/status` — poll for the state of the most recent
+  run: `{status: "idle"|"running"|"done"|"error", started_at, finished_at,
+  summary: {reporters_processed, tags_written, errors}}`. Enough for a
+  toast/summary in the UI.
+- **UI**: a "Run discovery ingest" button, calling `POST
+  /topology/ingest/run`, showing a running/spinner state while `GET
+  /topology/ingest/status` reports `"running"`, then a brief summary on
+  completion. Do not block the button or the rest of the UI while it runs.
+- A single-run lock (e.g. a file lock or equivalent) must prevent a
+  concurrent ingest run from overlapping with itself, whether triggered
+  from the CLI or the UI button — both must go through the exact same
+  code path, not two separate implementations, so the lock covers both
+  entry points automatically.
+- **This was missing from the initial handoff of this spec** — if an
+  implementation already exists without this endpoint/button, that is the
+  reason tags are empty on reporters: discovery was never actually
+  triggered, only the read/derive side of the model was built.
+
+---
+
 # 15. Discovery update semantics
 
 Discovery must update the reporter's topology tags as a **replacement of its current topology snapshot**.

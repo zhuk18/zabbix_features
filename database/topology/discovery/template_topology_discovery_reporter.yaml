@@ -1,0 +1,31 @@
+zabbix_export:
+  version: '8.0'
+  template_groups:
+    - uuid: 79f31eeab03146229b1e019097fad672
+      name: Templates
+  templates:
+    - uuid: 7a25304ee1594ed68f582ef727cfd1fd
+      template: 'Topology Discovery Reporter'
+      name: 'Topology Discovery Reporter'
+      description: 'Topology discovery collector (prototype, spec §4.1): Trapper items + self-monitoring heartbeat trigger for a reporter Host.'
+      groups:
+        - name: Templates
+      items:
+        - uuid: 6430a7f3ec1d47d586204644dfe93d5b
+          name: 'Topology discovery heartbeat'
+          type: TRAP
+          key: topology.discovery.heartbeat
+          allowed_hosts: '{$TRAPPER.ALLOWED_HOSTS}'
+          triggers:
+            - uuid: c5282161e47c4fb3b84dd04ea16582aa
+              expression: 'nodata(/Topology Discovery Reporter/topology.discovery.heartbeat,10m)'
+              name: 'Topology discovery heartbeat missing on {HOST.NAME} for 10m'
+              priority: AVERAGE
+              description: '10m staleness window: prototype has no fixed push interval mandated (spec §4.1); 10m gives generous headroom over any reasonable push cadence (e.g. 1-5m) while still catching a genuinely stalled/misconfigured push component promptly. Adjust to match the real push interval once one is fixed.'
+        - uuid: c1e2b45c337340059c773057252cf5bc
+          name: 'Topology discovery raw blob'
+          type: TRAP
+          key: topology.discovery.raw
+          value_type: TEXT
+          allowed_hosts: '{$TRAPPER.ALLOWED_HOSTS}'
+

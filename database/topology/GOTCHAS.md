@@ -73,9 +73,34 @@ through with a confusing, unrelated-looking error.
 against the `users` table on this environment's live DB — the running MySQL schema predates a
 column this branch's `include/db.inc.php` already queries for. This is a real DB-migration gap
 (the DB needs the schema upgrade this branch's code assumes), not a topology-specific bug — it
-blocks the *entire* Zabbix frontend through the normal web/session path, not just the topology
-pages. Workaround #3's direct `$userData` population above sidesteps it for CLI-script testing
-without needing to run a full DB schema upgrade first.
+blocked the *entire* Zabbix frontend through the normal web/session path, not just the topology
+pages (confirmed live via a real Apache/PHP error log, not just this CLI bootstrap). **Fixed** in
+this environment with `ALTER TABLE users ADD COLUMN default_maintenance_period varchar(32) NOT
+NULL DEFAULT '1h';` (the exact column `DBpatch_7050095()` in
+`src/libs/zbxdbupgrade/dbupgrade_7050.c` normally adds — `dbversion.mandatory` had already been
+bumped past that patch without the column upgrade ever actually running). Workaround #3's direct
+`$userData` population is still used by every CLI script here regardless, since it needs no active
+session either way — the DB fix just means `CWebUser::checkAuthentication()` also works now if a
+script ever wants that route instead.
+
+## 6. A `/**...*/` doc comment containing `foo.*/bar` self-terminates early
+
+Any block comment that writes `topology.port.*/topology.neighbor.*` (a shorthand for "these two
+tag prefixes") accidentally contains the literal token `*/` — PHP closes the comment right there,
+and everything after it up to the *next* accidental `*/`-shaped substring is parsed as code,
+producing confusing `unexpected token "*"` errors far from the real cause. Write it as
+`topology.port.* and topology.neighbor.*` (or `topology.port.* / topology.neighbor.*` with a
+space) inside comments instead. Hit repeatedly while writing `discovery/ingest.php` and
+`test_ingest.php`'s doc comments.
+
+## 7. Ingest's tag rebuild is a full replace of the discovery-owned namespace, every run
+
+`discovery/ingest.php`'s `apply_ingest_blob()` does not diff against the previous tag snapshot —
+per spec §14.1/§15, it always drops every `topology.port.*`/`topology.neighbor.*` tag and
+rewrites a fresh set from the current blob alone (chassis_id likewise, though in practice the
+blob always carries one). `topology.identity` and every non-`topology.` tag are the only things
+carried through unchanged. There is no tag-level diffing/merging logic anywhere in this path —
+don't add any without re-reading §14.1 step 4 first, it's intentional.
 
 ## 5. `class_exists()`/autoloading a new `include/classes/<dir>` needs registering in `ZBase.php`
 
