@@ -29,10 +29,17 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	CONSTRAINT topo_nodes_5 FOREIGN KEY (represented_by_node_id) REFERENCES topo_nodes (id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
--- physical_link_* are STORED GENERATED COLUMNS, NULL for every edge except physical_link — see
--- mysql_migrate_uniqueness.sql's header comment for why (MySQL has no partial unique index, so the
--- constrained edge type is projected into its own column and the UNIQUE goes on that). represented_by
--- no longer needs this treatment at all — it isn't a topo_edges row anymore (see topo_nodes above).
+-- The old physical_link_src/physical_link_dst STORED GENERATED COLUMNS (MySQL has no partial unique
+-- index, so a constrained edge type used to be projected into its own column with the UNIQUE on
+-- that — see mysql_migrate_uniqueness.sql's header comment for the original rationale) are gone:
+-- `represented_by` has since moved off topo_edges entirely onto topo_nodes.represented_by_node_id
+-- (see the comment above and mysql_migrate_represented_by.sql), so topo_edges effectively holds only
+-- `physical_link` rows now — `member_of_lag` (as written by database/topology/seed.php) is stale,
+-- dead-on-write code that nothing in the read path (CTopologyPrototype.php, ingest.php) queries for;
+-- flagged separately, not fixed here, since it's a different problem than this schema simplification.
+-- With one live edge type left, generating a type-filtered duplicate of src_id/dst_id just to hang a
+-- UNIQUE off of achieves nothing a plain UNIQUE(src_id, dst_id) doesn't already give for free — see
+-- mysql_migrate_simplify_physical_link_uniqueness.sql for the migration off the old columns.
 CREATE TABLE IF NOT EXISTS topo_edges (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	type VARCHAR(32) NOT NULL,
@@ -40,12 +47,10 @@ CREATE TABLE IF NOT EXISTS topo_edges (
 	dst_id BIGINT UNSIGNED NOT NULL,
 	attrs JSON NOT NULL,
 	created_at INT UNSIGNED NOT NULL DEFAULT 0,
-	physical_link_src BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN type = 'physical_link' THEN src_id END) STORED,
-	physical_link_dst BIGINT UNSIGNED GENERATED ALWAYS AS (CASE WHEN type = 'physical_link' THEN dst_id END) STORED,
 	PRIMARY KEY (id),
 	KEY topo_edges_1 (src_id, type),
 	KEY topo_edges_2 (dst_id, type),
-	UNIQUE KEY topo_edges_physical_link_pair_uq (physical_link_src, physical_link_dst),
+	UNIQUE KEY topo_edges_src_dst_uq (src_id, dst_id),
 	CONSTRAINT topo_edges_1 FOREIGN KEY (src_id) REFERENCES topo_nodes (id) ON DELETE CASCADE,
 	CONSTRAINT topo_edges_2 FOREIGN KEY (dst_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
