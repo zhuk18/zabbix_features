@@ -1,0 +1,10 @@
+{
+  "_comment": "Shared FNV-1a-based NBRKEY hash test vectors (T-model spec §3.2's 'Hash:' note). The same two-pass FNV-1a-32 algorithm (seed1=0x811c9dc5, seed2=0x9e3779b1, prime=0x01000193) is implemented independently in three places -- the topo.nbr.discovery LLD preprocessing script, the topo.nbr item prototype's select-by-NBRKEY script, and CTopologyTModel's PHP assembler (§5.4 peer-port resolution / NBRKEY recomputation for diagnostics). Each implementation must reproduce every vector below byte-for-byte; a mismatch means one of the three has drifted, not that the vectors are wrong.",
+  "algorithm": "hash = fnv1a32(input, 0x811c9dc5).toString(16).padStart(8,'0') + fnv1a32(input, 0x9e3779b1).toString(16).padStart(8,'0')",
+  "vectors": [
+    {"input": "", "hash": "811c9dc59e3779b1"},
+    {"input": "1|c:00:11:22:33:44:02", "hash": "335d95bb68c40e57"},
+    {"input": "2|c:00:11:22:33:44:05", "hash": "ed736a13490920c7"},
+    {"input": "s:Router1:1:switch-x", "hash": "6f7b81e0cdc55b34"}
+  ]
+}

@@ -27,6 +27,31 @@ const view = new class {
 		return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
 	}
 
+	isTModel() {
+		return this.prefix === 'topot';
+	}
+
+	// §4.2 (T-model) vs. the old model's "host:<hostid>" -- opaque id formats differ per backend;
+	// nothing on either side should hardcode one or the other.
+	hostNodeId(hostid) {
+		return this.isTModel() ? `h:${hostid}` : `host:${hostid}`;
+	}
+
+	renderDiagnostics(diagnostics) {
+		const steps = Object.entries(diagnostics.steps ?? {})
+			.map(([name, {ms}]) => `<tr><td>${this.escape(name)}</td><td>${ms} ms</td></tr>`).join('');
+		const conflicts = (diagnostics.conflicts ?? []).map(c => `<li>${this.escape(c.message ?? JSON.stringify(c))}</li>`).join('');
+		const dangling = (diagnostics.dangling ?? []).map(d => `<li>${this.escape(`${d.tag} on host ${d.hostid}: ${d.value}`)}</li>`).join('');
+		const counts = diagnostics.counts ?? {};
+		this.diagnostics_panel.innerHTML = `<h3>${this.escape(<?= json_encode(_('T-model diagnostics')) ?>)}</h3>
+			<table><tbody>${steps}<tr><td>${this.escape(<?= json_encode(_('API calls')) ?>)}</td><td>${diagnostics.api_calls ?? '–'}</td></tr>
+			<tr><td>${this.escape(<?= json_encode(_('Nodes / links')) ?>)}</td><td>${counts.nodes ?? 0} / ${counts.links ?? 0}</td></tr>
+			<tr><td>${this.escape(<?= json_encode(_('Lost sides / silent (stale) sides')) ?>)}</td><td>${counts.lost_sides ?? 0} / ${counts.silent_sides ?? 0}</td></tr>
+			</tbody></table>
+			${conflicts ? `<p><strong>${this.escape(<?= json_encode(_('Conflicts:')) ?>)}</strong></p><ul>${conflicts}</ul>` : ''}
+			${dangling ? `<p><strong>${this.escape(<?= json_encode(_('Dangling tag references:')) ?>)}</strong></p><ul>${dangling}</ul>` : ''}`;
+	}
+
 	setDetailsTitle(text) {
 		document.getElementById('topology-details-title').textContent = text;
 	}
@@ -34,8 +59,37 @@ const view = new class {
 	async init() {
 		this.canvas = d3.select('#topology-canvas');
 		this.details = document.getElementById('topology-details');
+		this.diagnostics_panel = document.getElementById('topology-diagnostics-panel');
 		this.nodes = new Map();
 		this.links = [];
+
+		// §7 point 1: G/T data-source switch. 'topology' = CTopologyPrototype (ad-hoc host tags),
+		// 'topot' = CTopologyTModel (LLD-collected tags/items, topology-t-model-prototype-spec.md).
+		// Everything below reads/writes through this.prefix rather than a hardcoded action name,
+		// so the two graphs are viewable one after another without a reload.
+		this.prefix = 'topology';
+		const model_select = document.getElementById('topology-model-select');
+		model_select.addEventListener('change', () => this.guard(async () => {
+			this.prefix = (model_select.value === 'T') ? 'topot' : 'topology';
+			this.diagnostics_panel.innerHTML = '';
+			// §6: T-model has no ingest/pull endpoints -- LLD is the ingest. Hide the G-only
+			// "Run discovery ingest" control while T is selected rather than leaving a button
+			// that would silently no-op (or worse, mutate the OTHER model's tags) on click.
+			const ingest_field = this.ingest_button.closest('.topology-filter-field');
+			if (ingest_field) {
+				ingest_field.hidden = this.isTModel();
+			}
+			await this.loadDevices();
+		}));
+
+		document.getElementById('topology-diagnostics-button').addEventListener('click', () => this.guard(async () => {
+			if (!this.isTModel()) {
+				this.diagnostics_panel.innerHTML = `<div class="topology-empty">${this.escape(<?= json_encode(_('Diagnostics is a T-model-only instrument (spec §5.6) — switch the Model selector to T.')) ?>)}</div>`;
+				return;
+			}
+			const diagnostics = await this.request('topot.diagnostics');
+			this.renderDiagnostics(diagnostics);
+		}));
 
 		const panel_toggle = document.getElementById('topology-panel-toggle');
 		const workspace = document.querySelector('.topology-workspace');
@@ -121,7 +175,7 @@ const view = new class {
 	// the very graph they're inspecting. preferred_id, when it's still present in the reloaded node set,
 	// keeps that same node selected instead of jumping back to the top.
 	async loadDevices(preferred_id = null) {
-		const {devices = [], relations = []} = await this.request(`topology.devices.get${this.filterQuery()}`);
+		const {devices = [], relations = []} = await this.request(`${this.prefix}.devices.get${this.filterQuery()}`);
 		this.nodes = new Map(devices.map(node => [String(node.id), node]));
 		this.links = relations.map(relation => ({
 			source: String(relation.source), target: String(relation.target), type: relation.type,
@@ -138,8 +192,8 @@ const view = new class {
 	async selectNode(node) {
 		if (node.type === 'host') {
 			const [{problems}, {groups}] = await Promise.all([
-				this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`),
-				this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`)
+				this.request(`${this.prefix}.problems.get&id=${encodeURIComponent(node.id)}`),
+				this.request(`${this.prefix}.ports.get&id=${encodeURIComponent(node.id)}`)
 			]);
 			this.showHostPanel(node, problems, groups);
 			return;
@@ -177,19 +231,30 @@ const view = new class {
 			? `<section class="topology-group"><table><tbody>${meta_rows.map(([label, value]) =>
 				`<tr><th>${this.escape(label)}</th><td>${this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`
 			: '';
+		// §7 point 3: a Host node's side panel may contain several Device sections (A7 stacks/MLAG)
+		// -- only meaningful in T-mode, where node.devices[] can have more than one entry.
+		const devices_section = (this.isTModel() && Array.isArray(node.devices) && node.devices.length)
+			? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Device(s)')) ?>)}</h3><table><tbody>${
+				node.devices.map(d => `<tr><td>${this.escape(d.sysname ?? d.display_key)}</td>
+					<td>${this.escape(d.matched_by ?? '')}</td>
+					<td>${d.conflict ? `<span class="topology-conflict-badge">${this.escape(<?= json_encode(_('conflict')) ?>)}</span>` : ''}</td></tr>`).join('')
+				}</tbody></table></section>`
+			: '';
 		const problems_section = this.buildProblemsFragment(problems);
 		const ports_section = this.buildPortsFragment(groups, node);
-		// §6: a Host only has a Depromote button when IT is the one carrying an explicit
-		// topology.identity (i.e. it was manually /promote'd to represent some observed device) —
-		// a reporter Host identified purely by its own topology.chassis_id has nothing to depromote.
+		// §6: a Host only has a Depromote button when IT is the one carrying an explicit manual
+		// identity binding -- a reporter identified purely by reporter_self has nothing to
+		// depromote (T-model rejects that with 409, G-model never shows the button for it).
 		const depromote_section = node.identity ? this.depromoteButtonFragment() : '';
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${meta}${problems_section}${ports_section}${depromote_section}`;
+		this.details.innerHTML = `<h2>${this.escape(node.name)}${node.conflict ? `<span class="topology-conflict-badge">${this.escape(<?= json_encode(_('conflict')) ?>)}</span>` : ''}</h2>${meta}${devices_section}${problems_section}${ports_section}${depromote_section}`;
 		this.wirePortsFragment(node);
 		if (node.identity) {
 			this.details.querySelector('.topology-depromote-button').addEventListener('click', () => this.guard(async () => {
-				await this.request('topology.depromote', {
-					method: 'POST', headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify({hostid: node.hostid})
+				const body = this.isTModel()
+					? {device_id: (node.devices?.[0]?.cluster_key) ?? node.identity}
+					: {hostid: node.hostid};
+				await this.request(`${this.prefix}.depromote`, {
+					method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 				});
 				await this.loadDevices();
 			}));
@@ -222,8 +287,12 @@ const view = new class {
 			<section class="topology-group"><h3>${labels[group]}</h3><table><colgroup>
 				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected"><col class="topology-col-action">
 			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th></th></tr></thead><tbody>
-			${ports.map(port => `<tr data-if-index="${port.if_index}">
-				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}</td>
+			${ports.map(port => `<tr data-if-index="${port.if_index}" data-port-name="${this.escape(port.port)}" data-port-id="${this.escape(port.port_id ?? '')}" data-connected-to-port-id="${this.escape(port.connected_to_port_id ?? '')}">
+				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}
+					${port.conflict ? `<span class="topology-conflict-badge">${this.escape(<?= json_encode(_('conflict')) ?>)}</span>` : ''}
+					${port.stale ? `<span class="topology-lost-badge">${this.escape(<?= json_encode(_('stale')) ?>)}</span>` : ''}
+					${(this.isTModel() && port.itemid) ? ` <a href="history.php?action=showvalues&itemids[]=${encodeURIComponent(port.itemid)}" target="_blank" class="topology-history-link">${this.escape(<?= json_encode(_('history')) ?>)}</a>` : ''}
+				</td>
 				<td>${port.status ? `<span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}` : ''}</td>
 				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}</td>
 				<td class="topology-col-action">${port.connected_to
@@ -237,9 +306,12 @@ const view = new class {
 	wirePortsFragment(node) {
 		this.details.querySelectorAll('.topology-port-unlink-button').forEach(button => {
 			button.addEventListener('click', () => this.guard(async () => {
-				await this.request('topology.port.unlink', {
-					method: 'POST', headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify({hostid: node.hostid, if_index: button.dataset.ifIndex})
+				const row = button.closest('tr');
+				const body = this.isTModel()
+					? {src: row.dataset.portId, dst: row.dataset.connectedToPortId}
+					: {hostid: node.hostid, if_index: button.dataset.ifIndex};
+				await this.request(`${this.prefix}.port.unlink`, {
+					method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 				});
 				await this.loadDevices(node.id);
 			}));
@@ -264,9 +336,11 @@ const view = new class {
 		}
 
 		const if_index = button.dataset.ifIndex;
+		const source_port_id = button.closest('tr').dataset.portId;
 		const row = document.createElement('tr');
 		row.className = 'topology-port-link-row';
 		row.dataset.ifIndex = if_index;
+		row.dataset.sourcePortId = source_port_id;
 		row.innerHTML = `<td colspan="4"><div class="topology-port-link-picker">
 			<input type="text" class="topology-port-link-search" placeholder="${this.escape(<?= json_encode(_('Search target host by name/IP…')) ?>)}">
 			<div class="topology-port-link-results"></div>
@@ -295,7 +369,7 @@ const view = new class {
 				return;
 			}
 			this.port_link_search_timer = setTimeout(() => this.guard(async () => {
-				const {hosts = []} = await this.request(`topology.hosts.search&q=${encodeURIComponent(q)}`);
+				const {hosts = []} = await this.request(`${this.prefix}.hosts.search&q=${encodeURIComponent(q)}`);
 				const candidates = hosts.filter(host => String(host.hostid) !== String(node.hostid));
 				results_container.innerHTML = candidates.length
 					? candidates.map((host, index) => `<div class="topology-port-link-result" data-index="${index}">${this.escape(host.name)}</div>`).join('')
@@ -309,10 +383,10 @@ const view = new class {
 						confirm_button.disabled = true;
 						port_select.innerHTML = `<option value="">${this.escape(<?= json_encode(_('Loading ports…')) ?>)}</option>`;
 
-						const {groups: target_groups = {}} = await this.request(`topology.ports.get&id=${encodeURIComponent(`host:${target_host.hostid}`)}`);
+						const {groups: target_groups = {}} = await this.request(`${this.prefix}.ports.get&id=${encodeURIComponent(this.hostNodeId(target_host.hostid))}`);
 						const target_ports = Object.values(target_groups).flat();
 						port_select.innerHTML = target_ports.length
-							? target_ports.map(port => `<option value="${port.if_index}">${this.escape(port.port)}</option>`).join('')
+							? target_ports.map(port => `<option value="${port.if_index}" data-port-id="${this.escape(port.port_id ?? '')}">${this.escape(port.port)}</option>`).join('')
 							: `<option value="">${this.escape(<?= json_encode(_('This host has no ports reported.')) ?>)}</option>`;
 						port_select.disabled = target_ports.length === 0;
 						confirm_button.disabled = target_ports.length === 0;
@@ -326,12 +400,14 @@ const view = new class {
 			if (!confirm_button.dataset.targetHostid || !port_select.value) {
 				return;
 			}
-			await this.request('topology.port.link', {
-				method: 'POST', headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({
+			const body = this.isTModel()
+				? {src: source_port_id, dst: port_select.selectedOptions[0].dataset.portId}
+				: {
 					hostid: node.hostid, if_index, target_hostid: confirm_button.dataset.targetHostid,
 					target_if_index: port_select.value
-				})
+				};
+			await this.request(`${this.prefix}.port.link`, {
+				method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 			});
 			await this.loadDevices(node.id);
 		}));
@@ -374,7 +450,7 @@ const view = new class {
 				return;
 			}
 			this.promote_search_timer = setTimeout(() => this.guard(async () => {
-				const {hosts = []} = await this.request(`topology.hosts.search&q=${encodeURIComponent(q)}`);
+				const {hosts = []} = await this.request(`${this.prefix}.hosts.search&q=${encodeURIComponent(q)}`);
 				results_container.innerHTML = hosts.length
 					? hosts.map((host, index) => `<div class="topology-promote-result" data-index="${index}">${this.escape(host.name)}</div>`).join('')
 					: `<div class="topology-promote-result">${this.escape(<?= json_encode(_('No matches.')) ?>)}</div>`;
@@ -388,9 +464,11 @@ const view = new class {
 			if (!this.promote_selection) {
 				return;
 			}
-			await this.request('topology.promote', {
-				method: 'POST', headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({identity: node.chassis_id, hostid: this.promote_selection.hostid})
+			const body = this.isTModel()
+				? {device_id: node.chassis_id, hostid: this.promote_selection.hostid}
+				: {identity: node.chassis_id, hostid: this.promote_selection.hostid};
+			await this.request(`${this.prefix}.promote`, {
+				method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 			});
 			await this.loadDevices();
 		}));

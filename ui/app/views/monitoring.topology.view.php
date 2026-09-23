@@ -62,6 +62,15 @@ $page_styles = '
 .topology-filter-field{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
 .topology-filter-bar label{font-size:12px;color:#1f2933;margin-right:4px}
 .topology-filter-hint{flex-basis:100%;color:#7c8594;font-size:12px}
+.topology-diagnostics-panel{flex:0 0 auto;margin-top:10px;padding:10px 14px;border:1px solid #d9d9d9;background:#fbfbfb;font-size:12px;max-height:220px;overflow:auto}
+.topology-diagnostics-panel:empty{display:none;padding:0;border:none;margin:0}
+.topology-diagnostics-panel h3{margin:0 0 6px;font-size:13px}
+.topology-diagnostics-panel table{border-collapse:collapse;width:100%}
+.topology-diagnostics-panel td,.topology-diagnostics-panel th{padding:2px 8px;text-align:left;border-bottom:1px solid #e5e7eb}
+.topology-conflict-badge{display:inline-block;padding:1px 6px;border-radius:3px;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle}
+.topology-lost-badge{display:inline-block;padding:1px 6px;border-radius:3px;background:#e08a1e;color:#fff;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle}
+.topology-node.conflict rect{stroke:#e74c3c;stroke-dasharray:2 2}
+.topology-link.stale{stroke-dasharray:4 3;opacity:.55}
 ';
 
 (new CHtmlPage())
@@ -119,6 +128,19 @@ $page_styles = '
 						(new CButton('topology-ingest-run', _('Run discovery ingest'))),
 						(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status')
 					]))->addClass('topology-filter-field'),
+					// T-model spec §7 point 1: "a data-source switch (G/T) that selects the API
+					// prefix. The two graphs must be viewable one after the other on the same lab
+					// without restarting anything." G = CTopologyPrototype (topology.* actions,
+					// ad-hoc host tags), T = CTopologyTModel (topot.* actions, LLD-collected
+					// tags/items, topology-t-model-prototype-spec.md).
+					(new CDiv([
+						new CLabel(_('Model'), 'topology-model-select'),
+						(new CSelect('model'))
+							->setId('topology-model-select')
+							->setValue('G')
+							->addOptions(CSelect::createOptionsFromArray(['G' => 'G (graph tags)', 'T' => 'T (LLD tags)']))
+					]))->addClass('topology-filter-field'),
+					(new CButton('topology-diagnostics-button', _('Diagnostics')))->addClass(ZBX_STYLE_BTN_ALT),
 					(new CDiv(_('Show whole host groups, or center the map on one host and limit how far out it '.
 						'expands. A focus host overrides the group selection. "Show all" clears both and displays '.
 						'every relation at once. The graph is derived live from Host tags on every load — there is '.
@@ -136,7 +158,11 @@ $page_styles = '
 				]))
 					->setId('topology-panel')
 					->addClass('topology-panel')
-			]))->addClass('topology-workspace')
+			]))->addClass('topology-workspace'),
+			// §5.6/§7 point 6: T-model diagnostics panel (per-step timings/API call counts,
+			// conflicts, malformed tags, dangling references, lost/silent side counts). Empty in
+			// G-mode -- CTopologyPrototype has no equivalent instrumentation.
+			(new CDiv(''))->setId('topology-diagnostics-panel')->addClass('topology-diagnostics-panel')
 		]))->addClass('topology-prototype')
 	)
 	->show();

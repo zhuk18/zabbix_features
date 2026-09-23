@@ -410,6 +410,22 @@ final class CRouter {
 		'topology.ingest.status'				=> [CControllerTopologyIngestStatus::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.port.link'					=> [CControllerTopologyPortLink::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.port.unlink'					=> [CControllerTopologyPortUnlink::class,					ZBX_LAYOUT_JSON,		null],
+		// T-model (topology-t-model-prototype-spec.md §6): same REST contract shape as the
+		// topology.* actions above, backed by CTopologyTModel (stateless, Zabbix-tags/LLD-only)
+		// instead of CTopologyPrototype (tags-only, but not LLD-collected). "topot." prefix is
+		// this codebase's action-routing equivalent of the spec's "/topot/..." REST prefix --
+		// Zabbix's own MVC router is action-based, not URL-path-based (constraint 4).
+		'topot.devices.get'						=> [CControllerTopotDevicesGet::class,						ZBX_LAYOUT_JSON,		null],
+		'topot.neighbors.get'					=> [CControllerTopotNeighborsGet::class,				ZBX_LAYOUT_JSON,		null],
+		'topot.ports.get'						=> [CControllerTopotPortsGet::class,						ZBX_LAYOUT_JSON,		null],
+		'topot.problems.get'					=> [CControllerTopotProblemsGet::class,					ZBX_LAYOUT_JSON,		null],
+		'topot.promote'							=> [CControllerTopotPromote::class,							ZBX_LAYOUT_JSON,		null],
+		'topot.depromote'						=> [CControllerTopotDepromote::class,						ZBX_LAYOUT_JSON,		null],
+		'topot.hosts.search'					=> [CControllerTopotHostsSearch::class,					ZBX_LAYOUT_JSON,		null],
+		'topot.port.link'						=> [CControllerTopotPortLink::class,						ZBX_LAYOUT_JSON,		null],
+		'topot.port.unlink'					=> [CControllerTopotPortUnlink::class,					ZBX_LAYOUT_JSON,		null],
+		'topot.diagnostics'					=> [CControllerTopotDiagnostics::class,					ZBX_LAYOUT_JSON,		null],
+		'topot.maintenance.cleanup'			=> [CControllerTopotMaintenanceCleanup::class,			ZBX_LAYOUT_JSON,		null],
 		'toptriggers.list'							=> [CControllerTopTriggersList::class,							ZBX_LAYOUT_HTMLPAGE,	'reports.toptriggers.list'],
 		'trigdisplay.edit'							=> [CControllerTrigDisplayEdit::class,							ZBX_LAYOUT_HTMLPAGE,	'administration.trigdisplay.edit'],
 		'trigdisplay.update'						=> [CControllerTrigDisplayUpdate::class, 						ZBX_LAYOUT_JSON,		null],
