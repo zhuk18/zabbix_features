@@ -38,6 +38,28 @@ if that reporter itself has none, its `sysname`) from `$.reporter` — already p
 pushed blob, no macro needed. This preserves the id's stated intent exactly (deterministic,
 scoped to one reporter+port, never a global sysname match) without adding any state or identity
 tier the spec doesn't already define. Flagged per §1's "if something outside the spec seems
+
+**Second platform-limitation finding (not a numbered V-item, but load-bearing for §3.3 and for
+anyone reading `topo.nbr[...]` history right after a topology change): a newly-LLD-created
+dependent item does not receive the push that created it.** When `topo.nbr.discovery` fires and
+emits an LLD row for a neighbor not seen before, the item prototype instantiates a brand-new
+`topo.nbr[...]` item — but that same push's value does not cascade down to it. The new item
+sits at `lastclock=0`, empty history, `discoveryData.status=0` (currently discovered, not lost —
+so this is not the V1 "lost" case), until the *next* push delivers a value the already-existing
+item can process.
+
+Confirmed live: after a Zabbix restart mid-session, 4 of Switch2's 5 `topo.nbr[...]` items
+(Gi0/1, Gi0/2, Gi0/24, Gi0/4) showed `lastclock=0` with zero `history.get` rows, while the 5th
+(Gi0/3) had real data from an earlier push in the same session. A single fresh push to Switch2
+immediately populated all 4 empty items with real values — nothing about the template, the LLD
+JS, or the item prototype's preprocessing was at fault; the items simply hadn't been pushed to
+since they were created.
+
+Practical consequence for any real deployment of this design: a reporter's neighbor item will
+read as empty for one full collection cycle after a genuinely new neighbor first appears, before
+its history starts. This is inherent to how Zabbix processes LLD-created dependent items, not
+something `push.py` or the template can avoid — recorded here as a platform behavior to expect,
+not a defect to fix.
 necessary, stop and ask" — judged here as a substitution within an existing id shape, not a new
 mechanism, so implemented and recorded rather than escalated; happy to revisit if that judgment
 call was wrong.
