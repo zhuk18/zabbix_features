@@ -65,6 +65,13 @@ RAW_ITEM_KEY = "topology.discovery.raw"
 HEARTBEAT_ITEM_KEY = "topology.discovery.heartbeat"
 
 # LLDP-MIB lldpRemEntry column numbers (1.0.8802.1.1.2.1.4.1.1.<col>.<timeMark>.<localPortNum>.<index>)
+# CDP-MIB (Cisco proprietary, RFC-unregistered enterprise OID) cdpCacheTable -- T-model revised
+# spec §3.1's second collector. Indexed by cdpCacheIfIndex.cdpCacheDeviceIndex (2 sub-indices,
+# unlike lldpRemTable's 3: <timeMark>.<localPortNum>.<index>).
+CDP_CACHE_BASE = "1.3.6.1.4.1.9.9.23.1.2.1.1"
+CDP_COL_DEVICE_ID = 6
+CDP_COL_DEVICE_PORT = 7
+
 LLDP_REM_BASE = "1.0.8802.1.1.2.1.4.1.1"
 LLDP_COL_CHASSIS_ID_SUBTYPE = 4
 LLDP_COL_CHASSIS_ID = 5
@@ -323,6 +330,15 @@ def collect_neighbors(target: str, port: int, community: str, version: str) -> t
             chassis_id_raw = by_col.get(LLDP_COL_CHASSIS_ID, {}).get(suffix)
             chassis_id = decode_snmp_value(*chassis_id_raw) if chassis_id_raw else None
 
+            # LLDP_CHASSIS_ID_SUBTYPES (above) existed but was never actually read here before
+            # this addition -- topo.neighbor.chassis_type (T-model revised spec §1.1.3/§4.4.3)
+            # needs the real lldpRemChassisIdSubtype value, not an inferred "looks like a MAC"
+            # guess, since the reader's auto-promote-by-MAC rule must only fire when the
+            # AGENT ITSELF asserted a macAddress-subtype chassis id.
+            chassis_id_subtype_raw = by_col.get(LLDP_COL_CHASSIS_ID_SUBTYPE, {}).get(suffix)
+            chassis_id_subtype = LLDP_CHASSIS_ID_SUBTYPES.get(
+                int(decode_snmp_value(*chassis_id_subtype_raw))) if chassis_id_subtype_raw else None
+
             port_id_raw = by_col.get(LLDP_COL_PORT_ID, {}).get(suffix)
             port_id = decode_snmp_value(*port_id_raw) if port_id_raw else None
 
@@ -339,10 +355,16 @@ def collect_neighbors(target: str, port: int, community: str, version: str) -> t
             entry = {
                 "local_if_index": local_if_index,
                 "remote_chassis_id": chassis_id,
+                "remote_chassis_id_subtype": chassis_id_subtype,
                 "remote_sysname": sys_name,
                 "remote_port_id": port_id,
                 "remote_port_id_subtype": port_id_subtype,
                 "remote_port_desc": port_desc,
+                "remote_mgmt_ip": None,  # lldpRemManAddrTable is a separate, differently-indexed
+                # table this collector does not walk -- documented collector gap (same category
+                # as the G-spec's own tracked LAG/CAM-table gaps), not silently pretended away.
+                # topo.neighbor.mgmt_ip stays an empty tag for every LLDP neighbor (allowed
+                # explicitly by the revised spec's "empty values stay as empty tags").
             }
             # rule 1 (spec §3): "resolves" means chassis id or sysname is present — an entry
             # with neither is topologically useless (nothing to key a Device on) but is still
@@ -356,6 +378,58 @@ def collect_neighbors(target: str, port: int, community: str, version: str) -> t
             continue
 
     return neighbors, {"neighbors_total": total, "resolved": resolved}
+
+
+def collect_cdp_neighbors(target: str, port: int, community: str, version: str) -> list[dict]:
+    """cdpCacheTable walk -- T-model revised spec §3.1's second collector. A device with no CDP
+    neighbors (the common case for this lab's LLDP-only fixtures) returns an empty list, which
+    is exactly what an empty cdpCacheTable walk naturally produces -- no special-casing needed.
+    """
+    rows = snmp_walk(target, port, community, version, CDP_CACHE_BASE)
+
+    by_col = {}
+    for row_oid, row_type, row_value in rows:
+        prefix = CDP_CACHE_BASE + "."
+        if not row_oid.startswith(prefix):
+            continue
+        rest = row_oid[len(prefix):]
+        col_str, _, index_suffix = rest.partition(".")
+        try:
+            col = int(col_str)
+        except ValueError:
+            continue
+        by_col.setdefault(col, {})[index_suffix] = (row_type, row_value)
+
+    all_suffixes = set()
+    for col_rows in by_col.values():
+        all_suffixes.update(col_rows.keys())
+
+    neighbors = []
+    for suffix in sorted(all_suffixes):
+        try:
+            parts = suffix.split(".")
+            if len(parts) < 1:
+                raise ValueError(f"unexpected cdpCacheTable index shape: {suffix!r}")
+            local_if_index = int(parts[0])  # cdpCacheIfIndex.cdpCacheDeviceIndex -- position 0
+
+            device_id_raw = by_col.get(CDP_COL_DEVICE_ID, {}).get(suffix)
+            device_id = decode_snmp_value(*device_id_raw) if device_id_raw else None
+            device_port_raw = by_col.get(CDP_COL_DEVICE_PORT, {}).get(suffix)
+            device_port = decode_snmp_value(*device_port_raw) if device_port_raw else None
+
+            if not device_id:
+                continue  # nothing to key a Device on at all (mirrors the LLDP resolved check)
+
+            neighbors.append({
+                "local_if_index": local_if_index,
+                "remote_device_id": device_id,
+                "remote_port_id": device_port,
+            })
+        except Exception as exc:  # noqa: BLE001 - one bad neighbor must never sink the blob
+            print(f"WARNING: skipping malformed cdpCacheTable entry (index {suffix}): {exc}", file=sys.stderr)
+            continue
+
+    return neighbors
 
 
 def collect_reporter_identity(target: str, port: int, community: str, version: str,
@@ -387,11 +461,13 @@ def build_blob(cfg: ReporterConfig) -> dict:
                                           cfg.snmp_version, cfg.mgmt_ip)
     ports = collect_ports(cfg.snmp_target, cfg.snmp_port, cfg.snmp_community, cfg.snmp_version)
     neighbors, stats = collect_neighbors(cfg.snmp_target, cfg.snmp_port, cfg.snmp_community, cfg.snmp_version)
+    cdp_neighbors = collect_cdp_neighbors(cfg.snmp_target, cfg.snmp_port, cfg.snmp_community, cfg.snmp_version)
 
     return {
         "reporter": reporter,
         "ports": [ports[k] for k in sorted(ports)],
         "neighbors": neighbors,
+        "cdp_neighbors": cdp_neighbors,
         "stats": stats,
         "collected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }

@@ -69,6 +69,7 @@ $page_styles = '
 .topology-diagnostics-panel td,.topology-diagnostics-panel th{padding:2px 8px;text-align:left;border-bottom:1px solid #e5e7eb}
 .topology-conflict-badge{display:inline-block;padding:1px 6px;border-radius:3px;background:#e74c3c;color:#fff;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle}
 .topology-lost-badge{display:inline-block;padding:1px 6px;border-radius:3px;background:#e08a1e;color:#fff;font-size:10px;font-weight:bold;margin-left:4px;vertical-align:middle}
+.topology-broken-link{color:#a33a3a;font-style:italic;font-family:monospace;font-size:11px}
 .topology-node.conflict rect{stroke:#e74c3c;stroke-dasharray:2 2}
 .topology-link.stale{stroke-dasharray:4 3;opacity:.55}
 ';

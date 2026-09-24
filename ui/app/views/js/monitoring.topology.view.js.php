@@ -294,7 +294,13 @@ const view = new class {
 					${(this.isTModel() && port.itemid) ? ` <a href="history.php?action=showvalues&itemids[]=${encodeURIComponent(port.itemid)}" target="_blank" class="topology-history-link">${this.escape(<?= json_encode(_('history')) ?>)}</a>` : ''}
 				</td>
 				<td>${port.status ? `<span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}` : ''}</td>
-				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}</td>
+				<td title="${this.escape(port.connected_to ?? port.manual_broken_ref ?? port.manual_invalid_raw ?? '')}">${
+					port.manual_broken_ref
+						? `<span class="topology-broken-link">${this.escape(<?= json_encode(_('broken:')) ?>)} ${this.escape(port.manual_broken_ref)}</span>`
+					: port.manual_invalid_raw
+						? `<span class="topology-broken-link">${this.escape(<?= json_encode(_('invalid tag:')) ?>)} ${this.escape(port.manual_invalid_raw)}</span>`
+					: this.escape(port.connected_to ?? '–')
+				}</td>
 				<td class="topology-col-action">${port.connected_to
 					? `<button type="button" class="btn-alt topology-port-unlink-button" data-if-index="${port.if_index}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
 					: `<button type="button" class="btn-alt topology-port-link-button" data-if-index="${port.if_index}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`}</td>

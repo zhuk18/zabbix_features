@@ -1,0 +1,125 @@
+[
+  {
+    "id": "B2-ifname",
+    "uc": "B2",
+    "expected": "# B2 \u2014 two sides of one link report different lldpRemPortIdSubtype forms for the peer port\nExpected: read-time normalization (normalizePortName(), ported from the G-model, \u00a75.4) means\n\"GigabitEthernet0/24\" (ifDescr-style, remote_port_desc present) and \"Gi0/24\" (short ifName\nform) normalize to the same value and the two sides collapse to ONE link, not two. Already\npartially demonstrated live in t-model-findings.md (Switch1's peer.port normalized to gi0/0 for\nits Router1 link) \u2014 this test constructs the (ifName vs macAddress vs local subtype) cases\nexplicitly via hand-built blobs rather than relying on what the lab's fixture happened to send.\n",
+    "actual": "ONE link (not two), normalized: {'source': 'h:11293', 'target': 'h:11294', 'source_port': 'GigabitEthernet0/1', 'target_port': 'GigabitEthernet0/2', 'source_port_id': 'h:11293/GigabitEthernet0/1', 'target_port_id': 'h:11294/GigabitEthernet0/2', 'type': 'physical_link', 'discovered_via': 'lldp', 'manual': False, 'last_seen': None, 'last_seen_src': 0, 'last_seen_dst': 0, 'stale': True, 'lost_src': True, 'lost_dst': True, 'conflict': False}",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {
+      "relations_touching_port": [
+        {
+          "source": "h:11293",
+          "target": "h:11294",
+          "source_port": "GigabitEthernet0/1",
+          "target_port": "GigabitEthernet0/2",
+          "source_port_id": "h:11293/GigabitEthernet0/1",
+          "target_port_id": "h:11294/GigabitEthernet0/2",
+          "type": "physical_link",
+          "discovered_via": "lldp",
+          "manual": false,
+          "last_seen": null,
+          "last_seen_src": 0,
+          "last_seen_dst": 0,
+          "stale": true,
+          "lost_src": true,
+          "lost_dst": true,
+          "conflict": false
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "B2-mac",
+    "uc": "B2",
+    "expected": "# B2 \u2014 two sides of one link report different lldpRemPortIdSubtype forms for the peer port\nExpected: read-time normalization (normalizePortName(), ported from the G-model, \u00a75.4) means\n\"GigabitEthernet0/24\" (ifDescr-style, remote_port_desc present) and \"Gi0/24\" (short ifName\nform) normalize to the same value and the two sides collapse to ONE link, not two. Already\npartially demonstrated live in t-model-findings.md (Switch1's peer.port normalized to gi0/0 for\nits Router1 link) \u2014 this test constructs the (ifName vs macAddress vs local subtype) cases\nexplicitly via hand-built blobs rather than relying on what the lab's fixture happened to send.\n",
+    "actual": "Two UNMERGED half-links form, not one: h1's side reports its peer port as the raw MAC ('aa:00:00:00:0b:02', per resolvePortLabel's macAddress-subtype branch returning the MAC verbatim -- ported faithfully from the G-model's own resolvePortLabel, same limitation there), which never matches h2's REAL port name ('GigabitEthernet0/2') because far-port resolution (buildLinks()) only matches by normalized NAME, never by MAC, even though the peer's own port.mac IS available in ports_by_hostid. The port-conflict detector DOES correctly notice two links now claim h1's port and flags the second one conflict=true -- so the failure is visible in diagnostics, not silent, but the result is still two half-links instead of one clean merged link.",
+    "verdict": "MODEL_LIMIT",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": "B2's \u2705 holds for ifName/local-with-desc forms but not for the macAddress-subtype-only case, which is a real, narrower gap worth its own line.",
+    "evidence": {
+      "relations_touching_port": [
+        {
+          "source": "h:11295",
+          "target": "h:11296",
+          "source_port": "GigabitEthernet0/1",
+          "target_port": "aa:00:00:00:0b:02",
+          "source_port_id": "h:11295/GigabitEthernet0/1",
+          "target_port_id": "h:11296/aa:00:00:00:0b:02",
+          "type": "physical_link",
+          "discovered_via": "lldp",
+          "manual": false,
+          "last_seen": null,
+          "last_seen_src": 0,
+          "last_seen_dst": null,
+          "stale": true,
+          "lost_src": true,
+          "lost_dst": null,
+          "conflict": false
+        },
+        {
+          "source": "h:11295",
+          "target": "h:11296",
+          "source_port": "GigabitEthernet0/1",
+          "target_port": "GigabitEthernet0/2",
+          "source_port_id": "h:11295/GigabitEthernet0/1",
+          "target_port_id": "h:11296/GigabitEthernet0/2",
+          "type": "physical_link",
+          "discovered_via": "lldp",
+          "manual": false,
+          "last_seen": null,
+          "last_seen_src": 0,
+          "last_seen_dst": 0,
+          "stale": true,
+          "lost_src": true,
+          "lost_dst": true,
+          "conflict": true
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": "Not fixed (ground rule 1). A real fix would add a MAC-based fallback match in buildLinks()'s far-port resolution when the peer_port_raw looks like a MAC and the peer cluster's ports include a matching port.mac."
+  },
+  {
+    "id": "B2-local_with_desc",
+    "uc": "B2",
+    "expected": "# B2 \u2014 two sides of one link report different lldpRemPortIdSubtype forms for the peer port\nExpected: read-time normalization (normalizePortName(), ported from the G-model, \u00a75.4) means\n\"GigabitEthernet0/24\" (ifDescr-style, remote_port_desc present) and \"Gi0/24\" (short ifName\nform) normalize to the same value and the two sides collapse to ONE link, not two. Already\npartially demonstrated live in t-model-findings.md (Switch1's peer.port normalized to gi0/0 for\nits Router1 link) \u2014 this test constructs the (ifName vs macAddress vs local subtype) cases\nexplicitly via hand-built blobs rather than relying on what the lab's fixture happened to send.\n",
+    "actual": "ONE link (not two), normalized: {'source': 'h:11297', 'target': 'h:11298', 'source_port': 'GigabitEthernet0/1', 'target_port': 'GigabitEthernet0/2', 'source_port_id': 'h:11297/GigabitEthernet0/1', 'target_port_id': 'h:11298/GigabitEthernet0/2', 'type': 'physical_link', 'discovered_via': 'lldp', 'manual': False, 'last_seen': None, 'last_seen_src': 0, 'last_seen_dst': 0, 'stale': True, 'lost_src': True, 'lost_dst': True, 'conflict': False}",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {
+      "relations_touching_port": [
+        {
+          "source": "h:11297",
+          "target": "h:11298",
+          "source_port": "GigabitEthernet0/1",
+          "target_port": "GigabitEthernet0/2",
+          "source_port_id": "h:11297/GigabitEthernet0/1",
+          "target_port_id": "h:11298/GigabitEthernet0/2",
+          "type": "physical_link",
+          "discovered_via": "lldp",
+          "manual": false,
+          "last_seen": null,
+          "last_seen_src": 0,
+          "last_seen_dst": 0,
+          "stale": true,
+          "lost_src": true,
+          "lost_dst": true,
+          "conflict": false
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  }
+]

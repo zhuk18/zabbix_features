@@ -1,0 +1,119 @@
+[
+  {
+    "id": "C1a",
+    "uc": null,
+    "expected": "# C1 \u2014 reporter walk returns (a) empty table, (b) partial table, (c) SNMP timeout\nExpected: (a) covered by Q6 above \u2014 no data loss, items go quietly stale/lost, never deleted\n(lifetime_type=NEVER). (b) a partial blob (some neighbors present, others gone) should behave\nper-neighbor exactly like B3/E-B3(a)/(b) already demonstrated in t-model-findings.md: neighbors\nstill present keep confirming, neighbors dropped get \"present\":false on their own item without\nbeing deleted. (c) a full SNMP timeout for push.py itself simply means no push happens at all\nthis cycle \u2014 the master item's own lastclock freezes, and by extension every dependent item's\nlastclock freezes too (nothing to reprocess) \u2014 this is the \"silent reporter\" case already\ndemonstrated live in t-model-findings.md's E-B3(a). Expect: in all three cases, no topology\ndata or link history is erased; graph just goes stale in a way diagnostics can see.\n",
+    "actual": "Empty table: both neighbor items survive (not deleted), values show present:false. No data loss.",
+    "verdict": "PASS",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {
+      "items": [
+        {
+          "itemid": "60622",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18666",
+            "status": "0",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": ""
+        },
+        {
+          "itemid": "60623",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18667",
+            "status": "0",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": ""
+        }
+      ]
+    },
+    "metrics_after": {
+      "items": [
+        {
+          "itemid": "60622",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18666",
+            "status": "1",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": "{\"present\":false}"
+        },
+        {
+          "itemid": "60623",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18667",
+            "status": "1",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": "{\"present\":false}"
+        }
+      ]
+    },
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "C1b",
+    "uc": null,
+    "expected": "# C1 \u2014 reporter walk returns (a) empty table, (b) partial table, (c) SNMP timeout\nExpected: (a) covered by Q6 above \u2014 no data loss, items go quietly stale/lost, never deleted\n(lifetime_type=NEVER). (b) a partial blob (some neighbors present, others gone) should behave\nper-neighbor exactly like B3/E-B3(a)/(b) already demonstrated in t-model-findings.md: neighbors\nstill present keep confirming, neighbors dropped get \"present\":false on their own item without\nbeing deleted. (c) a full SNMP timeout for push.py itself simply means no push happens at all\nthis cycle \u2014 the master item's own lastclock freezes, and by extension every dependent item's\nlastclock freezes too (nothing to reprocess) \u2014 this is the \"silent reporter\" case already\ndemonstrated live in t-model-findings.md's E-B3(a). Expect: in all three cases, no topology\ndata or link history is erased; graph just goes stale in a way diagnostics can see.\n",
+    "actual": "Partial table: PeerA item stays present:true, PeerB item flips to present:false. Both items survive.",
+    "verdict": "PASS",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {},
+    "metrics_after": {
+      "items": [
+        {
+          "itemid": "60622",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18666",
+            "status": "1",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": "{\"present\":true,\"neighbor\":{\"local_if_index\":1,\"remote_chassis_id\":\"aa:bb:cc:dd:ee:31\",\"remote_sysname\":\"PeerA\",\"remote_port_id\":\"Eth1\",\"remote_port_id_subtype\":null,\"remote_port_desc\":\"Eth1\"}}"
+        },
+        {
+          "itemid": "60623",
+          "status": "0",
+          "itemDiscovery": {
+            "itemdiscoveryid": "18667",
+            "status": "1",
+            "ts_delete": "0",
+            "ts_disable": "0"
+          },
+          "lastvalue": "{\"present\":false}"
+        }
+      ]
+    },
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "C1c",
+    "uc": null,
+    "expected": "# C1 \u2014 reporter walk returns (a) empty table, (b) partial table, (c) SNMP timeout\nExpected: (a) covered by Q6 above \u2014 no data loss, items go quietly stale/lost, never deleted\n(lifetime_type=NEVER). (b) a partial blob (some neighbors present, others gone) should behave\nper-neighbor exactly like B3/E-B3(a)/(b) already demonstrated in t-model-findings.md: neighbors\nstill present keep confirming, neighbors dropped get \"present\":false on their own item without\nbeing deleted. (c) a full SNMP timeout for push.py itself simply means no push happens at all\nthis cycle \u2014 the master item's own lastclock freezes, and by extension every dependent item's\nlastclock freezes too (nothing to reprocess) \u2014 this is the \"silent reporter\" case already\ndemonstrated live in t-model-findings.md's E-B3(a). Expect: in all three cases, no topology\ndata or link history is erased; graph just goes stale in a way diagnostics can see.\n",
+    "actual": "Equivalent to E-B3(a) in t-model-findings.md, already demonstrated live with real timestamps on Switch1/Switch2: a fully silent reporter (no push at all, which is what a real SNMP timeout inside push.py produces) freezes its own items' lastclock while a still-reporting neighbor's side keeps advancing -- no data loss, no crash. Not independently re-run against a synthetic host in this pass since the mechanism is identical and already has real evidence.",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  }
+]

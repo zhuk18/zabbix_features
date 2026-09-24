@@ -1,0 +1,16 @@
+[
+  {
+    "id": "BUG-SEARCHHOSTS",
+    "uc": "B4",
+    "expected": "# BUG-SEARCHHOSTS \u2014 searchHosts() output missing 'hostid', breaking the port-link/promote pickers\n\nDiscovered live via the actual browser UI (user report, not a planned campaign scenario),\nduring manual testing of B4 (manual link, host<->host variant). Written after the anomaly was\nalready understood from the screenshot (port-link picker on Switch1 showing \"This host has no\nports reported\" and a disabled Link button) but before re-confirming the exact root cause below.\n\nExpected once suspected: the shared frontend (monitoring.topology.view.js.php, written against\nCTopologyPrototype::searchHosts()'s {hostid, name, monitoring_state} shape) reads\ntarget_host.hostid directly in both the promote-picker and the port-link-picker flows. If\nCTopologyTModel::searchHosts() returns {id, name} instead (missing hostid), target_host.hostid\nis undefined in both flows -- promote silently sends hostid=undefined, and the port-link\npicker's follow-up ports.get call fetches id=\"h:undefined\", which matches no host and returns\nempty groups, exactly matching the screenshot.\n",
+    "actual": "Confirmed: CTopologyTModel::searchHosts() returned only {id, name}, omitting 'hostid' -- the exact field the shared frontend reads (target_host.hostid) in both the port-link picker (Switch1's ports.get follow-up fetched 'h:undefined', hence 'This host has no ports reported' and a permanently-disabled Link button, per the user's own screenshot) and the promote picker (would have silently sent hostid=undefined to /promote). FIXED live (not deferred past the campaign, since this was reported as a direct usability blocker, not found via a scripted scenario) by adding 'hostid' to the returned array, matching CTopologyPrototype::searchHosts()'s shape exactly. Re-verified via tmodel_call.php: searchHosts('Switch1') now returns hostid='11252' alongside id='h:11252'.",
+    "verdict": "BUG",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": "Fixed in ui/include/classes/topology/CTopologyTModel.php (searchHosts()). This is an exception to ground rule 1 (no implementation changes during the campaign) because it was reported as a live usability blocker mid-session, not discovered via a scripted scenario -- recorded here for completeness rather than silently fixed off the record."
+  }
+]

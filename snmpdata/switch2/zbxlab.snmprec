@@ -1,6 +1,26 @@
 # lldpLocChassisId (own) + lldpRemChassisId for neighbors Switch1/UPS1/Firewall1/AccessSwitch1 —
 # see router1 fixture's comment for the scheme shared across all lab fixtures.
+# Firewall1 is never a reporter itself (see reporters.example.json) — only ever seen here, via
+# Switch2's lldpRemSysName. §9 XSS-through-the-real-pipeline test fixture: deliberately an
+# unsanitized HTML/script payload, not a normal hostname. Do not "fix" this value.
+# AP1 (new, added to test ingest's upsert behavior when a reporter's neighbor set grows) — never
+# a reporter itself, same "unmanaged neighbor" role as Firewall1, chassis id ...:0a in the
+# scheme from router1's fixture comment.
+
+
+# ifIndex 5 (Gi0/4) is deliberately disconnected: admin/oper down, no lldpRemTable entry.
+
+
+# CDP-only fixture (T-model revised spec §3.1): a neighbor visible ONLY via cdpCacheTable, on
+# Gi0/5 (if_index 6, otherwise unused by any LLDP neighbor in this fixture) -- exercises the new
+# CDP collector/LLD rule for real over SNMP, not a hand-pushed test-only value.
+# lldpRemChassisIdSubtype = 4 (macAddress) for every neighbor above -- added for T-model revised spec's topo.neighbor.chassis_type; every chassis id in this lab's fixtures is genuinely MAC-formatted.
 1.0.8802.1.1.2.1.3.2.0|4x|001122334412
+1.0.8802.1.1.2.1.4.1.1.4.0.1.1|2|4
+1.0.8802.1.1.2.1.4.1.1.4.0.2.1|2|4
+1.0.8802.1.1.2.1.4.1.1.4.0.3.1|2|4
+1.0.8802.1.1.2.1.4.1.1.4.0.4.1|2|4
+1.0.8802.1.1.2.1.4.1.1.4.0.5.1|2|4
 1.0.8802.1.1.2.1.4.1.1.5.0.1.1|4x|001122334402
 1.0.8802.1.1.2.1.4.1.1.5.0.2.1|4x|001122334405
 1.0.8802.1.1.2.1.4.1.1.5.0.3.1|4x|001122334406
@@ -16,20 +36,12 @@
 1.0.8802.1.1.2.1.4.1.1.8.0.3.1|4|GigabitEthernet0/1
 1.0.8802.1.1.2.1.4.1.1.8.0.4.1|4|GigabitEthernet0/1
 1.0.8802.1.1.2.1.4.1.1.8.0.5.1|4|wlan0
-# Firewall1 is never a reporter itself (see reporters.example.json) — only ever seen here, via
-# Switch2's lldpRemSysName. §9 XSS-through-the-real-pipeline test fixture: deliberately an
-# unsanitized HTML/script payload, not a normal hostname. Do not "fix" this value.
 1.0.8802.1.1.2.1.4.1.1.9.0.1.1|4|Switch1
 1.0.8802.1.1.2.1.4.1.1.9.0.2.1|4|UPS1
 1.0.8802.1.1.2.1.4.1.1.9.0.3.1|4|UPS2
 1.0.8802.1.1.2.1.4.1.1.9.0.4.1|4|AccessSwitch1
-# AP1 (new, added to test ingest's upsert behavior when a reporter's neighbor set grows) — never
-# a reporter itself, same "unmanaged neighbor" role as Firewall1, chassis id ...:0a in the
-# scheme from router1's fixture comment.
 1.0.8802.1.1.2.1.4.1.1.9.0.5.1|4|AP1
-
 1.3.6.1.2.1.1.5.0|4|Switch2
-
 1.3.6.1.2.1.2.2.1.1.1|2|1
 1.3.6.1.2.1.2.2.1.1.2|2|2
 1.3.6.1.2.1.2.2.1.1.3|2|3
@@ -40,7 +52,6 @@
 1.3.6.1.2.1.2.2.1.2.2|4|Gi0/1
 1.3.6.1.2.1.2.2.1.2.3|4|Gi0/2
 1.3.6.1.2.1.2.2.1.2.4|4|Gi0/3
-# ifIndex 5 (Gi0/4) is deliberately disconnected: admin/oper down, no lldpRemTable entry.
 1.3.6.1.2.1.2.2.1.2.5|4|Gi0/4
 1.3.6.1.2.1.2.2.1.2.6|4|Gi0/5
 1.3.6.1.2.1.2.2.1.3.1|2|6
@@ -85,14 +96,12 @@
 1.3.6.1.2.1.2.2.1.9.4|67|0
 1.3.6.1.2.1.2.2.1.9.5|67|0
 1.3.6.1.2.1.2.2.1.9.6|67|0
-
 1.3.6.1.2.1.31.1.1.1.1.1|4|Gi0/24
 1.3.6.1.2.1.31.1.1.1.1.2|4|Gi0/1
 1.3.6.1.2.1.31.1.1.1.1.3|4|Gi0/2
 1.3.6.1.2.1.31.1.1.1.1.4|4|Gi0/3
 1.3.6.1.2.1.31.1.1.1.1.5|4|Gi0/4
 1.3.6.1.2.1.31.1.1.1.1.6|4|Gi0/5
-
 1.3.6.1.2.1.31.1.1.1.6.1|65|8000000
 1.3.6.1.2.1.31.1.1.1.6.2|65|9000000
 1.3.6.1.2.1.31.1.1.1.6.3|65|500000
@@ -105,3 +114,5 @@
 1.3.6.1.2.1.31.1.1.1.10.4|65|110000
 1.3.6.1.2.1.31.1.1.1.10.5|65|0
 1.3.6.1.2.1.31.1.1.1.10.6|65|320000
+1.3.6.1.4.1.9.9.23.1.2.1.1.6.6.1|4|CdpOnlyDevice
+1.3.6.1.4.1.9.9.23.1.2.1.1.7.6.1|4|GigabitEthernet0/2

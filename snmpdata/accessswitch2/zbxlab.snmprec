@@ -1,59 +1,61 @@
 # lldpLocChassisId (own) + lldpRemChassisId for neighbor AccessSwitch1 — see router1
 # fixture's comment for the scheme shared across all lab fixtures.
 # End of chain: Router1 -- Switch1 -- Switch2 -- AccessSwitch1 -- AccessSwitch2.
-1.0.8802.1.1.2.1.3.2.0|4x|001122334408
 # LLDP neighbor table (local port 1 -> AccessSwitch1 uplink)
+
+
+# ifIndex
+# ifDescr (ifIndex1 = uplink to AccessSwitch1, ifIndex2/3 = deliberately disconnected:
+# admin/oper down, no lldpRemTable entry)
+# ifType (ethernetCsmacd)
+# ifMtu
+# ifSpeed
+# ifPhysAddress
+# ifAdminStatus
+# ifOperStatus
+# ifLastChange
+
+# ifName
+
+# traffic counters
+# lldpRemChassisIdSubtype = 4 (macAddress) for every neighbor above -- added for T-model revised spec's topo.neighbor.chassis_type; every chassis id in this lab's fixtures is genuinely MAC-formatted.
+1.0.8802.1.1.2.1.3.2.0|4x|001122334408
+1.0.8802.1.1.2.1.4.1.1.4.0.1.1|2|4
 1.0.8802.1.1.2.1.4.1.1.5.0.1.1|4x|001122334407
 1.0.8802.1.1.2.1.4.1.1.7.0.1.1|4|Gi0/2
 1.0.8802.1.1.2.1.4.1.1.8.0.1.1|4|GigabitEthernet0/2
 1.0.8802.1.1.2.1.4.1.1.9.0.1.1|4|AccessSwitch1
-
 1.3.6.1.2.1.1.5.0|4|AccessSwitch2
-
-# ifIndex
 1.3.6.1.2.1.2.2.1.1.1|2|1
 1.3.6.1.2.1.2.2.1.1.2|2|2
 1.3.6.1.2.1.2.2.1.1.3|2|3
-# ifDescr (ifIndex1 = uplink to AccessSwitch1, ifIndex2/3 = deliberately disconnected:
-# admin/oper down, no lldpRemTable entry)
 1.3.6.1.2.1.2.2.1.2.1|4|Gi0/1
 1.3.6.1.2.1.2.2.1.2.2|4|Gi0/2
 1.3.6.1.2.1.2.2.1.2.3|4|Gi0/3
-# ifType (ethernetCsmacd)
 1.3.6.1.2.1.2.2.1.3.1|2|6
 1.3.6.1.2.1.2.2.1.3.2|2|6
 1.3.6.1.2.1.2.2.1.3.3|2|6
-# ifMtu
 1.3.6.1.2.1.2.2.1.4.1|2|1500
 1.3.6.1.2.1.2.2.1.4.2|2|1500
 1.3.6.1.2.1.2.2.1.4.3|2|1500
-# ifSpeed
 1.3.6.1.2.1.2.2.1.5.1|66|1000000000
 1.3.6.1.2.1.2.2.1.5.2|66|1000000000
 1.3.6.1.2.1.2.2.1.5.3|66|1000000000
-# ifPhysAddress
 1.3.6.1.2.1.2.2.1.6.1|4x|020000060001
 1.3.6.1.2.1.2.2.1.6.2|4x|020000060002
 1.3.6.1.2.1.2.2.1.6.3|4x|020000060003
-# ifAdminStatus
 1.3.6.1.2.1.2.2.1.7.1|2|1
 1.3.6.1.2.1.2.2.1.7.2|2|2
 1.3.6.1.2.1.2.2.1.7.3|2|2
-# ifOperStatus
 1.3.6.1.2.1.2.2.1.8.1|2|1
 1.3.6.1.2.1.2.2.1.8.2|2|2
 1.3.6.1.2.1.2.2.1.8.3|2|2
-# ifLastChange
 1.3.6.1.2.1.2.2.1.9.1|67|0
 1.3.6.1.2.1.2.2.1.9.2|67|0
 1.3.6.1.2.1.2.2.1.9.3|67|0
-
-# ifName
 1.3.6.1.2.1.31.1.1.1.1.1|4|Gi0/1
 1.3.6.1.2.1.31.1.1.1.1.2|4|Gi0/2
 1.3.6.1.2.1.31.1.1.1.1.3|4|Gi0/3
-
-# traffic counters
 1.3.6.1.2.1.31.1.1.1.6.1|65|1000000
 1.3.6.1.2.1.31.1.1.1.6.2|65|0
 1.3.6.1.2.1.31.1.1.1.6.3|65|0

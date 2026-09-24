@@ -1,51 +1,38 @@
 <?php
 
 /**
- * CTopologyTModel — T-model topology assembler (topology-t-model-prototype-spec.md).
+ * CTopologyTModel — T-model topology assembler.
+ *
+ * Revised per the XWiki "Topology model (T-model: items + tags)" design (see the delivery
+ * report for the full section-by-section mapping). Superseded from this class's first pass
+ * (built against topology-t-model-prototype-spec.md): topo.self -> lldp.loc.chassis/
+ * lldp.loc.name; topo.nbr[{#LOCIFINDEX},{#NBRKEY}] (hash-keyed) -> lldp.rem[{#LOCPORT},
+ * "{#REM.CHASSIS}","{#REM.PORTID}"] (chassis/port-id-keyed, stable across a neighbor's
+ * lldpRemIndex changing) + a parallel cdp.rem[...] rule; topo.peer.id (a pre-computed tag) ->
+ * computed at READ TIME from topo.neighbor.chassis/mgmt_ip/name (canonicalPeerId()/
+ * neighborCanonicalId()); a hardcoded 7-day staleness constant -> the {$TOPO.FRESHNESS} global
+ * macro, with a documented default+warning fallback.
  *
  * Hard constraint 1 (spec §1): no topology tables, no cache, no state outliving one request.
  * Every method here is either a pure Zabbix API read (`*.get`) or, for the §6 write endpoints, a
  * read → modify → write of one host's own tags. `assemble()` is the pure function described in
- * §5 — it is re-run, from scratch, on every call. Do NOT memoize it across requests (constraint 1
- * / §0's "do not add caching" — the cost of uncached assembly is itself one of the things being
- * measured, see t-model-findings.md E-D3).
+ * §5 — it is re-run, from scratch, on every call. Do NOT memoize it across requests.
  *
- * Node ids are opaque strings (§4.2), never raw integers:
+ * Node ids are opaque strings, never raw integers:
  *   - a cluster bound to a Host -> "h:<hostid>"
- *   - an unbound cluster -> "d:<canonical cluster key>" (§5.2)
+ *   - an unbound cluster -> "d:<canonical cluster key>" ("c:<chassis>" / "m:<mgmt_ip>" /
+ *     "s:<reporter>:<local_port>:<name>", in that priority order per §4.2)
  *   - a Port -> "<node id>/<port name>"
- * These are derived fresh every render, not stored — if a cluster's key changes (A3), its id
- * changes with it; that is the documented, expected behavior (§4.2), not a bug to paper over with
- * an id-mapping table.
+ * These are derived fresh every render, not stored — if a cluster's key changes, its id changes
+ * with it; that is documented, expected behavior, not a bug to paper over with an id-mapping
+ * table.
  *
- * Constraint 5: port-name normalization / lldpRemPortIdSubtype handling / MAC normalization below
- * are line-for-line ports of the G-model's ingest.php ($normalize_port_name /
- * $resolve_port_label) and push.py ($resolve_port_label / decode_snmp_value's Hex-STRING MAC
- * form) — not reinvented. The FNV-1a NBRKEY hash mirrors the LLD preprocessing script
- * (database/topology/discovery/topot/nbr_discovery.js) byte-for-byte; both are checked against
- * database/topology/discovery/topo-nbr-hash-vectors.json.
- *
- * §5.1 platform-fact adaptation (Step 0 finding V1, see t-model-findings.md): the spec assumes
- * `itemDiscovery.lastcheck` is readable via `item.get`'s `selectItemDiscovery` and freezes for a
- * lost LLD row while the item's own value keeps changing. On this Zabbix 8.0 instance,
- * `item_discovery.lastcheck` exists in the DB (confirmed via source, src/zabbix_server/lld/
- * lld_item.c) but `selectItemDiscovery`'s API output is restricted to
- * parent_itemid/key_/status/ts_delete/ts_disable/disable_source — `lastcheck` is NOT exposed.
- * Adapted design, using only fields the API actually returns:
- *   - `last_seen_<side>` = that side's neighbor item's own `lastclock` (items.lastclock, exposed).
- *     A fully silent reporter stops all dependent-item reprocessing, so every one of its items'
- *     `lastclock` freezes — this still catches the "silent reporter" staleness mechanism §5.4
- *     describes.
- *   - `lost_<side>` = the neighbor item's *own latest value* decodes to `{"present":false}` (the
- *     topo.nbr item prototype's step-1 preprocessing, §3.3, returns exactly this shape when its
- *     NBRKEY is no longer present in the current blob — value payload, not LLD lifecycle
- *     metadata). This is actually a *more* precise "reporter still pushes, neighbor gone" signal
- *     than a frozen lastcheck would have been, since it is asserted positively by the reporter's
- *     own current push rather than inferred from absence.
- *   `lastclock` still advances even when `present:false` (the item is being reprocessed every
- *   push, just with a "gone" value) — so a lost-but-not-silent side does NOT go stale by the
- *   `last_seen` clock alone; diagnostics (§5.6) surfaces `lost_<side>` as its own signal precisely
- *   so the two cases stay distinguishable, per §5.4's explicit requirement.
+ * `last_seen_<side>` = that side's neighbor item's own `lastclock`. `lost_<side>` =
+ * `discoveryData.status = 1` (§5's explicit instruction to use `selectDiscoveryData`, not the
+ * deprecated `selectItemDiscovery`) -- confirmed live during the T-model test campaign that
+ * `status` is exactly the LLD lost/rediscovered boolean (0=currently discovered, 1=lost), not
+ * something inferred from `ts_delete`/`ts_disable` (those only move once lifetime_type isn't
+ * NEVER).
  */
 class CTopologyTModel {
 
@@ -53,12 +40,21 @@ class CTopologyTModel {
 	private const TAG_UNBIND = 'topo.unbind';
 	private const TAG_LINK_MANUAL = 'topo.link.manual';
 	private const TAG_LINK_DISMISS = 'topo.link.dismiss';
+	// Revised spec §4.6.3/§4.6.7/§4.7: a distinct, simpler mechanism from topo.link.dismiss
+	// above (which is time-boxed and per-observation) -- topo.link.suppress's value is just the
+	// local port name, and its effect is unconditional: that port's link never renders,
+	// discovered or manual, until the tag is removed. Both mechanisms are kept side by side
+	// (this task's "out of scope: don't change the d:/h: manual-link format" only protects that
+	// one format, not this tag) since dismiss's timestamp-scoped semantics and suppress's
+	// blanket-hide semantics serve genuinely different cases.
+	private const TAG_LINK_SUPPRESS = 'topo.link.suppress';
 
 	private const RAW_ITEM_KEY = 'topology.discovery.raw';
-	private const SELF_ITEM_KEY = 'topo.self';
-	private const NEIGHBOR_ITEM_KEY_PREFIX = 'topo.nbr[';
+	private const LOC_CHASSIS_ITEM_KEY = 'lldp.loc.chassis';
+	private const LOC_NAME_ITEM_KEY = 'lldp.loc.name';
 
-	private const STALE_SECONDS = 7 * 86400;
+	private const FRESHNESS_MACRO = '{$TOPO.FRESHNESS}';
+	private const DEFAULT_FRESHNESS_SECONDS = 7 * 86400; // used only when the macro (§5.1) is missing
 
 	// ---- FNV-1a NBRKEY hash (mirrors nbr_discovery.js / nbr_item.js byte-for-byte; §3.2's
 	// "Hash:" note; test vectors in topo-nbr-hash-vectors.json) ----
@@ -81,50 +77,176 @@ class CTopologyTModel {
 		return $h1.$h2;
 	}
 
-	// Line-for-line port of ingest.php's $normalize_port_name (G-spec §3 rule 4 / constraint 5).
-	private const LONG_TO_SHORT = [
-		'gigabitethernet' => 'gi',
-		'tengigabitethernet' => 'te',
-		'fastethernet' => 'fa',
-		'port-channel' => 'po'
+	// Revised spec §4.5: expand SHORT interface-name abbreviations to their long form (the
+	// reverse direction of the old G-model normalization, which shortened long->short) so
+	// "Gi0/1" and "GigabitEthernet0/1" compare equal, case-insensitively. One table, easy to
+	// extend with more vendor abbreviations later.
+	private const SHORT_TO_LONG_IFNAME = [
+		'gi' => 'gigabitethernet',
+		'te' => 'tengigabitethernet',
+		'fa' => 'fastethernet',
+		'eth' => 'ethernet'
 	];
 
 	private static function normalizePortName(string $name): string {
 		$lower = strtolower(trim($name));
-		foreach (self::LONG_TO_SHORT as $long => $short) {
+		foreach (self::SHORT_TO_LONG_IFNAME as $short => $long) {
+			// Already in long form (e.g. "gigabitethernet0/1" also starts with "gi") -- leave
+			// as-is rather than double-expanding.
 			if (strncmp($lower, $long, strlen($long)) === 0) {
-				return $short.substr($lower, strlen($long));
+				return $lower;
+			}
+			// Abbreviation immediately followed by a digit (the slot number) -- "gi0/1", not
+			// some unrelated word that happens to start with "gi".
+			if (strncmp($lower, $short, strlen($short)) === 0
+					&& strlen($lower) > strlen($short) && ctype_digit($lower[strlen($short)])) {
+				return $long.substr($lower, strlen($short));
 			}
 		}
 		return $lower;
 	}
 
-	// Line-for-line port of push.py's resolve_port_label()/ingest.php's $resolve_port_label.
-	private static function resolvePortLabel(?string $desc, ?string $id, ?string $subtype): string {
-		if ($desc) {
-			return $desc;
+	/**
+	 * Revised spec §4.5: "use topo.neighbor.port if it is an interface name, otherwise
+	 * topo.neighbor.port_descr." Neither field's item tag carries the original
+	 * lldpRemPortIdSubtype value (not in this revision's tag list, §1.1.3), so "is an interface
+	 * name" is approximated here rather than known for certain: non-empty, not MAC-shaped, not
+	 * purely numeric. Documented interpretation, not a literal subtype check -- flagged in the
+	 * delivery report.
+	 */
+	private static function pickPortLabel(string $port, string $port_descr): string {
+		$looks_like_name = $port !== '' && !self::looksLikeMac($port) && !ctype_digit($port);
+		if ($looks_like_name) {
+			return $port;
 		}
-		if (in_array($subtype, ['interfaceName', 'macAddress'], true) && $id) {
-			return $id;
-		}
-		return $id ?: 'unknown';
+		return $port_descr !== '' ? $port_descr : $port;
 	}
 
 	// Canonical peer id (T-model spec §4.1). $reporter_host/$local_if_index are only meaningful
 	// for the sysname-fallback form and are ignored when $chassis_id is present.
 	private static function canonicalPeerId(?string $chassis_id, ?string $sysname, string $reporter_host,
-			?int $local_if_index): string {
+			?string $local_port): string {
 		if ($chassis_id) {
 			$id = 'c:'.strtolower($chassis_id);
 		}
 		else {
-			$id = 's:'.$reporter_host.':'.($local_if_index ?? 'self').':'.($sysname ?? '');
+			$id = 's:'.$reporter_host.':'.($local_port ?? 'self').':'.($sysname ?? '');
+		}
+		return strlen($id) > 255 ? 'h:'.self::hexHash16($id) : $id;
+	}
+
+	/**
+	 * Revised spec §4.2: neighbor identity priority is topo.neighbor.chassis, then
+	 * topo.neighbor.mgmt_ip, then topo.neighbor.name scoped to (reporter, local port). The
+	 * mgmt_ip tier gets its own "m:" prefix -- neither "c:" (chassis) nor "s:" (name, always
+	 * reporter+port-scoped) fits a value that's meant to be globally comparable across
+	 * reporters, the same way a real chassis id is. In practice this tier is rarely reached in
+	 * this lab: push.py doesn't walk lldpRemManAddrTable (documented collector gap), so
+	 * topo.neighbor.mgmt_ip is empty for every LLDP-sourced neighbor observed here -- the logic
+	 * is implemented and correct, just not exercisable against real collected data in this
+	 * environment.
+	 */
+	private static function neighborCanonicalId(?string $chassis, ?string $mgmt_ip, ?string $name,
+			string $reporter_host, string $local_port): string {
+		if ($chassis) {
+			$id = 'c:'.strtolower($chassis);
+		}
+		elseif ($mgmt_ip) {
+			$id = 'm:'.$mgmt_ip;
+		}
+		else {
+			$id = 's:'.$reporter_host.':'.$local_port.':'.($name ?? '');
 		}
 		return strlen($id) > 255 ? 'h:'.self::hexHash16($id) : $id;
 	}
 
 	private static function looksLikeMac(?string $s): bool {
 		return $s !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $s) === 1;
+	}
+
+	/** Revised spec §1.2.2/§4.4.3: normalize a MAC for comparison -- lowercase, separators
+	 * (':', '-', '.') stripped -- so "AA:BB:CC:DD:EE:FF", "aa-bb-cc-dd-ee-ff" and a bare
+	 * "aabbccddeeff" all compare equal. */
+	private static function normalizeMac(string $mac): string {
+		return strtolower(preg_replace('/[^0-9a-f]/i', '', $mac));
+	}
+
+	// ---- topo.link.manual field escaping (per-field '|' and '\' are escaped as '\|'/'\\') ----
+
+	private static function escapeLinkField(string $s): string {
+		return str_replace(['\\', '|'], ['\\\\', '\\|'], $s);
+	}
+
+	/** Splits on unescaped '|', then unescapes each field. Field count is NOT validated here --
+	 * callers check count(). */
+	private static function splitEscapedPipe(string $raw): array {
+		$fields = [];
+		$current = '';
+		$len = strlen($raw);
+		for ($i = 0; $i < $len; $i++) {
+			$ch = $raw[$i];
+			if ($ch === '\\' && $i + 1 < $len) {
+				$current .= $raw[$i + 1];
+				$i++;
+			}
+			elseif ($ch === '|') {
+				$fields[] = $current;
+				$current = '';
+			}
+			else {
+				$current .= $ch;
+			}
+		}
+		$fields[] = $current;
+		return $fields;
+	}
+
+	private static function joinEscapedPipe(array $fields): string {
+		return implode('|', array_map([self::class, 'escapeLinkField'], $fields));
+	}
+
+	/**
+	 * Splits a neighbor_ref ("d:<chassis_id>" / "h:<host name>") on the FIRST ':' only -- a MAC
+	 * chassis id contains further colons ("d:aa:bb:cc:dd:ee:ff" -> prefix "d", value
+	 * "aa:bb:cc:dd:ee:ff"). Returns null if there's no ':' at all or the value half is empty.
+	 */
+	private static function splitNeighborRef(string $ref): ?array {
+		$pos = strpos($ref, ':');
+		if ($pos === false) {
+			return null;
+		}
+		$prefix = substr($ref, 0, $pos);
+		$value = substr($ref, $pos + 1);
+		return $value === '' ? null : [$prefix, $value];
+	}
+
+	/**
+	 * Resolves a manual link's neighbor_ref to a node id, or null if it doesn't resolve to
+	 * anything current (a "broken" reference -- the caller draws it differently, never drops it).
+	 * 'd:<chassis_id>': matched first against a host's topo.id (bound), else against a currently
+	 * observed but unbound cluster; 'h:<host name>': matched by exact technical host name.
+	 */
+	private static function resolveNeighborRef(string $prefix, string $value, array $cluster_of_id,
+			array $bindings, array $chassis_to_hostid, array $host_by_name): ?string {
+		if ($prefix === 'd') {
+			$cluster_key = 'c:'.strtolower($value);
+			if (isset($cluster_of_id[$cluster_key])) {
+				$ck = $cluster_of_id[$cluster_key];
+				$binding = $bindings[$ck] ?? null;
+				return ($binding !== null && $binding['hostid'] !== null)
+					? self::hostNodeId($binding['hostid'])
+					: self::unboundNodeId($ck);
+			}
+			// Not currently observed at all this render -- still worth checking topo.id directly
+			// (a manual topo.id can name a chassis nothing has reported this session).
+			return isset($chassis_to_hostid[strtolower($value)])
+				? self::hostNodeId($chassis_to_hostid[strtolower($value)])
+				: null;
+		}
+		if ($prefix === 'h') {
+			return isset($host_by_name[$value]) ? self::hostNodeId($host_by_name[$value]) : null;
+		}
+		return null; // unknown prefix
 	}
 
 	// ---- node/port id helpers (§4.2) ----
@@ -155,17 +277,24 @@ class CTopologyTModel {
 			return $result;
 		};
 
-		// Step 1: reporter self items.
-		$self_items = $step('topo.self items', static fn () => API::Item()->get([
-			'output' => ['itemid', 'hostid', 'lastvalue', 'lastclock'],
-			'filter' => ['key_' => self::SELF_ITEM_KEY]
+		// Step 1: reporter self items -- lldp.loc.chassis + lldp.loc.name (revised spec §1.1.5/
+		// §1.3.3/§4.4.2), replacing the old single topo.self JSONPath item.
+		$self_items = $step('lldp.loc.* items', static fn () => API::Item()->get([
+			'output' => ['itemid', 'hostid', 'key_', 'lastvalue', 'lastclock'],
+			'filter' => ['key_' => [self::LOC_CHASSIS_ITEM_KEY, self::LOC_NAME_ITEM_KEY]]
 		]));
 
-		// Step 2: neighbor items (topo.role=neighbor tag).
-		$neighbor_items = $step('topo.nbr items', static fn () => API::Item()->get([
+		// Step 2: neighbor items (topo.role=neighbor tag, both lldp.rem[...] and cdp.rem[...]
+		// item prototypes carry it). selectDiscoveryData (not the deprecated selectItemDiscovery,
+		// revised spec §5's explicit instruction) -- discoveryData.status is the real LLD
+		// lost/rediscovered boolean (0=currently discovered, 1=lost); confirmed live during the
+		// T-model test campaign that this is the correct field, not ts_delete/ts_disable (those
+		// only move once lifetime_type is something other than NEVER).
+		$neighbor_items = $step('neighbor items', static fn () => API::Item()->get([
 			'output' => ['itemid', 'hostid', 'key_', 'lastvalue', 'lastclock'],
 			'tags' => [['tag' => 'topo.role', 'value' => 'neighbor', 'operator' => 0]],
-			'selectTags' => 'extend'
+			'selectTags' => 'extend',
+			'selectDiscoveryData' => ['status']
 		]));
 
 		// Step 3: raw blobs, for §3.4 port inventory.
@@ -186,7 +315,36 @@ class CTopologyTModel {
 			'templated_hosts' => false
 		]));
 
-		return compact('self_items', 'neighbor_items', 'raw_items', 'hosts', 'diag');
+		// Freshness (§5.1): a global macro, not hardcoded -- read once per render (still one
+		// extra, fixed-cost API call regardless of graph size, same batching discipline as
+		// everything else here). Missing macro -> hardcoded default + a diagnostics warning the
+		// UI surfaces, per the spec's explicit fallback instruction.
+		$freshness_warning = null;
+		$freshness_seconds = self::DEFAULT_FRESHNESS_SECONDS;
+		$freshness_macros = $step('freshness macro', static fn () => API::UserMacro()->get([
+			'globalmacro' => true, 'filter' => ['macro' => self::FRESHNESS_MACRO], 'output' => ['value']
+		]));
+		if ($freshness_macros) {
+			$raw = $freshness_macros[0]['value'];
+			// Zabbix macros of type "time" accept suffixes (30d, 12h); this endpoint doesn't
+			// declare the macro's type for us, so parse the common suffixed forms by hand rather
+			// than assuming a bare integer.
+			if (preg_match('/^(\d+)([smhdw]?)$/i', trim($raw), $m)) {
+				$unit_seconds = ['' => 1, 's' => 1, 'm' => 60, 'h' => 3600, 'd' => 86400, 'w' => 604800];
+				$freshness_seconds = (int) $m[1] * $unit_seconds[strtolower($m[2])];
+			}
+			else {
+				$freshness_warning = "{".self::FRESHNESS_MACRO."} value '{$raw}' is not a recognized ".
+					"time value -- using the default (".self::DEFAULT_FRESHNESS_SECONDS." s) instead.";
+			}
+		}
+		else {
+			$freshness_warning = "{".self::FRESHNESS_MACRO."} is not defined -- using the default (".
+				self::DEFAULT_FRESHNESS_SECONDS." s).";
+		}
+
+		return compact('self_items', 'neighbor_items', 'raw_items', 'hosts', 'diag',
+			'freshness_seconds', 'freshness_warning');
 	}
 
 	/**
@@ -215,63 +373,36 @@ class CTopologyTModel {
 		};
 
 		// Rule 1: every c: id is its own cluster key (identical c: ids collapse together).
-		$self_by_hostid = [];
-		$mgmt_ip_by_chassis_less_self = []; // hostid => mgmt_ip, only for chassis-less selves.
+		// Revised spec §1.1.5/§4.4.2: own identity now comes from TWO plain-text items
+		// (lldp.loc.chassis, lldp.loc.name), not one JSON-valued topo.self item -- group by
+		// hostid first.
+		$self_raw_by_hostid = [];
 		foreach ($self_items as $item) {
 			$hostid = $item['hostid'];
-			$self = json_decode((string) $item['lastvalue'], true);
-			if (!is_array($self)) {
-				continue; // malformed/absent self value -- tolerate, §4's "assembler must tolerate".
+			$field = $item['key_'] === self::LOC_CHASSIS_ITEM_KEY ? 'chassis_id' : 'sysname';
+			$self_raw_by_hostid[$hostid][$field] = trim((string) $item['lastvalue']);
+		}
+
+		$self_by_hostid = [];
+		foreach ($self_raw_by_hostid as $hostid => $self) {
+			$chassis_id = $self['chassis_id'] ?? '';
+			$sysname = $self['sysname'] ?? '';
+			if ($chassis_id === '' && $sysname === '') {
+				continue; // neither identity item has a value yet -- tolerate, nothing to cluster on.
 			}
 			$host = $hosts_by_id[$hostid]['host'] ?? $hostid;
-			$id = self::canonicalPeerId($self['chassis_id'] ?? null, $self['sysname'] ?? null, $host, null);
-			$self_by_hostid[$hostid] = $self + ['id' => $id, 'host' => $host];
+			$id = self::canonicalPeerId($chassis_id !== '' ? $chassis_id : null, $sysname !== '' ? $sysname : null,
+				$host, null);
+			$self_by_hostid[$hostid] = ['chassis_id' => $chassis_id, 'sysname' => $sysname, 'id' => $id, 'host' => $host];
 
-			$cluster_key = str_starts_with($id, 'c:') ? $id : $id; // both forms are valid keys as-is
-			$union($id, $cluster_key);
-			$clusters[$cluster_key]['self_hostids'][] = $hostid;
-
-			if (!str_starts_with($id, 'c:') && !empty($self['mgmt_ip'])) {
-				$mgmt_ip_by_chassis_less_self[$hostid] = $self['mgmt_ip'];
-			}
+			$union($id, $id); // both c: and s: forms are valid cluster keys as-is
+			$clusters[$id]['self_hostids'][] = $hostid;
 		}
 
-		// Rule 2: mgmt_ip may attach a chassis-less self observation to exactly one other c:
-		// cluster that shares the same mgmt_ip. No transitive merging (not union-find) -- only
-		// ever folds a self-observation's own singleton into a pre-existing, differently-keyed
-		// cluster; never merges two already-multi-member clusters into each other.
-		foreach ($mgmt_ip_by_chassis_less_self as $hostid => $mgmt_ip) {
-			$self_id = $self_by_hostid[$hostid]['id'];
-			$self_cluster_key = $cluster_of_id[$self_id];
-			if (count($clusters[$self_cluster_key]['ids']) > 1) {
-				continue; // already anchored by a shared chassis id -- mgmt_ip must not re-merge it.
-			}
-			$candidates = [];
-			foreach ($self_by_hostid as $other_hostid => $other_self) {
-				if ($other_hostid === $hostid || ($other_self['mgmt_ip'] ?? null) !== $mgmt_ip) {
-					continue;
-				}
-				$candidates[$cluster_of_id[$other_self['id']]] = true;
-			}
-			if (count($candidates) === 1) {
-				$target_key = array_key_first($candidates);
-				if ($target_key !== $self_cluster_key) {
-					// Fold the singleton self-cluster's id into the target cluster; drop the
-					// now-empty singleton.
-					$union($self_id, $target_key);
-					$clusters[$target_key]['self_hostids'][] = $hostid;
-					unset($clusters[$self_cluster_key]);
-				}
-			}
-			elseif (count($candidates) > 1) {
-				$conflicts[] = [
-					'type' => 'mgmt_ip', 'mgmt_ip' => $mgmt_ip,
-					'clusters' => array_keys($candidates) + [$self_cluster_key],
-					'message' => "mgmt_ip {$mgmt_ip} matches more than one chassis cluster -- not merged."
-				];
-			}
-		}
-
+		// Revised spec §4.4.2 only specifies chassis/name for the REPORTER'S OWN identity (no
+		// lldp.loc.mgmt_ip item) -- the old mgmt_ip-based self-cluster-merge rule (previous
+		// prototype pass) has no data to run on any more and is dropped rather than kept as dead
+		// code. mgmt_ip still participates in NEIGHBOR identity resolution (§4.2), just not here.
 		return ['clusters' => $clusters, 'cluster_of_id' => $cluster_of_id, 'self_by_hostid' => $self_by_hostid];
 	}
 
@@ -291,7 +422,8 @@ class CTopologyTModel {
 	 * §5.3 — bind clusters to hosts. Returns cluster_key => ['hostid' => ?, 'matched_by' => ?,
 	 * 'candidates' => [...], 'conflict' => bool].
 	 */
-	private static function bindClusters(array $clusters, array $hosts_by_id, array $tags_index): array {
+	private static function bindClusters(array $clusters, array $hosts_by_id, array $tags_index,
+			array $chassis_type_by_chassis = []): array {
 		$bindings = [];
 
 		foreach ($clusters as $cluster_key => $cluster) {
@@ -309,17 +441,21 @@ class CTopologyTModel {
 				}
 			}
 
-			// 3. mac (chassis id, when MAC-shaped, matched against inventory -- unless that host
-			// carries topo.unbind for this id).
+			// 3. mac (revised spec §1.2.2/§4.4.3: ONLY when the observing reporter's own
+			// topo.neighbor.chassis_type tag said 'mac' -- not merely "looks MAC-shaped" by
+			// regex. Both sides normalized (lowercase, separators stripped) before comparing,
+			// since a Zabbix inventory MAC and an LLDP chassis id can use different separator
+			// conventions for the identical physical address.)
 			foreach ($cluster['ids'] as $id) {
 				if (!str_starts_with($id, 'c:')) {
 					continue;
 				}
-				$mac = substr($id, 2);
-				if (!self::looksLikeMac($mac)) {
+				$chassis = substr($id, 2);
+				if (($chassis_type_by_chassis[strtolower($chassis)] ?? '') !== 'mac') {
 					continue;
 				}
-				foreach ($tags_index['by_mac'][$mac] ?? [] as $hostid) {
+				$normalized = self::normalizeMac($chassis);
+				foreach ($tags_index['by_mac'][$normalized] ?? [] as $hostid) {
 					if (in_array($id, $tags_index['unbind_by_host'][$hostid] ?? [], true)) {
 						continue;
 					}
@@ -365,10 +501,14 @@ class CTopologyTModel {
 		$unbind_by_host = [];
 		$manual_links = []; // hostid => [raw tag value, ...]
 		$dismiss = []; // hostid => [raw tag value, ...]
+		$suppress_by_host = []; // hostid => [local port name, ...]
 		$malformed = [];
+		$chassis_to_hostid = []; // bare chassis (no 'c:' prefix) => hostid, for topo.id-based d: resolution
+		$host_by_name = []; // technical host name => hostid, for h: resolution
 
 		foreach ($hosts as $host) {
 			$hostid = $host['hostid'];
+			$host_by_name[$host['host']] = $hostid;
 			foreach ($host['tags'] as $tag) {
 				if ($tag['tag'] === self::TAG_ID) {
 					if (str_contains($tag['value'], '|')) {
@@ -376,6 +516,9 @@ class CTopologyTModel {
 						continue;
 					}
 					$by_topo_id[$tag['value']][] = $hostid;
+					if (str_starts_with($tag['value'], 'c:')) {
+						$chassis_to_hostid[strtolower(substr($tag['value'], 2))] = $hostid;
+					}
 				}
 				elseif ($tag['tag'] === self::TAG_UNBIND) {
 					$unbind_by_host[$hostid][] = $tag['value'];
@@ -386,15 +529,21 @@ class CTopologyTModel {
 				elseif ($tag['tag'] === self::TAG_LINK_DISMISS) {
 					$dismiss[$hostid][] = $tag['value'];
 				}
+				elseif ($tag['tag'] === self::TAG_LINK_SUPPRESS) {
+					$suppress_by_host[$hostid][] = $tag['value'];
+				}
 			}
 			foreach ([$host['inventory']['macaddress_a'] ?? '', $host['inventory']['macaddress_b'] ?? ''] as $mac) {
 				if ($mac !== '') {
-					$by_mac[strtolower($mac)][] = $hostid;
+					// Normalized (lowercase, separators stripped) -- §1.2.2/§4.4.3's "normalize
+					// MACs on both sides before comparing".
+					$by_mac[self::normalizeMac($mac)][] = $hostid;
 				}
 			}
 		}
 
-		return compact('by_topo_id', 'by_mac', 'unbind_by_host', 'manual_links', 'dismiss', 'malformed');
+		return compact('by_topo_id', 'by_mac', 'unbind_by_host', 'manual_links', 'dismiss', 'malformed',
+			'chassis_to_hostid', 'host_by_name', 'suppress_by_host');
 	}
 
 	/**
@@ -404,7 +553,7 @@ class CTopologyTModel {
 	 */
 	private static function buildLinks(array $neighbor_items, array $self_by_hostid, array $hosts_by_id,
 			array $id_to_node, array $ports_by_hostid, array $cluster_of_id, array $bindings_by_cluster,
-			array $tags_index, array &$conflicts): array {
+			array $tags_index, array &$conflicts, array $neighbor_id_by_itemid, int $freshness_seconds): array {
 		$now = time();
 
 		// side observations, keyed by "<node_id>/<port_name>" (this side's own port).
@@ -415,24 +564,37 @@ class CTopologyTModel {
 			foreach ($item['tags'] as $t) {
 				$tags[$t['tag']] = $t['value'];
 			}
-			$peer_port_raw = $tags['topo.peer.port'] ?? '';
-			if ($peer_port_raw === '') {
-				continue; // §3.2: participant resolved, port didn't -- no link to draw (G-spec rule 1).
-			}
 			$hostid = $item['hostid'];
-			$reporter_node = self::hostNodeId($hostid);
 			$local_port = $tags['interface'] ?? '';
 			if ($local_port === '') {
 				continue;
 			}
-			$peer_id = $tags['topo.peer.id'] ?? '';
+
+
+			// Revised spec §4.5: prefer topo.neighbor.port when it looks like an interface
+			// name, else topo.neighbor.port_descr (pickPortLabel()); this is the raw label to
+			// resolve against the peer's own port inventory below -- not a pre-resolved value
+			// from the collector any more.
+			$port_raw = $tags['topo.neighbor.port'] ?? '';
+			$port_descr_raw = $tags['topo.neighbor.port_descr'] ?? '';
+			$peer_port_raw = self::pickPortLabel($port_raw, $port_descr_raw);
+			if ($peer_port_raw === '') {
+				continue; // §3.2: participant resolved, port didn't -- no link to draw (G-spec rule 1).
+			}
+
+			$reporter_node = self::hostNodeId($hostid);
+			$peer_id = $neighbor_id_by_itemid[$item['itemid']] ?? '';
+			if ($peer_id === '') {
+				continue; // no chassis/mgmt_ip/name at all -- nothing to identify this participant by.
+			}
 			$peer_cluster_key = $cluster_of_id[$peer_id] ?? null;
 			$peer_node = $peer_cluster_key !== null
 				? ($id_to_node[$peer_cluster_key] ?? self::unboundNodeId($peer_cluster_key))
 				: self::unboundNodeId($peer_id);
 
-			// Resolve far port (§5.4): if the peer cluster contains a reporter, match against
-			// that reporter's own ports; otherwise synthetic.
+			// Resolve far port (§4.5): if the peer cluster contains a reporter, match against
+			// that reporter's own ports (normalized, case-insensitive, abbreviation-expanded);
+			// otherwise synthetic.
 			$peer_port_name = self::normalizePortName($peer_port_raw);
 			if ($peer_cluster_key !== null && ($bindings_by_cluster[$peer_cluster_key]['matched_by'] ?? null) === 'reporter_self') {
 				$peer_hostid = $bindings_by_cluster[$peer_cluster_key]['hostid'];
@@ -444,15 +606,18 @@ class CTopologyTModel {
 				}
 			}
 
-			$value = json_decode((string) $item['lastvalue'], true);
-			$present = is_array($value) ? ($value['present'] ?? false) : false;
+			// Revised spec §5: lost = discoveryData.status = 1 (the real LLD lost/rediscovered
+			// flag, confirmed live during the T-model test campaign to mean exactly that -- not
+			// ts_delete/ts_disable, which only move once lifetime_type isn't NEVER), last_seen =
+			// the item's own lastclock.
+			$lost = ($item['discoveryData']['status'] ?? '0') === '1';
 
 			$this_port_id = self::portId($reporter_node, $local_port);
 			$peer_port_id = self::portId($peer_node, $peer_port_name);
 
 			$side_by_port_id[$this_port_id] = [
 				'port_id' => $this_port_id, 'peer_port_id' => $peer_port_id,
-				'last_seen' => (int) $item['lastclock'], 'present' => (bool) $present,
+				'last_seen' => (int) $item['lastclock'], 'lost' => $lost,
 				'via' => $tags['topo.via'] ?? 'lldp'
 			];
 		}
@@ -485,9 +650,9 @@ class CTopologyTModel {
 				'manual' => false,
 				'last_seen_src' => $last_seen_src, 'last_seen_dst' => $last_seen_dst,
 				'last_seen' => $last_seen,
-				'lost_src' => $src_side !== null ? !($src_side['present'] ?? true) : null,
-				'lost_dst' => $dst_side !== null ? !($dst_side['present'] ?? true) : null,
-				'stale' => $last_seen === null || ($now - $last_seen) > self::STALE_SECONDS,
+				'lost_src' => $src_side !== null ? ($src_side['lost'] ?? false) : null,
+				'lost_dst' => $dst_side !== null ? ($dst_side['lost'] ?? false) : null,
+				'stale' => $last_seen === null || ($now - $last_seen) > $freshness_seconds,
 				'conflict' => false
 			];
 		}
@@ -498,26 +663,57 @@ class CTopologyTModel {
 			$links_by_port[$link['dst_port_id']][] = $i;
 		}
 
-		// Manual links, layered on top (§5.4).
+		// Manual links, layered on top (§5.4). Neighbor references are "d:<chassis_id>" (preferred)
+		// or "h:<host name>" (technical name, fallback when no chassis id is known) -- portable
+		// across export/import, unlike a raw hostid. Fields are '|'-delimited with '\'/'|'
+		// escaping within a field (splitEscapedPipe/joinEscapedPipe).
+		$invalid_manual = []; // hostid => [['raw'=>, 'reason'=>], ...]
+		$broken_manual = []; // hostid => [['local_port'=>, 'ref'=>, 'peer_port'=>], ...]
+
+		// First pass per host: detect "two manual links claim the same local port" independent of
+		// whether either one resolves -- a raw-tag-level conflict, not a rendered-link one.
+		$port_claims = []; // hostid => [local_port => count]
+		foreach ($tags_index['manual_links'] as $hostid => $values) {
+			foreach ($values as $raw) {
+				$parts = self::splitEscapedPipe($raw);
+				if (count($parts) === 3) {
+					$port_claims[$hostid][$parts[0]] = ($port_claims[$hostid][$parts[0]] ?? 0) + 1;
+				}
+			}
+		}
+
 		foreach ($tags_index['manual_links'] as $hostid => $values) {
 			$reporter_node = self::hostNodeId($hostid);
 			foreach ($values as $raw) {
-				$parts = explode('|', $raw);
+				$parts = self::splitEscapedPipe($raw);
 				if (count($parts) !== 3) {
+					$invalid_manual[$hostid][] = ['raw' => $raw, 'reason' => 'expected 3 fields, got '.count($parts)];
 					$conflicts[] = ['type' => 'malformed_tag', 'hostid' => $hostid,
 						'tag' => self::TAG_LINK_MANUAL, 'value' => $raw];
 					continue;
 				}
 				[$local_port, $peer_ref, $peer_port] = $parts;
-				if (str_starts_with($peer_ref, 'h:')) {
-					$peer_node = 'h:'.substr($peer_ref, 2);
-				}
-				elseif (str_starts_with($peer_ref, 'd:')) {
-					$peer_node = self::unboundNodeId(substr($peer_ref, 2));
-				}
-				else {
+				$port_conflict = ($port_claims[$hostid][$local_port] ?? 0) > 1;
+
+				$split_ref = self::splitNeighborRef($peer_ref);
+				if ($split_ref === null || !in_array($split_ref[0], ['d', 'h'], true)) {
+					$invalid_manual[$hostid][] = ['raw' => $raw, 'reason' => "unrecognized neighbor_ref '{$peer_ref}'",
+						'local_port' => $local_port, 'conflict' => $port_conflict];
 					$conflicts[] = ['type' => 'malformed_tag', 'hostid' => $hostid,
 						'tag' => self::TAG_LINK_MANUAL, 'value' => $raw];
+					continue;
+				}
+				[$ref_prefix, $ref_value] = $split_ref;
+				$peer_node = self::resolveNeighborRef($ref_prefix, $ref_value, $cluster_of_id, $bindings_by_cluster,
+					$tags_index['chassis_to_hostid'], $tags_index['host_by_name']);
+
+				if ($peer_node === null) {
+					// Broken, not dropped (per spec): the reference is well-formed but resolves
+					// to nothing current (renamed host, chassis that's never been observed, etc).
+					$broken_manual[$hostid][] = ['local_port' => $local_port, 'ref' => $peer_ref,
+						'peer_port' => $peer_port, 'conflict' => $port_conflict];
+					$conflicts[] = ['type' => 'broken_manual_link', 'hostid' => $hostid, 'local_port' => $local_port,
+						'ref' => $peer_ref, 'message' => "manual link neighbor_ref '{$peer_ref}' does not resolve to any current host or observation"];
 					continue;
 				}
 
@@ -537,6 +733,10 @@ class CTopologyTModel {
 				if ($discovered_same_pair !== null) {
 					// Same port pair discovered + manual -> upgrade in place (G-spec §3.5).
 					$links[$discovered_same_pair]['manual'] = true;
+					if ($port_conflict) {
+						$links[$discovered_same_pair]['conflict'] = true;
+						$links[$discovered_same_pair]['conflict_reason'] = 'more than one topo.link.manual tag claims this local port';
+					}
 				}
 				else {
 					// Does this port already carry a *different* discovered neighbor? Manual wins,
@@ -549,7 +749,9 @@ class CTopologyTModel {
 						'src_port_id' => $src_port, 'dst_port_id' => $dst_port,
 						'discovered_via' => 'manual', 'manual' => true,
 						'last_seen_src' => null, 'last_seen_dst' => null, 'last_seen' => null,
-						'lost_src' => null, 'lost_dst' => null, 'stale' => false, 'conflict' => false
+						'lost_src' => null, 'lost_dst' => null, 'stale' => false,
+						'conflict' => $port_conflict,
+						'conflict_reason' => $port_conflict ? 'more than one topo.link.manual tag claims this local port' : null
 					];
 					$new_i = count($links) - 1;
 					$links_by_port[$src_port][] = $new_i;
@@ -582,7 +784,27 @@ class CTopologyTModel {
 			}
 		}
 
-		return ['links' => $links, 'suppressed' => $suppressed];
+		// Revised spec §4.6.3: a topo.link.suppress tag on either end hides the link outright,
+		// applied as a final filter here (not as an early skip on just one side's own
+		// observation) -- a link can be fully asserted by the OTHER, unsuppressed side alone
+		// (found live: suppressing only Router1's own Gi0/0 observation didn't stop Switch1's
+		// reciprocal Gi0/24 observation from independently re-forming the same link), so
+		// suppression has to be checked against BOTH ports of the final, merged link,
+		// regardless of which side(s) actually asserted it or whether it's discovered or
+		// manual.
+		$suppressed_port_ids = [];
+		foreach ($tags_index['suppress_by_host'] as $hostid => $ports) {
+			foreach ($ports as $port) {
+				$suppressed_port_ids[self::portId(self::hostNodeId($hostid), $port)] = true;
+			}
+		}
+		if ($suppressed_port_ids) {
+			$links = array_values(array_filter($links, static fn ($l) =>
+				!isset($suppressed_port_ids[$l['src_port_id']]) && !isset($suppressed_port_ids[$l['dst_port_id']])));
+		}
+
+		return ['links' => $links, 'suppressed' => $suppressed, 'invalid_manual' => $invalid_manual,
+			'broken_manual' => $broken_manual];
 	}
 
 	/**
@@ -595,7 +817,8 @@ class CTopologyTModel {
 		$conflicts = [];
 		$fetched = self::fetch();
 		['self_items' => $self_items, 'neighbor_items' => $neighbor_items, 'raw_items' => $raw_items,
-			'hosts' => $hosts, 'diag' => $diag] = $fetched;
+			'hosts' => $hosts, 'diag' => $diag, 'freshness_seconds' => $freshness_seconds,
+			'freshness_warning' => $freshness_warning] = $fetched;
 
 		$hosts_by_id = array_column($hosts, null, 'hostid');
 		$tags_index = self::buildTagsIndex($hosts);
@@ -609,36 +832,100 @@ class CTopologyTModel {
 		['clusters' => $clusters, 'cluster_of_id' => $cluster_of_id, 'self_by_hostid' => $self_by_hostid] =
 			self::clusterParticipants($self_items, $hosts_by_id, $conflicts);
 
-		// Neighbor observations join clusters purely through their already-canonical topo.peer.id
-		// tag (§5.2 rule 3's "s: observations join only through an exact s: match" holds
-		// automatically here, since NBRKEY/PEERID are computed identically by every reporter that
-		// might see the same s:-keyed participant).
-		foreach ($neighbor_items as $item) {
-			foreach ($item['tags'] as $t) {
-				if ($t['tag'] === 'topo.peer.id' && $t['value'] !== '' && !isset($cluster_of_id[$t['value']])) {
-					$cluster_of_id[$t['value']] = $t['value'];
-					if (!isset($clusters[$t['value']])) {
-						$clusters[$t['value']] = ['ids' => [$t['value']], 'self_hostids' => []];
-					}
-				}
-			}
-		}
-
-		$bindings = self::bindClusters($clusters, $hosts_by_id, $tags_index);
-
-		// Display-name fallback for a cluster with no self observation of its own: its display
-		// name is only ever known through *someone else's* neighbor observation of it (topo.peer.
-		// name), same as the old tags-model's "topology.neighbor.N.name" fallback for unmanaged
-		// nodes. First non-empty name any reporter has seen for this id wins.
-		$peer_name_by_id = [];
+		// Revised spec §4.2: neighbor identity is computed HERE, at read time, from the raw
+		// topo.neighbor.chassis/mgmt_ip/name tags -- there is no pre-computed topo.peer.id tag
+		// in this revision (removed per the spec's explicit "remove all uses of
+		// topo.neighbor.id" instruction, folded into "compute the id yourself instead of
+		// trusting a stored one"). Computed once here and cached per itemid so buildLinks()
+		// below reuses the exact same value rather than recomputing it a second time and
+		// risking the two drifting apart.
+		$neighbor_id_by_itemid = [];
+		$chassis_type_by_chassis = []; // lowercase bare chassis -> 'mac'/'netaddr'/'ifname'/'local'/''
+		$mgmt_ip_to_chassis_cluster = []; // mgmt_ip => [chassis cluster_key => true, ...]
 		foreach ($neighbor_items as $item) {
 			$tags = [];
 			foreach ($item['tags'] as $t) {
 				$tags[$t['tag']] = $t['value'];
 			}
-			$pid = $tags['topo.peer.id'] ?? '';
-			if ($pid !== '' && !empty($tags['topo.peer.name']) && empty($peer_name_by_id[$pid])) {
-				$peer_name_by_id[$pid] = $tags['topo.peer.name'];
+			$reporter_host = $hosts_by_id[$item['hostid']]['host'] ?? $item['hostid'];
+			$local_port = $tags['interface'] ?? '';
+			$chassis = $tags['topo.neighbor.chassis'] ?? '';
+			$mgmt_ip = $tags['topo.neighbor.mgmt_ip'] ?? '';
+			$name = $tags['topo.neighbor.name'] ?? '';
+			if ($chassis === '' && $mgmt_ip === '' && $name === '') {
+				continue; // nothing to identify this participant by at all
+			}
+			$id = self::neighborCanonicalId($chassis !== '' ? $chassis : null, $mgmt_ip !== '' ? $mgmt_ip : null,
+				$name !== '' ? $name : null, $reporter_host, $local_port);
+			$neighbor_id_by_itemid[$item['itemid']] = $id;
+
+			if ($chassis !== '') {
+				$bare = strtolower($chassis);
+				$type = $tags['topo.neighbor.chassis_type'] ?? '';
+				if ($type !== '' || !isset($chassis_type_by_chassis[$bare])) {
+					$chassis_type_by_chassis[$bare] = $type;
+				}
+			}
+
+			if (!isset($cluster_of_id[$id])) {
+				$cluster_of_id[$id] = $id;
+				if (!isset($clusters[$id])) {
+					$clusters[$id] = ['ids' => [$id], 'self_hostids' => []];
+				}
+			}
+
+			// An observation carrying BOTH a chassis id and an mgmt_ip ties the two together --
+			// remembered so a DIFFERENT observation of the same physical device that only ever
+			// gets mgmt_ip (no chassis) can still be recognized as the same device below,
+			// rather than forming its own separate "m:"-keyed cluster forever. Without this, the
+			// test scenario "one reporter sees chassis, another sees only mgmt_ip, for what's
+			// actually the same box" would never converge to one device no matter how the
+			// mgmt_ip-only side's own id is computed -- found live while testing this exact case.
+			if ($chassis !== '' && $mgmt_ip !== '') {
+				$mgmt_ip_to_chassis_cluster[$mgmt_ip][$id] = true;
+			}
+		}
+
+		// Fold each "m:<ip>" cluster into the one chassis cluster that same ip was seen paired
+		// with -- unless the ip was seen paired with more than one DIFFERENT chassis, in which
+		// case merging would be a guess, not a fact (recorded as a conflict instead, same
+		// posture as the old self mgmt_ip-merge rule this generalizes).
+		foreach ($mgmt_ip_to_chassis_cluster ?? [] as $mgmt_ip => $chassis_clusters) {
+			$mgmt_ip_cluster_key = 'm:'.$mgmt_ip;
+			if (!isset($clusters[$mgmt_ip_cluster_key])) {
+				continue; // nothing observed this mgmt_ip as its OWN (chassis-less) id -- nothing to fold.
+			}
+			if (count($chassis_clusters) > 1) {
+				$conflicts[] = ['type' => 'mgmt_ip', 'mgmt_ip' => $mgmt_ip, 'clusters' => array_keys($chassis_clusters),
+					'message' => "mgmt_ip {$mgmt_ip} was seen paired with more than one chassis id -- not merged."];
+				continue;
+			}
+			$target_key = array_key_first($chassis_clusters);
+			foreach ($clusters[$mgmt_ip_cluster_key]['ids'] as $alias_id) {
+				$cluster_of_id[$alias_id] = $target_key;
+				if (!in_array($alias_id, $clusters[$target_key]['ids'], true)) {
+					$clusters[$target_key]['ids'][] = $alias_id;
+				}
+			}
+			unset($clusters[$mgmt_ip_cluster_key]);
+		}
+
+		$bindings = self::bindClusters($clusters, $hosts_by_id, $tags_index, $chassis_type_by_chassis);
+
+		// Display-name fallback for a cluster with no self observation of its own: its display
+		// name is only ever known through *someone else's* neighbor observation of it
+		// (topo.neighbor.name), same as the old tags-model's "topology.neighbor.N.name" fallback
+		// for unmanaged nodes. First non-empty name any reporter has seen for this id wins.
+		$peer_name_by_id = [];
+		foreach ($neighbor_items as $item) {
+			$pid = $neighbor_id_by_itemid[$item['itemid']] ?? '';
+			if ($pid === '') {
+				continue;
+			}
+			foreach ($item['tags'] as $t) {
+				if ($t['tag'] === 'topo.neighbor.name' && $t['value'] !== '' && empty($peer_name_by_id[$pid])) {
+					$peer_name_by_id[$pid] = $t['value'];
+				}
 			}
 		}
 
@@ -684,8 +971,10 @@ class CTopologyTModel {
 			];
 		}
 
-		['links' => $links, 'suppressed' => $suppressed] = self::buildLinks($neighbor_items, $self_by_hostid,
-			$hosts_by_id, $id_to_node, $ports_by_hostid, $cluster_of_id, $bindings, $tags_index, $conflicts);
+		['links' => $links, 'suppressed' => $suppressed, 'invalid_manual' => $invalid_manual,
+			'broken_manual' => $broken_manual] = self::buildLinks($neighbor_items, $self_by_hostid,
+			$hosts_by_id, $id_to_node, $ports_by_hostid, $cluster_of_id, $bindings, $tags_index, $conflicts,
+			$neighbor_id_by_itemid, $freshness_seconds);
 
 		foreach ($links as $link) {
 			if (!empty($link['conflict'])) {
@@ -696,6 +985,10 @@ class CTopologyTModel {
 
 		$diag['conflicts'] = $conflicts;
 		$diag['malformed_tags'] = $tags_index['malformed'];
+		$diag['freshness_seconds'] = $freshness_seconds;
+		$diag['freshness_warning'] = $freshness_warning; // §5.1: surfaced so the UI can show it
+		$diag['invalid_manual_links'] = $invalid_manual;
+		$diag['broken_manual_links'] = $broken_manual;
 		$diag['counts'] = [
 			'nodes' => count($nodes), 'links' => count($links),
 			'lost_sides' => count(array_filter($links, static fn ($l) => ($l['lost_src'] ?? false) || ($l['lost_dst'] ?? false))),
@@ -704,7 +997,8 @@ class CTopologyTModel {
 
 		return ['nodes' => $nodes, 'links' => $links, 'hosts_by_id' => $hosts_by_id, 'diag' => $diag,
 			'tags_index' => $tags_index, 'cluster_of_id' => $cluster_of_id, 'clusters' => $clusters,
-			'bindings' => $bindings, 'ports_by_hostid' => $ports_by_hostid, 'id_to_node' => $id_to_node];
+			'bindings' => $bindings, 'ports_by_hostid' => $ports_by_hostid, 'id_to_node' => $id_to_node,
+			'invalid_manual' => $invalid_manual, 'broken_manual' => $broken_manual];
 	}
 
 	// ---- §6 read surface, mirroring the G-spec's shape (CTopologyPrototype::getDevices() etc.) ----
@@ -852,6 +1146,17 @@ class CTopologyTModel {
 		$graph = self::assemble();
 		$ports = $graph['ports_by_hostid'][$hostid] ?? [];
 
+		$broken_by_port = [];
+		foreach ($graph['broken_manual'][$hostid] ?? [] as $b) {
+			$broken_by_port[$b['local_port']] = $b;
+		}
+		$invalid_by_port = [];
+		foreach ($graph['invalid_manual'][$hostid] ?? [] as $inv) {
+			if (isset($inv['local_port'])) {
+				$invalid_by_port[$inv['local_port']] = $inv;
+			}
+		}
+
 		$connected_port_names = [];
 		$known_nodes = array_keys($graph['nodes']);
 		foreach ($graph['links'] as $link) {
@@ -867,6 +1172,8 @@ class CTopologyTModel {
 			$name = $port['name'];
 			$if_type = $port['if_type'] ?? 'physical';
 			$link = $connected_port_names[$name] ?? null;
+			$broken = $broken_by_port[$name] ?? null;
+			$invalid = $invalid_by_port[$name] ?? null;
 
 			if ($if_type === 'lag') {
 				$group = 'port_channel';
@@ -904,8 +1211,14 @@ class CTopologyTModel {
 				'connected_to_port' => $connected_to_port,
 				'port_id' => self::portId($id, $name),
 				'connected_to_port_id' => $connected_to_id !== null ? self::portId($connected_to_id, $connected_to_port) : null,
-				'stale' => $link['stale'] ?? null, 'conflict' => $link['conflict'] ?? null,
-				'itemid' => null // filled in by the controller (§6: "/ports returns ... itemid" for E-B8)
+				'stale' => $link['stale'] ?? null, 'conflict' => $link['conflict'] ?? ($broken['conflict'] ?? $invalid['conflict'] ?? null),
+				'itemid' => null, // filled in by the controller (§6: "/ports returns ... itemid" for E-B8)
+				// A manual link that's well-formed but doesn't resolve to anything current is
+				// shown here, not dropped -- 'manual_broken_ref' carries the raw unresolved
+				// neighbor_ref for the side panel. A malformed tag (bad field count / unknown
+				// prefix) shows as 'manual_invalid_raw' instead, with the raw tag value verbatim.
+				'manual_broken_ref' => $broken['ref'] ?? null,
+				'manual_invalid_raw' => $invalid['raw'] ?? null
 			];
 		}
 
@@ -935,7 +1248,15 @@ class CTopologyTModel {
 			return [];
 		}
 		$hosts = API::Host()->get(['output' => ['hostid', 'name'], 'search' => ['name' => $q], 'limit' => 20]);
-		return array_map(static fn ($h) => ['id' => self::hostNodeId($h['hostid']), 'name' => $h['name']], $hosts);
+		// 'hostid' (not just 'id') is required here: the shared frontend (monitoring.topology.
+		// view.js.php, written against CTopologyPrototype::searchHosts()'s shape) reads
+		// target_host.hostid directly when building a promote/link payload -- returning only
+		// 'id' left that field undefined, so the ports.get follow-up call silently fetched
+		// "id=h:undefined" and came back empty ("This host has no ports reported"), found live
+		// via the browser UI, not by any of this class's own backend-level tests (none of them
+		// exercise searchHosts()'s exact output shape against what the frontend reads from it).
+		return array_map(static fn ($h) => ['id' => self::hostNodeId($h['hostid']), 'hostid' => $h['hostid'],
+			'name' => $h['name']], $hosts);
 	}
 
 	/** §5.6 diagnostics — the main instrument for the §9 experiments. */
@@ -1044,10 +1365,39 @@ class CTopologyTModel {
 	}
 
 	/** POST /ports/{src}/link {dst} -- rejects if neither end is a host (documented T-model gap, B4/D4). */
+	/**
+	 * Preferred neighbor_ref for a manual link's peer, per the write rules: "d:<chassis_id>" if
+	 * the peer has ANY known chassis id (even if it's also a bound host -- d: is always
+	 * preferred over h: when available, since it's the more specific/portable identity), else
+	 * "h:<host technical name>" for a bound host, else (an unbound peer with no chassis at
+	 * all -- an s:-only observation) the raw internal id as a last resort, since there is
+	 * neither a chassis nor a host name to reference. That last case is a real gap: an s:-only
+	 * peer's identity is reporter+port-scoped by design (§4.1), so referencing it by that same
+	 * scoped string is at least consistent, but isn't portable across export/import the way a
+	 * real chassis id or host name is -- flagged, not silently pretended away.
+	 */
+	private static function preferredNeighborRef(string $peer_node, array $graph): string {
+		if (str_starts_with($peer_node, 'h:')) {
+			foreach ($graph['nodes'][$peer_node]['devices'] ?? [] as $d) {
+				foreach ($d['ids'] as $id) {
+					if (str_starts_with($id, 'c:')) {
+						return 'd:'.substr($id, 2);
+					}
+				}
+			}
+			$hostid = substr($peer_node, 2);
+			$host = $graph['hosts_by_id'][$hostid] ?? null;
+			return 'h:'.($host['host'] ?? $hostid);
+		}
+		$cluster_key = substr($peer_node, 2); // "d:<cluster_key>" -- cluster_key is "c:..."/"s:..."
+		return str_starts_with($cluster_key, 'c:') ? ('d:'.substr($cluster_key, 2)) : ('d:'.$cluster_key);
+	}
+
 	public static function linkPorts(string $src_port_id, string $dst_port_id): void {
 		// Split against the current graph's own node id set, not a blind last-slash split -- a
 		// port name routinely contains '/' itself (see splitPortId()'s own comment).
-		$known_nodes = array_keys(self::assemble()['nodes']);
+		$graph = self::assemble();
+		$known_nodes = array_keys($graph['nodes']);
 		[$src_node, $src_port] = self::splitPortId($src_port_id, $known_nodes);
 		[$dst_node, $dst_port] = self::splitPortId($dst_port_id, $known_nodes);
 
@@ -1072,17 +1422,28 @@ class CTopologyTModel {
 		$local_port = $owner_is_src ? $src_port : $dst_port;
 		$peer_node = $owner_is_src ? $dst_node : $src_node;
 		$peer_port = $owner_is_src ? $dst_port : $src_port;
-		$peer_ref = str_starts_with($peer_node, 'h:') ? ('h:'.substr($peer_node, 2)) : ('d:'.substr($peer_node, 2));
+		$peer_ref = self::preferredNeighborRef($peer_node, $graph);
 
 		$expected = self::currentTags($owner_hostid);
+		foreach ($expected as $t) {
+			if ($t['tag'] !== self::TAG_LINK_MANUAL) {
+				continue;
+			}
+			$parts = self::splitEscapedPipe($t['value']);
+			if (count($parts) === 3 && $parts[0] === $local_port) {
+				throw new Exception("Port {$local_port} already has a manual link (to '{$parts[1]}') -- ".
+					"remove it first (unlinkPorts) before creating a new one.");
+			}
+		}
 		$new = $expected;
-		$new[] = ['tag' => self::TAG_LINK_MANUAL, 'value' => implode('|', [$local_port, $peer_ref, $peer_port])];
+		$new[] = ['tag' => self::TAG_LINK_MANUAL, 'value' => self::joinEscapedPipe([$local_port, $peer_ref, $peer_port])];
 		self::writeTagsIfUnchanged($owner_hostid, $expected, $new);
 	}
 
 	/** DELETE /ports/{src}/link/{dst} -- manual: drop the tag; discovered: item.delete (V3) or dismiss tag. */
 	public static function unlinkPorts(string $src_port_id, string $dst_port_id): array {
-		$known_nodes = array_keys(self::assemble()['nodes']);
+		$graph = self::assemble();
+		$known_nodes = array_keys($graph['nodes']);
 		[$src_node, $src_port] = self::splitPortId($src_port_id, $known_nodes);
 		[$dst_node, $dst_port] = self::splitPortId($dst_port_id, $known_nodes);
 
@@ -1093,18 +1454,27 @@ class CTopologyTModel {
 			}
 			$hostid = substr($node, 2);
 			$expected = self::currentTags($hostid);
-			$peer_ref_variants = [
-				str_starts_with($peer_node, 'h:') ? ('h:'.substr($peer_node, 2)) : null,
-				str_starts_with($peer_node, 'd:') ? ('d:'.substr($peer_node, 2)) : null
-			];
 			$manual_removed = false;
-			$new = array_values(array_filter($expected, function ($t) use (&$manual_removed, $port, $peer_ref_variants, $peer_port) {
+			// Match by RESOLVING each tag's neighbor_ref (same resolution buildLinks() uses for
+			// reading), not by reconstructing an expected ref string -- the stored ref could be
+			// either d: or h: form depending on what was known at write time, and that can drift
+			// from what preferredNeighborRef() would compute now.
+			$new = array_values(array_filter($expected, function ($t) use (&$manual_removed, $port, $peer_node,
+					$peer_port, $graph) {
 				if ($t['tag'] !== self::TAG_LINK_MANUAL) {
 					return true;
 				}
-				$parts = explode('|', $t['value']);
-				if (count($parts) === 3 && $parts[0] === $port && $parts[2] === $peer_port
-						&& in_array($parts[1], $peer_ref_variants, true)) {
+				$parts = self::splitEscapedPipe($t['value']);
+				if (count($parts) !== 3 || $parts[0] !== $port || $parts[2] !== $peer_port) {
+					return true;
+				}
+				$split_ref = self::splitNeighborRef($parts[1]);
+				if ($split_ref === null) {
+					return true;
+				}
+				$resolved = self::resolveNeighborRef($split_ref[0], $split_ref[1], $graph['cluster_of_id'],
+					$graph['bindings'], $graph['tags_index']['chassis_to_hostid'], $graph['tags_index']['host_by_name']);
+				if ($resolved === $peer_node) {
 					$manual_removed = true;
 					return false;
 				}

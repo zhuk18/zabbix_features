@@ -1,0 +1,102 @@
+[
+  {
+    "id": "Q1",
+    "uc": "B5",
+    "expected": "# Q1 \u2014 can a single discovered item be deleted (UI and API)?\nExpected (from t-model-findings.md's V3, already run): item.delete on one discovered\ntopo.nbr item succeeds via API; if its LLD row is still being emitted, the next push\nrecreates it. UI path not tested (no browser in this environment) \u2014 API path re-confirmed here.\n",
+    "actual": "item.delete succeeded (API); LLD recreated it as itemid 60599 on next push.",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {
+      "deleted_itemid": "60598",
+      "recreated": [
+        {
+          "itemid": "60599",
+          "key_": "topo.nbr[1,9242ff159c3d97c1]"
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "Q2",
+    "uc": "B3",
+    "expected": "# Q2 \u2014 which fields does selectItemDiscovery return?\nExpected (from t-model-findings.md's V1, already run): parent_itemid, key_, status,\nts_delete, ts_disable, disable_source. NOT lastcheck (exists in the DB, rejected by the API\nas an invalid selectItemDiscovery field). Re-confirmed here with a fresh API call.\n",
+    "actual": "selectItemDiscovery rejects 'lastcheck' (API error); allows parent_itemid/key_/status/ts_delete/ts_disable/disable_source.",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": "\ud83d\udfe1 (native mechanism exists but the exact field the design assumed isn't exposed; last_seen/lost must be derived from lastclock + the item's own value instead)",
+    "evidence": {
+      "lastcheck_error": "item.get failed: {'code': -32602, 'message': 'Invalid params.', 'data': 'Invalid parameter \"/selectItemDiscovery/1\": value must be one of \"parent_itemid\", \"key_\", \"status\", \"ts_delete\", \"ts_disable\", \"disable_source\".'}"
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "Q3",
+    "uc": "A6",
+    "expected": "# Q3 \u2014 does the proxy object support tags in this version?\nExpected (from t-model-findings.md's V4, already run): no \u2014 proxy.get rejects selectTags\noutright. Re-confirmed here.\n",
+    "actual": "proxy.get selectTags allowed=False",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {
+      "error": "proxy.get failed: {'code': -32602, 'message': 'Invalid params.', 'data': 'Invalid parameter \"/\": unexpected parameter \"selectTags\".'}"
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "Q4",
+    "uc": "A2",
+    "expected": "# Q4 \u2014 LLD host prototype name collision across two LLD rules\nExpected: NOT APPLICABLE to this implementation as built. topology-t-model-prototype-spec.md\n\u00a74.2/\u00a75.2-\u00a75.3 never creates a real Zabbix Host via LLD host prototypes for an unbound peer \u2014\npeers with no matching topo.id/inventory MAC are synthesized in memory at read time only\n(\"d:<key>\" node ids), exactly the \"rejected sub-variant\" topology-tags-use-cases.md \u00a71\ndescribes and explicitly rejects (using A2 as the reason). There is no host-prototype LLD rule\nanywhere in this template to test a name collision against. Verdict: BLOCKED, with the reason\nbeing a deliberate design choice, not a gap.\n",
+    "actual": "No LLD host-prototype rule exists anywhere in this implementation for peers -- confirmed by inspecting template_topology_discovery_reporter.yaml (only topo.self item + topo.nbr.discovery LLD rule + topo.nbr[] item prototype; no host prototypes at all). There is nothing to collide.",
+    "verdict": "BLOCKED",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": "Deliberate design choice (matches the use-case doc's own explicit rejection), not a gap."
+  },
+  {
+    "id": "Q5",
+    "uc": "C6",
+    "expected": "# Q5 \u2014 which hypervisor macros does VMware LLD expose?\nExpected: NOT APPLICABLE. This implementation doesn't touch VMware LLD, hosted_by, or UC-C6 at\nall (out of scope per topology-t-model-prototype-spec.md \u00a711 / the G-spec's own out-of-scope\nlist). Verdict: BLOCKED \u2014 out of scope, not investigated.\n",
+    "actual": "Out of scope for this prototype; not investigated.",
+    "verdict": "BLOCKED",
+    "uc_verdict_held": null,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "Q6",
+    "uc": null,
+    "expected": "# Q6 \u2014 LLD rule returns empty array vs error/unsupported: what happens to existing items?\nExpected: an empty array from the LLD rule marks every currently-tracked row \"lost\" (per the\nstandard LLD lifecycle) but \u2014 because lifetime_type/enabled_lifetime_type are both NEVER\n(confirmed live, V2) \u2014 none of them get deleted or disabled; they simply stop being\nrediscovered. Erroring/throwing from the preprocessing script is a DIFFERENT, worse case this\nimplementation deliberately avoids: nbr_discovery.js wraps its JSON.parse in try/catch and\nreturns \"[]\" on any parse failure rather than ever throwing, specifically so a malformed blob\ndegrades to \"no neighbors this run\" instead of an LLD rule error state (whose effect on\nexisting discovered items is less predictable / template-dependent between Zabbix versions and\nwasn't separately verified here). Test: push an empty-neighbors blob to a real reporter,\nconfirm previously-discovered topo.nbr items survive as `status=0`, un-deleted, un-disabled.\n",
+    "actual": "Reproduced cleanly with proper polling (fixed timings, no data loss): after an empty-neighbors push, the item ITSELF stays enabled (item.status=0) and un-deleted (itemDiscovery.ts_delete=0), its own value correctly updates to {\"present\":false}, and itemDiscovery.status flips 0->1. REFINEMENT to V1/Q2: itemDiscovery.status is exactly the LLD lost/present boolean flag (0=currently discovered, 1=lost) -- it was already in the allowed selectItemDiscovery field list (V1/Q2), just not exercised for its semantic meaning until this test. No topology data or history is erased by an empty LLD result, confirming the expected outcome.",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {
+      "note": "see harness transcript: item present:true, itemDiscovery.status=0"
+    },
+    "metrics_after": {
+      "note": "see harness transcript: item present:false, itemDiscovery.status=1, item.status still 0 (enabled), ts_delete=0"
+    },
+    "timings": {},
+    "notes": ""
+  }
+]

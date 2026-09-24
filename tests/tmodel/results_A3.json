@@ -1,0 +1,228 @@
+[
+  {
+    "id": "A3-mgmtyes",
+    "uc": "A3",
+    "expected": "# A3 \u2014 neighbor's chassis_id changes after a manual topo.id / topo.link.manual was set on it\nExpected (matches the use-case doc's predicted \ud83d\udd34, and topology-t-model-prototype-spec.md's own\nE-A3 experiment framing): the manual topo.id (on whatever host/placeholder it was set on) and\nany topo.link.manual referencing the OLD c:<old-chassis> id become dangling \u2014 the assembler's\nown diagnostics() should list them as \"dangling references\" (\u00a75.6) once the old id no longer\nappears in any live observation, because nothing re-keys a manual decision when its target's\nidentity changes. Test both variants: mgmt_ip present (still doesn't help, since mgmt_ip\nclustering per \u00a75.2 rule 2 only ever attaches a REPORTER's own chassis-less self-observation to\na cluster, never re-anchors an already-manually-tagged UNBOUND peer) and mgmt_ip absent.\n",
+    "actual": "manual topo.id orphaned (placeholder host keeps its OLD identity, new chassis appears as a SEPARATE unbound node)=True; diagnostics.dangling flags it=False; mgmt_ip present=True",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {
+      "before_bound": {
+        "id": "h:11284",
+        "name": "TM-A3-mgmtyes-Placeholder",
+        "bound": true,
+        "hostid": "11284",
+        "status": "0",
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtyes0",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtyes0",
+            "matched_by": "manual",
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtyes0"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "host",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtyes0",
+        "identity": "c:aa:bb:cc:dd:ee:mgmtyes0",
+        "device_type": null,
+        "represented": true,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      }
+    },
+    "metrics_after": {
+      "after_placeholder": {
+        "id": "h:11284",
+        "name": "TM-A3-mgmtyes-Placeholder",
+        "bound": true,
+        "hostid": "11284",
+        "status": "0",
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtyes0",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtyes0",
+            "matched_by": "manual",
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtyes0"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "host",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtyes0",
+        "identity": "c:aa:bb:cc:dd:ee:mgmtyes0",
+        "device_type": null,
+        "represented": true,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      },
+      "new_peer_node": {
+        "id": "d:c:aa:bb:cc:dd:ee:mgmtyes9",
+        "name": "MovingPeer",
+        "bound": false,
+        "hostid": null,
+        "status": null,
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtyes9",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtyes9",
+            "matched_by": null,
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtyes9"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "device",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtyes9",
+        "identity": null,
+        "device_type": null,
+        "represented": false,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      },
+      "diagnostics_dangling": []
+    },
+    "timings": {},
+    "notes": "Detachment confirmed, but diagnostics() does NOT surface it as 'dangling' -- the dangling check only looks at topo.id/topo.unbind values with NO current cluster at all; a topo.id that still resolves to SOME (now wrong) cluster isn't flagged. Gap in diagnostics, worth a follow-up BUG entry."
+  },
+  {
+    "id": "A3-mgmtno",
+    "uc": "A3",
+    "expected": "# A3 \u2014 neighbor's chassis_id changes after a manual topo.id / topo.link.manual was set on it\nExpected (matches the use-case doc's predicted \ud83d\udd34, and topology-t-model-prototype-spec.md's own\nE-A3 experiment framing): the manual topo.id (on whatever host/placeholder it was set on) and\nany topo.link.manual referencing the OLD c:<old-chassis> id become dangling \u2014 the assembler's\nown diagnostics() should list them as \"dangling references\" (\u00a75.6) once the old id no longer\nappears in any live observation, because nothing re-keys a manual decision when its target's\nidentity changes. Test both variants: mgmt_ip present (still doesn't help, since mgmt_ip\nclustering per \u00a75.2 rule 2 only ever attaches a REPORTER's own chassis-less self-observation to\na cluster, never re-anchors an already-manually-tagged UNBOUND peer) and mgmt_ip absent.\n",
+    "actual": "manual topo.id orphaned (placeholder host keeps its OLD identity, new chassis appears as a SEPARATE unbound node)=True; diagnostics.dangling flags it=False; mgmt_ip present=False",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {},
+    "metrics_before": {
+      "before_bound": {
+        "id": "h:11286",
+        "name": "TM-A3-mgmtno-Placeholder",
+        "bound": true,
+        "hostid": "11286",
+        "status": "0",
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtno0",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtno0",
+            "matched_by": "manual",
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtno0"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "host",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtno0",
+        "identity": "c:aa:bb:cc:dd:ee:mgmtno0",
+        "device_type": null,
+        "represented": true,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      }
+    },
+    "metrics_after": {
+      "after_placeholder": {
+        "id": "h:11286",
+        "name": "TM-A3-mgmtno-Placeholder",
+        "bound": true,
+        "hostid": "11286",
+        "status": "0",
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtno0",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtno0",
+            "matched_by": "manual",
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtno0"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "host",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtno0",
+        "identity": "c:aa:bb:cc:dd:ee:mgmtno0",
+        "device_type": null,
+        "represented": true,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      },
+      "new_peer_node": {
+        "id": "d:c:aa:bb:cc:dd:ee:mgmtno9",
+        "name": "MovingPeer",
+        "bound": false,
+        "hostid": null,
+        "status": null,
+        "devices": [
+          {
+            "cluster_key": "c:aa:bb:cc:dd:ee:mgmtno9",
+            "display_key": "c:aa:bb:cc:dd:ee:mgmtno9",
+            "matched_by": null,
+            "ids": [
+              "c:aa:bb:cc:dd:ee:mgmtno9"
+            ],
+            "sysname": "MovingPeer",
+            "vendor": null,
+            "mgmt_ip": null,
+            "conflict": false
+          }
+        ],
+        "conflict": false,
+        "type": "device",
+        "disabled": false,
+        "maintenance": false,
+        "chassis_id": "c:aa:bb:cc:dd:ee:mgmtno9",
+        "identity": null,
+        "device_type": null,
+        "represented": false,
+        "severity": null,
+        "severity_name": null,
+        "color": null
+      },
+      "diagnostics_dangling": []
+    },
+    "timings": {},
+    "notes": "Detachment confirmed, but diagnostics() does NOT surface it as 'dangling' -- the dangling check only looks at topo.id/topo.unbind values with NO current cluster at all; a topo.id that still resolves to SOME (now wrong) cluster isn't flagged. Gap in diagnostics, worth a follow-up BUG entry."
+  }
+]

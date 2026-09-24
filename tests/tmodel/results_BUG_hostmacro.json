@@ -1,0 +1,21 @@
+[
+  {
+    "id": "BUG-HOSTMACRO",
+    "uc": "A2",
+    "expected": "# BUG-HOSTMACRO \u2014 {HOST.HOST} does not resolve in LLD/item-prototype preprocessing scripts\n\nDiscovered while running A2b, not planned as its own scenario upfront \u2014 written as its own\nexpected/actual pair per ground rule 2 as soon as the anomaly was noticed and before the\nconfirming re-test below was run.\n\nExpected (once suspected): if {HOST.HOST} truly doesn't resolve inside these preprocessing\nscripts' string literals, then the canonicalPeerId() sysname-fallback branch\n(`'s:' + reporterHost + ':' + local_if_index + ':' + sysname`) degrades to using the literal\ntext `{HOST.HOST}` for EVERY reporter, identically. Two different reporters, each with a\nchassis-less neighbor sharing the same local_if_index and the same remote_sysname, would then\ncollapse into ONE node instead of two \u2014 a direct violation of \u00a74.1's explicit requirement that\nthe s: form \"must never become a global sysname match.\"\n",
+    "actual": "Confirmed directly: two different reporters (TM-Collide-A, TM-Collide-B), each reporting a DIFFERENT chassis-less neighbor sharing local_if_index=1 and remote_sysname='Collision', both produce the identical tag topo.peer.id='s:{HOST.HOST}:1:Collision' -- the literal macro text, unresolved. The assembler therefore renders ONE 'Collision' node instead of two. Root cause: Zabbix does not expand {HOST.HOST} inside this discovery rule's/item prototype's JavaScript preprocessing string literals (at least not the way it's written here, inside a quoted JS string assigned to a var) -- it was ASSUMED to work by analogy with other preprocessing contexts (documented as a 'deliberate substitution' in CTopologyTModel.php's own doc comment) and this assumption was never verified live until this campaign. This directly breaks the \u00a74.1 guarantee that the sysname fallback 'must never become a global sysname match' -- it currently IS a global sysname match (scoped only by local_if_index, not by reporter at all).",
+    "verdict": "BUG",
+    "uc_verdict_held": false,
+    "proposed_uc_verdict": "A2's \ud83d\udfe1 does not go far enough for the sysname-only case: as currently implemented this is a \ud83d\udd34 (silent false-merge across unrelated reporters), not just a missed-merge inconvenience.",
+    "evidence": {
+      "TM-Collide-A_peer_id": "s:{HOST.HOST}:1:Collision",
+      "TM-Collide-B_peer_id": "s:{HOST.HOST}:1:Collision",
+      "resulting_graph_nodes_named_Collision": 1,
+      "expected_nodes": 2
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": "NOT fixed as part of this campaign per ground rule 1 (do not modify the implementation while testing it). Likely fix: resolve the reporter's own hostid/host via a JSONPath-style lookup against a value already available to the script (e.g. pass it through as part of the blob itself, since push.py already knows its own zabbix_host name) rather than relying on {HOST.HOST} macro substitution inside Duktape-executed JS, OR confirm via Zabbix documentation/source exactly which macros ARE substituted in LLD-rule vs. item-prototype preprocessing scripts before retrying."
+  }
+]

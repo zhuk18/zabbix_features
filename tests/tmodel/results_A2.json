@@ -1,0 +1,134 @@
+[
+  {
+    "id": "A2a",
+    "uc": "A2",
+    "expected": "# A2 \u2014 one neighbor seen by two reporters\n(a) both report chassis_id: expected ONE node (canonical c: id collapses them, \u00a75.2 rule 1).\n(b) one reporter reports chassis_id, the other reports sysname only for the SAME physical\nneighbor: expected verdict per the use-case doc's own A2 entry (\ud83d\udfe1) is TWO nodes \u2014 a c:-keyed\none and a separate s:-keyed one (scoped to the sysname-only reporter's own hostid+local port,\n\u00a74.1) \u2014 because there's no cross-key matching between a c: id and an s: id by design (\u00a75.2's\n\"s: observations join a cluster only through an exact s: match\"). Also test: is this\nconsistent across 3 repeated reads (the assembler is a pure function, so it should be, by\nconstruction \u2014 no partial/racy merge state to vary between calls).\n",
+    "actual": "Exactly one node for the shared chassis_id (d:c:aa:bb:cc:dd:ee:40), consistent across 3 reads.",
+    "verdict": "PASS",
+    "uc_verdict_held": true,
+    "proposed_uc_verdict": null,
+    "evidence": {
+      "shared_nodes": [
+        {
+          "id": "d:c:aa:bb:cc:dd:ee:40",
+          "name": "SharedPeer",
+          "bound": false,
+          "hostid": null,
+          "status": null,
+          "devices": [
+            {
+              "cluster_key": "c:aa:bb:cc:dd:ee:40",
+              "display_key": "c:aa:bb:cc:dd:ee:40",
+              "matched_by": null,
+              "ids": [
+                "c:aa:bb:cc:dd:ee:40"
+              ],
+              "sysname": "SharedPeer",
+              "vendor": null,
+              "mgmt_ip": null,
+              "conflict": false
+            }
+          ],
+          "conflict": false,
+          "type": "device",
+          "disabled": false,
+          "maintenance": false,
+          "chassis_id": "c:aa:bb:cc:dd:ee:40",
+          "identity": null,
+          "device_type": null,
+          "represented": false,
+          "severity": null,
+          "severity_name": null,
+          "color": null
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {
+      "reads_consistent": true
+    },
+    "timings": {},
+    "notes": ""
+  },
+  {
+    "id": "A2b",
+    "uc": "A2",
+    "expected": "# A2 \u2014 one neighbor seen by two reporters\n(a) both report chassis_id: expected ONE node (canonical c: id collapses them, \u00a75.2 rule 1).\n(b) one reporter reports chassis_id, the other reports sysname only for the SAME physical\nneighbor: expected verdict per the use-case doc's own A2 entry (\ud83d\udfe1) is TWO nodes \u2014 a c:-keyed\none and a separate s:-keyed one (scoped to the sysname-only reporter's own hostid+local port,\n\u00a74.1) \u2014 because there's no cross-key matching between a c: id and an s: id by design (\u00a75.2's\n\"s: observations join a cluster only through an exact s: match\"). Also test: is this\nconsistent across 3 repeated reads (the assembler is a pure function, so it should be, by\nconstruction \u2014 no partial/racy merge state to vary between calls).\n",
+    "actual": "TWO separate nodes for the same physical neighbor: ['d:c:aa:bb:cc:dd:ee:99', 'd:s:{HOST.HOST}:1:AmbiguousPeer'] -- c: id and s: id never cross-matched, confirming the use-case doc's predicted \ud83d\udfe1. CORRECTION after further testing (see BUG-HOSTMACRO): the 's:' id's reporterHost component is the literal, unresolved text '{HOST.HOST}' for every reporter (Zabbix's {HOST.HOST} macro does not resolve inside this LLD preprocessing script's string literal) -- confirmed by reading the actual topo.peer.id tag value. In THIS specific test the two nodes stayed separate only because R1's neighbor had SysnameA with chassis aa:...:99 while checking by id text differed incidentally; the real mechanism intended to separate them (reporter-scoping) is not working. See BUG-HOSTMACRO for the direct, unambiguous demonstration.",
+    "verdict": "BUG",
+    "uc_verdict_held": false,
+    "proposed_uc_verdict": "\ud83d\udd34 for the sysname-fallback case specifically (not \ud83d\udfe1 as the use-case doc assumed) -- it doesn't just fail to merge SAME neighbors, it can also wrongly MERGE DIFFERENT ones.",
+    "evidence": {
+      "ambiguous_nodes": [
+        {
+          "id": "d:c:aa:bb:cc:dd:ee:99",
+          "name": "AmbiguousPeer",
+          "bound": false,
+          "hostid": null,
+          "status": null,
+          "devices": [
+            {
+              "cluster_key": "c:aa:bb:cc:dd:ee:99",
+              "display_key": "c:aa:bb:cc:dd:ee:99",
+              "matched_by": null,
+              "ids": [
+                "c:aa:bb:cc:dd:ee:99"
+              ],
+              "sysname": "AmbiguousPeer",
+              "vendor": null,
+              "mgmt_ip": null,
+              "conflict": false
+            }
+          ],
+          "conflict": false,
+          "type": "device",
+          "disabled": false,
+          "maintenance": false,
+          "chassis_id": "c:aa:bb:cc:dd:ee:99",
+          "identity": null,
+          "device_type": null,
+          "represented": false,
+          "severity": null,
+          "severity_name": null,
+          "color": null
+        },
+        {
+          "id": "d:s:{HOST.HOST}:1:AmbiguousPeer",
+          "name": "AmbiguousPeer",
+          "bound": false,
+          "hostid": null,
+          "status": null,
+          "devices": [
+            {
+              "cluster_key": "s:{HOST.HOST}:1:AmbiguousPeer",
+              "display_key": "s:{HOST.HOST}:1:AmbiguousPeer",
+              "matched_by": null,
+              "ids": [
+                "s:{HOST.HOST}:1:AmbiguousPeer"
+              ],
+              "sysname": "AmbiguousPeer",
+              "vendor": null,
+              "mgmt_ip": null,
+              "conflict": false
+            }
+          ],
+          "conflict": false,
+          "type": "device",
+          "disabled": false,
+          "maintenance": false,
+          "chassis_id": "s:{HOST.HOST}:1:AmbiguousPeer",
+          "identity": null,
+          "device_type": null,
+          "represented": false,
+          "severity": null,
+          "severity_name": null,
+          "color": null
+        }
+      ]
+    },
+    "metrics_before": {},
+    "metrics_after": {},
+    "timings": {},
+    "notes": ""
+  }
+]
