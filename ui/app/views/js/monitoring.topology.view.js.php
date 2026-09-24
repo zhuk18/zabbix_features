@@ -37,19 +37,16 @@ const view = new class {
 		return this.isTModel() ? `h:${hostid}` : `host:${hostid}`;
 	}
 
+	// §7 point 6: "the raw /topot/diagnostics JSON, pretty-printed, inserted into a <pre> via
+	// textContent. No rendered panel." (revision 2 dropped the earlier HTML table/list
+	// rendering.) textContent, not innerHTML, so nothing in the diagnostics payload -- which can
+	// echo back device-sourced strings via conflict/dangling-tag messages -- is ever parsed as
+	// markup (§8/G-spec §9).
 	renderDiagnostics(diagnostics) {
-		const steps = Object.entries(diagnostics.steps ?? {})
-			.map(([name, {ms}]) => `<tr><td>${this.escape(name)}</td><td>${ms} ms</td></tr>`).join('');
-		const conflicts = (diagnostics.conflicts ?? []).map(c => `<li>${this.escape(c.message ?? JSON.stringify(c))}</li>`).join('');
-		const dangling = (diagnostics.dangling ?? []).map(d => `<li>${this.escape(`${d.tag} on host ${d.hostid}: ${d.value}`)}</li>`).join('');
-		const counts = diagnostics.counts ?? {};
-		this.diagnostics_panel.innerHTML = `<h3>${this.escape(<?= json_encode(_('T-model diagnostics')) ?>)}</h3>
-			<table><tbody>${steps}<tr><td>${this.escape(<?= json_encode(_('API calls')) ?>)}</td><td>${diagnostics.api_calls ?? '–'}</td></tr>
-			<tr><td>${this.escape(<?= json_encode(_('Nodes / links')) ?>)}</td><td>${counts.nodes ?? 0} / ${counts.links ?? 0}</td></tr>
-			<tr><td>${this.escape(<?= json_encode(_('Lost sides / silent (stale) sides')) ?>)}</td><td>${counts.lost_sides ?? 0} / ${counts.silent_sides ?? 0}</td></tr>
-			</tbody></table>
-			${conflicts ? `<p><strong>${this.escape(<?= json_encode(_('Conflicts:')) ?>)}</strong></p><ul>${conflicts}</ul>` : ''}
-			${dangling ? `<p><strong>${this.escape(<?= json_encode(_('Dangling tag references:')) ?>)}</strong></p><ul>${dangling}</ul>` : ''}`;
+		this.diagnostics_panel.innerHTML = '';
+		const pre = document.createElement('pre');
+		pre.textContent = JSON.stringify(diagnostics, null, 2);
+		this.diagnostics_panel.appendChild(pre);
 	}
 
 	setDetailsTitle(text) {

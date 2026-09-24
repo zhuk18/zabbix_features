@@ -425,7 +425,6 @@ final class CRouter {
 		'topot.port.link'						=> [CControllerTopotPortLink::class,						ZBX_LAYOUT_JSON,		null],
 		'topot.port.unlink'					=> [CControllerTopotPortUnlink::class,					ZBX_LAYOUT_JSON,		null],
 		'topot.diagnostics'					=> [CControllerTopotDiagnostics::class,					ZBX_LAYOUT_JSON,		null],
-		'topot.maintenance.cleanup'			=> [CControllerTopotMaintenanceCleanup::class,			ZBX_LAYOUT_JSON,		null],
 		'toptriggers.list'							=> [CControllerTopTriggersList::class,							ZBX_LAYOUT_HTMLPAGE,	'reports.toptriggers.list'],
 		'trigdisplay.edit'							=> [CControllerTrigDisplayEdit::class,							ZBX_LAYOUT_HTMLPAGE,	'administration.trigdisplay.edit'],
 		'trigdisplay.update'						=> [CControllerTrigDisplayUpdate::class, 						ZBX_LAYOUT_JSON,		null],

@@ -72,8 +72,10 @@ depends on it:
 | V5 | Whether `host.update` with `tags` replaces the whole tag set, and whether `host.massadd`/`host.massremove` accept tags | §6 write path |
 | V6 | Whether a dependent LLD rule and dependent item prototypes can use a regular (non-prototype) Trapper item on the same template as master | §3 |
 | V7 | Whether `item.get` `lastvalue` returns the full text value for the size of a real blob, or is truncated | §5.1 |
+| V8 | Whether a dependent item prototype accepts a JSONPath filter containing an LLD macro (`[?(@.local_if_index=={#LOCIFINDEX})]`), and whether "Custom on fail → Set value to" works on that step | §3.3 |
 
-If V6 fails, stop and report. The whole collection design in §3 depends on
+If V6 fails, stop and report. If V8 fails, fall back to the JavaScript
+variant of §3.3 described in the note there, and record it. The whole collection design in §3 depends on
 it. For any other failure, implement the documented fallback and record the
 change.
 
@@ -119,9 +121,11 @@ G-spec §4.1).
   exists, but no link is drawn.
 
 **Hash:** use a deterministic, non-cryptographic hash (for example two
-FNV-1a 32-bit passes with different seeds, concatenated). Implement it once
-in the preprocessing JS and once in the assembler, with shared test
-vectors. The hash exists for safety (§8), not for secrecy.
+FNV-1a 32-bit passes with different seeds, concatenated). It is implemented
+**only** in the LLD rule's preprocessing JS. Its only job is to make item
+keys unique and safe (§8). Nothing else computes or parses it: the item
+prototype does not need it (§3.3), and the assembler works from item tags
+only (§5). Do not port the hash to the assembler.
 
 ### 3.3 Neighbor item prototype
 
@@ -131,12 +135,25 @@ vectors. The hash exists for safety (§8), not for secrecy.
 - Type Dependent, master `topology.discovery.raw`, value type text.
 - Name: `Topology neighbor on {#LOCPORT}`.
 - Preprocessing:
-  1. JavaScript that selects the neighbor whose computed `NBRKEY` equals
-     `{#NBRKEY}` and returns it as JSON. If it is absent from the current
-     blob, return `{"present":false}`; never throw. Throwing would flood the
-     item with "not supported" noise on every push after a neighbor leaves.
+  1. JSONPath `$.neighbors[?(@.local_if_index=={#LOCIFINDEX})]`, with
+     "Custom on fail → Set value to `[]`". Only the integer macro goes into
+     the expression. The value is therefore **the list of all neighbors
+     currently on this local port**, not one specific neighbor. Several
+     neighbor items on the same port carry the same value; that is
+     accepted. Custom on fail matters: without it the item would go "not
+     supported" on every push once the port has no neighbors.
   2. Discard unchanged with heartbeat `1d`. History then records changes
      plus a daily heartbeat, which is what E-B8 queries.
+- Whether *this particular* neighbor is still present is **not** read from
+  the item value. It comes from the item's LLD lost-resource status (V1).
+  The assembler does not parse neighbor item values at all.
+- Record in findings whether the order of neighbors inside the value is
+  stable between pushes. If it is not, "Discard unchanged" writes spurious
+  history entries; note it, do not sort in preprocessing unless E-B8
+  becomes unreadable.
+- Fallback if V8 fails: a JavaScript step that filters `$.neighbors[]` by
+  `local_if_index` equal to the integer `{#LOCIFINDEX}` and returns `[]`
+  when nothing matches. It must still not compute the hash.
 - Tags:
 
 | Tag | Value |
@@ -183,8 +200,16 @@ Must be the same normalization the G-model ingest uses for Device identity
 The `s:` form is deliberately scoped to reporter and port, like G-spec §3
 rule 4's sysname fallback. It must never become a global sysname match.
 
-For reporters, the self id comes from `topo.self` using the same rules,
-plus `mgmt_ip` as a secondary key (§5.2).
+For reporters, the self id comes from `topo.self`:
+
+- chassis id present → `c:` + normalized chassis id, as above;
+- no chassis id → `r:<hostid>`. The `s:` form does not apply to a self
+  observation (there is no local port), and this id cannot match any
+  neighbor observation. Such a reporter therefore never merges with the
+  Device other reporters see; it is listed in diagnostics and recorded as a
+  finding. Do not add a sysname or `mgmt_ip` fallback to fix it.
+
+`mgmt_ip` is not used for identity anywhere in the T-model (§5.2).
 
 ### 4.2 Stable ids exposed to the API
 
@@ -222,19 +247,19 @@ and E-D3 uses them.
 
 Inputs:
 - reporter self observations (`topo.self`);
-- neighbor observations (`topo.peer.id`, plus the neighbor's JSON value).
+- neighbor observations (the `topo.peer.id` item tag).
 
-Rules, in this order (mirroring the priority of G-spec §3 rule 4):
+Clustering is **exact id match only**:
 
-1. Observations with the same `c:` id form one cluster.
-2. A reporter's `mgmt_ip` may attach that reporter's self observation to a
-   cluster **only if** the self observation has no chassis id, or its
-   chassis id has no cluster yet. If one `mgmt_ip` would join two different
-   `c:` clusters, do not merge. Record a conflict instead. **No transitive
-   merging** through `mgmt_ip`: this is not union-find. A reused default
-   management IP must not collapse two devices into one.
-3. `s:` observations join a cluster only through an exact `s:` match.
-4. Cluster key = the smallest `c:` id in the cluster, otherwise its `s:` id.
+1. Observations with the same id (`c:`, `s:` or `r:`) form one cluster.
+   Since each observation carries exactly one id, a cluster has exactly
+   one id, and the cluster key is that id.
+2. There is no secondary key. In particular, `mgmt_ip` is **not** used:
+   in a stateless model the old chassis id survives only in lost neighbor
+   items, so an `mgmt_ip` merge would add complexity without restoring
+   continuity (A3). The G-model's chassis → mgmt_ip → sysname upsert is
+   deliberately not reproduced; every G/T difference this causes is
+   classified in F11 as an expected model difference (A2/A3).
 
 ### 5.3 Bind clusters to hosts
 
@@ -246,7 +271,8 @@ and every competing candidate is recorded:
 2. **manual**: some host carries `topo.id` equal to one of the cluster's
    ids.
 3. **mac**: the cluster's chassis id (when it is a MAC), or a MAC from
-   neighbor data, matches `inventory.macaddress_a`/`macaddress_b` of a host,
+   neighbor data (read from the reporter's blob, fetch step 3 of §5.1, not
+   from neighbor item values), matches `inventory.macaddress_a`/`macaddress_b` of a host,
    and that host does not carry `topo.unbind` for this id.
 
 Cardinality is **not enforced; it is detected**:
@@ -303,8 +329,11 @@ Manual links (`topo.link.manual`) are added after discovered ones:
 
 A port that ends up with more than one link after these rules (for example
 two discovered neighbors on one port, or two manual tags claiming the same
-port) → draw the one with the newest `last_seen` (manual counts as "now"),
-flag a conflict, and list the rest in diagnostics.
+port) → **draw all of them**, flag each with a conflict, and list them in
+diagnostics. There is no "pick the winner" logic beyond the manual-wins
+rule above. Before implementing, check that the G-model frontend and
+port table can show more than one link per port; if they cannot, flag it
+(§1) instead of adding selection logic.
 
 `topo.link.dismiss` hides an observation while its `lastcheck <= ts`.
 
@@ -319,12 +348,16 @@ The rendering rules are the same as the G-spec §7:
 
 `GET /topot/diagnostics` returns:
 - per-step timings and API call counts from the last assembly;
-- all conflicts (binding, port, mgmt_ip);
+- all conflicts (binding, port);
+- reporters without a chassis id (`r:` ids, §4.1);
 - malformed tags;
 - dangling references: `topo.id`, `topo.unbind`, `topo.link.manual` or
   `topo.link.dismiss` pointing at ids or ports that no longer occur in any
   observation;
-- counts of lost and silent sides.
+- counts of lost and silent sides;
+- stale `topo.link.dismiss` tags: those whose observation no longer exists
+  or has reappeared since the dismiss timestamp. They are only counted and
+  listed, never removed automatically (see §6).
 
 This endpoint is the main instrument for the experiments in §9.
 
@@ -341,12 +374,22 @@ as in the G-model. Additionally, `/ports` returns, for each port with a
 neighbor item, that item's `itemid`, so that the UI can link to its history
 (E-B8).
 
-Write endpoints. Each one does read → modify → write of the target host's
-tags (per V5). It must re-check that the tags have not changed between its
-read and its write; on a mismatch it returns `409 Conflict`. Each write
-endpoint validates against a fresh assembly before writing, but must not
-assume that validation holds at read time: tags can always be edited
-directly in the Zabbix UI.
+Write endpoints. How tags are written depends on V5:
+
+- if `host.massadd`/`host.massremove` accept tags, use them to add or
+  remove a single tag value, so the rest of the host's tags are never
+  rewritten;
+- otherwise read the host's tags, modify, and write them back with
+  `host.update`.
+
+There is **no concurrency control** (no re-check, no `409` on concurrent
+modification). Zabbix gives no version on the host object, so a re-check
+would not be atomic anyway. If the read-modify-write path is used, the
+possible lost update is a finding (D1/A5), not something to fix.
+
+Each write endpoint validates against a fresh assembly before writing, but
+must not assume that validation holds at read time: tags can always be
+edited directly in the Zabbix UI.
 
 | Endpoint | Effect |
 |---|---|
@@ -354,9 +397,11 @@ directly in the Zabbix UI.
 | `POST /devices/{id}/depromote` | `manual` binding → remove the `topo.id` value. `mac` binding → add `topo.unbind`. `reporter_self` → reject with `409` and an explanation |
 | `POST /ports/{src}/link {dst}` | Adds `topo.link.manual` on one end: the lower `hostid` if both ends are hosts, otherwise the host end. **Rejects if neither end is a host.** That is the documented T-model gap (B4, D4), not a bug to work around |
 | `DELETE /ports/{src}/link/{dst}` | Manual link → remove the tag. Discovered link → if V3 allows it, try `item.delete` of that side's item(s) (LLD recreates it if it is reported again, which satisfies FR 5c naturally); otherwise add `topo.link.dismiss` with the current timestamp. Record which path was used |
-| `POST /topot/maintenance/cleanup` | Removes `topo.link.dismiss` tags whose observation no longer exists, or has reappeared since the dismiss timestamp. Explicit and manual only. Its existence is itself a finding: T-model state that needs housekeeping |
 
-There are no ingest or pull endpoints. Zabbix LLD is the ingest.
+There is no cleanup endpoint for stale `topo.link.dismiss` tags.
+Diagnostics counts them (§5.6); the fact that they accumulate and would
+need housekeeping is the finding. There are no ingest or pull endpoints.
+Zabbix LLD is the ingest.
 
 ## 7. Frontend
 
@@ -367,12 +412,15 @@ Reuse the G-model frontend. The allowed changes are:
    anything.
 2. String ids.
 3. A host node's side panel may contain **several** Device sections (A7).
-4. A conflict badge on nodes and links flagged by §5.3/§5.4. It must be
+   A plain list of sections is enough.
+4. A conflict badge on nodes and links flagged by §5.3/§5.4, including
+   several links drawn on one port. It must be
    visually distinct from the blind-spot, maintenance and severity
    encodings.
-5. In the port table, a "history" link to the Zabbix history page of the
-   neighbor item (E-B8).
-6. A diagnostics panel rendering §5.6.
+5. In the port table, a plain "history" link built from the neighbor
+   item's `itemid` to the Zabbix history page (E-B8). No extra layout.
+6. A diagnostics view: the raw `/topot/diagnostics` JSON, pretty-printed,
+   inserted into a `<pre>` via `textContent`. No rendered panel.
 
 Everything else, including visual encodings, grouping and the XSS rules,
 stays exactly as in the G-spec §7/§9.
@@ -399,7 +447,7 @@ G-spec §9 applies unchanged. In addition:
 | # | Criterion |
 |---|---|
 | F1 | Synthetic fixture: a setup script creates a fake reporter host with the template and pushes, via `zabbix_sender`, a blob equivalent to the G-spec §4 48-port fixture (including the `<script>` sysname neighbor). The T-graph shows the same 40/4/2/2 port grouping and 2 resolved neighbors |
-| F2 | The XSS payload renders inert in node labels, the port table, tooltips and the diagnostics panel |
+| F2 | The XSS payload renders inert in node labels, the port table, tooltips and the diagnostics view |
 | F3 | Router1↔Switch1 (two reporters that see each other) yields **one** link with both sides populated. Node, port and link ids are identical across 7 consecutive reads **and** across 7 push cycles. Compare ids, not counts (G-spec §8 methodology) |
 | F4 | Neighbor → reporter lifecycle (G-spec §8 end-to-end scenario): after SwitchB is onboarded, the node changes from `d:` to `h:<hostid>`, there are no duplicate nodes or links, and the reciprocal LLDP view converges to the same single link |
 | F5 | `/promote` binds a Device to a host with no inventory MAC; `/depromote` of that binding removes it; `/depromote` of a reporter_self binding is rejected |
@@ -408,22 +456,22 @@ G-spec §9 applies unchanged. In addition:
 | F8 | Reporter onboarding needs no config edit (the template is attached → the reporter appears) |
 | F9 | Constraint 1: after a full test run, `topo_nodes`/`topo_edges` row counts and contents are unchanged by anything the T-model did (compare against a snapshot taken before) |
 | F10 | Constraint 2: the Zabbix audit log shows no write operations caused by `GET` calls during a scripted read-only session |
-| F11 | Comparison harness: `compare.py` fetches the G and T graphs for the lab and diffs them (nodes matched by `hostid` or chassis id; links matched by endpoint port names). The diff is empty, or every difference is classified in `t-model-findings.md` as either (a) an expected model difference with a reference to the use case, or (b) a bug in one of the prototypes |
+| F11 | Comparison harness: `compare.py` fetches the G and T graphs for the lab and diffs them (nodes matched by `hostid` or chassis id; links matched by endpoint port names). The diff is empty, or every difference is classified in `t-model-findings.md` as either (a) an expected model difference with a reference to the use case (in particular: no `mgmt_ip`/sysname identity fallback in T, §5.2), or (b) a bug in one of the prototypes |
 
 ### 9.2 Experiments — run, measure, record (pass = recorded, not "worked")
 
 | # | Use case | Procedure | Record |
 |---|---|---|---|
 | E-A2 | Mixed identifiers | Fixture neighbor seen by one reporter with a chassis id and by another with sysname only | One node or two? Is the diagnostics output understandable? |
-| E-A3 | Chassis change | Push a reporter blob with a new `chassis_id` and the same `mgmt_ip`, after a manual `topo.id` and a manual link had referenced the old id | Do the ids change? Which manual decisions dangle? Does diagnostics detect all of them? |
+| E-A3 | Chassis change | Push a reporter blob with a new `chassis_id` and the same `mgmt_ip`, after a manual `topo.id` and a manual link had referenced the old id | Do the ids change? Which manual decisions dangle? Does diagnostics detect all of them? Where does the old id still live (lost items only?) and for how long? |
 | E-A5 | Clone host | Clone a host that carries `topo.id` in the Zabbix UI | Is the conflict detected? What is rendered? |
-| E-A6 | Proxy | Result of V4. If proxies have tags, prototype `topo.id` on a proxy | Feasible yes/no, and the cost |
+| E-A6 | Proxy | Result of V4 only. Do not prototype `topo.id` on a proxy | Proxy tags exist yes/no; if yes, a one-paragraph estimate of what binding would need |
 | E-A7 | Stack | Two chassis bound to one host via two `topo.id` values | Readability of the multi-Device panel; interaction with A5 conflict detection |
 | E-B3 | Per-side staleness | (a) stop one reporter's `push.py`; (b) remove a neighbor from one reporter's blob | Which fields change, after how long `stale` appears, and whether the two cases are distinguishable |
-| E-B5 | Dismiss / delete | Delete a stale discovered link, then make it reappear in the blob | Which path V3 allowed; whether FR 5b/5c hold; how dismiss tags accumulate |
-| E-B8 | History | "What was on port X a week ago", answered from item history | Query shape and effort; a screenshot |
+| E-B5 | Dismiss / delete | Delete a stale discovered link, then make it reappear in the blob | Which path V3 allowed; whether FR 5b/5c hold; how many stale dismiss tags diagnostics reports afterwards |
+| E-B8 | History | "What was on port X a week ago", answered from item history | Query shape and effort; a screenshot; whether unstable neighbor order in the per-port value produced spurious history entries (§3.3) |
 | E-D1 | Permissions | Read as a user who can see Switch1 but not Switch2 | What leaks through tags; whether hidden hosts appear as unmanaged Devices |
-| E-D2 | Export/import | Export and re-import a host with `topo.*` tags on a clean instance; re-link the template | What survives; how long until the graph is equivalent again |
+| E-D2 | Export/import | On the lab instance: export a host with `topo.*` tags, delete it, re-import it, re-link the template. No second instance | What survives; how long until the graph is equivalent again |
 | E-D3/D7 | Scale probe | Script pushing synthetic blobs for N fake reporters × M neighbors (for example 50×20, 200×48, 1000×48 if feasible) | Item count, LLD processing time on the server, assembler wall time and API call count per read, API response sizes, DB size of the item tables |
 | E-edit | Direct tag edit | In the Zabbix host form, create a malformed `topo.link.manual` and a duplicate port claim | Does the assembler survive, and what does it show? |
 
@@ -434,7 +482,7 @@ G-spec §9 applies unchanged. In addition:
 2. The assembler, the `/topot` endpoints, and the frontend changes of §7.
 3. `compare.py` (F11).
 4. `t-model-findings.md`, structured as:
-   - Step 0 results (V1–V7);
+   - Step 0 results (V1–V8);
    - F1–F11 pass/fail;
    - one section per experiment with the recorded outcome;
    - **one line per use case A1–D8** stating whether the verdict in
@@ -454,3 +502,24 @@ G-spec §9 applies unchanged. In addition:
   identical here (constraint 3).
 - Changes to the G-model prototype, apart from what `compare.py` needs to
   read from it.
+- Identity fallbacks beyond exact id match (`mgmt_ip`, cross-reporter
+  sysname), §5.2.
+- Concurrency control on tag writes, and any automatic or manual cleanup of
+  stale dismiss tags (§6).
+
+## 12. Revision notes
+
+Revision 2 simplified the spec without changing what the experiments
+measure:
+
+- the hash exists only in the LLD rule JS; the item prototype uses a
+  JSONPath filter by `{#LOCIFINDEX}` and its value is the per-port neighbor
+  list (§3.2, §3.3, new V8);
+- clustering is exact id match only; `mgmt_ip` merging removed; reporters
+  without a chassis id get `r:<hostid>` (§4.1, §5.2);
+- several links on one port are all drawn and flagged, no winner selection
+  (§5.4);
+- no `409` concurrency control and no cleanup endpoint; stale dismiss tags
+  are only reported (§5.6, §6);
+- diagnostics shown as raw JSON, plain history link, reduced E-A6 and E-D2
+  (§7, §9).

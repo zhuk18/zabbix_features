@@ -11,26 +11,15 @@ zabbix_export:
       groups:
         - name: Templates
       items:
-        - uuid: 1f98e3884c134297932c10a68838ca03
-          name: 'LLDP local chassis ID'
+        - uuid: 6b5e5a4424824c28ad65d78779e41301
+          name: 'Topology self identity'
           type: DEPENDENT
-          key: lldp.loc.chassis
+          key: topo.self
           value_type: TEXT
           preprocessing:
             - type: JSONPATH
               parameters:
-                - $.reporter.chassis_id
-          master_item:
-            key: topology.discovery.raw
-        - uuid: 0ac061255e524d94b895f965981dd09b
-          name: 'LLDP local system name'
-          type: DEPENDENT
-          key: lldp.loc.name
-          value_type: TEXT
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - $.reporter.sysname
+                - $.reporter
           master_item:
             key: topology.discovery.raw
         - uuid: 6430a7f3ec1d47d586204644dfe93d5b
@@ -52,245 +41,86 @@ zabbix_export:
           value_type: TEXT
           allowed_hosts: '{$TRAPPER.ALLOWED_HOSTS}'
       discovery_rules:
-        - uuid: c3f8298f2461498b89e9764f3c3a4f07
-          name: 'CDP neighbor discovery'
+        - uuid: 749a7ce83f684c168f7dc2e829a67eaf
+          name: 'Topology neighbor discovery'
           type: DEPENDENT
-          key: cdp.rem.discovery
+          key: topo.nbr.discovery
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           item_prototypes:
-            - uuid: d5945a18cab94f928770bd7b0691a8dc
-              name: 'CDP neighbor on {#LOCPORT}'
+            - uuid: fb2a44b5a09849a28adef6f6bf19ee85
+              name: 'Topology neighbor on {#LOCPORT}'
               type: DEPENDENT
-              key: 'cdp.rem[{#IFINDEX},"{#REM.DEVICEID}","{#REM.PORTID}"]'
+              key: 'topo.nbr[{#LOCIFINDEX},{#NBRKEY}]'
               value_type: TEXT
               preprocessing:
-                - type: JAVASCRIPT
+                - type: JSONPATH
                   parameters:
-                    - |
-                      // cdp.rem[{#IFINDEX},"{#REM.DEVICEID}","{#REM.PORTID}"] item prototype preprocessing, step 1 of
-                      // 2 (T-model revised spec §3.1). Selects the CDP neighbor matching this item's own key
-                      // parameters. Absent -> {"present":false}; never throws.
-                      
-                      var TARGET_IFINDEX = '{#IFINDEX}';
-                      var TARGET_DEVICEID = '{#REM.DEVICEID}';
-                      var TARGET_PORTID = '{#REM.PORTID}';
-                      
-                      function truncate255(s) {
-                      	s = (s === undefined || s === null) ? '' : String(s);
-                      	return s.length > 255 ? s.substring(0, 255) : s;
-                      }
-                      
-                      var data;
-                      try {
-                      	data = JSON.parse(value);
-                      }
-                      catch (e) {
-                      	return JSON.stringify({present: false});
-                      }
-                      
-                      var neighbors = data.cdp_neighbors || [];
-                      for (var i = 0; i < neighbors.length; i++) {
-                      	var n = neighbors[i];
-                      	if (!n.remote_device_id) {
-                      		continue;
-                      	}
-                      	if (String(n.local_if_index) === TARGET_IFINDEX
-                      			&& truncate255(n.remote_device_id || '') === TARGET_DEVICEID
-                      			&& truncate255(n.remote_port_id || '') === TARGET_PORTID) {
-                      		return JSON.stringify({present: true, neighbor: n});
-                      	}
-                      }
-                      
-                      return JSON.stringify({present: false});
-                      
+                    - '$.neighbors[?(@.local_if_index=={#LOCIFINDEX})]'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '[]'
                 - type: DISCARD_UNCHANGED_HEARTBEAT
                   parameters:
-                    - 1h
+                    - 1d
               master_item:
                 key: topology.discovery.raw
               tags:
                 - tag: interface
                   value: '{#LOCPORT}'
-                - tag: topo.neighbor.chassis
-                - tag: topo.neighbor.chassis_type
-                - tag: topo.neighbor.mgmt_ip
-                - tag: topo.neighbor.name
-                  value: '{#REM.DEVICEID}'
-                - tag: topo.neighbor.port
-                  value: '{#REM.PORTID}'
-                - tag: topo.neighbor.port_descr
+                - tag: topo.peer.id
+                  value: '{#PEERID}'
+                - tag: topo.peer.name
+                  value: '{#PEERNAME}'
+                - tag: topo.peer.port
+                  value: '{#PEERPORT}'
                 - tag: topo.role
                   value: neighbor
                 - tag: topo.via
-                  value: cdp
+                  value: '{#VIA}'
           master_item:
             key: topology.discovery.raw
           preprocessing:
             - type: JAVASCRIPT
               parameters:
                 - |
-                  // cdp.rem.discovery LLD preprocessing (T-model revised spec §3.1). Reads $.cdp_neighbors[]
-                  // (populated by push.py's cdpCacheTable walk -- a genuinely separate, Cisco-proprietary MIB
-                  // from lldpRemTable, hence a separate LLD rule rather than folding into lldp.rem.discovery).
-                  // CDP never carries a chassis id or its subtype (cdpCacheTable has no equivalent column) --
-                  // topo.neighbor.chassis/chassis_type stay empty for every CDP-sourced item by design, not an
-                  // oversight; identity for a CDP-only neighbor falls through to name/mgmt_ip matching only
-                  // (§4.2's priority order already handles an empty chassis field the same way for any source).
-                  
-                  function truncate255(s) {
-                  	s = (s === undefined || s === null) ? '' : String(s);
-                  	return s.length > 255 ? s.substring(0, 255) : s;
-                  }
-                  
-                  var data;
-                  try {
-                  	data = JSON.parse(value);
-                  }
-                  catch (e) {
-                  	return JSON.stringify([]);
-                  }
-                  
-                  var portsByIndex = {};
-                  var ports = data.ports || [];
-                  for (var p = 0; p < ports.length; p++) {
-                  	portsByIndex[ports[p].if_index] = ports[p];
-                  }
-                  
-                  var out = [];
-                  var neighbors = data.cdp_neighbors || [];
-                  for (var i = 0; i < neighbors.length; i++) {
-                  	var n = neighbors[i];
-                  	if (!n.remote_device_id) {
-                  		continue; // nothing to key a Device on at all
-                  	}
-                  	var localPort = portsByIndex[n.local_if_index];
-                  	var locPortName = localPort ? localPort.name : String(n.local_if_index);
-                  
-                  	out.push({
-                  		'{#IFINDEX}': String(n.local_if_index),
-                  		'{#LOCPORT}': truncate255(locPortName),
-                  		'{#REM.DEVICEID}': truncate255(n.remote_device_id || ''),
-                  		'{#REM.PORTID}': truncate255(n.remote_port_id || '')
-                  	});
-                  }
-                  
-                  return JSON.stringify(out);
-                  
-        - uuid: efb71cfed96f41158677239b9bf740e7
-          name: 'LLDP neighbor discovery'
-          type: DEPENDENT
-          key: lldp.rem.discovery
-          lifetime_type: DELETE_NEVER
-          enabled_lifetime_type: DISABLE_NEVER
-          item_prototypes:
-            - uuid: c2780cdc882d4251bb3d729c66d1f88d
-              name: 'LLDP neighbor on {#LOCPORT}'
-              type: DEPENDENT
-              key: 'lldp.rem[{#LOCPORT},"{#REM.CHASSIS}","{#REM.PORTID}"]'
-              value_type: TEXT
-              preprocessing:
-                - type: JAVASCRIPT
-                  parameters:
-                    - |
-                      // lldp.rem[{#LOCPORT},"{#REM.CHASSIS}","{#REM.PORTID}"] item prototype preprocessing, step 1 of
-                      // 2 (T-model revised spec §1.1.1/§1.1.3). Selects the neighbor whose (local port, chassis id,
-                      // port id) matches this item's own key parameters and returns it as JSON. Absent ->
-                      // {"present":false}; never throws (an exception here would flood the item with "not supported"
-                      // errors on every push after this neighbor leaves).
-                      
-                      var TARGET_LOCPORT = '{#LOCPORT}';
-                      var TARGET_CHASSIS = '{#REM.CHASSIS}';
-                      var TARGET_PORTID = '{#REM.PORTID}';
-                      
-                      function truncate255(s) {
-                      	s = (s === undefined || s === null) ? '' : String(s);
-                      	return s.length > 255 ? s.substring(0, 255) : s;
-                      }
-                      
-                      var data;
-                      try {
-                      	data = JSON.parse(value);
-                      }
-                      catch (e) {
-                      	return JSON.stringify({present: false});
-                      }
-                      
-                      var portsByIndex = {};
-                      var ports = data.ports || [];
-                      for (var p = 0; p < ports.length; p++) {
-                      	portsByIndex[ports[p].if_index] = ports[p];
-                      }
-                      
-                      var neighbors = data.neighbors || [];
-                      for (var i = 0; i < neighbors.length; i++) {
-                      	var n = neighbors[i];
-                      	if (!n.remote_chassis_id && !n.remote_sysname) {
-                      		continue;
-                      	}
-                      	var localPort = portsByIndex[n.local_if_index];
-                      	var locPortName = truncate255(localPort ? localPort.name : String(n.local_if_index));
-                      	if (locPortName === TARGET_LOCPORT
-                      			&& truncate255(n.remote_chassis_id || '') === TARGET_CHASSIS
-                      			&& truncate255(n.remote_port_id || '') === TARGET_PORTID) {
-                      		return JSON.stringify({present: true, neighbor: n});
-                      	}
-                      }
-                      
-                      return JSON.stringify({present: false});
-                      
-                - type: DISCARD_UNCHANGED_HEARTBEAT
-                  parameters:
-                    - 1h
-              master_item:
-                key: topology.discovery.raw
-              tags:
-                - tag: interface
-                  value: '{#LOCPORT}'
-                - tag: topo.neighbor.chassis
-                  value: '{#REM.CHASSIS}'
-                - tag: topo.neighbor.chassis_type
-                  value: '{#REM.CHASSISTYPE}'
-                - tag: topo.neighbor.mgmt_ip
-                  value: '{#REM.MGMTIP}'
-                - tag: topo.neighbor.name
-                  value: '{#REM.NAME}'
-                - tag: topo.neighbor.port
-                  value: '{#REM.PORTID}'
-                - tag: topo.neighbor.port_descr
-                  value: '{#REM.PORTDESCR}'
-                - tag: topo.role
-                  value: neighbor
-                - tag: topo.via
-                  value: lldp
-          master_item:
-            key: topology.discovery.raw
-          preprocessing:
-            - type: JAVASCRIPT
-              parameters:
-                - |
-                  // lldp.rem.discovery LLD preprocessing (T-model revised spec §1.1.1/§1.1.3/§2/§3/§4).
+                  // topo.nbr.discovery LLD preprocessing (T-model revision-2 spec §3.2).
                   //
-                  // Item key uses the neighbor's OWN chassis id + port id as key parameters (quoted -- both can
-                  // contain commas/spaces/brackets) instead of the transient lldpRemIndex the neighbor happened
-                  // to get assigned this run, or a synthetic hash of them: lldpRemIndex changes whenever a
-                  // neighbor's LLDP session restarts (even for the exact same physical link), which used to mint
-                  // a brand-new item and orphan the old one's history every time that happened -- the whole
-                  // reason for this key change (§1.1.1's "stable item keys").
+                  // Turns $.neighbors[] of the pushed topology.discovery.raw blob into one LLD row per neighbor
+                  // observation. The hash (NBRKEY) is computed ONLY here -- the item prototype (nbr_item.js /
+                  // the JSONPath-filter step, §3.3) never needs it and the assembler never parses it either
+                  // (§3.2's "Hash:" note). Item keys only ever get the integer LOCIFINDEX and this hex hash,
+                  // never a device-sourced string (§8).
                   //
-                  // Raw neighbor facts travel as item tags (§1.1.3), not folded into one resolved "port" string
-                  // at collection time -- interface/port matching and "is this really an interface name" both
-                  // become read-time (reader) decisions instead, so the template stays a thin pass-through of
-                  // what the agent actually said.
+                  // Reused verbatim from the G-model (constraint 5): resolve_port_label()'s exact preference
+                  // order (port_desc, then port_id for interfaceName/macAddress subtypes only, else port_id) --
+                  // ported from database/topology/discovery/ingest.php's resolve_port_label(). No G-model
+                  // equivalent exists for the long/short interface-name abbreviation table below; grepping the
+                  // whole repo for it (GigabitEthernet/gigabitethernet) turns up nothing outside this T-model
+                  // work, so there is nothing else to port -- this normalizePortName() is a new but shared (JS
+                  // and PHP, see CTopologyTModel.php) T-model helper, not a divergence from an existing G-model
+                  // implementation.
+                  //
+                  // Known platform limitation (confirmed live on this Zabbix 8.0.0 instance, matches the earlier
+                  // BUG-HOSTMACRO finding): {HOST.HOST} and {HOST.ID} do NOT resolve inside LLD/item-prototype JS
+                  // preprocessing string literals -- they come through as the literal macro text. That blocks the
+                  // spec's literal §4.1 formula for a chassis-less neighbor's canonical id
+                  // ("s:<reporter hostid>:<local_if_index>:<sysname>"), since this script has no way to learn its
+                  // own host's id. Substituted: the reporter's own chassis_id (or, if that reporter itself has
+                  // none, its sysname) from $.reporter, already present in this same blob without needing any
+                  // macro. This preserves the exact scoping intent the spec states for this id (deterministic,
+                  // scoped to one reporter+port, never a global sysname match) -- it does not add persistent
+                  // state or a new identity tier, it only substitutes the reporter-scoping component of an id
+                  // shape the spec already defines. Flagged in t-model-findings.md.
+                  //
+                  // CDP: push.py's blob can carry a separate cdp_neighbors[] array (task-g leftover), but §3.2
+                  // only describes turning $.neighbors[] into rows. Not wired in here -- {#VIA} is always "lldp".
+                  // Flagged as a known gap, not silently dropped.
                   
-                  var CHASSIS_TYPE_MAP = {
-                  	'macAddress': 'mac',
-                  	'networkAddress': 'netaddr',
-                  	'interfaceName': 'ifname',
-                  	'local': 'local'
-                  	// chassisComponent/interfaceAlias/portComponent have no slot in the 4-value
-                  	// mac/netaddr/ifname/local set this spec defines -- left unmapped (empty chassis_type),
-                  	// same as an absent chassis id subtype at all.
+                  var SHORT_TO_LONG_IFNAME = {
+                  	'gi': 'gigabitethernet',
+                  	'te': 'tengigabitethernet',
+                  	'fa': 'fastethernet',
+                  	'eth': 'ethernet'
                   };
                   
                   function truncate255(s) {
@@ -298,6 +128,53 @@ zabbix_export:
                   	return s.length > 255 ? s.substring(0, 255) : s;
                   }
                   
+                  function normalizePortName(name) {
+                  	var lower = String(name || '').replace(/^\s+|\s+$/g, '').toLowerCase();
+                  	for (var short in SHORT_TO_LONG_IFNAME) {
+                  		var long = SHORT_TO_LONG_IFNAME[short];
+                  		if (lower.indexOf(long) === 0) {
+                  			return lower;
+                  		}
+                  		if (lower.indexOf(short) === 0 && lower.length > short.length && /[0-9]/.test(lower.charAt(short.length))) {
+                  			return long + lower.substring(short.length);
+                  		}
+                  	}
+                  	return lower;
+                  }
+                  
+                  // Ported verbatim from ingest.php's resolve_port_label() (constraint 5).
+                  function resolvePortLabel(port_desc, port_id, port_id_subtype) {
+                  	if (port_desc) {
+                  		return port_desc;
+                  	}
+                  	if ((port_id_subtype === 'interfaceName' || port_id_subtype === 'macAddress') && port_id) {
+                  		return port_id;
+                  	}
+                  	return port_id || '';
+                  }
+                  
+                  function fnv1a32(str, seed) {
+                  	var hash = seed;
+                  	for (var i = 0; i < str.length; i++) {
+                  		hash = hash ^ str.charCodeAt(i);
+                  		var hi = (((hash >>> 16) & 0xffff) * 16777619) & 0xffff;
+                  		var lo = ((hash & 0xffff) * 16777619) >>> 0;
+                  		hash = (((hi << 16) >>> 0) + lo) >>> 0;
+                  	}
+                  	return hash >>> 0;
+                  }
+                  
+                  function hexHash16(str) {
+                  	function pad(n) {
+                  		var h = n.toString(16);
+                  		while (h.length < 8) {
+                  			h = '0' + h;
+                  		}
+                  		return h;
+                  	}
+                  	return pad(fnv1a32(str, 2166136261)) + pad(fnv1a32(str, 2654435761));
+                  }
+                  
                   var data;
                   try {
                   	data = JSON.parse(value);
@@ -312,13 +189,18 @@ zabbix_export:
                   	portsByIndex[ports[p].if_index] = ports[p];
                   }
                   
+                  var reporter = data.reporter || {};
+                  var reporterScope = reporter.chassis_id
+                  	? ('c:' + String(reporter.chassis_id).toLowerCase())
+                  	: ('n:' + truncate255(reporter.sysname || ''));
+                  
                   var out = [];
                   var neighbors = data.neighbors || [];
                   for (var i = 0; i < neighbors.length; i++) {
                   	var n = neighbors[i];
                   
-                  	// T-model spec / G-spec rule 1: a participant with neither chassis id nor sysname can't be
-                  	// identified at all -- skip it.
+                  	// §3.2 / G-spec rule 1: a participant with neither chassis id nor sysname can't be
+                  	// identified at all -- skip it (counted in stats by push.py already, not re-counted here).
                   	if (!n.remote_chassis_id && !n.remote_sysname) {
                   		continue;
                   	}
@@ -326,20 +208,32 @@ zabbix_export:
                   	var localPort = portsByIndex[n.local_if_index];
                   	var locPortName = localPort ? localPort.name : String(n.local_if_index);
                   
-                  	var chassisType = n.remote_chassis_id_subtype ? (CHASSIS_TYPE_MAP[n.remote_chassis_id_subtype] || '') : '';
+                  	var peerId;
+                  	if (n.remote_chassis_id) {
+                  		peerId = 'c:' + String(n.remote_chassis_id).toLowerCase();
+                  	}
+                  	else {
+                  		peerId = 's:' + reporterScope + ':' + n.local_if_index + ':' + truncate255(n.remote_sysname || '');
+                  	}
+                  	if (peerId.length > 255) {
+                  		peerId = 'h:' + hexHash16(peerId);
+                  	}
+                  
+                  	var rawLabel = resolvePortLabel(n.remote_port_desc || '', n.remote_port_id || '', n.remote_port_id_subtype || '');
+                  	var peerPort = rawLabel ? normalizePortName(rawLabel) : '';
+                  
+                  	var nbrKey = hexHash16(n.local_if_index + '|' + peerId);
                   
                   	out.push({
+                  		'{#LOCIFINDEX}': n.local_if_index,
                   		'{#LOCPORT}': truncate255(locPortName),
-                  		'{#REM.CHASSIS}': truncate255(n.remote_chassis_id || ''),
-                  		'{#REM.CHASSISTYPE}': chassisType,
-                  		'{#REM.MGMTIP}': truncate255(n.remote_mgmt_ip || ''),
-                  		'{#REM.NAME}': truncate255(n.remote_sysname || ''),
-                  		'{#REM.PORTID}': truncate255(n.remote_port_id || ''),
-                  		'{#REM.PORTIDSUBTYPE}': n.remote_port_id_subtype || '',
-                  		'{#REM.PORTDESCR}': truncate255(n.remote_port_desc || '')
+                  		'{#PEERID}': peerId,
+                  		'{#NBRKEY}': nbrKey,
+                  		'{#PEERPORT}': truncate255(peerPort),
+                  		'{#PEERNAME}': truncate255(n.remote_sysname || ''),
+                  		'{#VIA}': 'lldp'
                   	});
                   }
                   
                   return JSON.stringify(out);
                   
-
