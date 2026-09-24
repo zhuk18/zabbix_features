@@ -410,3 +410,7 @@ ui/tests/bootstrap.php
 ui/tests/composer.*
 ui/tests/vendor
 ui/tests/.phpunit.result.cache
+
+# Python bytecode cache (T-model tooling: push.py, tests/tmodel/)
+__pycache__/
+*.pyc
