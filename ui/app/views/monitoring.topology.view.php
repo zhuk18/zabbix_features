@@ -87,7 +87,10 @@ $page_styles = '
 				]))->addClass('topology-header-field'),
 				(new CButton('topology-host-pull', _('Pull Zabbix hosts')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
-				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status')
+				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
+				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --
+				// destructive and irreversible, confirmed client-side before the request fires.
+				(new CButton('topology-clean-all', _('Clean All')))->addClass(ZBX_STYLE_BTN_ALT)
 			]))->addClass('topology-header'),
 			(new CForm())
 				->setId('topology-filter-bar')

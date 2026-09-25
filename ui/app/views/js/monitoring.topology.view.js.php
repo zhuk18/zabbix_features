@@ -73,6 +73,18 @@ const view = new class {
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
 		}));
+		// Destructive: wipes topo_nodes/topo_edges (this branch's whole persisted graph) outright,
+		// with no undo. Confirmed here, client-side, before the request ever fires -- there is no
+		// server-side confirmation step of its own.
+		document.getElementById('topology-clean-all').addEventListener('click', () => this.guard(async () => {
+			if (!confirm(<?= json_encode(_('This permanently deletes every node and link in the topology database (topo_nodes/topo_edges). This cannot be undone. Continue?')) ?>)) {
+				return;
+			}
+			await this.request('topology.clean.all', {
+				method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+			});
+			await this.loadDevices();
+		}));
 		// A run may already be in progress from a previous page load (button click before a reload) or
 		// from the CLI — reflect that on load instead of only ever noticing it after this tab's own click.
 		this.pollIngestStatus({ignore_idle: true});

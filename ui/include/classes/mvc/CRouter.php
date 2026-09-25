@@ -237,6 +237,7 @@ class CRouter {
 		'topology.proxies.search'				=> [CControllerTopologyProxiesSearch::class,					'layout.json',			null],
 		'topology.ingest.run'						=> [CControllerTopologyIngestRun::class,							'layout.json',			null],
 		'topology.ingest.status'					=> [CControllerTopologyIngestStatus::class,							'layout.json',			null],
+		'topology.clean.all'						=> [CControllerTopologyCleanAll::class,							'layout.json',			null],
 		'mediatype.create'							=> [CControllerMediatypeCreate::class,								'layout.json',			null],
 		'mediatype.delete'							=> [CControllerMediatypeDelete::class,								'layout.json',			null],
 		'mediatype.disable'							=> [CControllerMediatypeDisable::class,								'layout.json',			null],
