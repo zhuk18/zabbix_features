@@ -283,6 +283,42 @@ class testDiscoveryRuleTopologyRole extends CAPITest {
 		);
 	}
 
+	private function insertSnapshot(string $itemid, string $hostid, int $role): void {
+		DBexecute('INSERT INTO topo_lld_snapshot (itemid,hostid,role,clock,rows_hash,rows_json,rows_total,rows_valid)'.
+			' VALUES ('.zbx_dbstr($itemid).','.zbx_dbstr($hostid).','.$role.',1,'.zbx_dbstr('hash').','.zbx_dbstr('[]').',0,0)'
+		);
+	}
+
+	private function hasSnapshot(string $itemid): bool {
+		return CDBHelper::getCount('SELECT NULL FROM topo_lld_snapshot WHERE itemid='.zbx_dbstr($itemid)) == 1;
+	}
+
+	/**
+	 * A snapshot must never be read under a role it was not written for: changing a rule's role drops its snapshot,
+	 * and the snapshots of the inherited rules that change with it. Other updates keep it.
+	 *
+	 * @depends testDiscoveryRuleTopologyRole_Propagation
+	 */
+	public function testDiscoveryRuleTopologyRole_SnapshotDroppedOnRoleChange(): void {
+		$template_rule = self::$ids['rules']['topo.rule[2]'];
+		$nested_rule = $this->call('discoveryrule.get', [
+			'output' => ['itemid'],
+			'hostids' => self::$ids['template2id'],
+			'filter' => ['key_' => 'topo.rule[2]']
+		])['result'][0]['itemid'];
+
+		$this->insertSnapshot($template_rule, self::$ids['templateid'], ZBX_TOPOLOGY_ROLE_NEIGHBORS);
+		$this->insertSnapshot($nested_rule, self::$ids['template2id'], ZBX_TOPOLOGY_ROLE_NEIGHBORS);
+
+		$this->call('discoveryrule.update', ['itemid' => $template_rule, 'description' => 'not a role change']);
+		$this->assertTrue($this->hasSnapshot($template_rule), 'A non-role update dropped the snapshot.');
+		$this->assertTrue($this->hasSnapshot($nested_rule));
+
+		$this->call('discoveryrule.update', ['itemid' => $template_rule, 'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS]);
+		$this->assertFalse($this->hasSnapshot($template_rule), 'Role change kept the rule\'s snapshot.');
+		$this->assertFalse($this->hasSnapshot($nested_rule), 'Role change kept the inherited rule\'s snapshot.');
+	}
+
 	public function testDiscoveryRuleTopologyRole_ExportImport(): void {
 		$yaml = $this->call('configuration.export', [
 			'format' => 'yaml',
