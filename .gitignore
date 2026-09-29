@@ -140,6 +140,7 @@ tests/zabbix_server/**/grouped-libs-generated.mk
 tests/libs/zbxalgo/queue
 tests/libs/zbxalgo/zbx_binary_heap_direct
 tests/libs/zbxalgo/zbx_binary_heap
+tests/libs/zbxalgo/zbx_channel
 tests/libs/zbxalgo/zbx_compare_tags_natural
 tests/libs/zbxalgo/zbx_list
 tests/libs/zbxalgo/zbx_mode_code
@@ -260,6 +261,7 @@ tests/libs/zbxexpr/zbx_substitute_snmp_oid_params
 tests/libs/zbxcalc/zbx_evaluate
 tests/libs/zbxcalc/zbx_evaluate_unknown
 tests/libs/zbxcalc/zbx_evaluate_function
+tests/libs/zbxcalc/evaluate_nodata_proxied
 tests/libs/zbxcalc/zbx_format_value
 tests/libs/zbxcalc/zbx_get_percentage_of_deviations_in_stl_remainder
 tests/libs/zbxcalc/zbx_STL
@@ -416,3 +418,4 @@ switch2.log
 ups1.log
 ui/include/defines.inc.php
 database/topology/discovery/reporters.json
+.cache
