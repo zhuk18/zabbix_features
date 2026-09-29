@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	-- relationship, so it's a plain FK column rather than a generic topo_edges row (see
 	-- mysql_migrate_device_id.sql's header comment for why this replaced the old 'part_of' edge type).
 	device_id BIGINT UNSIGNED NULL,
+	-- Set only when type='port' and it is a member of a LAG — the LAG Port's topo_nodes.id. ON DELETE SET
+	-- NULL, not CASCADE: member ports are real interfaces that survive their LAG (see
+	-- mysql_migrate_lag_id.sql). Target's attrs.if_type = 'lag' is enforced by ingest.php, not here.
+	lag_id BIGINT UNSIGNED NULL,
 	-- Set only when type='device' — the Host/Proxy topo_nodes.id this Device is represented by. Plain
 	-- self-referential FK, not a topo_edges row (see mysql_migrate_represented_by.sql's header comment
 	-- for why this replaced the old 'represented_by' edge type). matched_by/at are provenance for the
@@ -20,13 +24,15 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	PRIMARY KEY (id),
 	KEY topo_nodes_1 (type),
 	KEY idx_topo_nodes_device_id (device_id),
+	KEY idx_topo_nodes_lag_id (lag_id),
 	UNIQUE KEY topo_nodes_host_ref_uq (host_ref),
 	UNIQUE KEY topo_nodes_proxy_ref_uq (proxy_ref),
 	UNIQUE KEY topo_nodes_represented_by_node_id_uq (represented_by_node_id),
 	CONSTRAINT topo_nodes_1 FOREIGN KEY (host_ref) REFERENCES hosts (hostid) ON DELETE CASCADE,
 	CONSTRAINT topo_nodes_3 FOREIGN KEY (proxy_ref) REFERENCES proxy (proxyid) ON DELETE CASCADE,
 	CONSTRAINT topo_nodes_4 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE CASCADE,
-	CONSTRAINT topo_nodes_5 FOREIGN KEY (represented_by_node_id) REFERENCES topo_nodes (id) ON DELETE SET NULL
+	CONSTRAINT topo_nodes_5 FOREIGN KEY (represented_by_node_id) REFERENCES topo_nodes (id) ON DELETE SET NULL,
+	CONSTRAINT topo_nodes_6 FOREIGN KEY (lag_id) REFERENCES topo_nodes (id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- The old physical_link_src/physical_link_dst STORED GENERATED COLUMNS (MySQL has no partial unique
@@ -53,4 +59,33 @@ CREATE TABLE IF NOT EXISTS topo_edges (
 	UNIQUE KEY topo_edges_src_dst_uq (src_id, dst_id),
 	CONSTRAINT topo_edges_1 FOREIGN KEY (src_id) REFERENCES topo_nodes (id) ON DELETE CASCADE,
 	CONSTRAINT topo_edges_2 FOREIGN KEY (dst_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- topo_observations: the evidence behind NEIGHBORS rows of LLD snapshots (topology-lld-part2-spec.md §7).
+-- Edges are results, observations are evidence: one row per (rule, local port, remote identity), mirroring
+-- the LATEST snapshot of each NEIGHBORS rule. Rows are written by ingest.php only.
+--
+-- edge_id/device_id are ON DELETE SET NULL (a deleted edge or Device must not delete the evidence that
+-- pointed at it); itemid/local_port_id cascade (the rule or the local port is gone, so is its evidence).
+CREATE TABLE IF NOT EXISTS topo_observations (
+	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+	itemid BIGINT UNSIGNED NOT NULL,
+	local_port_id BIGINT UNSIGNED NOT NULL,
+	remote_key VARCHAR(255) NOT NULL,
+	remote_attrs JSON NOT NULL,
+	outcome VARCHAR(16) NOT NULL,
+	edge_id BIGINT UNSIGNED NULL,
+	device_id BIGINT UNSIGNED NULL,
+	first_seen INT UNSIGNED NOT NULL,
+	last_seen INT UNSIGNED NOT NULL,
+	PRIMARY KEY (id),
+	UNIQUE KEY topo_observations_uq (itemid, local_port_id, remote_key),
+	KEY topo_observations_1 (outcome),
+	KEY topo_observations_2 (local_port_id),
+	KEY topo_observations_3 (edge_id),
+	KEY topo_observations_4 (device_id),
+	CONSTRAINT topo_observations_1 FOREIGN KEY (itemid) REFERENCES items (itemid) ON DELETE CASCADE,
+	CONSTRAINT topo_observations_2 FOREIGN KEY (local_port_id) REFERENCES topo_nodes (id) ON DELETE CASCADE,
+	CONSTRAINT topo_observations_3 FOREIGN KEY (edge_id) REFERENCES topo_edges (id) ON DELETE SET NULL,
+	CONSTRAINT topo_observations_4 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

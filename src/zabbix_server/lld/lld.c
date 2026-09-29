@@ -1126,6 +1126,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 	zbx_vector_lld_override_ptr_t	overrides;
 	zbx_vector_lld_row_ptr_t	lld_rows;
 	zbx_vector_lld_macro_t		exported_macros;
+	int				topology_role = 0;
 
 	zabbix_log(LOG_LEVEL_DEBUG, "In %s() itemid:" ZBX_FS_UI64, __func__, item->itemid);
 
@@ -1141,7 +1142,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 
 	result = zbx_db_select(
 			"select hostid,key_,evaltype,formula,lifetime_type,lifetime,enabled_lifetime_type,"
-				"enabled_lifetime"
+				"enabled_lifetime,topology_role"
 			" from items"
 			" where itemid=" ZBX_FS_UI64,
 			item->itemid);
@@ -1154,6 +1155,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 		filter.expression = zbx_strdup(NULL, row[3]);
 		lld_lifetime_init(&lifetime, discovery_key, hostid, atoi(row[4]), row[5], um_handle);
 		lld_lifetime_init(&enabled_lifetime, discovery_key, hostid, atoi(row[6]), row[7], um_handle);
+		topology_role = atoi(row[8]);
 	}
 	zbx_db_free_result(result);
 
@@ -1185,6 +1187,20 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 	*error = zbx_strdup(*error, "");
 
 	now = time(NULL);
+
+	/* rows are stored only after successful processing; problems are reported, the rule stays supported */
+	if (0 != topology_role)
+	{
+		char	*topology_info = NULL;
+
+		lld_topology_snapshot_update(item->itemid, hostid, topology_role, &lld_rows, (int)now, &topology_info);
+
+		if (NULL != topology_info)
+		{
+			*error = zbx_strdcat(*error, topology_info);
+			zbx_free(topology_info);
+		}
+	}
 
 	if (SUCCEED != lld_update_items(hostid, item->itemid, &lld_rows, error, &lifetime, &enabled_lifetime, now,
 			ZBX_FLAG_DISCOVERY_NORMAL, NULL, NULL, cfg.auditlog_enabled, cfg.auditlog_mode))

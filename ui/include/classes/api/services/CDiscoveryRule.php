@@ -731,6 +731,7 @@ class CDiscoveryRule extends CDiscoveryRuleGeneral {
 
 		$upd_items = [];
 		$upd_itemids = [];
+		$topology_role_changed_itemids = [];
 
 		$internal_fields = array_flip(['itemid', 'type', 'key_', 'hostid', 'flags', 'host_status']);
 		$nested_object_fields = array_flip(['preprocessing', 'lld_macro_paths', 'filter', 'overrides', 'parameters']);
@@ -739,6 +740,10 @@ class CDiscoveryRule extends CDiscoveryRuleGeneral {
 
 		foreach ($items as $i => &$item) {
 			$upd_item = DB::getUpdatedValues('items', $item, $db_items[$item['itemid']]);
+
+			if (array_key_exists('topology_role', $upd_item)) {
+				$topology_role_changed_itemids[] = $item['itemid'];
+			}
 
 			if ($upd_item) {
 				$upd_items[] = [
@@ -765,6 +770,11 @@ class CDiscoveryRule extends CDiscoveryRuleGeneral {
 
 		if ($upd_items) {
 			DB::update('items', $upd_items);
+		}
+
+		// A topology snapshot must never be read under a role it was not written for.
+		if ($topology_role_changed_itemids) {
+			DB::delete('topo_lld_snapshot', ['itemid' => $topology_role_changed_itemids]);
 		}
 
 		self::updateParameters($items, $db_items, $upd_itemids);

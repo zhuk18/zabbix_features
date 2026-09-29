@@ -2158,6 +2158,46 @@ static int	DBpatch_7050191(void)
 	return DBadd_field("items", &field);
 }
 
+static int	DBpatch_7050192(void)
+{
+	const zbx_db_table_t	table =
+			{"topo_lld_snapshot", "itemid", 0,
+				{
+					{"itemid", NULL, NULL, NULL, 0, ZBX_TYPE_ID, ZBX_NOTNULL, 0},
+					{"hostid", NULL, NULL, NULL, 0, ZBX_TYPE_ID, ZBX_NOTNULL, 0},
+					{"role", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
+					{"clock", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
+					{"rows_hash", "", NULL, NULL, 64, ZBX_TYPE_CHAR, ZBX_NOTNULL, 0},
+					{"rows_json", "", NULL, NULL, 0, ZBX_TYPE_LONGTEXT, ZBX_NOTNULL, 0},
+					{"rows_total", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
+					{"rows_valid", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
+					{0}
+				},
+				NULL
+			};
+
+	return DBcreate_table(&table);
+}
+
+static int	DBpatch_7050193(void)
+{
+	const zbx_db_field_t	field = {"itemid", NULL, "items", "itemid", 0, 0, 0, ZBX_FK_CASCADE_DELETE};
+
+	return DBadd_foreign_key("topo_lld_snapshot", 1, &field);
+}
+
+static int	DBpatch_7050194(void)
+{
+	const zbx_db_field_t	field = {"hostid", NULL, "hosts", "hostid", 0, 0, 0, ZBX_FK_CASCADE_DELETE};
+
+	return DBadd_foreign_key("topo_lld_snapshot", 2, &field);
+}
+
+static int	DBpatch_7050195(void)
+{
+	return DBcreate_index("topo_lld_snapshot", "topo_lld_snapshot_1", "hostid", 0);
+}
+
 #endif
 
 DBPATCH_START(7050)
@@ -2356,5 +2396,9 @@ DBPATCH_ADD(7050188, 0, 1)
 DBPATCH_ADD(7050189, 0, 1)
 DBPATCH_ADD(7050190, 0, 1)
 DBPATCH_ADD(7050191, 0, 1)
+DBPATCH_ADD(7050192, 0, 1)
+DBPATCH_ADD(7050193, 0, 1)
+DBPATCH_ADD(7050194, 0, 1)
+DBPATCH_ADD(7050195, 0, 1)
 
 DBPATCH_END()
