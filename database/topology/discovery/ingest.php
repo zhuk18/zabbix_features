@@ -265,10 +265,22 @@ $last_insert_id = static function () use ($pdo): int {
 // no change to the matching/upsert rules themselves.
 $summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0];
 
-$device = static function (array $attrs, ?int $local_port_id = null) use ($insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {
+$device = static function (array $attrs, ?int $local_port_id = null) use ($pdo, $insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {
 	$match = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null, $local_port_id, $attrs['sysname'] ?? null);
 	if ($match !== null) {
 		[$existing_id, $matched_by] = $match;
+		// A neighbor sighting carries less than the Device's own report (lldpRemTable has no mgmt IP, vendor is
+		// unknown): merge instead of overwriting, or a later neighbor sighting from another reporter would wipe
+		// the mgmt_ip/vendor/sysname the Device's own push recorded — making the result depend on reporter order.
+		$existing = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+		$existing->execute([$existing_id]);
+		$before = json_decode((string) $existing->fetchColumn(), true) ?: [];
+		foreach ($attrs as $key => $incoming) {
+			if (($incoming === null || $incoming === '' || ($key === 'vendor' && $incoming === 'unknown'))
+					&& ($before[$key] ?? null) !== null && $before[$key] !== '') {
+				$attrs[$key] = $before[$key];
+			}
+		}
 		if ($matched_by === 'sysname') {
 			$attrs['matched_by'] = 'sysname';
 		}
