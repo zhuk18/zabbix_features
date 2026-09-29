@@ -1692,10 +1692,12 @@ class testDashboardGraphWidget extends testWidgets {
 						'id:lefty_max' => '15.5',
 						'id:lefty_units' => 'Static',
 						'id:lefty_static_units' => 'MB',
+						'id:lefty_unsigned' => true,
 						'id:righty_scale' => 'Linear',
 						'id:righty_min' => '-15',
 						'id:righty_max' => '-5',
-						'id:righty_units' => 'Static'
+						'id:righty_units' => 'Static',
+						'id:righty_unsigned' => true
 					],
 					'Legend' => [
 						'Number of rows' => '5',
@@ -2884,8 +2886,12 @@ class testDashboardGraphWidget extends testWidgets {
 		}
 
 		$form->selectTab('Axes');
-		$lefty_fields = ['id:lefty', 'id:lefty_scale', 'id:lefty_min', 'id:lefty_max', 'id:lefty_units'];
-		$righty_fields = ['id:righty', 'id:righty_scale', 'id:righty_min', 'id:righty_max', 'id:righty_units'];
+		$lefty_fields = ['id:lefty', 'id:lefty_scale', 'id:lefty_min', 'id:lefty_max', 'id:lefty_units',
+			'id:lefty_unsigned'
+		];
+		$righty_fields = ['id:righty', 'id:righty_scale', 'id:righty_min', 'id:righty_max', 'id:righty_units',
+			'id:righty_unsigned'
+		];
 
 		switch ($axis) {
 			case 'Right':

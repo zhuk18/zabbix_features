@@ -1,0 +1,1 @@
+..F....... [ZBX-27927] added option to show unsigned Y axis labels in SVG graph widget, fixed swapped legend min/max of inverted data sets (zhuk)
