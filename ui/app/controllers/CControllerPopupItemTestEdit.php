@@ -69,6 +69,8 @@ class CControllerPopupItemTestEdit extends CControllerPopupItemTest {
 			'status_codes'			=> 'string',
 			'test_type'				=> 'required|in '.implode(',', [self::ZBX_TEST_TYPE_ITEM, self::ZBX_TEST_TYPE_ITEM_PROTOTYPE, self::ZBX_TEST_TYPE_LLD, self::ZBX_TEST_TYPE_LLD_PROTOTYPE]),
 			'timeout'				=> 'string',
+			'topology_role'			=> 'in '.implode(',', CTopologyRole::getRoles()),
+			'topology_macros'		=> 'array',
 			'username'				=> 'string',
 			'url'					=> 'string',
 			'value_type'			=> 'in '.implode(',', [ITEM_VALUE_TYPE_UINT64, ITEM_VALUE_TYPE_FLOAT, ITEM_VALUE_TYPE_STR, ITEM_VALUE_TYPE_LOG, ITEM_VALUE_TYPE_TEXT, ITEM_VALUE_TYPE_BINARY, ITEM_VALUE_TYPE_JSON]),
@@ -516,6 +518,10 @@ class CControllerPopupItemTestEdit extends CControllerPopupItemTest {
 			'step_obj' => $this->getInput('step_obj'),
 			'show_final_result' => $this->getInput('show_final_result'),
 			'valuemapid' => $this->getInput('valuemapid', 0),
+			'topology_role' => in_array($this->test_type, [self::ZBX_TEST_TYPE_LLD, self::ZBX_TEST_TYPE_LLD_PROTOTYPE])
+				? (int) $this->getInput('topology_role', ZBX_TOPOLOGY_ROLE_NONE)
+				: ZBX_TOPOLOGY_ROLE_NONE,
+			'topology_macros' => array_values(array_filter($this->getInput('topology_macros', []), 'is_string')),
 			'get_value' => array_key_exists('get_value', $data)
 				? $data['get_value']
 				: $this->getInput('get_value', 0),

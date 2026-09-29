@@ -262,6 +262,8 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 				)
 			],
 			'timeout' => ['string'],
+			'topology_role' => ['integer', 'in' => CTopologyRole::getRoles()],
+			'topology_macros' => ['array', 'field' => ['string']],
 			'username' => ['string'],
 			'url' => ['string'],
 			'value_type' => ['integer',
@@ -526,11 +528,70 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 				];
 			}
 
+			if (array_key_exists('result', $result_preproc)) {
+				$this->addTopologyCheck($result_preproc['result'], $output);
+			}
+			elseif (!$steps_data) {
+				$this->addTopologyCheck($output['value'] ?? $this->getInput('value', ''), $output);
+			}
+
 			if (array_key_exists('final', $output) && $output['final']['action'] !== '') {
 				$output['final']['action'] = (new CSpan($output['final']['action']))
 					->addClass(ZBX_STYLE_GREY)
 					->toString();
 			}
 		}
+	}
+
+	/**
+	 * Check the tested LLD rule value against the macro contract of the rule's topology role.
+	 * Informational only; macros defined on the LLD macros tab are treated as available without evaluating paths.
+	 */
+	private function addTopologyCheck(string $value, array &$output): void {
+		$role = (int) $this->getInput('topology_role', ZBX_TOPOLOGY_ROLE_NONE);
+
+		if ($role == ZBX_TOPOLOGY_ROLE_NONE
+				|| !in_array($this->test_type, [self::ZBX_TEST_TYPE_LLD, self::ZBX_TEST_TYPE_LLD_PROTOTYPE])) {
+			return;
+		}
+
+		$rows = json_decode($value, true);
+
+		if (!is_array($rows) || !array_is_list($rows)) {
+			$output['topology_check'] = (new CDiv(_('Result is not an LLD JSON array of rows.')))
+				->addClass(ZBX_STYLE_RED)
+				->toString();
+
+			return;
+		}
+
+		$check = CTopologyRole::checkRows($role, $rows, $this->getInput('topology_macros', []));
+
+		$lines = [
+			new CDiv(_s('Rows: %1$s, passing: %2$s, failing: %3$s.', $check['rows'], $check['passed'],
+				$check['failed']
+			))
+		];
+
+		foreach ($check['failures'] as $requirement => $row_indexes) {
+			$shown = implode(', ', array_slice($row_indexes, 0, 5)).(count($row_indexes) > 5 ? ', ...' : '');
+
+			$lines[] = (new CDiv(_n('Missing %1$s in %3$s row: %2$s', 'Missing %1$s in %3$s rows: %2$s',
+				$requirement, $shown, count($row_indexes)
+			)))->addClass(ZBX_STYLE_RED);
+		}
+
+		if ($check['snmpindex_fallback_rows'] > 0) {
+			$lines[] = new CDiv(_n('%1$s used as %2$s in %3$s row.', '%1$s used as %2$s in %3$s rows.',
+				CTopologyRole::SNMPINDEX_MACRO, '{#IFINDEX}', $check['snmpindex_fallback_rows']
+			));
+		}
+
+		if ($check['path_macros']) {
+			$lines[] = (new CDiv(_s('Via LLD macro path (not evaluated): %1$s.', implode(', ', $check['path_macros']))))
+				->addClass(ZBX_STYLE_GREY);
+		}
+
+		$output['topology_check'] = (new CDiv($lines))->toString();
 	}
 }

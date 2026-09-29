@@ -717,7 +717,10 @@ $disabled_by_lld_icon = $lldrule['status'] == ITEM_STATUS_DISABLED && $lldrule['
 	? makeWarningIcon(_('Disabled automatically by an LLD rule.'))
 	: null;
 
+$topology_role_rows = makeTopologyRoleFormRows((int) $lldrule['topology_role'], $readonly);
+
 $formgrid
+	->addItem($topology_role_rows['role'])
 	->addItem([
 		(new CLabel([_('Delete lost resources'), $lld_lifetime_help_icons], 'lifetime'))->setAsteriskMark(),
 		new CFormField([
@@ -750,6 +753,7 @@ $formgrid
 				->setAriaRequired()
 		]))->addClass('js-item-disable-resources')
 	])
+	->addItem($topology_role_rows['note'])
 	->addItem([
 		(new CLabel(_('Enable trapping'), 'allow_traps'))->setId('js-item-allow-traps-label'),
 		(new CFormField((new CCheckBox('allow_traps', HTTPCHECK_ALLOW_TRAPS_ON))

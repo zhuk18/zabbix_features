@@ -121,7 +121,7 @@ class CControllerLldRuleList extends CController {
 	protected function getDiscoveries(array $filter): array {
 		$options = [
 			'output' => ['itemid', 'type', 'name', 'key_', 'delay', 'status', 'templateid', 'flags', 'master_itemid',
-				'state', 'error'
+				'state', 'error', 'topology_role'
 			],
 			'selectHosts' => ['hostid', 'name', 'status'],
 			'selectItems' => API_OUTPUT_COUNT,

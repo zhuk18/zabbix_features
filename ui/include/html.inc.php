@@ -1167,6 +1167,77 @@ function makeHelpIcon($help_text): CSimpleButton {
 }
 
 /**
+ * Form grid rows for the discovery rule "Topology role" field: the role select with the macro contract hint of each
+ * role, and the note shown next to the lost resources settings.
+ *
+ * @param int  $topology_role
+ * @param bool $readonly
+ *
+ * @return array  ['role' => [CLabel, CFormField], 'note' => [CLabel, CFormField]]
+ */
+function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
+	$hints = [];
+
+	foreach (CTopologyRole::getRoles() as $role) {
+		$contract = CTopologyRole::getContract($role);
+
+		if ($contract === null) {
+			continue;
+		}
+
+		$required = implode(', ', $contract['required']);
+
+		if ($contract['snmpindex_fallback']) {
+			$required .= ' '._s('(%1$s is accepted when %2$s is absent)', CTopologyRole::SNMPINDEX_MACRO, '{#IFINDEX}');
+		}
+
+		$lines = [new CDiv([bold(_('Required').': '), $required])];
+
+		foreach ($contract['one_of'] as $group) {
+			$lines[] = new CDiv([bold(_('At least one of').': '), implode(', ', $group)]);
+		}
+
+		if ($contract['optional']) {
+			$lines[] = new CDiv([bold(_('Optional').': '), implode(', ', $contract['optional'])]);
+		}
+
+		$hints[] = (new CDiv($lines))
+			->addClass(ZBX_STYLE_GREY)
+			->addClass('js-topology-role-hint')
+			->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
+			->setAttribute('data-topology-role', $role);
+	}
+
+	$note_class = $topology_role == ZBX_TOPOLOGY_ROLE_NONE ? ZBX_STYLE_DISPLAY_NONE : null;
+
+	return [
+		'role' => [
+			new CLabel(_('Topology role'), 'label-topology_role'),
+			new CFormField([
+				(new CSelect('topology_role'))
+					->setId('topology_role')
+					->setFocusableElementId('label-topology_role')
+					->setValue($topology_role)
+					->addOptions(CSelect::createOptionsFromArray(CTopologyRole::getLabels()))
+					->setReadonly($readonly),
+				$hints
+			])
+		],
+		'note' => [
+			(new CLabel(''))
+				->addClass('js-topology-role-note')
+				->addClass($note_class),
+			(new CFormField(
+				(new CDiv(_('Lost resources settings apply to discovered prototypes only, not to topology data.')))
+					->addClass(ZBX_STYLE_GREY)
+			))
+				->addClass('js-topology-role-note')
+				->addClass($note_class)
+		]
+	];
+}
+
+/**
  * Renders an icon for a description.
  */
 function makeDescriptionIcon(string $description): CButtonIcon {

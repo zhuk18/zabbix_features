@@ -267,7 +267,11 @@
 			item_type: form_data['type'],
 			itemid: <?= array_key_exists('itemid', $data) ? (int) $data['itemid'] : 0 ?>,
 			valuemapid: form_data['valuemapid'],
-			interfaceid: form_data['interfaceid'] || 0
+			interfaceid: form_data['interfaceid'] || 0,
+			topology_role: form_data['topology_role'] || <?= ZBX_TOPOLOGY_ROLE_NONE ?>,
+			topology_macros: Object.values(form_data['lld_macro_paths'] || {})
+				.map((macro_path) => macro_path.lld_macro)
+				.filter((macro) => macro !== undefined && macro !== '')
 		});
 	}
 

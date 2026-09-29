@@ -743,6 +743,7 @@ class CConfigurationExportBuilder {
 				'lifetime' => $discoveryRule['lifetime'],
 				'enabled_lifetime_type' => $discoveryRule['enabled_lifetime_type'],
 				'enabled_lifetime' => $discoveryRule['enabled_lifetime'],
+				'topology_role' => $discoveryRule['topology_role'],
 				'description' => $discoveryRule['description'],
 				'item_prototypes' => $this->formatItems($discoveryRule['itemPrototypes'], $simple_trigger_prototypes),
 				'trigger_prototypes' => $this->formatTriggers($discoveryRule['triggerPrototypes']),

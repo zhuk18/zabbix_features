@@ -1254,6 +1254,13 @@ static int	DBpatch_7050091(void)
 	return SUCCEED;
 }
 
+static int	DBpatch_7050092(void)
+{
+	const zbx_db_field_t	field = {"topology_role", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0};
+
+	return DBadd_field("items", &field);
+}
+
 #endif
 
 DBPATCH_START(7050)
@@ -1352,5 +1359,6 @@ DBPATCH_ADD(7050088, 0, 1)
 DBPATCH_ADD(7050089, 0, 1)
 DBPATCH_ADD(7050090, 0, 1)
 DBPATCH_ADD(7050091, 0, 1)
+DBPATCH_ADD(7050092, 0, 1)
 
 DBPATCH_END()

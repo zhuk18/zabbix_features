@@ -473,7 +473,7 @@ static void	lld_items_get(const zbx_vector_lld_item_prototype_ptr_t *item_protot
 					"post_type,http_proxy,headers,retrieve_mode,request_method,output_format,"
 					"ssl_cert_file,ssl_key_file,ssl_key_password,verify_peer,verify_host,"
 					"allow_traps,status,lifetime,lifetime_type,enabled_lifetime,"
-					"enabled_lifetime_type,evaltype,flags,discover"
+					"enabled_lifetime_type,evaltype,flags,discover,topology_role"
 				" from items"
 				" where");
 
@@ -732,6 +732,12 @@ static void	lld_items_get(const zbx_vector_lld_item_prototype_ptr_t *item_protot
 			{
 				item->flags |= ZBX_FLAG_LLD_ITEM_UPDATE_EVALTYPE;
 				item->evaltype_orig = atoi(row[48]);
+			}
+
+			if (atoi(row[51]) != item_prototype->topology_role)
+			{
+				item->flags |= ZBX_FLAG_LLD_ITEM_UPDATE_TOPOLOGY_ROLE;
+				item->topology_role_orig = atoi(row[51]);
 			}
 
 			item->item_flags = atoi(row[49]);
@@ -2977,7 +2983,7 @@ static void	lld_item_save(zbx_uint64_t hostid, const zbx_vector_lld_item_prototy
 				item->ssl_key_password, item_prototype->verify_peer, item_prototype->verify_host,
 				item_prototype->allow_traps, item_prototype->lifetime, item_prototype->lifetime_type,
 				item_prototype->enabled_lifetime, item_prototype->enabled_lifetime_type,
-				item_prototype->evaltype, item_prototype->discover);
+				item_prototype->evaltype, item_prototype->discover, item_prototype->topology_role);
 
 		/* In the case of prototype item discovery find the discovered LLD rule id */
 		if (NULL != rule_index)
@@ -3458,6 +3464,13 @@ static void	lld_item_prepare_update(const zbx_lld_item_prototype_t *item_prototy
 				item->item_flags, item->enabled_lifetime_type_orig,
 				item_prototype->enabled_lifetime_type);
 	}
+	if (0 != (item->flags & ZBX_FLAG_LLD_ITEM_UPDATE_TOPOLOGY_ROLE))
+	{
+		zbx_snprintf_alloc(sql, sql_alloc, sql_offset, "%stopology_role=%d", d, item_prototype->topology_role);
+		d = ",";
+		zbx_audit_item_update_json_update_topology_role(ZBX_AUDIT_LLD_CONTEXT, item->itemid,
+				item->item_flags, item->topology_role_orig, item_prototype->topology_role);
+	}
 	if (0 != (item->flags & ZBX_FLAG_LLD_ITEM_UPDATE_EVALTYPE))
 	{
 		zbx_snprintf_alloc(sql, sql_alloc, sql_offset, "%sevaltype=%d", d, item_prototype->evaltype);
@@ -3649,7 +3662,7 @@ static int	lld_items_save(zbx_uint64_t hostid, const zbx_vector_lld_item_prototy
 				"retrieve_mode", "request_method", "output_format", "ssl_cert_file", "ssl_key_file",
 				"ssl_key_password", "verify_peer", "verify_host", "allow_traps",
 				"lifetime", "lifetime_type", "enabled_lifetime", "enabled_lifetime_type",
-				"evaltype", "discover", (char *)NULL);
+				"evaltype", "discover", "topology_role", (char *)NULL);
 
 		zbx_db_insert_prepare(&db_insert_idiscovery, "item_discovery", "itemdiscoveryid", "itemid",
 				"parent_itemid", "key_", "lastcheck", "lldruleid", (char *)NULL);
@@ -4386,7 +4399,7 @@ static void	lld_item_prototypes_get(zbx_uint64_t lld_ruleid, zbx_vector_lld_item
 				"i.retrieve_mode,i.request_method,i.output_format,i.ssl_cert_file,i.ssl_key_file,"
 				"i.ssl_key_password,i.verify_peer,i.verify_host,i.allow_traps,i.discover,"
 				"i.lifetime,i.lifetime_type,i.enabled_lifetime,i.enabled_lifetime_type,i.evaltype,"
-				"i.flags"
+				"i.flags,i.topology_role"
 			" from items i,item_discovery id"
 			" where i.itemid=id.itemid"
 				" and id.lldruleid=" ZBX_FS_UI64,
@@ -4452,6 +4465,7 @@ static void	lld_item_prototypes_get(zbx_uint64_t lld_ruleid, zbx_vector_lld_item
 		item_prototype->enabled_lifetime = zbx_strdup(NULL, row[47]);
 		item_prototype->enabled_lifetime_type = atoi(row[48]);
 		item_prototype->evaltype = atoi(row[49]);
+		item_prototype->topology_role = atoi(row[51]);
 
 		zbx_vector_lld_row_ptr_create(&item_prototype->lld_rows);
 		zbx_vector_lld_item_preproc_ptr_create(&item_prototype->preproc_ops);

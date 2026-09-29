@@ -242,6 +242,7 @@ typedef struct
 	int					lifetime_type;
 	int					enabled_lifetime_type;
 	int					evaltype;
+	int					topology_role;
 	int					item_flags;
 
 #define ZBX_LLD_ITEM_PROTOTYPE_MACRO_PATH_COLS_NUM	2
@@ -313,6 +314,7 @@ struct zbx_lld_item_full_s
 #define ZBX_FLAG_LLD_ITEM_UPDATE_EVALTYPE		__UINT64_C(0x0000800000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE_STATUS			__UINT64_C(0x0001000000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE_DISCOVER		__UINT64_C(0x0002000000000000)
+#define ZBX_FLAG_LLD_ITEM_UPDATE_TOPOLOGY_ROLE		__UINT64_C(0x0004000000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE			(~ZBX_FLAG_LLD_ITEM_DISCOVERED)
 	zbx_uint64_t				flags;
 	char					*key_proto;
@@ -404,6 +406,7 @@ struct zbx_lld_item_full_s
 	int					lifetime_type_orig;
 	int					enabled_lifetime_type_orig;
 	int					evaltype_orig;
+	int					topology_role_orig;
 	int					item_flags;		/* discovery flag - lld rule/prototype */
 
 	zbx_sync_rowset_t			macro_paths;

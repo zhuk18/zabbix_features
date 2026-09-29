@@ -84,6 +84,7 @@ class CControllerLldRuleEdit extends CController
 			'lifetime'				=> 'db items.lifetime',
 			'enabled_lifetime_type'	=> 'in '.implode(',', [ZBX_LLD_DISABLE_AFTER, ZBX_LLD_DISABLE_NEVER, ZBX_LLD_DISABLE_IMMEDIATELY]),
 			'enabled_lifetime'		=> 'db items.lifetime',
+			'topology_role'			=> 'in '.implode(',', CTopologyRole::getRoles()),
 			'allow_traps'			=> 'in '.implode(',', [HTTPCHECK_ALLOW_TRAPS_OFF, HTTPCHECK_ALLOW_TRAPS_ON]),
 			'trapper_hosts'			=> 'db items.trapper_hosts',
 			'inventory_link'		=> 'db items.inventory_link',

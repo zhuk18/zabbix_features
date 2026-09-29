@@ -75,6 +75,7 @@ void	zbx_audit_item_update_json_add_data(int audit_context_mode, const zbx_templ
 
 		lld_audit_item_add_string(item, "enabled_lifetime", item->enabled_lifetime);
 		lld_audit_item_add_uint64(item, "enabled_lifetime_type", item->enabled_lifetime_type);
+		lld_audit_item_add_uint64(item, "topology_role", item->topology_role);
 
 		lld_audit_item_add_string(item, "formula", item->formula);
 		lld_audit_item_add_uint64(item, "evaltype", item->evaltype);

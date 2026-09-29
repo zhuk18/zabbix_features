@@ -467,7 +467,7 @@ class CItem extends CItemGeneral {
 		$items = $this->unsetExtraFields($items, ['hostid', 'interfaceid', 'value_type', 'valuemapid'],
 			$options['output']
 		);
-		$items = $this->unsetExtraFields($items, ['name_upper']);
+		$items = $this->unsetExtraFields($items, ['name_upper', 'topology_role']);
 
 		self::prepareItemsForApi($items, false);
 

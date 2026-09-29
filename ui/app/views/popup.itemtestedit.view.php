@@ -26,9 +26,14 @@ $form = (new CForm())
 	->addVar('hostid', $data['hostid'])
 	->addVar('interfaceid', $data['interfaceid'])
 	->addVar('valuemapid', $data['valuemapid'])
+	->addVar('topology_role', $data['topology_role'])
 	->addVar('test_type', $data['test_type'])
 	->addVar('show_final_result', $data['show_final_result'])
 	->addStyle('display: none;');
+
+foreach ($data['topology_macros'] as $i => $macro) {
+	$form->addItem((new CVar('topology_macros['.$i.']', $macro))->removeId());
+}
 
 if ($data['show_prev']) {
 	$form
@@ -540,6 +545,16 @@ if ($data['show_final_result']) {
 		))
 			->addClass(CFormField::ZBX_STYLE_FORM_FIELD_FLUID)
 			->addClass('item-final-result')
+			->addStyle('display: none')
+	]);
+}
+
+if ($data['show_final_result'] && $data['topology_role'] != ZBX_TOPOLOGY_ROLE_NONE) {
+	$form_grid->addItem([
+		(new CLabel(_('Topology contract')))->addClass('js-topology-check')->addStyle('display: none'),
+		(new CFormField())
+			->addClass(CFormField::ZBX_STYLE_FORM_FIELD_FLUID)
+			->addClass('js-topology-check')
 			->addStyle('display: none')
 	]);
 }

@@ -110,7 +110,8 @@ var LldRuleEditPrototypeTab = class {
 		new CViewSwitcher('type', 'change', this.#field_switches.for_type);
 
 		const input_selectors = ['[name="authtype"]', '[name="custom_timeout"]', '[name="lifetime_type"]',
-			'[name="enabled_lifetime_type"]', '[name="key"]', '[name="request_method"]'
+			'[name="enabled_lifetime_type"]', '[name="key"]', '[name="request_method"]',
+			'[name="topology_role"]'
 		];
 		const inputs = this.#container.querySelectorAll(input_selectors.join(','));
 
@@ -171,6 +172,15 @@ var LldRuleEditPrototypeTab = class {
 			[ipmi_sensor_required ? 'setAttribute' : 'removeAttribute']('aria-required', 'true');
 		this.#container.querySelector('label[for="ipmi_sensor"]').classList
 			.toggle('<?= ZBX_STYLE_FIELD_LABEL_ASTERISK ?>', ipmi_sensor_required);
+
+		const topology_role = this.#container.querySelector('[name="topology_role"]').value;
+
+		this.#container.querySelectorAll('.js-topology-role-hint').forEach(hint =>
+			hint.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', hint.dataset.topologyRole != topology_role)
+		);
+		this.#container.querySelectorAll('.js-topology-role-note').forEach(note =>
+			note.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', topology_role == <?= ZBX_TOPOLOGY_ROLE_NONE ?>)
+		);
 
 		const lifetime_type = this.#container.querySelector('[name="lifetime_type"]:checked').value;
 		const enabled_lifetime_type = this.#container.querySelector('[name="enabled_lifetime_type"]:checked').value;

@@ -350,6 +350,7 @@ abstract class CControllerLldRuleUpdateGeneral extends CController {
 				]],
 				'when' => ['enabled_lifetime_type', 'in' => [ZBX_LLD_DISABLE_AFTER]]
 			],
+			'topology_role' => ['db items.topology_role', 'in' => CTopologyRole::getRoles()],
 			'allow_traps' => ['db items.allow_traps', 'in' => [HTTPCHECK_ALLOW_TRAPS_OFF, HTTPCHECK_ALLOW_TRAPS_ON],
 				'when' => ['type', 'in' => [ITEM_TYPE_HTTPAGENT]]
 			],

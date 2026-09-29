@@ -394,6 +394,15 @@ window.itemtestedit_view_popup = new class {
 							button.addEventListener('click', this.#onCopyButtonClick);
 						})
 					}
+
+					if (response.topology_check !== undefined) {
+						const topology_check = this.#form_element.querySelectorAll('.js-topology-check');
+
+						if (topology_check.length) {
+							topology_check[1].innerHTML = response.topology_check;
+							topology_check.forEach(element => element.style.display = '');
+						}
+					}
 				});
 			});
 	}
@@ -547,6 +556,14 @@ window.itemtestedit_view_popup = new class {
 
 		this.#form_element.querySelectorAll('.js-preproc-step-name > div').forEach(element => {
 			element.remove();
+		});
+
+		this.#form_element.querySelectorAll('.js-topology-check').forEach(element => {
+			element.style.display = 'none';
+
+			if (element.tagName !== 'LABEL') {
+				element.innerHTML = '';
+			}
 		});
 
 		if (this.#form_element.querySelector('.js-final-result')) {

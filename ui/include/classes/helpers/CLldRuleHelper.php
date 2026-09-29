@@ -35,6 +35,7 @@ class CLldRuleHelper extends CItemGeneralHelper {
 		$item['lifetime'] = DB::getDefault('items', 'lifetime');
 		$item['enabled_lifetime_type'] = DB::getDefault('items', 'enabled_lifetime_type');
 		$item['enabled_lifetime'] = DB::getDefault('items', 'enabled_lifetime');
+		$item['topology_role'] = DB::getDefault('items', 'topology_role');
 
 		return $item;
 	}
@@ -184,7 +185,7 @@ class CLldRuleHelper extends CItemGeneralHelper {
 	 */
 	public static function getSourceLldRules(bool $is_lld_prototype, array $src_options): array {
 		$output_fields = ['itemid', 'name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-			'enabled_lifetime', 'description', 'status',
+			'enabled_lifetime', 'description', 'status', 'topology_role',
 
 			// Type fields.
 			// The fields used for multiple item types.

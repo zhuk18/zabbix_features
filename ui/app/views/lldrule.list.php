@@ -239,6 +239,7 @@ $discoveryTable = (new CTableInfo())
 		make_sorting_header(_('Key'), 'key_', $data['sort'], $data['sortorder'], $url),
 		make_sorting_header(_('Interval'), 'delay', $data['sort'], $data['sortorder'], $url),
 		make_sorting_header(_('Type'), 'type', $data['sort'], $data['sortorder'], $url),
+		_('Topology role'),
 		make_sorting_header(_('Status'), 'status', $data['sort'], $data['sortorder'], $url),
 		($data['context'] === 'host') ? _('Info') : null
 	])
@@ -412,6 +413,9 @@ foreach ($data['discoveries'] as $discovery) {
 		(new CDiv($discovery['key_']))->addClass(ZBX_STYLE_WORDWRAP),
 		$discovery['delay'],
 		item_type2str($discovery['type']),
+		$discovery['topology_role'] != ZBX_TOPOLOGY_ROLE_NONE
+			? CTopologyRole::getLabel((int) $discovery['topology_role'])
+			: '',
 		[
 			$status,
 			$disabled_by_lld ? makeDescriptionIcon(_('Disabled automatically by an LLD rule.')) : null

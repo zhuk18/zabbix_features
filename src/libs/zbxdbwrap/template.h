@@ -82,6 +82,7 @@ struct _zbx_template_item_t
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_LIFETIME_TYPE		__UINT64_C(0x1000000000000)
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_ENABLED_LIFETIME		__UINT64_C(0x2000000000000)
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_ENABLED_LIFETIME_TYPE	__UINT64_C(0x4000000000000)
+#define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TOPOLOGY_ROLE		__UINT64_C(0x8000000000000)
 
 	zbx_uint64_t			upd_flags;
 	zbx_uint64_t			valuemapid_orig;
@@ -187,6 +188,8 @@ struct _zbx_template_item_t
 	unsigned char			lifetime_type;
 	unsigned char			enabled_lifetime_type_orig;
 	unsigned char			enabled_lifetime_type;
+	unsigned char			topology_role_orig;
+	unsigned char			topology_role;
 	zbx_vector_template_item_ptr_t	dependent_items;
 	zbx_vector_item_preproc_ptr_t	item_preprocs;
 	zbx_vector_item_preproc_ptr_t	template_preprocs;
