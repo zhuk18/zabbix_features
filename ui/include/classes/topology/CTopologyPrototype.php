@@ -318,13 +318,18 @@ class CTopologyPrototype {
 			sort($pair);
 			$key = implode('-', $pair);
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
-			$discovered_via = ($link_attrs['discovered_via'] ?? 'lldp') === 'lldp' ? 'lldp' : 'manual';
+			// Any source other than 'manual' (lldp, cdp, ...) is a discovered link. 'lldp' stays the normalized
+			// "discovered" value the frontend filter and styling already key on; the raw source rides along in
+			// discovery_source for labels.
+			$discovery_source = (string) ($link_attrs['discovered_via'] ?? 'lldp');
+			$discovered_via = $discovery_source === 'manual' ? 'manual' : 'lldp';
 			if (!isset($device_links[$key]) || $discovered_via === 'lldp') {
 				$port_a = $port_details[$row['port_a']] ?? [];
 				$port_b = $port_details[$row['port_b']] ?? [];
 				$last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 				$device_links[$key] = ['source' => $row['device_a'], 'target' => $row['device_b'],
 					'type' => 'physical_link', 'discovered_via' => $discovered_via,
+					'discovery_source' => $discovery_source,
 					'source_port' => $port_a['name'] ?? null, 'target_port' => $port_b['name'] ?? null,
 					// Ids, not just labels — port_status_of()/port_speed_of() below key on these too.
 					'source_port_id' => $row['port_a'], 'target_port_id' => $row['port_b'],
@@ -488,6 +493,7 @@ class CTopologyPrototype {
 		// many neighbors there are.
 		$neighbors = [];
 		$discovered_via = [];
+		$discovery_source = [];
 		// §7 staleness indicator: last_seen of whichever physical_link row is currently "the" one
 		// shown for this neighbor — updated in lockstep with $link_ports below (same row wins both).
 		$last_seen = [];
@@ -502,6 +508,7 @@ class CTopologyPrototype {
 				$neighbors[$row['id']] = ['id' => $row['id'], 'type' => 'device', 'name' => $attrs['sysname'],
 					'monitoring_state' => null];
 				$discovered_via[$row['id']] = 'manual';
+				$discovery_source[$row['id']] = 'manual';
 				$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
 			}
 
@@ -510,10 +517,11 @@ class CTopologyPrototype {
 			// throughout this class: if any one of them is LLDP-confirmed, render the neighbor link as such.
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$row_last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
-			if (($link_attrs['discovered_via'] ?? 'lldp') === 'lldp') {
+			if (($link_attrs['discovered_via'] ?? 'lldp') !== 'manual') {
 				if ($discovered_via[$row['id']] !== 'lldp') {
 					$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
 					$last_seen[$row['id']] = $row_last_seen;
+					$discovery_source[$row['id']] = (string) ($link_attrs['discovered_via'] ?? 'lldp');
 				}
 				$discovered_via[$row['id']] = 'lldp';
 			}
@@ -533,6 +541,7 @@ class CTopologyPrototype {
 			$neighbor['represented'] = isset($represented_ids[$id]);
 			$neighbor['represented_hostid'] = $representing_hostids[$id] ?? null;
 			$neighbor['discovered_via'] = $discovered_via[$id];
+			$neighbor['discovery_source'] = $discovery_source[$id];
 			$neighbor['stale'] = self::isLinkStale($last_seen[$id] ?? null);
 			// 'local'/'remote' from $deviceid's own point of view — local_port belongs to the
 			// clicked device, remote_port to this neighbor. Matches the naming already used for
@@ -815,6 +824,70 @@ class CTopologyPrototype {
 
 	private static function isProxyOnline($proxy_state): bool {
 		return $proxy_state !== null && (int) $proxy_state === ZBX_PROXY_STATE_ONLINE;
+	}
+
+	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];
+
+	/**
+	 * NEIGHBORS evidence recorded by ingest (topology-lld-part2-spec.md §7/§8): one row per neighbor a
+	 * discovery rule reported, with what ingest made of it. Only observations of rules on hosts the current
+	 * user can see are returned.
+	 *
+	 * Every string in `remote_attrs` and the port/host names comes from LLDP/CDP or the network (model spec §9):
+	 * they are returned as data and must be escaped by whoever renders them — never inserted as HTML.
+	 *
+	 * @param array|null $outcomes   restrict to these outcomes; null = everything except 'applied'
+	 * @param string|null $device_id  restrict to observations resolved to this remote Device
+	 */
+	public static function getObservations(?array $outcomes = null, ?string $device_id = null,
+			int $limit = 500): array {
+		$outcomes ??= array_values(array_diff(self::OBSERVATION_OUTCOMES, ['applied']));
+		$visible_hostids = self::getVisibleHostIds();
+		if (!$visible_hostids) {
+			return [];
+		}
+
+		$sql = 'SELECT o.id,o.itemid,o.local_port_id,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,'.
+				'o.first_seen,o.last_seen,i.name AS rule_name,h.hostid,h.name AS host_name,port.attrs AS port_attrs,'.
+				'remote.attrs AS device_attrs'.
+			' FROM topo_observations o'.
+			' JOIN items i ON i.itemid=o.itemid'.
+			' JOIN hosts h ON h.hostid=i.hostid'.
+			' JOIN topo_nodes port ON port.id=o.local_port_id'.
+			' LEFT JOIN topo_nodes remote ON remote.id=o.device_id'.
+			' WHERE '.dbConditionString('o.outcome', $outcomes).
+				' AND '.dbConditionId('h.hostid', $visible_hostids);
+		if ($device_id !== null) {
+			$sql .= ' AND o.device_id='.zbx_dbstr($device_id);
+		}
+		$sql .= ' ORDER BY o.last_seen DESC,o.id DESC';
+
+		$result = [];
+		$cursor = DBselect($sql, $limit);
+		// DBfetch(..., false): with the default $convertNulls a NULL edge_id/device_id would come back as '0'
+		// (GOTCHAS.md #1), which is exactly the "no edge / no remote Device" state that must stay null.
+		while ($row = DBfetch($cursor, false)) {
+			$port_attrs = json_decode((string) $row['port_attrs'], true) ?: [];
+			$device_attrs = json_decode((string) $row['device_attrs'], true) ?: [];
+			$result[] = [
+				'id' => $row['id'],
+				'outcome' => $row['outcome'],
+				'reporter' => ['hostid' => $row['hostid'], 'name' => $row['host_name']],
+				'rule' => ['itemid' => $row['itemid'], 'name' => $row['rule_name']],
+				'local_port' => ['id' => $row['local_port_id'], 'name' => $port_attrs['name'] ?? null,
+					'if_index' => $port_attrs['if_index'] ?? null],
+				'remote_key' => $row['remote_key'],
+				'remote_attrs' => json_decode((string) $row['remote_attrs'], true) ?: [],
+				'remote_device' => $row['device_id'] === null ? null
+					: ['id' => $row['device_id'], 'name' => $device_attrs['sysname'] ?? null],
+				// The link that blocked this observation (shadowed/conflict) or that it confirmed (applied).
+				'edge_id' => $row['edge_id'],
+				'first_seen' => (int) $row['first_seen'],
+				'last_seen' => (int) $row['last_seen']
+			];
+		}
+
+		return $result;
 	}
 
 	// Resolves the highest-severity *active* trigger (value=TRIGGER_VALUE_TRUE, i.e. currently in problem

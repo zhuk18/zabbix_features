@@ -414,6 +414,7 @@ final class CRouter {
 		'topology.ports.link'						=> [CControllerTopologyPortsLink::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.ports.unlink'						=> [CControllerTopologyPortsUnlink::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.problems.get'						=> [CControllerTopologyProblemsGet::class,						ZBX_LAYOUT_JSON,		null],
+		'topology.observations.get'					=> [CControllerTopologyObservationsGet::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.promote'							=> [CControllerTopologyPromote::class,							ZBX_LAYOUT_JSON,		null],
 		'topology.depromote'						=> [CControllerTopologyDepromote::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.hosts.pull'						=> [CControllerTopologyHostsPull::class,						ZBX_LAYOUT_JSON,		null],

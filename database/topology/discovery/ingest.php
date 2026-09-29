@@ -114,9 +114,11 @@ $pdo_dsn = $options['pdo-dsn'] ?? getenv('TOPOLOGY_PDO_DSN') ?: null;
 $pdo_user = $options['pdo-user'] ?? getenv('TOPOLOGY_PDO_USER') ?: null;
 $pdo_password = $options['pdo-password'] ?? getenv('TOPOLOGY_PDO_PASSWORD') ?: '';
 
-if (!$api_url || !$api_token || !$pdo_dsn || !$pdo_user) {
-	fail("Usage: {$argv[0]} --api-url <url> --api-token <token> --pdo-dsn <dsn> --pdo-user <user> ".
-		"[--pdo-password <password>] [--zabbix-host <host> ...]\n\n".
+if (!$pdo_dsn || !$pdo_user) {
+	fail("Usage: {$argv[0]} --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] ".
+		"[--api-url <url> --api-token <token>] [--zabbix-host <host> ...]\n\n".
+		"The API arguments are only needed for the legacy Trapper-blob reporters (hosts with the ".
+		"topology.discovery.raw item); hosts with LLD snapshots (topo_lld_snapshot) need only the database.\n\n".
 		"Credentials may also come from ZABBIX_API_URL / ZABBIX_API_TOKEN / TOPOLOGY_PDO_DSN / ".
 		"TOPOLOGY_PDO_USER / TOPOLOGY_PDO_PASSWORD env vars — never hardcode them in a script ".
 		"(see topo-change-sender.sh at the repo root for the anti-pattern this avoids).\n\n".
@@ -587,7 +589,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 // the neighbor Device already has a real (non-pseudo) Port whose name normalizes to match, use that real
 // Port's id directly and never create a pseudo one in the first place. Returns null when there's no such
 // real port (the ordinary case — proceed with pseudo-Port creation as before).
-$find_matching_real_port = static function (int $device_id, string $name) use ($pdo, $normalize_port_name): ?int {
+$find_matching_real_port = static function (int $device_id, string $name, ?bool &$ambiguous = null) use ($pdo, $normalize_port_name): ?int {
 	$normalized = $normalize_port_name($name);
 	$stmt = $pdo->prepare(
 		"SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
@@ -595,8 +597,569 @@ $find_matching_real_port = static function (int $device_id, string $name) use ($
 	$stmt->execute([$device_id]);
 	$matches = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
 		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized));
-	// Same "never guess" rule as $merge_pseudo_port(): only act on an unambiguous single match.
+	// Same "never guess" rule as $merge_pseudo_port(): only act on an unambiguous single match. $ambiguous
+	// tells a caller that cares (the LLD snapshot path records it) apart from "no candidate at all".
+	$ambiguous = count($matches) > 1;
 	return count($matches) === 1 ? (int) $matches[0]['id'] : null;
+};
+
+// ============================================================================================================
+// LLD snapshot path (topology-lld-part2-spec.md). A host with rows in topo_lld_snapshot is a reporter whose
+// data comes from discovery rules with a topology_role instead of the Trapper blob above. Everything below
+// reuses the closures defined earlier (device/port matching, pseudo-port merge, promote, reconcile) — only the
+// input shape and the per-role handling are new. Every last_seen written here comes from the snapshot's own
+// clock, never from $now (spec §2 rule 3): running ingest twice over unchanged snapshots changes nothing.
+// ============================================================================================================
+
+const TOPO_ROLE_PORTS = 1;
+const TOPO_ROLE_NEIGHBORS = 2;
+const TOPO_ROLE_LEARNED_MACS = 3;
+const TOPO_ROLE_LAG = 4;
+
+$summary += [
+	'reporters_processed' => 0,
+	'reporters_skipped' => [],
+	'snapshots_ignored_role_mismatch' => 0,
+	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
+];
+
+$snap_node_attrs = static function (int $node_id) use ($pdo): array {
+	$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+	$stmt->execute([$node_id]);
+	$raw = $stmt->fetchColumn();
+	return $raw ? (json_decode($raw, true, 512, JSON_THROW_ON_ERROR) ?: []) : [];
+};
+
+// Writes attrs only when they actually changed, so an idempotent re-run leaves updated_at alone too.
+$snap_write_attrs = static function (int $node_id, array $attrs, array $before) use ($update_node, $now): bool {
+	$sorted_attrs = $attrs;
+	$sorted_before = $before;
+	ksort($sorted_attrs);
+	ksort($sorted_before);
+	if ($sorted_attrs === $sorted_before) {
+		return false;
+	}
+	$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $node_id]);
+	return true;
+};
+
+// IANA ifType 161 = ieee8023adLag; anything else is "physical" (same classification as push.py — there is no
+// SNMP signal for "mgmt"). A value that is already one of the model's own labels passes through.
+$snap_if_type = static function (?string $value): string {
+	if ($value === null || $value === '') {
+		return 'physical';
+	}
+	if (in_array($value, ['physical', 'lag', 'mgmt'], true)) {
+		return $value;
+	}
+	return $value === '161' ? 'lag' : 'physical';
+};
+
+// IF-MIB: 1 = up; everything else counts as down (push.py does the same).
+$snap_status = static function (?string $value): string {
+	return $value === '1' || $value === 'up' ? 'up' : 'down';
+};
+
+// Merge-upserts a Port by (device_id, if_index): only the attrs in $overlay are written, everything else the
+// row already carries (learned_macs from a LEARNED_MACS rule, a name from a PORTS rule, ...) is kept. $soft keys
+// are applied only when the port has no value for them yet (a NEIGHBORS row's if_name must not overwrite the
+// name a PORTS rule reported). The reporter's own side is always confirmed, never pseudo.
+$snap_port = static function (int $device_id, int $if_index, array $overlay = [], array $soft = []) use (
+	$pdo, $insert_port_node, $find_port, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+): int {
+	$existing_id = $find_port($device_id, $if_index);
+	if ($existing_id !== null) {
+		$before = $snap_node_attrs($existing_id);
+		$attrs = $overlay + $before;
+		foreach ($soft as $key => $value) {
+			if ($value !== null && $value !== '' && ($before[$key] ?? '') === '') {
+				$attrs[$key] = $value;
+			}
+		}
+		$snap_write_attrs($existing_id, $attrs, $before);
+		return $existing_id;
+	}
+	$attrs = $overlay + [
+		'if_index' => $if_index, 'name' => '', 'if_type' => 'physical', 'mac' => null, 'speed' => null,
+		'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => [],
+		'pseudo' => false,
+	];
+	foreach ($soft as $key => $value) {
+		if ($value !== null && $value !== '' && ($attrs[$key] ?? '') === '') {
+			$attrs[$key] = $value;
+		}
+	}
+	$insert_port_node->execute(['port', $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
+	$summary['ports_created']++;
+	return $last_insert_id();
+};
+
+// Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
+// but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
+// the vendor/sysname another source recorded — and last_seen only ever moves forward.
+$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
+	$find_device, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+): int {
+	$match = $find_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
+		$incoming['sysname'] ?? null);
+	if ($match !== null) {
+		[$device_id, $matched_by] = $match;
+		$before = $snap_node_attrs($device_id);
+		$attrs = $before;
+		foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
+			if (($incoming[$key] ?? null) !== null && $incoming[$key] !== '') {
+				$attrs[$key] = $incoming[$key];
+			}
+		}
+		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $seen_at);
+		if ($matched_by === 'sysname') {
+			$attrs['matched_by'] = 'sysname';
+		}
+		if ($snap_write_attrs($device_id, $attrs, $before)) {
+			$summary['devices_updated']++;
+		}
+		return $device_id;
+	}
+	$attrs = [
+		'mac' => $incoming['mac'] ?? null, 'chassis_id' => $incoming['chassis_id'] ?? null,
+		'mgmt_ip' => $incoming['mgmt_ip'] ?? null, 'sysname' => $incoming['sysname'] ?? '',
+		'vendor' => $incoming['vendor'] ?? 'unknown', 'last_seen' => $seen_at,
+	];
+	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
+	$summary['devices_created']++;
+	return $last_insert_id();
+};
+
+// physical_link upsert. Same canonicalization and per-side last_seen as $ensure_physical_link(), with three
+// deliberate changes (spec §6.6): the time is the snapshot clock and only ever moves forward (so an older
+// snapshot processed later cannot pull it back, and two rules confirming one side keep the newer clock);
+// discovered_via is the row's source; any non-manual source upgrades a manual link. Returns the edge id.
+$snap_link = static function (int $port_a, int $port_b, string $source, int $reporter_port_id, int $seen_at) use (
+	$pdo, $insert_edge, $now, $last_insert_id, &$summary
+): int {
+	$reporter_is_a = $reporter_port_id === $port_a;
+	if ($port_a > $port_b) {
+		[$port_a, $port_b] = [$port_b, $port_a];
+		$reporter_is_a = !$reporter_is_a;
+	}
+	$side = $reporter_is_a ? 'last_seen_src' : 'last_seen_dst';
+
+	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link' AND src_id = ? AND dst_id = ?");
+	$stmt->execute([$port_a, $port_b]);
+	if ($existing = $stmt->fetch(PDO::FETCH_ASSOC)) {
+		$before = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		$attrs = $before;
+		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+			$attrs['discovered_via'] = $source;
+		}
+		$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
+		$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
+		if ($attrs !== $before) {
+			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $existing['id']]);
+		}
+		return (int) $existing['id'];
+	}
+	$attrs = ['discovered_via' => $source, $side => $seen_at, 'last_seen' => $seen_at];
+	$insert_edge->execute(['physical_link', $port_a, $port_b, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
+	$summary['links_created']++;
+	return $last_insert_id();
+};
+
+// Physical links touching either port, other than the (a,b) pair itself, split by provenance. A manual link
+// on either port shadows the discovered observation (model spec §3 rule 5: manual wins, discovery never
+// deletes it); a different discovered link on the local port is the cable-move case (§6.7).
+$snap_other_links = static function (int $port_a, int $port_b) use ($pdo): array {
+	$stmt = $pdo->prepare(
+		"SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link'".
+		" AND (src_id IN (?, ?) OR dst_id IN (?, ?)) ORDER BY id");
+	$stmt->execute([$port_a, $port_b, $port_a, $port_b]);
+	$manual = [];
+	$discovered = [];
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+		$pair = [(int) $edge['src_id'], (int) $edge['dst_id']];
+		sort($pair);
+		$wanted = [$port_a, $port_b];
+		sort($wanted);
+		if ($pair === $wanted) {
+			continue;
+		}
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+			$manual[] = (int) $edge['id'];
+		}
+		elseif (in_array($port_a, $pair, true)) {
+			$discovered[] = (int) $edge['id'];
+		}
+	}
+	return ['manual' => $manual, 'discovered' => $discovered];
+};
+
+// The reporter's own Device is represented by its own Host (model spec §4.1). Same code path and log lines
+// as the blob path; $promote() itself is untouched.
+$snap_link_reporter_self = static function (int $device_id, string $hostid, string $host_label) use (
+	$pdo, $find_or_create_host_node, $promote
+): void {
+	$host_node_id = $find_or_create_host_node($hostid);
+	if ($promote($device_id, $host_node_id, 'reporter_self')) {
+		echo "OK: reporter '{$host_label}' device #{$device_id} represented_by its own host node ".
+			"#{$host_node_id} (matched_by: reporter_self)\n";
+		return;
+	}
+	$already_correct = $pdo->prepare(
+		"SELECT 1 FROM topo_nodes WHERE id = ? AND type = 'device' AND represented_by_node_id = ?");
+	$already_correct->execute([$device_id, $host_node_id]);
+	if (!$already_correct->fetch()) {
+		echo "CONFLICT: reporter '{$host_label}' device #{$device_id} or its host node #{$host_node_id} ".
+			"already has a represented_by link to something else — leaving it in place (§2.3 1:1 constraint)\n";
+	}
+};
+
+// Observation upsert keyed by (rule, local port, remote identity). first_seen survives while the observation
+// stays continuously present; last_seen is the snapshot clock. Nothing is written when nothing changed.
+$snap_observation = static function (int $itemid, int $local_port_id, string $remote_key, array $remote_attrs,
+		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at) use ($pdo): int {
+	$attrs_json = json_encode($remote_attrs, JSON_THROW_ON_ERROR);
+	$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, last_seen FROM topo_observations'.
+		' WHERE itemid = ? AND local_port_id = ? AND remote_key = ?');
+	$stmt->execute([$itemid, $local_port_id, $remote_key]);
+	if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+		$same = json_decode($row['remote_attrs'], true) === $remote_attrs && $row['outcome'] === $outcome
+			&& ($row['edge_id'] === null ? null : (int) $row['edge_id']) === $edge_id
+			&& ($row['device_id'] === null ? null : (int) $row['device_id']) === $device_id
+			&& (int) $row['last_seen'] === $seen_at;
+		if (!$same) {
+			$pdo->prepare('UPDATE topo_observations SET remote_attrs = ?, outcome = ?, edge_id = ?, device_id = ?,'.
+				' last_seen = ? WHERE id = ?')->execute([$attrs_json, $outcome, $edge_id, $device_id, $seen_at, $row['id']]);
+		}
+		return (int) $row['id'];
+	}
+	$pdo->prepare('INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id,'.
+		' device_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		->execute([$itemid, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $seen_at, $seen_at]);
+	return (int) $pdo->lastInsertId();
+};
+
+// remote_key: the strongest identity present, prefixed with its kind, so the same neighbor seen by the same
+// rule on the same port always maps to the same row.
+$snap_remote_key = static function (array $row): string {
+	if (($row['rem_chassis'] ?? '') !== '') {
+		return substr('chassis:'.($row['rem_chassis_type'] ?? '-').':'.$row['rem_chassis'], 0, 255);
+	}
+	if (($row['rem_mgmt_ip'] ?? '') !== '') {
+		return substr('ip:'.$row['rem_mgmt_ip'], 0, 255);
+	}
+	return substr('sysname:'.($row['rem_sysname'] ?? ''), 0, 255);
+};
+
+// Reporters = hosts with at least one usable snapshot. Snapshots of disabled rules are skipped; a snapshot
+// written under a role the rule no longer has is ignored (the API also deletes it on a role change — this is
+// the defense in depth from spec §4.6). Returns [hostid => reporter].
+$snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary): array {
+	$rows = $pdo->query(
+		'SELECT s.itemid, s.hostid, s.role, s.clock, s.rows_json, i.topology_role AS rule_role,'.
+		' i.status AS rule_status, h.host, h.name AS host_name'.
+		' FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid JOIN hosts h ON h.hostid = s.hostid'.
+		' ORDER BY s.hostid, s.role, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
+	$reporters = [];
+	foreach ($rows as $row) {
+		if ($host_filter && !in_array($row['host'], $host_filter, true)) {
+			continue;
+		}
+		if ((int) $row['rule_status'] !== 0) {
+			continue;
+		}
+		if ((int) $row['role'] !== (int) $row['rule_role']) {
+			$summary['snapshots_ignored_role_mismatch']++;
+			echo "SKIP: snapshot of rule #{$row['itemid']} was written for role {$row['role']} but the rule now has ".
+				"role {$row['rule_role']}\n";
+			continue;
+		}
+		$decoded = json_decode($row['rows_json'], true);
+		if (!is_array($decoded)) {
+			echo "SKIP: snapshot of rule #{$row['itemid']} holds invalid JSON\n";
+			continue;
+		}
+		$hostid = (int) $row['hostid'];
+		$reporters[$hostid] ??= ['hostid' => $hostid, 'host' => $row['host'], 'name' => $row['host_name'],
+			'snapshots' => []];
+		$reporters[$hostid]['snapshots'][(int) $row['role']][] = ['itemid' => (int) $row['itemid'],
+			'clock' => (int) $row['clock'], 'rows' => $decoded];
+	}
+	return $reporters;
+};
+
+// Ingests one reporter from its snapshots. Order (spec §5.3): self Device -> PORTS -> LAG -> NEIGHBORS ->
+// LEARNED_MACS. Returns ['status' => 'ok'] or ['status' => 'skipped', 'reason' => ...]; the caller owns the
+// transaction. Nothing is written for a skipped reporter.
+$snap_ingest_reporter = static function (array $reporter) use (
+	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$find_matching_real_port, $resolve_port_label, $pseudo_if_index, $reconcile_device, $update_node, $now, &$summary
+): array {
+	$snapshots = $reporter['snapshots'];
+	$label = $reporter['host'];
+	$clocks = array_merge(...array_map(static fn (array $list): array => array_column($list, 'clock'),
+		array_values($snapshots)));
+	$reporter_seen = max($clocks);
+
+	// ---- identity (spec §5.2) ----
+	$chassis_values = [];
+	foreach ($snapshots as $list) {
+		foreach ($list as $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				if (($row['loc_chassis'] ?? '') !== '') {
+					$chassis_values[$row['loc_chassis']] = true;
+				}
+			}
+		}
+	}
+	if (count($chassis_values) > 1) {
+		echo "SKIP: reporter '{$label}' reports more than one loc_chassis (".implode(', ', array_keys($chassis_values)).
+			") — identity is ambiguous, not picking one\n";
+		return ['status' => 'skipped', 'reason' => 'identity_ambiguous'];
+	}
+	$loc_chassis = $chassis_values ? (string) array_key_first($chassis_values) : null;
+
+	$existing = $pdo->prepare(
+		"SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id".
+		" WHERE d.type = 'device' AND h.host_ref = ? AND d.represented_by_matched_by = 'reporter_self'");
+	$existing->execute([$reporter['hostid']]);
+	$device_id = $existing->fetchColumn();
+
+	$interface = $pdo->prepare(
+		'SELECT ip FROM interface WHERE hostid = ? AND type = 2 AND useip = 1 AND ip <> \'\' ORDER BY main DESC, interfaceid LIMIT 1');
+	$interface->execute([$reporter['hostid']]);
+	$mgmt_ip = $interface->fetchColumn() ?: null;
+
+	if ($device_id === false) {
+		if ($loc_chassis === null && $mgmt_ip === null) {
+			echo "SKIP: reporter '{$label}' has neither a loc_chassis nor an SNMP interface IP — no identity key, ".
+				"not creating a keyless Device\n";
+			return ['status' => 'skipped', 'reason' => 'identity_missing'];
+		}
+		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
+			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen);
+	}
+	else {
+		$device_id = (int) $device_id;
+		$before = $snap_node_attrs($device_id);
+		$attrs = $before;
+		if ($loc_chassis !== null) {
+			$attrs['chassis_id'] = $loc_chassis;
+		}
+		if ($mgmt_ip !== null) {
+			$attrs['mgmt_ip'] = $mgmt_ip;
+		}
+		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $reporter_seen);
+		$snap_write_attrs($device_id, $attrs, $before);
+	}
+	$device_id = (int) $device_id;
+	$snap_link_reporter_self($device_id, (string) $reporter['hostid'], $label);
+
+	// ---- PORTS ----
+	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+		foreach ($snapshot['rows'] as $row) {
+			$if_index = (int) $row['if_index'];
+			$overlay = ['if_index' => $if_index, 'pseudo' => false];
+			foreach (['name', 'mac', 'speed'] as $key) {
+				if (($row[$key] ?? '') !== '') {
+					$overlay[$key] = $row[$key];
+				}
+			}
+			if (array_key_exists('if_type', $row)) {
+				$overlay['if_type'] = $snap_if_type((string) $row['if_type']);
+			}
+			foreach (['admin_status', 'oper_status'] as $key) {
+				if (array_key_exists($key, $row)) {
+					$overlay[$key] = $snap_status((string) $row[$key]);
+				}
+			}
+			// A port that is the target of a LAG membership stays typed "lag" even when its ifType says
+			// otherwise (some vendors report port-channels as ethernetCsmacd); the LAG rule set it.
+			$existing_id = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+				" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+			$existing_id->execute([$device_id, $if_index]);
+			if (($port_row = $existing_id->fetchColumn()) !== false) {
+				$members = $pdo->prepare('SELECT COUNT(*) FROM topo_nodes WHERE lag_id = ?');
+				$members->execute([$port_row]);
+				if ((int) $members->fetchColumn() > 0) {
+					unset($overlay['if_type']);
+				}
+			}
+			$port_id = $snap_port($device_id, $if_index, $overlay);
+			$port_name = $snap_node_attrs($port_id)['name'] ?? '';
+			if ($port_name !== '') {
+				$merge_pseudo_port($device_id, $port_id, $port_name);
+			}
+		}
+	}
+
+	// ---- LAG (only when the reporter has a LAG snapshot; otherwise no lag_id is ever touched) ----
+	if (!empty($snapshots[TOPO_ROLE_LAG])) {
+		$member_ids = [];
+		foreach ($snapshots[TOPO_ROLE_LAG] as $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				$member_index = (int) $row['if_index'];
+				$lag_index = (int) $row['lag_if_index'];
+				if ($member_index === $lag_index) {
+					continue; // attached to itself = not aggregated
+				}
+				// The aggregate exists (typed "lag") before any member points at it — the lag_id invariant.
+				$lag_port_id = $snap_port($device_id, $lag_index, ['if_index' => $lag_index, 'if_type' => 'lag',
+					'pseudo' => false]);
+				$member_id = $snap_port($device_id, $member_index, ['if_index' => $member_index, 'pseudo' => false]);
+				$pdo->prepare('UPDATE topo_nodes SET lag_id = ? WHERE id = ? AND (lag_id IS NULL OR lag_id <> ?)')
+					->execute([$lag_port_id, $member_id, $lag_port_id]);
+				$member_ids[] = $member_id;
+			}
+		}
+		// Silence overwrites: members of this Device that no longer appear in the snapshot leave the LAG.
+		$sql = "UPDATE topo_nodes SET lag_id = NULL WHERE device_id = ? AND type = 'port' AND lag_id IS NOT NULL";
+		$params = [$device_id];
+		if ($member_ids) {
+			$sql .= ' AND id NOT IN ('.implode(',', array_fill(0, count($member_ids), '?')).')';
+			$params = array_merge($params, $member_ids);
+		}
+		$pdo->prepare($sql)->execute($params);
+	}
+
+	// ---- NEIGHBORS ----
+	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
+		$itemid = $snapshot['itemid'];
+		$clock = $snapshot['clock'];
+		$touched = [];
+
+		foreach ($snapshot['rows'] as $row) {
+			$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
+				'pseudo' => false], ['name' => $row['if_name'] ?? null]);
+
+			$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
+			$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
+			$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
+				'rem_mgmt_ip', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
+				static fn ($value): bool => $value !== '' && $value !== null);
+			$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
+
+			$remote_device_id = $snap_device([
+				'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
+				'chassis_id' => $chassis_id,
+				'mgmt_ip' => ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null,
+				'sysname' => $row['rem_sysname'] ?? null,
+				'vendor' => 'unknown',
+			], $local_port_id, $clock);
+			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
+
+			$outcome = 'applied';
+			$edge_id = null;
+			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
+
+			if (!$has_remote_port) {
+				// Model spec §3 rule 1: no physical_link without a resolved Port on both ends.
+				$outcome = 'device_only';
+			}
+			else {
+				$port_label = $resolve_port_label($row['rem_port_desc'] ?? null, $row['rem_port'] ?? null,
+					$row['rem_port_type'] ?? null);
+				$ambiguous = false;
+				$remote_port_id = $find_matching_real_port($remote_device_id, $port_label, $ambiguous);
+				if ($ambiguous) {
+					$outcome = 'ambiguous'; // several real ports match the label: never guess which one
+				}
+				else {
+					if ($remote_port_id === null) {
+						$pseudo_index = $pseudo_if_index($row['rem_port'] ?? null, $row['rem_port_type'] ?? null);
+						$pseudo_id = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+							" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+						$pseudo_id->execute([$remote_device_id, $pseudo_index]);
+						// A confirmed port already owns that if_index (LLDP "local" subtype carries a real
+						// ifIndex): it is the same physical port, do not turn it into a pseudo one.
+						$remote_port_id = ($found = $pseudo_id->fetchColumn()) !== false ? (int) $found
+							: $snap_port($remote_device_id, $pseudo_index, [
+								'if_index' => $pseudo_index, 'name' => $port_label, 'pseudo' => true,
+								'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
+							]);
+					}
+
+					$others = $snap_other_links($local_port_id, $remote_port_id);
+					if ($others['manual']) {
+						// Manual wins: the link is skipped, the evidence is kept (spec §7 "shadowed").
+						$outcome = 'shadowed';
+						$edge_id = $others['manual'][0];
+					}
+					else {
+						$link_id = $snap_link($local_port_id, $remote_port_id, $source, $local_port_id, $clock);
+						if ($others['discovered']) {
+							// Cable moved: both links stay, as the blob path does (spec §6.7); the older one goes
+							// stale on its own last_seen. The observation points at the contradicted link.
+							$outcome = 'conflict';
+							$edge_id = $others['discovered'][0];
+						}
+						else {
+							$edge_id = $link_id;
+						}
+					}
+				}
+			}
+
+			$touched[] = $snap_observation($itemid, $local_port_id, $snap_remote_key($row), $remote_attrs, $outcome,
+				$edge_id, $remote_device_id, $clock);
+			$summary['observations'][$outcome]++;
+		}
+
+		// The table mirrors the latest snapshot of the rule: whatever is no longer reported goes away. Edges keep
+		// their frozen last_seen (the history lives there, not here).
+		$all = $pdo->prepare('SELECT id FROM topo_observations WHERE itemid = ?');
+		$all->execute([$itemid]);
+		$stale = array_diff(array_map('intval', $all->fetchAll(PDO::FETCH_COLUMN)), $touched);
+		foreach (array_chunk($stale, 500) as $chunk) {
+			$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
+				->execute($chunk);
+		}
+	}
+
+	// ---- LEARNED_MACS (only when the reporter has such a snapshot) ----
+	if (!empty($snapshots[TOPO_ROLE_LEARNED_MACS])) {
+		$per_port = [];
+		foreach ($snapshots[TOPO_ROLE_LEARNED_MACS] as $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				$entry = &$per_port[(int) $row['if_index']];
+				$entry ??= ['macs' => [], 'count' => null];
+				if (($row['mac'] ?? '') !== '') {
+					$entry['macs'][strtolower($row['mac'])] = true;
+				}
+				elseif (isset($row['port_mac_count'])) {
+					$entry['count'] = max((int) $entry['count'], (int) $row['port_mac_count']);
+				}
+				unset($entry);
+			}
+		}
+		foreach (array_keys($per_port) as $if_index) {
+			$snap_port($device_id, $if_index, ['if_index' => $if_index, 'pseudo' => false]);
+		}
+		$ports = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'");
+		$ports->execute([$device_id]);
+		foreach ($ports->fetchAll(PDO::FETCH_ASSOC) as $port_row) {
+			$before = json_decode($port_row['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+			$attrs = $before;
+			$entry = $per_port[(int) ($before['if_index'] ?? -1)] ?? null;
+			unset($attrs['learned_mac_count']);
+			if ($entry === null) {
+				$attrs['learned_macs'] = [];
+			}
+			elseif ($entry['macs']) {
+				$attrs['learned_macs'] = array_keys($entry['macs']);
+				sort($attrs['learned_macs']);
+			}
+			else {
+				$attrs['learned_macs'] = [];
+				$attrs['learned_mac_count'] = $entry['count'];
+			}
+			$snap_write_attrs((int) $port_row['id'], $attrs, $before);
+		}
+	}
+
+	return ['status' => 'ok', 'device_id' => $device_id];
 };
 
 // ---- Testability hook, no effect on a normal CLI invocation (the constant is never defined
@@ -614,24 +1177,63 @@ if (defined('TOPOLOGY_INGEST_TEST_HOOK')) {
 	return;
 }
 
-$api = new ZabbixApi($api_url, $api_token);
+$api = ($api_url && $api_token) ? new ZabbixApi($api_url, $api_token) : null;
 $processed = 0;
 $skipped = 0;
 
-$reporter_items = $api->findAllReporterItems();
+// ---- LLD snapshot reporters (topology-lld-part2-spec.md) ----
+$snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
+
+foreach ($snapshot_reporters as $reporter) {
+	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
+	try {
+		$pdo->beginTransaction();
+		$result = $snap_ingest_reporter($reporter);
+		if ($result['status'] === 'ok') {
+			$pdo->commit();
+			$summary['reporters_processed']++;
+			$processed++;
+			echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, roles: ".
+				implode(',', array_keys($reporter['snapshots']))."\n";
+		}
+		else {
+			$pdo->rollBack();
+			$summary['reporters_skipped'][$result['reason']] = ($summary['reporters_skipped'][$result['reason']] ?? 0) + 1;
+			$skipped++;
+		}
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
+		fwrite(STDERR, "ERROR: failed to ingest LLD snapshots of '{$reporter['host']}': {$exception->getMessage()}\n");
+		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
+		$skipped++;
+	}
+}
+
+// ---- Legacy Trapper-blob reporters. A host that has LLD snapshots is ingested from them only. ----
+$reporter_items = $api ? $api->findAllReporterItems() : [];
 if ($zabbix_host_filter) {
 	$reporter_items = array_values(array_filter($reporter_items,
 		static fn (array $row): bool => in_array($row['host'], $zabbix_host_filter, true)));
 }
+foreach ($reporter_items as $key => $row) {
+	if (isset($snapshot_reporters[(int) $row['hostid']])) {
+		echo "NOTE: '{$row['host']}' has both a topology.discovery.raw item and LLD snapshots — using the ".
+			"snapshots, ignoring the blob\n";
+		unset($reporter_items[$key]);
+	}
+}
+$reporter_items = array_values($reporter_items);
 
-if (!$reporter_items) {
+if (!$reporter_items && !$snapshot_reporters) {
 	// Zero reporters is a normal "nothing onboarded yet" state (spec §4.1), not an error — succeed with
 	// nothing to do rather than failing the run.
-	echo "No reporters found (no host carries the topology.discovery.raw item yet — nothing onboarded, ".
-		"or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
+	echo "No reporters found (no host has LLD snapshots or carries the topology.discovery.raw item yet — nothing ".
+		"onboarded, or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
 	write_status(['status' => 'done', 'started_at' => $run_started_at, 'finished_at' => time(),
-		'summary' => ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0],
-		'error' => null]);
+		'summary' => $summary, 'error' => null]);
 	exit(0);
 }
 

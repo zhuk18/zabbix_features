@@ -355,7 +355,9 @@ const view = new class {
 				rows.push([`${this.escape(link.target.name)} ${<?= json_encode(_('port')) ?>}`, link.target_port]);
 			}
 			rows.push([<?= json_encode(_('Discovered via')) ?>,
-				link.discovered_via === 'manual' ? <?= json_encode(_('Manual')) ?> : 'LLDP']);
+				link.discovered_via === 'manual'
+					? <?= json_encode(_('Manual')) ?>
+					: this.escape((link.discovery_source || 'lldp').toUpperCase())]);
 			if (link.source_status) {
 				rows.push([`${this.escape(link.source.name)} ${<?= json_encode(_('status')) ?>}`,
 					this.statusCell(link.source_status, status_labels), true]);
@@ -864,7 +866,7 @@ const view = new class {
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'
 					? <?= json_encode(_('manually declared')) ?>
-					: <?= json_encode(_('LLDP-discovered')) ?>;
+					: (link.discovery_source || 'lldp').toUpperCase() + '-' + <?= json_encode(_('discovered')) ?>;
 				const status_labels = {
 					up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>,
 					disabled: <?= json_encode(_('Disabled')) ?>

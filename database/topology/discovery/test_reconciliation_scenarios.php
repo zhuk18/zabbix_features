@@ -60,6 +60,8 @@ $pdo = new PDO($args[0], $args[1], $args[2] ?? '', [PDO::ATTR_ERRMODE => PDO::ER
 
 $pdo->exec('CREATE TABLE IF NOT EXISTS hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL DEFAULT \'\')');
 $pdo->exec('CREATE TABLE IF NOT EXISTS proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
+// topo_observations (part of mysql_schema.sql) references items.itemid.
+$pdo->exec('CREATE TABLE IF NOT EXISTS items (itemid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 
 // Fake hostid for the "SwitchB is onboarded as a reporter" step in scenario D — needs a row in the
