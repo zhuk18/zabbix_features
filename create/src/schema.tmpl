@@ -2336,8 +2336,8 @@ UNIQUE		|1		|token
 TABLE|topo_nodes|id|0
 FIELD		|id		|t_id		|	|NOT NULL	|0
 FIELD		|type		|t_varchar(32)	|''	|NOT NULL	|0
-FIELD		|host_ref	|t_id		|NULL	|NULL		|0			|1|hosts|hostid|CASCADE
-FIELD		|proxy_ref	|t_id		|NULL	|NULL		|0			|2|proxy|proxyid|CASCADE
+FIELD		|host_ref	|t_id		|NULL	|NULL		|0			|1|hosts|hostid|
+FIELD		|proxy_ref	|t_id		|NULL	|NULL		|0			|2|proxy|proxyid|
 FIELD		|attrs		|t_json		|	|NOT NULL	|0
 FIELD		|created_at	|t_time		|'0'	|NOT NULL	|0
 FIELD		|updated_at	|t_time		|'0'	|NOT NULL	|0
@@ -2353,8 +2353,8 @@ UNIQUE		|3		|proxy_ref
 TABLE|topo_edges|id|0
 FIELD		|id		|t_id		|	|NOT NULL	|0
 FIELD		|type		|t_varchar(32)	|''	|NOT NULL	|0
-FIELD		|src_id		|t_id		|	|NOT NULL	|0			|1|topo_nodes|id|CASCADE
-FIELD		|dst_id		|t_id		|	|NOT NULL	|0			|2|topo_nodes|id|CASCADE
+FIELD		|src_id		|t_id		|	|NOT NULL	|0			|1|topo_nodes|id|
+FIELD		|dst_id		|t_id		|	|NOT NULL	|0			|2|topo_nodes|id|
 FIELD		|attrs		|t_json		|'{}'	|NOT NULL	|0
 FIELD		|created_at	|t_time		|'0'	|NOT NULL	|0
 INDEX		|1		|src_id,type
