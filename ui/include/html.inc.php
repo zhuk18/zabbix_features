@@ -1208,6 +1208,7 @@ function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
 		}
 
 		$hints[] = (new CDiv($lines))
+			->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
 			->addClass(ZBX_STYLE_GREY)
 			->addClass('js-topology-role-hint')
 			->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
