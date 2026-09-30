@@ -69,6 +69,14 @@ const view = new class {
 			});
 			await this.loadDevices();
 		}));
+		// Manual links contradicted by discovery (topology-manual-contradiction-spec.md): the buttons live in
+		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
+		this.details.addEventListener('click', event => {
+			const button = event.target.closest('[data-topology-manual]');
+			if (button) {
+				this.guard(() => this.manualAction(button.dataset.topologyManual, button.dataset.edge, button.dataset.device));
+			}
+		});
 		this.ingest_status_element = document.getElementById('topology-ingest-status');
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
@@ -200,8 +208,10 @@ const view = new class {
 		return groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
 	}
 
-	async loadDevices() {
-		const {devices = [], relations = []} = await this.request(`topology.devices.get${this.filterQuery()}`);
+	async loadDevices({reselect_edge = null} = {}) {
+		const {devices = [], relations = [], contradictions = []} =
+			await this.request(`topology.devices.get${this.filterQuery()}`);
+		this.contradictions = contradictions;
 		devices.forEach(node => {
 			if (node.type === 'host' || node.type === 'proxy') {
 				node.linked = true;
@@ -223,7 +233,7 @@ const view = new class {
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
-			replaced_by_device: relation.replaced_by_device ?? null
+			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null
 		}));
 		// §2.3/§6: monitoring assignment is no longer a stored edge — relations never carries a
 		// 'monitored_by' entry. Synthesize the line here from each Host's own live-resolved
@@ -237,9 +247,152 @@ const view = new class {
 			}
 		});
 		this.render();
+		if (reselect_edge !== null) {
+			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(reselect_edge));
+			if (link) {
+				this.selectLink(this.resolvedLink(link));
+				return;
+			}
+		}
 		const first_device = devices.find(node => node.type === 'device');
 		if (first_device) {
 			await this.selectNode(first_device);
+		}
+	}
+
+	// A link object as render() hands it to selectLink(): with source/target resolved to node objects.
+	resolvedLink(link) {
+		return {...link, source: this.nodes.get(String(link.source)) ?? {name: String(link.source)},
+			target: this.nodes.get(String(link.target)) ?? {name: String(link.target)}};
+	}
+
+	// ---- Manual links contradicted by discovery (topology-manual-contradiction-spec.md) ----
+
+	contradictionOf(edge_id) {
+		return (this.contradictions ?? []).find(entry => String(entry.edge_id) === String(edge_id)) ?? null;
+	}
+
+	// Every unacknowledged shadowing observation, with the manual link it hides behind.
+	unacknowledgedShadows() {
+		const shadows = [];
+		(this.contradictions ?? []).forEach(entry => entry.shadows.forEach(shadow => {
+			if (!shadow.acknowledged) {
+				shadows.push({entry, shadow});
+			}
+		}));
+		return shadows;
+	}
+
+	formatDate(unix) {
+		return new Date(unix * 1000).toLocaleString();
+	}
+
+	// Tooltip of the warning badge on a contradicted manual link: one line per unacknowledged hidden neighbor.
+	contradictionSummary(entry) {
+		return entry.shadows.filter(shadow => !shadow.acknowledged).map(shadow =>
+			`${<?= json_encode(_('Discovery sees')) ?>} ${shadow.hidden_name ?? shadow.remote_key} ` +
+			`${<?= json_encode(_('on')) ?>} ${shadow.local_port ?? '?'} (${<?= json_encode(_('since')) ?>} ${this.formatDate(shadow.first_seen)})`
+		).join('\n');
+	}
+
+	// Details of a manual link: who it hides, what the operator can do about each, what they already decided.
+	manualLinkFragment(edge_id) {
+		const entry = this.contradictionOf(edge_id);
+		if (!entry) {
+			return '';
+		}
+		const edge = this.escape(entry.edge_id);
+		const parts = [`<h3>${this.escape(<?= json_encode(_('Manual link')) ?>)}</h3>`,
+			`<p>${this.escape(<?= json_encode(_('Manual link, created')) ?>)} ${this.escape(this.formatDate(entry.created_at))}.</p>`];
+		const unacknowledged = entry.shadows.filter(shadow => !shadow.acknowledged);
+		if (unacknowledged.length) {
+			parts.push(`<p><strong>${this.escape(<?= json_encode(_('Contradicted by discovery')) ?>)}</strong></p><ul>`);
+			unacknowledged.forEach(shadow => {
+				const buttons = shadow.hidden_device_id === null
+					? `<em>${this.escape(<?= json_encode(_('unknown device: it cannot be acknowledged')) ?>)}</em> `
+					: `<button type="button" class="btn-alt" data-topology-manual="keep" data-edge="${edge}" ` +
+						`data-device="${this.escape(shadow.hidden_device_id)}">${this.escape(<?= json_encode(_('Keep manual')) ?>)}</button> `;
+				parts.push(`<li>${this.escape(shadow.hidden_name ?? shadow.remote_key)} ${this.escape(<?= json_encode(_('on')) ?>)} ` +
+					`${this.escape(shadow.local_port ?? '?')}${shadow.remote_port ? ' (' + this.escape(shadow.remote_port) + ')' : ''}, ` +
+					`${this.escape(<?= json_encode(_('reported by')) ?>)} ${this.escape(shadow.reporter.name)}, ` +
+					`${this.escape(<?= json_encode(_('since')) ?>)} ${this.escape(this.formatDate(shadow.first_seen))}<br>${buttons}` +
+					`<button type="button" class="btn-alt" data-topology-manual="accept" data-edge="${edge}">` +
+					`${this.escape(<?= json_encode(_('Accept discovery')) ?>)}</button></li>`);
+			});
+			parts.push('</ul>');
+		}
+		if (entry.acks.length) {
+			parts.push(`<p>${this.escape(<?= json_encode(_('Acknowledged')) ?>)}:</p><ul>`);
+			entry.acks.forEach(ack => parts.push(`<li>${this.escape(ack.device_name ?? ack.remote_key)} — ` +
+				`${this.escape(<?= json_encode(_('kept by')) ?>)} ${this.escape(ack.by)} ${this.escape(<?= json_encode(_('on')) ?>)} ` +
+				`${this.escape(this.formatDate(ack.at))} <button type="button" class="btn-alt" data-topology-manual="revoke" ` +
+				`data-edge="${edge}" data-device="${this.escape(ack.device_id)}">${this.escape(<?= json_encode(_('Revoke')) ?>)}</button></li>`));
+			parts.push('</ul>');
+		}
+		if (entry.confirmed_from.length) {
+			parts.push(`<p>${this.escape(<?= json_encode(_('Confirmed from')) ?>)} ${entry.confirmed_from.map(name => this.escape(name)).join(', ')}.</p>`);
+		}
+
+		return `<section class="topology-group">${parts.join('')}</section>`;
+	}
+
+	// Details of a hidden neighbor: the manual links hiding it, acknowledged ones included.
+	hiddenByFragment(device_id) {
+		const rows = [];
+		(this.contradictions ?? []).forEach(entry => {
+			const shadow = entry.shadows.find(candidate => String(candidate.hidden_device_id) === String(device_id));
+			const ack = entry.acks.find(candidate => String(candidate.device_id) === String(device_id));
+			if (!shadow && !ack) {
+				return;
+			}
+			const far = shadow && String(shadow.local_device_id) === String(entry.device_a) ? entry.device_b_name : entry.device_a_name;
+			const state = ack
+				? `${this.escape(<?= json_encode(_('kept by')) ?>)} ${this.escape(ack.by)} ${this.escape(<?= json_encode(_('on')) ?>)} ${this.escape(this.formatDate(ack.at))}`
+				: this.escape(<?= json_encode(_('not acknowledged')) ?>);
+			rows.push(`<li>${this.escape(<?= json_encode(_('Link hidden by manual link')) ?>)} ${this.escape(shadow?.local_port ?? entry.port_a_name ?? '?')} ` +
+				`↔ ${this.escape(far ?? '?')}${shadow ? ' ' + this.escape(<?= json_encode(_('on')) ?>) + ' ' + this.escape(shadow.reporter.name) : ''} — ${state} ` +
+				`<button type="button" class="btn-alt" data-topology-manual="open" data-edge="${this.escape(entry.edge_id)}">` +
+				`${this.escape(<?= json_encode(_('Open link')) ?>)}</button></li>`);
+		});
+
+		return rows.length ? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Hidden by a manual link')) ?>)}</h3><ul>${rows.join('')}</ul></section>` : '';
+	}
+
+	async manualAction(action, edge_id, device_id) {
+		if (action === 'open') {
+			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(edge_id));
+			if (link) {
+				this.selectLink(this.resolvedLink(link));
+			}
+			return;
+		}
+		const post = (name, body) => this.request(name, {
+			method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+		});
+		if (action === 'keep') {
+			await post('topology.manual.keep', {edge_id, device_id});
+			await this.loadDevices({reselect_edge: edge_id});
+		}
+		else if (action === 'revoke') {
+			await post('topology.manual.revoke', {edge_id, device_id});
+			await this.loadDevices({reselect_edge: edge_id});
+		}
+		else if (action === 'accept') {
+			if (!confirm(<?= json_encode(_('Delete this manual link and let discovery take the port?')) ?>)) {
+				return;
+			}
+			const previous_run = (await this.request('topology.ingest.status')).started_at;
+			await post('topology.manual.accept', {edge_id});
+			// The discovered link is decided by a full ingest that runs in the background: wait until it has
+			// actually started (the status file still describes the previous run until then), then follow it
+			// like a run started with "Run discovery ingest" (its toast, then a reload).
+			for (let attempt = 0; attempt < 20; attempt++) {
+				await new Promise(resolve => setTimeout(resolve, 300));
+				if ((await this.request('topology.ingest.status')).started_at !== previous_run) {
+					break;
+				}
+			}
+			this.pollIngestStatus();
 		}
 	}
 
@@ -392,7 +545,9 @@ const view = new class {
 			}
 		}
 		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw]) =>
-			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`;
+			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>` +
+			(link.type === 'physical_link' && link.discovered_via === 'manual' && link.edge_id !== null && link.edge_id !== undefined
+				? this.manualLinkFragment(link.edge_id) : '');
 		// Only physical_link is a real, user/LLDP-declared topo_edges row a person can remove —
 		// monitored_by is a synthesized line, not a stored row at all (§2.3/§6): it's resolved live
 		// from Zabbix host config on every load, so there's nothing to "delete" there — reassigning
@@ -564,6 +719,7 @@ const view = new class {
 	// showPanel() (Device section inside a Host/Proxy's combined panel, §7) — `device` is always the
 	// actual Device node either way, never the Host/Proxy that might be showing it.
 	buildPortsFragment(device, groups) {
+		const hidden_by = this.hiddenByFragment(device.id);
 		// §6/§7: "Partial connectivity evidence" (not "connected MAC-only") — a MAC-only port has no
 		// physical_link (§3 rule 1), so labeling it "connected" the same way as an LLDP-confirmed one
 		// invites the reasonable but wrong question "where's the physical link for this port?".
@@ -601,7 +757,7 @@ const view = new class {
 				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
 				<button type="button" class="btn-alt topology-create-host-button">${this.escape(<?= json_encode(_('+ Create host')) ?>)}</button>
 			</div>`;
-		return `${sections}${promotion}`;
+		return `${hidden_by}${sections}${promotion}`;
 	}
 
 	// Search-as-you-type picker for the "Promote to host" panel (§6/§7): debounced, queries
@@ -905,6 +1061,46 @@ const view = new class {
 			}
 			return '';
 		});
+		// Manual links contradicted by discovery (topology-manual-contradiction-spec.md §6). Ghost link: where
+		// discovery says the cable actually goes — a dashed orange line from the reporting Device to the hidden
+		// neighbor, not a stored link (not selectable as one; a click opens the manual link's details). One per
+		// Device pair however many observations (LLDP + CDP, both ends) say it. Acknowledged → none. The
+		// warning badges use a color none of stale / superseded / conflict uses.
+		const node_by_id = new Map(nodes.map(node => [String(node.id), node]));
+		const ghost_data = [];
+		const ghost_seen = new Set();
+		this.unacknowledgedShadows().forEach(({entry, shadow}) => {
+			if (shadow.hidden_device_id === null || shadow.local_device_id === null) {
+				return;
+			}
+			const from = node_by_id.get(resolve_display_id(String(shadow.local_device_id)));
+			const to = node_by_id.get(resolve_display_id(String(shadow.hidden_device_id)));
+			const pair = [from?.id, to?.id].sort().join('-');
+			if (!from || !to || from === to || ghost_seen.has(pair)) {
+				return;
+			}
+			ghost_seen.add(pair);
+			ghost_data.push({from, to, entry, shadow});
+		});
+		const ghosts = this.canvas.append('g').selectAll('g').data(ghost_data).join('g')
+			.attr('class', 'topology-ghost-link')
+			.style('cursor', 'pointer')
+			.on('click', (event, ghost) => this.manualAction('open', ghost.entry.edge_id));
+		const ghost_lines = ghosts.append('line').attr('stroke', '#c2410c').attr('stroke-width', 2)
+			.attr('stroke-dasharray', '2 5').style('pointer-events', 'stroke');
+		ghosts.append('title').text(ghost => `${<?= json_encode(_('Discovery sees')) ?>} ${ghost.shadow.hidden_name ?? ghost.shadow.remote_key} ` +
+			`${<?= json_encode(_('on')) ?>} ${ghost.shadow.local_port ?? '?'}`);
+		const ghost_labels = ghosts.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
+			.style('fill', '#c2410c').style('pointer-events', 'none').text(ghost => ghost.shadow.remote_port ?? '');
+		const contradicted_links = simulation_links.filter(link => link.type === 'physical_link' && link.edge_id !== null
+			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
+		const link_badges = this.canvas.append('g').selectAll('g').data(contradicted_links).join('g')
+			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
+			.on('click', (event, link) => this.selectLink(this.resolvedLink(link)));
+		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
+		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
+			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
+		link_badges.append('title').text(link => this.contradictionSummary(this.contradictionOf(link.edge_id)));
 		// §7: disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
 		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
 		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
@@ -1021,6 +1217,26 @@ const view = new class {
 			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
 			.text('M');
 
+		// Badge on every unacknowledged hidden neighbor, whether or not it has other links (bottom-right: the
+		// other corners are taken by the proxy / blind-spot / maintenance badges).
+		const hidden_tooltips = new Map();
+		this.unacknowledgedShadows().forEach(({entry, shadow}) => {
+			if (shadow.hidden_device_id === null) {
+				return;
+			}
+			const display_id = resolve_display_id(String(shadow.hidden_device_id));
+			const far = String(shadow.local_device_id) === String(entry.device_a) ? entry.device_b_name : entry.device_a_name;
+			const line = `${<?= json_encode(_('Link hidden by manual link')) ?>} ${shadow.local_port ?? '?'} ↔ ${far ?? '?'} ` +
+				`${<?= json_encode(_('on')) ?>} ${shadow.reporter.name}`;
+			hidden_tooltips.set(display_id, [...(hidden_tooltips.get(display_id) ?? []), line]);
+		});
+		const hidden_badges = node_selection.filter(node => hidden_tooltips.has(String(node.id)));
+		hidden_badges.append('circle').attr('class', 'topology-hidden-badge').attr('cx', 50).attr('cy', 18).attr('r', 10)
+			.style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
+		hidden_badges.append('text').attr('x', 50).attr('y', 22).attr('text-anchor', 'middle')
+			.style('font-size', '12px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
+		hidden_badges.append('title').text(node => hidden_tooltips.get(String(node.id)).join('\n'));
+
 		const describeSubject = subject => {
 			if (subject.type === 'proxy' && subject.unreachable) {
 				return <?= json_encode(_('Proxy unreachable')) ?>;
@@ -1055,6 +1271,10 @@ const view = new class {
 			links.attr('x1', link => link.source.x).attr('y1', link => link.source.y)
 				.attr('x2', link => link.target.x).attr('y2', link => link.target.y);
 			node_selection.attr('transform', node => `translate(${node.x},${node.y})`);
+			ghost_lines.attr('x1', ghost => ghost.from.x).attr('y1', ghost => ghost.from.y)
+				.attr('x2', ghost => ghost.to.x).attr('y2', ghost => ghost.to.y);
+			ghost_labels.attr('x', ghost => (ghost.from.x + ghost.to.x) / 2).attr('y', ghost => (ghost.from.y + ghost.to.y) / 2 - 5);
+			link_badges.attr('transform', link => `translate(${(link.source.x + link.target.x) / 2},${(link.source.y + link.target.y) / 2})`);
 		});
 	}
 };

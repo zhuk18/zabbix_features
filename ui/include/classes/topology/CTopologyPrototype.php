@@ -301,7 +301,7 @@ class CTopologyPrototype {
 		}
 
 		$link_sql = 'SELECT src_port.device_id AS device_a,dst_port.device_id AS device_b,'.
-				'link.src_id AS port_a,link.dst_id AS port_b,link.attrs AS link_attrs'.
+				'link.id AS link_id,link.src_id AS port_a,link.dst_id AS port_b,link.attrs AS link_attrs'.
 			' FROM topo_edges link'.
 			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
 			' JOIN topo_nodes dst_port ON dst_port.id=link.dst_id'.
@@ -319,6 +319,9 @@ class CTopologyPrototype {
 		// edge per pair rather than stacking duplicates, same "most-confirmed wins" precedent as
 		// getNeighbors()' per-device discovered_via.
 		$device_links = [];
+		// A manual link that discovery contradicts (or that the operator acknowledged) keeps its own line, so its
+		// badge and its details are reachable even when the same two devices are also linked another way.
+		$own_line = array_column(self::getContradictions(), 'edge_id', 'edge_id');
 		// Active discovered links by port, to say which link replaced a superseded one ("Replaced on ...").
 		$active_by_port = [];
 		foreach ($rows as $row) {
@@ -331,7 +334,7 @@ class CTopologyPrototype {
 		foreach ($rows as $row) {
 			$pair = [$row['device_a'], $row['device_b']];
 			sort($pair);
-			$key = implode('-', $pair);
+			$key = implode('-', $pair).(isset($own_line[$row['link_id']]) ? '#'.$row['link_id'] : '');
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$superseded_at = self::supersededAt($link_attrs);
 			// Any source other than 'manual' (lldp, cdp, ...) is a discovered link. 'lldp' stays the normalized
@@ -368,7 +371,10 @@ class CTopologyPrototype {
 					// §7 staleness indicator: rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
 					'stale' => self::isLinkStale($last_seen, $superseded_at),
-					'superseded_at' => $superseded_at, 'replaced_by_device' => $replaced_by];
+					'superseded_at' => $superseded_at, 'replaced_by_device' => $replaced_by,
+					// The stored link, so the manual-contradiction panel (topology-manual-contradiction-spec.md)
+					// can tell which drawn line is which topo_edges row.
+					'edge_id' => $row['link_id']];
 			}
 		}
 		foreach ($device_links as $relation) {
@@ -898,6 +904,223 @@ class CTopologyPrototype {
 		return $proxy_state !== null && (int) $proxy_state === ZBX_PROXY_STATE_ONLINE;
 	}
 
+
+	// ---- Manual links contradicted by discovery (topology-manual-contradiction-spec.md) ----
+	//
+	// Nothing here is stored by ingest: a manual link M is *contradicted* while a shadowing observation (outcome
+	// `shadowed`, edge_id = M) has a hidden neighbor Device that M's attrs.shadow_ack does not list. Observations
+	// mirror the latest snapshot of each rule, so no clock is involved. attrs.shadow_ack is written only by the
+	// operator actions below; ingest never reads or writes it.
+
+	/**
+	 * Every manual link that is hidden-behind by discovery or has acknowledgments, with what the reader needs.
+	 * remote_attrs strings come from the network (model spec §9): data, to be escaped by whoever renders them.
+	 *
+	 * @return array list of ['edge_id', 'port_a', 'port_b', 'device_a', 'device_b', 'port_a_name', 'port_b_name',
+	 *               'device_a_name', 'device_b_name', 'created_at', 'acks' => [...], 'shadows' => [...],
+	 *               'confirmed_from' => [host names], 'contradicted' => bool]
+	 */
+	public static function getContradictions(): array {
+		$manual = [];
+		$result = DBselect('SELECT id,src_id,dst_id,attrs,created_at FROM topo_edges WHERE type='.zbx_dbstr('physical_link'));
+		while ($row = DBfetch($result, false)) {
+			$attrs = self::attrs($row);
+			if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+				$manual[$row['id']] = ['row' => $row, 'attrs' => $attrs];
+			}
+		}
+		if (!$manual) {
+			return [];
+		}
+
+		$observations = [];
+		$visible_hostids = self::getVisibleHostIds();
+		if ($visible_hostids) {
+			$cursor = DBselect(
+				'SELECT o.id,o.local_port_id,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,o.first_seen,'.
+					'h.hostid,h.name AS host_name'.
+				' FROM topo_observations o'.
+				' JOIN items i ON i.itemid=o.itemid'.
+				' JOIN hosts h ON h.hostid=i.hostid'.
+				' WHERE '.dbConditionId('o.edge_id', array_keys($manual)).
+					' AND '.dbConditionString('o.outcome', ['shadowed', 'applied']).
+					' AND '.dbConditionId('h.hostid', $visible_hostids).
+				' ORDER BY o.first_seen,o.id'
+			);
+			while ($row = DBfetch($cursor, false)) {
+				$observations[$row['edge_id']][] = $row;
+			}
+		}
+
+		$port_ids = [];
+		$device_ids = [];
+		foreach ($manual as $id => $link) {
+			array_push($port_ids, $link['row']['src_id'], $link['row']['dst_id']);
+			foreach ($observations[$id] ?? [] as $observation) {
+				$port_ids[] = $observation['local_port_id'];
+				if ($observation['device_id'] !== null) {
+					$device_ids[] = $observation['device_id'];
+				}
+			}
+		}
+		$ports = [];
+		$cursor = DBselect('SELECT id,device_id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($port_ids))).
+			' AND type='.zbx_dbstr('port'));
+		while ($row = DBfetch($cursor, false)) {
+			$ports[$row['id']] = ['device_id' => $row['device_id'], 'name' => self::attrs($row)['name'] ?? null];
+			$device_ids[] = $row['device_id'];
+		}
+		$devices = [];
+		if ($device_ids) {
+			$cursor = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($device_ids))).
+				' AND type='.zbx_dbstr('device'));
+			while ($row = DBfetch($cursor, false)) {
+				$devices[$row['id']] = self::attrs($row)['sysname'] ?? null;
+			}
+		}
+
+		$result = [];
+		foreach ($manual as $id => $link) {
+			$acks = [];
+			foreach ($link['attrs']['shadow_ack'] ?? [] as $ack) {
+				if (isset($ack['device_id'])) {
+					$acks[(string) $ack['device_id']] = [
+						'device_id' => (string) $ack['device_id'],
+						'device_name' => $devices[(string) $ack['device_id']] ?? null,
+						'remote_key' => (string) ($ack['remote_key'] ?? ''), 'at' => (int) ($ack['at'] ?? 0),
+						'by' => (string) ($ack['by'] ?? '')
+					];
+				}
+			}
+
+			$shadows = [];
+			$confirmed_from = [];
+			foreach ($observations[$id] ?? [] as $observation) {
+				if ($observation['outcome'] === 'applied') {
+					$confirmed_from[$observation['host_name']] = true;
+					continue;
+				}
+				$remote_attrs = json_decode((string) $observation['remote_attrs'], true) ?: [];
+				$hidden = $observation['device_id'];
+				$shadows[] = [
+					'observation_id' => $observation['id'],
+					'local_port_id' => $observation['local_port_id'],
+					'local_port' => $ports[$observation['local_port_id']]['name'] ?? null,
+					'local_device_id' => $ports[$observation['local_port_id']]['device_id'] ?? null,
+					'hidden_device_id' => $hidden,
+					'hidden_name' => $hidden !== null ? ($devices[$hidden] ?? null) : null,
+					'remote_key' => $observation['remote_key'],
+					'remote_port' => $remote_attrs['rem_port_desc'] ?? ($remote_attrs['rem_port'] ?? null),
+					'first_seen' => (int) $observation['first_seen'],
+					'reporter' => ['hostid' => $observation['hostid'], 'name' => $observation['host_name']],
+					// A shadow without a Device cannot be acknowledged by Device: it counts as contradicting.
+					'acknowledged' => $hidden !== null && isset($acks[$hidden])
+				];
+			}
+			if (!$shadows && !$acks) {
+				continue;
+			}
+
+			$result[] = [
+				'edge_id' => $id,
+				'port_a' => $link['row']['src_id'], 'port_b' => $link['row']['dst_id'],
+				'port_a_name' => $ports[$link['row']['src_id']]['name'] ?? null,
+				'port_b_name' => $ports[$link['row']['dst_id']]['name'] ?? null,
+				'device_a' => $ports[$link['row']['src_id']]['device_id'] ?? null,
+				'device_b' => $ports[$link['row']['dst_id']]['device_id'] ?? null,
+				'device_a_name' => $devices[$ports[$link['row']['src_id']]['device_id'] ?? 0] ?? null,
+				'device_b_name' => $devices[$ports[$link['row']['dst_id']]['device_id'] ?? 0] ?? null,
+				'created_at' => (int) $link['row']['created_at'],
+				'acks' => array_values($acks),
+				'shadows' => $shadows,
+				'confirmed_from' => array_keys($confirmed_from),
+				'contradicted' => (bool) array_filter($shadows, static fn (array $shadow): bool => !$shadow['acknowledged'])
+			];
+		}
+
+		return $result;
+	}
+
+	private static function getManualLink(string $edge_id): array {
+		$row = DBfetch(DBselect('SELECT id,src_id,dst_id,attrs FROM topo_edges WHERE id='.zbx_dbstr($edge_id).
+			' AND type='.zbx_dbstr('physical_link')), false);
+		if (!$row || (self::attrs($row)['discovered_via'] ?? 'manual') !== 'manual') {
+			throw new Exception('Only a manual link can be resolved this way.');
+		}
+
+		return $row;
+	}
+
+	private static function getContradictionOf(string $edge_id): ?array {
+		foreach (self::getContradictions() as $entry) {
+			if ((string) $entry['edge_id'] === $edge_id) {
+				return $entry;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Accept discovery: allowed only while the link is contradicted. Removes the manual link; the discovered link
+	 * is decided at the next full ingest from the stored snapshots (a superseded one is revived).
+	 */
+	public static function acceptDiscovery(string $edge_id): void {
+		self::getManualLink($edge_id);
+		$entry = self::getContradictionOf($edge_id);
+		if ($entry === null || !$entry['contradicted']) {
+			throw new Exception('This manual link is not contradicted by discovery.');
+		}
+
+		DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge_id).' AND type='.zbx_dbstr('physical_link'));
+	}
+
+	/**
+	 * Keep manual: acknowledge one hidden neighbor Device. Idempotent: the first entry for a Device is kept.
+	 */
+	public static function keepManual(string $edge_id, string $device_id, string $username): void {
+		$row = self::getManualLink($edge_id);
+		$entry = self::getContradictionOf($edge_id);
+		$shadow = null;
+		foreach ($entry['shadows'] ?? [] as $candidate) {
+			if ((string) $candidate['hidden_device_id'] === $device_id) {
+				$shadow = $candidate;
+				break;
+			}
+		}
+		if ($shadow === null) {
+			throw new Exception('That device is not hidden by this manual link.');
+		}
+
+		$attrs = self::attrs($row);
+		$acks = $attrs['shadow_ack'] ?? [];
+		foreach ($acks as $ack) {
+			if ((string) ($ack['device_id'] ?? '') === $device_id) {
+				return;
+			}
+		}
+		$acks[] = ['device_id' => (int) $device_id, 'remote_key' => $shadow['remote_key'], 'at' => time(), 'by' => $username];
+		$attrs['shadow_ack'] = $acks;
+		DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge_id));
+	}
+
+	/**
+	 * Revoke one acknowledgment by Device; if that neighbor still shadows the link it is contradicted again at once.
+	 */
+	public static function revokeAcknowledgment(string $edge_id, string $device_id): void {
+		$row = self::getManualLink($edge_id);
+		$attrs = self::attrs($row);
+		$acks = array_values(array_filter($attrs['shadow_ack'] ?? [],
+			static fn (array $ack): bool => (string) ($ack['device_id'] ?? '') !== $device_id));
+		if ($acks) {
+			$attrs['shadow_ack'] = $acks;
+		}
+		else {
+			unset($attrs['shadow_ack']);
+		}
+		DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge_id));
+	}
+
 	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];
 
 	/**
@@ -912,8 +1135,12 @@ class CTopologyPrototype {
 	 * @param string|null $device_id  restrict to observations resolved to this remote Device
 	 */
 	public static function getObservations(?array $outcomes = null, ?string $device_id = null,
-			int $limit = 500): array {
+			int $limit = 500, bool $contradicted_only = false): array {
 		$outcomes ??= array_values(array_diff(self::OBSERVATION_OUTCOMES, ['applied']));
+		if ($contradicted_only) {
+			// topology-manual-contradiction-spec.md §7: shadowed and not acknowledged.
+			$outcomes = ['shadowed'];
+		}
 		$visible_hostids = self::getVisibleHostIds();
 		if (!$visible_hostids) {
 			return [];
@@ -935,10 +1162,30 @@ class CTopologyPrototype {
 		$sql .= ' ORDER BY o.last_seen DESC,o.id DESC';
 
 		$result = [];
-		$cursor = DBselect($sql, $limit);
+		$cursor = DBselect($sql, $contradicted_only ? null : $limit);
+		$rows = [];
+		while ($row = DBfetch($cursor, false)) {
+			$rows[] = $row;
+		}
+		// Acknowledgments of the manual links that shadow these rows (attrs.shadow_ack, by hidden Device).
+		$acknowledged_devices = [];
+		$edge_ids = array_values(array_unique(array_filter(array_column($rows, 'edge_id'))));
+		if ($edge_ids) {
+			$edges = DBselect('SELECT id,attrs FROM topo_edges WHERE '.dbConditionId('id', $edge_ids));
+			while ($edge = DBfetch($edges, false)) {
+				foreach (self::attrs($edge)['shadow_ack'] ?? [] as $ack) {
+					$acknowledged_devices[$edge['id']][(string) ($ack['device_id'] ?? '')] = true;
+				}
+			}
+		}
 		// DBfetch(..., false): with the default $convertNulls a NULL edge_id/device_id would come back as '0'
 		// (GOTCHAS.md #1), which is exactly the "no edge / no remote Device" state that must stay null.
-		while ($row = DBfetch($cursor, false)) {
+		foreach ($rows as $row) {
+			$acknowledged = $row['outcome'] === 'shadowed' && $row['edge_id'] !== null && $row['device_id'] !== null
+				&& isset($acknowledged_devices[$row['edge_id']][$row['device_id']]);
+			if ($contradicted_only && $acknowledged) {
+				continue;
+			}
 			$port_attrs = json_decode((string) $row['port_attrs'], true) ?: [];
 			$device_attrs = json_decode((string) $row['device_attrs'], true) ?: [];
 			$result[] = [
@@ -959,11 +1206,13 @@ class CTopologyPrototype {
 				// How long the observation has been continuously present: a `conflict` younger than the
 				// reporter's NEIGHBORS interval is the expected transient after a recable
 				// (topology-link-replacement-spec.md §3, §7), so a UI can filter on it.
-				'age' => max(0, time() - (int) $row['first_seen'])
+				'age' => max(0, time() - (int) $row['first_seen']),
+				// Only meaningful for `shadowed`: the operator chose "keep manual" for this hidden neighbor.
+				'acknowledged' => $row['outcome'] === 'shadowed' ? $acknowledged : null
 			];
 		}
 
-		return $result;
+		return $contradicted_only ? array_slice($result, 0, $limit) : $result;
 	}
 
 	// Resolves the highest-severity *active* trigger (value=TRIGGER_VALUE_TRUE, i.e. currently in problem

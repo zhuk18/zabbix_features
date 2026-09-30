@@ -19,6 +19,7 @@ class CControllerTopologyObservationsGet extends CController {
 		$ret = $this->validateInput([
 			'outcome' => 'array',
 			'device_id' => 'id',
+			'contradicted' => 'in 0,1',
 			'limit' => 'int32|ge 1|le 5000'
 		]);
 
@@ -43,7 +44,8 @@ class CControllerTopologyObservationsGet extends CController {
 		$outcomes = $this->hasInput('outcome') ? array_values((array) $this->getInput('outcome')) : null;
 		$observations = CTopologyPrototype::getObservations($outcomes,
 			$this->hasInput('device_id') ? $this->getInput('device_id') : null,
-			(int) $this->getInput('limit', 500)
+			(int) $this->getInput('limit', 500),
+			(int) $this->getInput('contradicted', 0) === 1
 		);
 
 		$this->setResponse(new CControllerResponseData([
