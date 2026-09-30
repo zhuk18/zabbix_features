@@ -82,13 +82,16 @@ Points 1 and 3 change existing `topo_nodes.chassis_id` values, so they need a on
 
 The template's bridge master turns the error `No Such (Instance|Object)` into the comment `# device has no bridge tables`,
 which the step reads as "no bridge tables" (an empty snapshot). The step is `match type 0` (error matches the regular
-expression), not "any error", so other errors stay errors. Two runs against a simulated device with real FDB data
-(3 + 25 MACs, one trunk over the limit):
+expression), not "any error", so other errors stay errors. Three runs (the first two against a simulated device with real FDB data, 3 + 25 MACs, one trunk over the limit):
 
 - the device stops answering (timeout): a network error, the master gets **no value**, the snapshot (4 rows) keeps its
   `rows_hash` and `clock`; nothing empties `learned_macs`;
 - the device answers `No Such Instance` for the bridge tables: snapshot `[]`, rule supported. That is "there is
-  nothing", which is what it says.
+  nothing", which is what it says;
+- the master item itself becomes unsupported with an error that does not match (a calculated master fed by a trapper
+  item, the same `CHECK_NOT_SUPPORTED` step, a dependent FDB rule, formula changed to a missing item): the master is
+  in state 1 with "Cannot evaluate function ...", the snapshot keeps 23 rows, its `rows_hash` and its `clock` (identical
+  40 s apart), and updates resume when the formula is fixed.
 
 Removing the step and relying on `missing_mib = empty` would not work: a master that fails has no value at all, so
 the rule would never run and the last snapshot would stay forever after a device really drops its tables.
