@@ -35,10 +35,14 @@ class CControllerTopologyIngestRun extends CController {
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 
 	protected function doAction() {
-		CTopologyIngest::start();
-
-		$this->setResponse(new CControllerResponseData([
-			'main_block' => json_encode(['status' => 'started'])
-		]));
+		try {
+			CTopologyIngest::start();
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['status' => 'started'])]));
+		}
+		catch (Exception $exception) {
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode([
+				'error' => ['messages' => [$exception->getMessage()]]
+			])]));
+		}
 	}
 }

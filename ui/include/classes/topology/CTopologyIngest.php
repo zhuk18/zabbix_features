@@ -8,11 +8,18 @@
  */
 class CTopologyIngest {
 
+	/**
+	 * @throws Exception when the run cannot even be spawned. A run that starts and then fails or loses the run lock
+	 *                   is not seen here: callers find out from topology.ingest.status (run_id / started_at).
+	 */
 	public static function start(): void {
 		global $DB;
 
 		$discovery_dir = dirname(__DIR__, 4).'/database/topology/discovery';
 		$ingest_script = $discovery_dir.'/ingest.php';
+		if (!is_file($ingest_script)) {
+			throw new Exception('The ingest script was not found: '.$ingest_script);
+		}
 		// Deliberately NOT under $discovery_dir (git-tracked source tree, typically owned by a human
 		// deployer/operator) — this process runs as the web server's OS user (e.g. www-data), which a
 		// real deployment's source directory commonly doesn't grant write access to. Confirmed the hard
@@ -64,6 +71,9 @@ class CTopologyIngest {
 		$full_command = $command.' > '.escapeshellarg($log_file).' 2>&1 &';
 
 		$process = proc_open($full_command, [], $pipes);
+		if (!is_resource($process)) {
+			throw new Exception('The ingest process could not be started (proc_open failed; is it disabled for the web server?)');
+		}
 		if (is_resource($process)) {
 			// Deliberately not proc_close()'d synchronously with a wait — proc_close() blocks until the
 			// child exits, which would defeat "returns immediately". The trailing '&' in $full_command

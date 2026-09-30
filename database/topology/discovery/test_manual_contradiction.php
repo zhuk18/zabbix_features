@@ -412,4 +412,39 @@ foreach ($runs as [$clock, $rows]) {
 }
 check(json_encode(json_decode($before, true)['shadow_ack']) === shadow_ack_json($pdo, $lab['M']), 'shadow_ack is byte-identical at the end');
 
+// ============================================================================================================
+echo "\n=== 9: far end confirms + keep manual + the neighbor flickers — the decision must survive ===\n";
+reset_db($pdo);
+$lab = lab_case($pdo, $dsn, $user, $password, $R, $U, $PR);
+add_host($pdo, 102, 'UPS1', 'UPS1', '10.0.0.2');
+snapshot($pdo, 2001, 102, 1, CLOCK, ports_rows($U, [1 => 'eth0']));
+snapshot($pdo, 2002, 102, 2, CLOCK + 100, [nbr($U, 1, $R, 'Gi0/1')]);            // UPS1 confirms the manual link
+ingest($dsn, $user, $password, $pdo, 'with UPS1 confirming and the printer hidden');
+$lab['P'] = ports_of($pdo, $R)['Gi0/1'];
+$lab['Up'] = ports_of($pdo, $U)['eth0'];
+$lab['M'] = link_between($pdo, $lab['P'], $lab['Up'])['id'];
+$printer = device_id($pdo, $PR);
+acknowledge($pdo, $lab['M'], $printer, 'chassis:macAddress:'.$PR);
+$ack_before = shadow_ack_json($pdo, $lab['M']);
+snapshot($pdo, 1002, 101, 2, CLOCK + 200, []);                                   // the printer drops out for one poll
+snapshot($pdo, 2002, 102, 2, CLOCK + 210, [nbr($U, 1, $R, 'Gi0/1')]);
+ingest($dsn, $user, $password, $pdo, 'with the printer gone');
+$m = link_between($pdo, $lab['P'], $lab['Up']);
+check($m['discovered_via'] === 'manual' && is_active($m), 'the link is still manual although nothing hides behind it right now');
+snapshot($pdo, 1002, 101, 2, CLOCK + 300, [nbr($R, 1, $PR, 'Gi0/1')]);           // the printer is back
+snapshot($pdo, 2002, 102, 2, CLOCK + 310, [nbr($U, 1, $R, 'Gi0/1')]);
+$r = ingest($dsn, $user, $password, $pdo, 'with the printer back');
+$obs = observation($pdo, 1002, $PR);
+check($obs['outcome'] === 'shadowed' && (int) $obs['edge_id'] === $lab['M'], 'the printer is shadowed again, not a conflict');
+check(contradicted($r) === 0 && shadow_ack_json($pdo, $lab['M']) === $ack_before, 'still acknowledged, shadow_ack unchanged');
+check(link_between($pdo, $lab['P'], $lab['Up'])['discovered_via'] === 'manual', 'and the link is still manual');
+// the acknowledgments are revoked and nothing hides behind the link: the old upgrade applies again
+$attrs = json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_edges WHERE id=?', [$lab['M']]), true);
+unset($attrs['shadow_ack']);
+$pdo->prepare('UPDATE topo_edges SET attrs=? WHERE id=?')->execute([json_encode($attrs), $lab['M']]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 400, []);
+snapshot($pdo, 2002, 102, 2, CLOCK + 410, [nbr($U, 1, $R, 'Gi0/1')]);
+ingest($dsn, $user, $password, $pdo, 'after revoking every acknowledgment');
+check(link_between($pdo, $lab['P'], $lab['Up'])['discovered_via'] !== 'manual', 'without acknowledgments and without a shadow the confirmed manual link is upgraded, as before');
+
 echo "\nAll manual contradiction ingest tests passed.\n";

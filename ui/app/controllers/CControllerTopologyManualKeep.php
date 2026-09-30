@@ -7,8 +7,9 @@
  */
 class CControllerTopologyManualKeep extends CController {
 	protected function init(): void {
+		// POST with a JSON body that carries the page's CSRF token (_csrf_token, the one for the `topology` section):
+		// a GET, a cross-site form or a text/plain fetch does not have it and is rejected by CController.
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
-		$this->disableCsrfValidation();
 	}
 
 	protected function checkInput(): bool {

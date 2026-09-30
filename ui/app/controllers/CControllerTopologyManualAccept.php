@@ -2,16 +2,16 @@
 
 /**
  * POST topology.manual.accept — "accept discovery" for a manual link contradicted by discovery
- * (topology-manual-contradiction-spec.md §5.1): the manual link is deleted, then a full ingest is started so the
- * discovered link is decided from the stored snapshots (a superseded one is revived, keeping its id).
- *
- * The ingest runs in the background (same run lock as the CLI and the "Run discovery ingest" button), so the answer
- * is "started"; the page polls topology.ingest.status for the summary.
+ * (topology-manual-contradiction-spec.md §5.1): the manual link is deleted. The discovered link is then decided by a
+ * full ingest from the stored snapshots (a superseded one is revived, keeping its id), which the page starts with
+ * topology.ingest.run — after any run that is already in progress, because a second run started meanwhile loses the
+ * run lock and exits, and the running one may have read the manual link before it was deleted.
  */
 class CControllerTopologyManualAccept extends CController {
 	protected function init(): void {
+		// POST with a JSON body that carries the page's CSRF token (_csrf_token, the one for the `topology` section):
+		// a GET, a cross-site form or a text/plain fetch does not have it and is rejected by CController.
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
-		$this->disableCsrfValidation();
 	}
 
 	protected function checkInput(): bool { return $this->validateInput(['edge_id' => 'required|id']); }
@@ -22,11 +22,8 @@ class CControllerTopologyManualAccept extends CController {
 	protected function doAction() {
 		try {
 			CTopologyPrototype::acceptDiscovery($this->getInput('edge_id'));
-			CTopologyIngest::start();
 
-			$this->setResponse(new CControllerResponseData([
-				'main_block' => json_encode(['success' => true, 'ingest' => 'started'])
-			]));
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}
 		catch (Exception $exception) {
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode([

@@ -122,12 +122,46 @@ const view = new class {
 		if (this.ingest_polling) {
 			return;
 		}
+		await this.startIngest();
+	}
+
+	// Starts a full ingest and follows it. Three things can go wrong, and each is reported instead of waited on:
+	//  - a run is already in progress: a second one would lose the run lock and exit, and the running one may have
+	//    read the data before the change that made the caller ask (a deleted manual link), so this waits for it to
+	//    finish and then starts its own;
+	//  - the run cannot be spawned (the backend says so);
+	//  - the spawn "succeeds" but no run ever shows up in topology.ingest.status (a failed launch leaves no trace
+	//    but an unchanged status): after a timeout the caller gets an error instead of a wait that never ends.
+	async startIngest() {
+		const timeout_error = <?= json_encode(_('The discovery ingest did not start (nothing new in the ingest status after 10 seconds). Check that the web server can run php and write to the temporary directory.')) ?>;
+		let status = await this.request('topology.ingest.status');
+		if (status.status === 'running') {
+			this.ingest_status_element.textContent = <?= json_encode(_('Waiting for the running ingest…')) ?>;
+			const deadline = Date.now() + 120000;
+			while (status.status === 'running') {
+				if (Date.now() > deadline) {
+					this.ingest_status_element.textContent = '';
+					throw new Error(<?= json_encode(_('An ingest has been running for more than two minutes; try again when it is finished.')) ?>);
+				}
+				await new Promise(resolve => setTimeout(resolve, 1000));
+				status = await this.request('topology.ingest.status');
+			}
+			this.ingest_status_element.textContent = '';
+		}
+		const previous_run = status.run_id ?? status.started_at;
 		await this.request('topology.ingest.run', {
 			method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
 		});
-		// The backend always attempts a spawn and reports {status: 'started'} regardless of whether a
-		// run was already in progress (a redundant spawn just loses the lock race and exits immediately,
-		// §6) — either way, polling topology.ingest.status is what actually reflects ground truth.
+		let started = false;
+		for (let attempt = 0; attempt < 34 && !started; attempt++) {
+			await new Promise(resolve => setTimeout(resolve, 300));
+			status = await this.request('topology.ingest.status');
+			started = status.status === 'running' || (status.run_id ?? status.started_at) !== previous_run;
+		}
+		if (!started) {
+			throw new Error(timeout_error);
+		}
+		// Polling topology.ingest.status reflects ground truth from here on.
 		this.pollIngestStatus();
 	}
 
@@ -367,7 +401,8 @@ const view = new class {
 			return;
 		}
 		const post = (name, body) => this.request(name, {
-			method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+			method: 'POST', headers: {'Content-Type': 'application/json'},
+			body: JSON.stringify({...body, [<?= json_encode(CSRF_TOKEN_NAME) ?>]: <?= json_encode(CCsrfTokenHelper::get('topology')) ?>})
 		});
 		if (action === 'keep') {
 			await post('topology.manual.keep', {edge_id, device_id});
@@ -381,18 +416,10 @@ const view = new class {
 			if (!confirm(<?= json_encode(_('Delete this manual link and let discovery take the port?')) ?>)) {
 				return;
 			}
-			const previous_run = (await this.request('topology.ingest.status')).started_at;
 			await post('topology.manual.accept', {edge_id});
-			// The discovered link is decided by a full ingest that runs in the background: wait until it has
-			// actually started (the status file still describes the previous run until then), then follow it
-			// like a run started with "Run discovery ingest" (its toast, then a reload).
-			for (let attempt = 0; attempt < 20; attempt++) {
-				await new Promise(resolve => setTimeout(resolve, 300));
-				if ((await this.request('topology.ingest.status')).started_at !== previous_run) {
-					break;
-				}
-			}
-			this.pollIngestStatus();
+			// The discovered link is decided by a full ingest from the stored snapshots (a superseded one is
+			// revived): started after the delete, and after any run already in progress.
+			await this.startIngest();
 		}
 	}
 

@@ -73,8 +73,12 @@ if (isset($options['help'])) {
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
 const INGEST_LOCK_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest.lock';
 const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.json';
+// Identifies this run in the status file: a caller that has just started a run can tell "my run" from the previous
+// one (started_at has a resolution of one second, so two runs can share it).
+define('INGEST_RUN_ID', bin2hex(random_bytes(6)));
 
 function write_status(array $status): void {
+	$status['run_id'] = INGEST_RUN_ID;
 	// Atomic-ish: write to a temp file then rename, so a concurrent GET /topo/ingest/status read never
 	// sees a half-written file.
 	$tmp = INGEST_STATUS_FILE.'.tmp';
@@ -769,8 +773,9 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 		$before = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		$attrs = $before;
 		// A discovery source upgrades a manual link it confirms, except while discovery also shows a different
-		// neighbor on one of its ports (topology-manual-contradiction-spec.md: the operator decides that, not
-		// ingest): then the link stays manual. Every other attr, shadow_ack included, is carried over untouched.
+		// neighbor on one of its ports or the operator acknowledged one (topology-manual-contradiction-spec.md: the
+		// operator decides that, not ingest): then the link stays manual. Revoking every acknowledgment hands the
+		// link back to the upgrade. Every other attr, shadow_ack included, is carried over untouched.
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual' && !$keep_manual) {
 			$attrs['discovered_via'] = $source;
 		}
@@ -1226,6 +1231,9 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$links[(int) $edge['id']] = ['id' => (int) $edge['id'], 'a' => (int) $edge['src_id'], 'b' => (int) $edge['dst_id'],
 			'key' => $key, 'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
 			'seen' => (int) ($attrs['last_seen'] ?? 0),
+			// The operator has decided something about this manual link (kept it for a hidden neighbor): from then
+			// on no ingest run changes its kind, whether or not a neighbor is hiding behind it right now.
+			'acknowledged' => !empty($attrs['shadow_ack']),
 			'superseded_at' => isset($attrs['superseded_at']) ? (int) $attrs['superseded_at'] : null];
 		$by_port[(int) $edge['src_id']][] = (int) $edge['id'];
 		$by_port[(int) $edge['dst_id']][] = (int) $edge['id'];
@@ -1454,7 +1462,8 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	}
 
 	// 6. Write links: winners (created / revived), stayers (confirmed), then the superseded ones.
-	//    A manual link that hides a neighbor stays manual even when another reporter confirms it.
+	//    A manual link that hides a neighbor, or that has acknowledged neighbors, stays manual even when another
+	//    reporter confirms it: a neighbor that flickers out of a snapshot must not make it upgradeable.
 	$shadowing_manual = [];
 	foreach ($result as $r) {
 		if ($r['outcome'] === 'shadowed') {
@@ -1465,7 +1474,8 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			&$shadowing_manual): int {
 		$id = 0;
 		$existing = $link_by_key[$key] ?? null;
-		$keep_manual = $existing !== null && $links[$existing]['manual'] && isset($shadowing_manual[$existing]);
+		$keep_manual = $existing !== null && $links[$existing]['manual']
+			&& (isset($shadowing_manual[$existing]) || $links[$existing]['acknowledged']);
 		foreach ($indexes as $i) {
 			$c = $candidates[$i];
 			$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock'],
