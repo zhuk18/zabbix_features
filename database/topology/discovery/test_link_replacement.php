@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_link_replacement.php — acceptance tests of topology-link-replacement-spec.md §8.
+ * test_link_replacement.php — acceptance tests of topology-link-replacement-spec.md v2 §8.
  *
  * Snapshots are written straight into topo_lld_snapshot with fixed clocks, and the REAL ingest.php runs as a
  * subprocess after every change. Every scenario starts from an empty topology, and after every run the port
@@ -159,12 +159,15 @@ function assert_port_uniqueness(PDO $pdo, string $when): void {
 	check(!$bad, "port uniqueness holds over all ports {$when}");
 }
 
-function ingest(string $dsn, string $user, string $password, PDO $pdo, string $when, array $extra = [], ?string $order = null): array {
+function ingest(string $dsn, string $user, string $password, PDO $pdo, string $when, array $extra = [], ?string $order = null,
+		bool $check_unique = true): array {
 	$r = run_ingest($dsn, $user, $password, $extra, $order);
 	if ($r['code'] !== 0) {
 		fail_test("ingest failed {$when}: ".trim($r['err'].' '.$r['out']));
 	}
-	assert_port_uniqueness($pdo, $when);
+	if ($check_unique) {
+		assert_port_uniqueness($pdo, $when);
+	}
 	return $r;
 }
 
@@ -262,8 +265,8 @@ check(link_between($pdo, $P, $Q) !== null, 'the superseded link is kept, not del
 check(max($old['last_seen_src'] ?? 0, $old['last_seen_dst'] ?? 0) === CLOCK + 50, 'its last_seen_* stay frozen');
 
 // ============================================================================================================
-foreach ([90 => 'replace', 100 => 'conflict', 110 => 'conflict'] as $b_clock => $expected) {
-	echo "\n=== 2: recable, both ends are reporters — B's latest snapshot at ".($b_clock)." vs R's at 100 ({$expected}) ===\n";
+foreach (['older than' => 90, 'equal to' => 100, 'newer than' => 110] as $label => $b_clock) {
+	echo "\n=== 2: recable, both ends are reporters — B's latest snapshot is {$label} R's (clock {$b_clock} vs 100) ===\n";
 	reset_db($pdo);
 	two_switches($pdo, $R, $B);
 	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
@@ -274,44 +277,118 @@ foreach ([90 => 'replace', 100 => 'conflict', 110 => 'conflict'] as $b_clock => 
 	check(is_active(link_between($pdo, $P, $Q)), 'L = R:P<->B:Q is active');
 	snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
 	snapshot($pdo, 2002, 102, 2, CLOCK + $b_clock, [nbr($B, 24, $R, 'Gi0/1')]);
-	ingest($dsn, $user, $password, $pdo, "with B at {$b_clock}");
+	ingest($dsn, $user, $password, $pdo, "with B {$label}");
 	$L = link_between($pdo, $P, $Q);
 	$obs = observation($pdo, 1002, $C);
-	if ($expected === 'replace') {
-		check(($L['superseded_at'] ?? null) === CLOCK + 100, 'L is superseded: B\'s support (90) is older than the contradiction (100)');
-		check($obs['outcome'] === 'applied', 'the C observation is applied');
-	}
-	else {
-		check(is_active($L), "L stays: B's support ({$b_clock}) is not older than the contradiction (100)");
-		check($obs['outcome'] === 'conflict' && (int) $obs['edge_id'] === $L['id'], 'the C observation is a conflict pointing at L');
-		check(link_between($pdo, $P, ports_of($pdo, $C)['eth0']) === null, 'no link to C was created');
-	}
+	check(is_active($L), 'L stays: B\'s latest snapshot still contains it, whatever its clock');
+	check($obs['outcome'] === 'conflict' && (int) $obs['edge_id'] === $L['id'], 'the C observation is a conflict pointing at L');
+	check(link_between($pdo, $P, ports_of($pdo, $C)['eth0']) === null, 'no link to C was created');
 }
 // after B's next snapshot without R:P
 snapshot($pdo, 2002, 102, 2, CLOCK + 120, [nbr($B, 23, $D, 'eth1')]);
-ingest($dsn, $user, $password, $pdo, 'after B\'s next snapshot at 120 without R:P');
+ingest($dsn, $user, $password, $pdo, 'after B\'s next snapshot without R:P');
 $L = link_between($pdo, $P, $Q);
-check(($L['superseded_at'] ?? null) === CLOCK + 100, 'B stopped confirming L: the replacement now goes through (superseded at 100)');
+check(($L['superseded_at'] ?? null) === CLOCK + 100, 'B stopped confirming L: the replacement goes through (superseded at 100)');
 check(observation($pdo, 1002, $C)['outcome'] === 'applied', 'and the C observation becomes applied');
 
 // ============================================================================================================
-echo "\n=== 3: the contradiction comes from the far end ===\n";
-reset_db($pdo);
-two_switches($pdo, $R, $B);
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
-snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr($B, 24, $R, 'Gi0/1')]);
-ingest($dsn, $user, $password, $pdo, 'with L');
-$P = ports_of($pdo, $R)['Gi0/1'];
-$Q = ports_of($pdo, $B)['Gi0/24'];
-snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $B, 'Gi0/24')]);      // R's latest (older) still shows B on P
-snapshot($pdo, 2002, 102, 2, CLOCK + 110, [nbr($B, 24, $D, 'eth1')]);       // B now shows D on Q
-ingest($dsn, $user, $password, $pdo, 'after B sees D');
-check((link_between($pdo, $P, $Q)['superseded_at'] ?? null) === CLOCK + 110, 'L is superseded at B\'s clock');
-check(is_active(link_between($pdo, $Q, ports_of($pdo, $D)['eth1'])), 'Q<->D is created');
-check(observation($pdo, 1002, $B)['outcome'] === 'conflict', 'R\'s (older) confirmation of the replaced link is a conflict');
+foreach (['R no longer shows B' => false, 'R still shows B' => true] as $label => $r_still) {
+	echo "\n=== 3: the contradiction comes from the far end — {$label} ===\n";
+	reset_db($pdo);
+	two_switches($pdo, $R, $B);
+	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr($B, 24, $R, 'Gi0/1')]);
+	ingest($dsn, $user, $password, $pdo, 'with L');
+	$P = ports_of($pdo, $R)['Gi0/1'];
+	$Q = ports_of($pdo, $B)['Gi0/24'];
+	snapshot($pdo, 1002, 101, 2, CLOCK + 100, $r_still ? [nbr($R, 1, $B, 'Gi0/24')] : []);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 110, [nbr($B, 24, $D, 'eth1')]);
+	ingest($dsn, $user, $password, $pdo, 'after B sees D');
+	if ($r_still) {
+		check(is_active(link_between($pdo, $P, $Q)), 'L stays: R\'s latest snapshot still contains it');
+		check(observation($pdo, 2002, $D)['outcome'] === 'conflict', 'the D observation is a conflict');
+	}
+	else {
+		check((link_between($pdo, $P, $Q)['superseded_at'] ?? null) === CLOCK + 110, 'L is superseded at B\'s clock');
+		check(is_active(link_between($pdo, $Q, ports_of($pdo, $D)['eth1'])), 'Q<->D is created');
+	}
+}
 
 // ============================================================================================================
-echo "\n=== 4: LLDP and CDP of one reporter disagree at the same clock ===\n";
+foreach (['supported' => true, 'unsupported' => false] as $label => $supported) {
+	echo "\n=== 4: far-end port occupancy — the link on X's port is {$label} ===\n";
+	reset_db($pdo);
+	$E = 'e0:00:00:00:00:05';
+	$X = 'f0:00:00:00:00:06';
+	add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+	add_host($pdo, 105, 'SwE', 'Switch E', '10.0.0.5');
+	snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+	snapshot($pdo, 5001, 105, 1, CLOCK, ports_rows($E, [1 => 'Gi0/1']));
+	snapshot($pdo, 5002, 105, 2, CLOCK + 50, [nbr($E, 1, $X, 'eth0')]);           // M = E:1 <-> X:eth0
+	ingest($dsn, $user, $password, $pdo, 'with M');
+	$Xp = ports_of($pdo, $X)['eth0'];
+	$Ep = ports_of($pdo, $E)['Gi0/1'];
+	check(is_active(link_between($pdo, $Ep, $Xp)), 'M = E:1<->X:eth0 is active');
+	if (!$supported) {
+		snapshot($pdo, 5002, 105, 2, CLOCK + 60, []);                             // E no longer reports it
+	}
+	snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $X, 'eth0')]);          // R says X:eth0 is on its port
+	ingest($dsn, $user, $password, $pdo, 'with R claiming X:eth0');
+	$M = link_between($pdo, $Ep, $Xp);
+	$RP = ports_of($pdo, $R)['Gi0/1'];
+	$obs = observation($pdo, 1002, $X);
+	if ($supported) {
+		check(is_active($M) && link_between($pdo, $RP, $Xp) === null, 'M stays and R:P<->X is not created');
+		check($obs['outcome'] === 'conflict' && (int) $obs['edge_id'] === $M['id'], 'the candidate is a conflict pointing at M');
+	}
+	else {
+		check(($M['superseded_at'] ?? null) === CLOCK + 100, 'M is superseded');
+		check(is_active(link_between($pdo, $RP, $Xp)) && $obs['outcome'] === 'applied', 'R:P<->X is created and applied');
+	}
+}
+
+// ============================================================================================================
+echo "\n=== 5: persistent disagreement, staggered polls ===\n";
+foreach (['no link before' => false, 'a link before' => true] as $label => $with_link) {
+	echo "  -- {$label}\n";
+	reset_db($pdo);
+	$X = 'e0:00:00:00:00:05';
+	$U = 'f0:00:00:00:00:06';
+	add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+	add_host($pdo, 105, 'SwX', 'Switch X', '10.0.0.5');
+	snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+	snapshot($pdo, 5001, 105, 1, CLOCK, ports_rows($X, [5 => 'Gi0/5']));
+	if ($with_link) {
+		snapshot($pdo, 1002, 101, 2, CLOCK + 1, [nbr($R, 1, $X, 'Gi0/5')]);
+		snapshot($pdo, 5002, 105, 2, CLOCK + 1, [nbr($X, 5, $R, 'Gi0/1')]);
+		ingest($dsn, $user, $password, $pdo, 'with the consistent link');
+	}
+	// from now on R keeps saying "X on P" and X keeps saying "UPS2 on q"; the polls interleave
+	$pictures = [];
+	for ($run = 1; $run <= 6; $run++) {
+		if ($run % 2 === 1) {
+			snapshot($pdo, 1002, 101, 2, CLOCK + 100 + $run, [nbr($R, 1, $X, 'Gi0/5')]);
+		}
+		else {
+			snapshot($pdo, 5002, 105, 2, CLOCK + 100 + $run, [nbr($X, 5, $U, 'eth0')]);
+		}
+		if ($run === 1) {
+			snapshot($pdo, 5002, 105, 2, CLOCK + 100, [nbr($X, 5, $U, 'eth0')]);
+		}
+		$r = ingest($dsn, $user, $password, $pdo, "in run {$run}");
+		$pictures[$run] = natural_picture($pdo);
+		if ($run > 1) {
+			check((int) $r['summary']['links_superseded'] === 0 && (int) $r['summary']['links_revived'] === 0,
+				"run {$run}: no link superseded or revived");
+		}
+	}
+	check(count(array_unique(array_map('json_encode', array_slice($pictures, 1)))) === 1, 'one stable picture across all six runs');
+	$conflicts = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='conflict'");
+	check($conflicts >= 1, 'the disagreement is reported as conflict');
+}
+
+// ============================================================================================================
+echo "\n=== 6: LLDP and CDP of one reporter disagree ===\n";
 reset_db($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
@@ -319,17 +396,17 @@ snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
 ingest($dsn, $user, $password, $pdo, 'with L');
 $P = ports_of($pdo, $R)['Gi0/1'];
 $Q = ports_of($pdo, $B)['Gi0/24'];
-snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);                 // the LLDP rule
-snapshot($pdo, 1003, 101, 2, CLOCK + 100, [nbr($R, 1, $B, 'Gi0/24', 'cdp')]);        // the CDP rule, same clock
+snapshot($pdo, 1002, 101, 2, CLOCK + 300, [nbr($R, 1, $C, 'eth0')]);                 // the LLDP rule, much newer
+snapshot($pdo, 1003, 101, 2, CLOCK + 100, [nbr($R, 1, $B, 'Gi0/24', 'cdp')]);        // the CDP rule
 ingest($dsn, $user, $password, $pdo, 'LLDP vs CDP');
 $L = link_between($pdo, $P, $Q);
-check(is_active($L), 'L stays: the CDP rule supports it at the same clock');
+check(is_active($L), 'L stays: the CDP rule still contains it');
 $obs = observation($pdo, 1002, $C);
 check($obs['outcome'] === 'conflict' && (int) $obs['edge_id'] === $L['id'], 'the LLDP observation is a conflict pointing at L');
 check(observation($pdo, 1003, $B)['outcome'] === 'applied', 'the CDP observation confirming L is applied');
 
 // ============================================================================================================
-echo "\n=== 5: revival ===\n";
+echo "\n=== 7: revival — with a holder, then without ===\n";
 reset_db($pdo);
 two_switches($pdo, $R, $B);
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
@@ -341,16 +418,21 @@ snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
 snapshot($pdo, 2002, 102, 2, CLOCK + 60, [nbr($B, 23, $D, 'eth1')]);
 ingest($dsn, $user, $password, $pdo, 'after the replacement');
 $PC = ports_of($pdo, $C)['eth0'];
-check(($L = link_between($pdo, $P, $Q)) && isset($L['superseded_at']) && is_active(link_between($pdo, $P, $PC)), 'L replaced by P<->C');
-snapshot($pdo, 2002, 102, 2, CLOCK + 300, [nbr($B, 24, $R, 'Gi0/1')]);              // B reports R:P again, newer
-$r = ingest($dsn, $user, $password, $pdo, 'after B reports R:P again');
+check(isset(link_between($pdo, $P, $Q)['superseded_at']) && is_active(link_between($pdo, $P, $PC)), 'L replaced by P<->C');
+snapshot($pdo, 2002, 102, 2, CLOCK + 300, [nbr($B, 24, $R, 'Gi0/1')]);              // B reports R:P again, R still says C
+$before = fingerprint($pdo);
+$r = ingest($dsn, $user, $password, $pdo, 'B reports R:P again while R still reports C');
+check(isset(link_between($pdo, $P, $Q)['superseded_at']) && is_active(link_between($pdo, $P, $PC)), 'the holder has support: L stays superseded');
+check(observation($pdo, 2002, $R)['outcome'] === 'conflict', 'B\'s observation is a conflict');
+check((int) $r['summary']['links_revived'] === 0 && (int) $r['summary']['links_superseded'] === 0, 'nothing revived, nothing superseded');
+snapshot($pdo, 1002, 101, 2, CLOCK + 400, []);                                       // R stops reporting C
+$r = ingest($dsn, $user, $password, $pdo, 'after R stops reporting C');
 check(is_active(link_between($pdo, $P, $Q)), 'L is revived (superseded_at cleared)');
-check((link_between($pdo, $P, $PC)['superseded_at'] ?? null) === CLOCK + 300, 'the link that replaced it goes through the rule and is superseded in turn');
+check((link_between($pdo, $P, $PC)['superseded_at'] ?? null) === CLOCK + 300, 'the link that held the port is superseded');
 check((int) $r['summary']['links_revived'] === 1 && (int) $r['summary']['links_superseded'] === 1, 'revived and superseded are counted');
-check(observation($pdo, 1002, $C)['outcome'] === 'conflict', 'R\'s C observation is now a conflict');
 
 // ============================================================================================================
-echo "\n=== 6: a manual link wins ===\n";
+echo "\n=== 8: a manual link wins ===\n";
 reset_db($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
@@ -370,7 +452,7 @@ check($obs['outcome'] === 'shadowed' && (int) $obs['edge_id'] === $manual['id'],
 check((int) $r['summary']['links_superseded'] === 0, 'nothing is superseded');
 
 // ============================================================================================================
-echo "\n=== 7: two neighbors on one port in one snapshot ===\n";
+echo "\n=== 9: two neighbors on one port in one snapshot ===\n";
 reset_db($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
@@ -391,13 +473,28 @@ check(is_active(link_between($pdo, $P, $Q)), 'no link change on the port');
 check(observation($pdo, 1002, $C)['outcome'] === 'ambiguous' && observation($pdo, 1002, $D)['outcome'] === 'ambiguous'
 	&& observation($pdo, 1002, $C)['edge_id'] === null, 'both are ambiguous with no edge');
 $picture = natural_picture($pdo);
-$row_order = [nbr($R, 1, $D, 'eth1'), nbr($R, 1, $C, 'eth0')];
-snapshot($pdo, 1002, 101, 2, CLOCK + 200, $row_order);
+snapshot($pdo, 1002, 101, 2, CLOCK + 200, [nbr($R, 1, $D, 'eth1'), nbr($R, 1, $C, 'eth0')]);
 ingest($dsn, $user, $password, $pdo, 'the same rows in the other order');
 check(natural_picture($pdo) === $picture, 'the same rows in another order change no link and no observation');
 
 // ============================================================================================================
-echo "\n=== 8: order independence — reporters processed in different orders ===\n";
+echo "\n=== 10: a partial run never replaces ===\n";
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
+ingest($dsn, $user, $password, $pdo, 'with L');
+$P = ports_of($pdo, $R)['Gi0/1'];
+$Q = ports_of($pdo, $B)['Gi0/24'];
+snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
+$r = ingest($dsn, $user, $password, $pdo, 'a scoped run', ['SwR']);
+check(is_active(link_between($pdo, $P, $Q)) && (int) $r['summary']['links_superseded'] === 0, 'nothing is superseded by a scoped run');
+check(observation($pdo, 1002, $C)['outcome'] === 'conflict', 'the unsupported contradiction is a conflict');
+ingest($dsn, $user, $password, $pdo, 'the full run after it');
+check(isset(link_between($pdo, $P, $Q)['superseded_at']), 'the full run supersedes it');
+
+// ============================================================================================================
+echo "\n=== 11: order independence — reporters processed in different orders ===\n";
 $pictures = [];
 foreach (['101,102', '102,101'] as $order) {
 	reset_db($pdo);
@@ -407,45 +504,78 @@ foreach (['101,102', '102,101'] as $order) {
 	ingest($dsn, $user, $password, $pdo, "with L, order {$order}", [], $order);
 	snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
 	snapshot($pdo, 2002, 102, 2, CLOCK + 90, [nbr($B, 24, $R, 'Gi0/1')]);
-	ingest($dsn, $user, $password, $pdo, "after the recable, order {$order}", [], $order);
+	ingest($dsn, $user, $password, $pdo, "with the conflict, order {$order}", [], $order);
 	$pictures[$order] = natural_picture($pdo);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 120, [nbr($B, 23, $D, 'eth1')]);
+	ingest($dsn, $user, $password, $pdo, "after the replacement, order {$order}", [], $order);
+	$pictures[$order.' replaced'] = natural_picture($pdo);
 }
-check($pictures['101,102'] === $pictures['102,101'], 'links, superseded_at and observations are the same for both orders');
-check(count($pictures['101,102'][0]) >= 2, '(and the picture is not empty)');
+check($pictures['101,102'] === $pictures['102,101'], 'links, superseded_at and observations are the same for both orders (conflict)');
+check($pictures['101,102 replaced'] === $pictures['102,101 replaced'], 'and after the replacement');
+check(count($pictures['101,102 replaced'][0]) >= 2, '(and the picture is not empty)');
 
 // ============================================================================================================
-echo "\n=== 9: convergence — five runs over unchanged snapshots change nothing ===\n";
+echo "\n=== 12: convergence — five runs over unchanged snapshots change nothing ===\n";
 $before = fingerprint($pdo);
 for ($i = 0; $i < 5; $i++) {
-	ingest($dsn, $user, $password, $pdo, 'in a rerun');
+	ingest($dsn, $user, $password, $pdo, 'in a rerun of a replacement');
 }
-check(fingerprint($pdo) === $before, 'same ids, same last_seen_*, same superseded_at, same observations (no replace/revive flapping)');
+check(fingerprint($pdo) === $before, 'a replacement is stable: same ids, last_seen_*, superseded_at, observations');
 reset_db($pdo);
 two_switches($pdo, $R, $B);
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
 snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr($B, 24, $R, 'Gi0/1')]);
 ingest($dsn, $user, $password, $pdo, 'with L');
 snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
-snapshot($pdo, 2002, 102, 2, CLOCK + 100, [nbr($B, 24, $R, 'Gi0/1')]);     // a tie: L stays
-ingest($dsn, $user, $password, $pdo, 'with a tie');
+snapshot($pdo, 2002, 102, 2, CLOCK + 100, [nbr($B, 24, $R, 'Gi0/1')]);
+ingest($dsn, $user, $password, $pdo, 'with a conflict');
 $before = fingerprint($pdo);
 for ($i = 0; $i < 5; $i++) {
-	ingest($dsn, $user, $password, $pdo, 'in a rerun of a tie');
+	ingest($dsn, $user, $password, $pdo, 'in a rerun of a conflict');
 }
 check(fingerprint($pdo) === $before, 'a conflict is stable too');
 
 // ============================================================================================================
-echo "\n=== 10: a run scoped with --zabbix-host never replaces ===\n";
+echo "\n=== 13: legacy data — two active discovered links on one port ===\n";
 reset_db($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
-ingest($dsn, $user, $password, $pdo, 'with L');
+ingest($dsn, $user, $password, $pdo, 'to create R:P<->B');
 $P = ports_of($pdo, $R)['Gi0/1'];
 $Q = ports_of($pdo, $B)['Gi0/24'];
-snapshot($pdo, 1002, 101, 2, CLOCK + 100, [nbr($R, 1, $C, 'eth0')]);
-ingest($dsn, $user, $password, $pdo, 'a scoped run', ['SwR']);
-check(is_active(link_between($pdo, $P, $Q)), 'the link stays: a scoped run cannot see the other reporters, so it keeps the old behaviour');
-check(observation($pdo, 1002, $C)['outcome'] === 'conflict', 'and the new neighbor is a conflict until an unscoped run decides');
+$raw_port = static function (PDO $pdo, string $chassis, string $name) : int {
+	$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
+		->execute([json_encode(['chassis_id' => $chassis, 'sysname' => $chassis, 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
+	$device = (int) $pdo->lastInsertId();
+	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	return (int) $pdo->lastInsertId();
+};
+$raw_link = static function (PDO $pdo, int $a, int $b, int $seen): void {
+	$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")
+		->execute([min($a, $b), max($a, $b), json_encode(['discovered_via' => 'lldp', 'last_seen' => $seen, 'last_seen_src' => $seen])]);
+};
+// (a) P has the supported link to B (from R's snapshot) and an old one to a device nobody reports any more
+$stale_peer = $raw_port($pdo, 'aa:00:00:00:00:0a', 'x1');
+$raw_link($pdo, $P, $stale_peer, CLOCK + 900);          // more recent last_seen, but no snapshot contains it
+// (b) a port with two links and no candidate anywhere near it
+$Z = $raw_port($pdo, 'bb:00:00:00:00:0b', 'z1');
+$W1 = $raw_port($pdo, 'cc:00:00:00:00:0c', 'w1');
+$W2 = $raw_port($pdo, 'dd:00:00:00:00:0d', 'w2');
+$raw_link($pdo, $Z, $W1, 10);
+$raw_link($pdo, $Z, $W2, 20);
+check(active_link_count($pdo, $P) === 2 && active_link_count($pdo, $Z) === 2, 'fixture: two active links on P and on Z');
+$r = ingest($dsn, $user, $password, $pdo, 'in a scoped run over legacy data', ['SwR'], null, false);
+check(active_link_count($pdo, $P) === 2, 'a partial run leaves legacy data alone');
+$r = ingest($dsn, $user, $password, $pdo, 'in the first full run over legacy data');
+check(active_link_count($pdo, $P) === 1 && is_active(link_between($pdo, $P, $Q)), 'P keeps the link that a snapshot still reports');
+check(isset(link_between($pdo, $P, $stale_peer)['superseded_at']), 'and the unreported one is superseded');
+check(active_link_count($pdo, $Z) === 1 && is_active(link_between($pdo, $Z, $W2)) && isset(link_between($pdo, $Z, $W1)['superseded_at']),
+	'a port with no candidate at all keeps its most recently confirmed link');
+check((int) $r['summary']['links_superseded'] === 2, 'both cleanups are counted');
+$before = fingerprint($pdo);
+ingest($dsn, $user, $password, $pdo, 'in the second full run');
+check(fingerprint($pdo) === $before, 'and the cleanup is one-time');
 
 echo "\nAll link replacement tests passed.\n";

@@ -1160,22 +1160,22 @@ $snap_ingest_reporter = static function (array $reporter) use (
 };
 
 // ============================================================================================================
-// NEIGHBORS phase 2 "resolve" (topology-link-replacement-spec.md §3-§6)
+// NEIGHBORS phase 2 "resolve" (topology-link-replacement-spec.md v2, §3-§6)
 //
 // One decision for the whole run, from the candidates of EVERY reporter's latest NEIGHBORS snapshots, so the
-// result cannot depend on the order the reporters were walked in. A discovered link keeps its port while some
-// reporter confirms it at least as recently as the contradiction that challenges it.
+// result cannot depend on the order the reporters were walked in.
 //
-// Terms: an *entity* is a pair of ports {P,X}: an existing link, a candidate, or both. support(entity) is the
-// newest clock among the candidates that show the pair (from either end, from any rule of any reporter);
-// none if no latest snapshot shows it. A candidate that is not in a §5 group and not behind a manual link
-// *claims* its pair at time T (the newest clock among the claiming candidates of that pair). A claim WINS when
-// every other entity touching either of its ports (active discovered links, and the other claims) has no
-// support, or support older than T (equal counts as support: simultaneous disagreement is a conflict). A winner
-// is written (created, or revived when it was superseded and T is newer than superseded_at); every existing
-// active link it blocks becomes superseded at T. An existing active link stays unless a winner supersedes it,
-// and its own candidates are then "applied"; a losing claim is a "conflict" that points at the link holding
-// the port.
+// An *entity* is a pair of ports {P,X}: an existing link, a candidate, or both. rules(entity) is the set of
+// NEIGHBORS rules whose latest snapshot contains the pair, from either end. A candidate that is not in a §5 group
+// and not behind a manual link *claims* its pair. Every other entity touching either port of the claim (active
+// discovered links, and the other claims) is HELD against it when some rule outside rules(claim) contains it: a
+// snapshot other than the contradicting one still says it. Clocks are never compared: a reporter's latest snapshot
+// is its current claim however long ago it was polled (the clock only becomes superseded_at). A claim WINS when
+// nothing is held against it; it is then written (created, or revived when it was superseded) and every existing
+// active link it blocks becomes superseded. An existing active link stays unless a winner supersedes it, and its
+// own candidates are then "applied"; a losing claim is a "conflict" pointing at the link that holds the port.
+//
+// Before that, pre-spec data with two active discovered links on one port is cleaned up once (legacy).
 // ============================================================================================================
 $snap_resolve_links = static function (array $candidates, array $neighbor_snapshots, bool $replacement_enabled) use (
 	$pdo, $find_matching_real_port, $snap_port, $snap_link, $snap_observation, &$summary
@@ -1219,6 +1219,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$key = $pair_key((int) $edge['src_id'], (int) $edge['dst_id']);
 		$links[(int) $edge['id']] = ['id' => (int) $edge['id'], 'a' => (int) $edge['src_id'], 'b' => (int) $edge['dst_id'],
 			'key' => $key, 'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
+			'seen' => (int) ($attrs['last_seen'] ?? 0),
 			'superseded_at' => isset($attrs['superseded_at']) ? (int) $attrs['superseded_at'] : null];
 		$by_port[(int) $edge['src_id']][] = (int) $edge['id'];
 		$by_port[(int) $edge['dst_id']][] = (int) $edge['id'];
@@ -1226,16 +1227,63 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	}
 	$is_active_discovered = static fn (array $link): bool => !$link['manual'] && $link['superseded_at'] === null;
 
-	// 3. Support: what the latest snapshots say, whatever became of the candidate.
-	$support = [];
+	// 3. What the latest snapshots say, whatever became of the candidate: the rules that contain each pair (from
+	//    either end), and the newest clock among them (only used to date a legacy cleanup).
+	$rules_of = [];
+	$support_clock = [];
 	$groups = [];
 	foreach ($candidates as $i => $candidate) {
 		if ($candidate['remote_port_id'] === null || $candidate['remote_port_id'] === $candidate['local_port_id']) {
 			continue;
 		}
 		$key = $pair_key($candidate['local_port_id'], $candidate['remote_port_id']);
-		$support[$key] = max($support[$key] ?? 0, $candidate['clock']);
+		$rules_of[$key][$candidate['itemid']] = true;
+		$support_clock[$key] = max($support_clock[$key] ?? 0, $candidate['clock']);
 		$groups[$candidate['itemid'].'|'.$candidate['local_port_id']][$candidate['remote_port_id']] = true;
+	}
+	// Held against a claim: some rule OUTSIDE the claim's own rules still contains the entity.
+	$held = static function (string $entity_key, string $claim_key) use (&$rules_of): bool {
+		return (bool) array_diff_key($rules_of[$entity_key] ?? [], $rules_of[$claim_key] ?? []);
+	};
+
+	// 3b. Legacy data: pre-spec ingest let a cable move leave two active discovered links on one port. Keep one
+	//     per port, once, whether or not a candidate arrives for that port. A partial run cannot see every
+	//     reporter, so it leaves the data alone (§6.3).
+	if ($replacement_enabled) {
+		$active_on = static function (int $port) use (&$links, &$by_port, $is_active_discovered): array {
+			$out = [];
+			foreach ($by_port[$port] ?? [] as $lid) {
+				if ($is_active_discovered($links[$lid])) {
+					$out[] = $lid;
+				}
+			}
+			return $out;
+		};
+		$ports = array_keys($by_port);
+		sort($ports);
+		foreach ($ports as $port) {
+			$active = $active_on($port);
+			if (count($active) < 2) {
+				continue;
+			}
+			// The link some snapshot still reports stays; then the one confirmed most recently; then the oldest id.
+			usort($active, static function (int $x, int $y) use (&$links, &$rules_of, $rows): int {
+				$sx = isset($rules_of[$links[$x]['key']]) ? 1 : 0;
+				$sy = isset($rules_of[$links[$y]['key']]) ? 1 : 0;
+				return [$sy, $links[$y]['seen'] ?? 0, $x] <=> [$sx, $links[$x]['seen'] ?? 0, $y];
+			});
+			$keep = array_shift($active);
+			$at = max($links[$keep]['seen'] ?? 0, $support_clock[$links[$keep]['key']] ?? 0);
+			foreach ($active as $lid) {
+				$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$lid}")->fetchColumn(),
+					true, 512, JSON_THROW_ON_ERROR);
+				$attrs['superseded_at'] = $at;
+				$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+					->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $lid]);
+				$links[$lid]['superseded_at'] = $at;
+				$summary['links_superseded']++;
+			}
+		}
 	}
 
 	// 4. Classify every candidate: fixed outcome, shadowed by a manual link, part of a §5 group, or a claim.
@@ -1327,18 +1375,14 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$blockers[$key] = $entities;
 		$ok = true;
 		foreach ($entities as $entity_key => $kind) {
-			if (isset($support[$entity_key]) && $support[$entity_key] >= $claim['T']) {
+			if ($held($entity_key, $key)) {
 				$ok = false;
 			}
-			// A run scoped with --zabbix-host sees only some reporters: it cannot know that nobody else
+			// A run scoped with --zabbix-host sees only some reporters: it cannot know that nothing else
 			// supports an existing link, so it never replaces one (the old, conservative behaviour).
 			if ($kind === 'link' && !$replacement_enabled) {
 				$ok = false;
 			}
-		}
-		if (isset($link_by_key[$key]) && $links[$link_by_key[$key]]['superseded_at'] !== null
-				&& $claim['T'] <= $links[$link_by_key[$key]]['superseded_at']) {
-			$ok = false; // a confirmation not newer than the replacement does not revive the link
 		}
 		$wins[$key] = $ok;
 	}
@@ -1414,7 +1458,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			// claim (support at least as recent), or the winner that superseded this claim's own link.
 			$holding = [];
 			foreach (array_merge(array_keys($blockers[$key]), $superseded_by[$key] ?? []) as $entity_key) {
-				if (isset($after[$entity_key]) && (($support[$entity_key] ?? -1) >= $claim['T']
+				if (isset($after[$entity_key]) && ($held($entity_key, $key)
 						|| in_array($entity_key, $superseded_by[$key] ?? [], true))) {
 					$holding[] = $after[$entity_key];
 				}
