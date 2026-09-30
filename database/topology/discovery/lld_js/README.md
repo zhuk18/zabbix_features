@@ -4,7 +4,9 @@ Temporary lab template for topology-lld-part2-spec.md §9. Zabbix collects the t
 master items feed four dependent discovery rules, one per `topology_role` (PORTS, NEIGHBORS, LEARNED_MACS, LAG). Each
 rule's JavaScript turns the walk text into the rows of that role's macro contract (see `CTopologyRole.php`).
 
-This JavaScript is the reference implementation for Part 3's preset preprocessing step. Keep it readable.
+This JavaScript is the reference implementation for Part 3's preset preprocessing step (`../step_golden/` holds the
+golden comparison). The native template `../template_topology_by_snmp.yaml` (`../build_template.php`) replaces this
+one; the JS stays until the end-to-end equivalence check of Part 3 §8 has passed.
 
 | File | What |
 |---|---|

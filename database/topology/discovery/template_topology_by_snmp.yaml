@@ -1,0 +1,130 @@
+zabbix_export:
+  version: '8.0'
+  template_groups:
+    - uuid: c25cff1785c94fb9a09676d7a26d993f
+      name: 'Templates/Network devices'
+  templates:
+    - uuid: cb875235fcc44c5ebcef7b9767bbbd0c
+      template: 'Topology by SNMP'
+      name: 'Topology by SNMP'
+      description: |
+        Collects the network topology through Zabbix low-level discovery (topology-lld-part3-spec.md). Two SNMP
+        walk[] master items feed five dependent discovery rules, one per data set; each rule has one preprocessing
+        step "SNMP walk to topology rows" that turns the walk into the rows of its topology role. The master items
+        store no history and have no discard steps: every value is a confirmation that the links are alive.
+
+        The rules for LLDP, CDP, learned MACs and LAG return an empty result when the device does not have that MIB,
+        so the template can be applied to a mixed fleet. The ports rule fails when there is no IF-MIB.
+
+        Replaces "Topology by SNMP (temporary JS)"; the two cannot be linked to one host.
+      groups:
+        - name: 'Templates/Network devices'
+      items:
+        - uuid: 54192a41a84e4a12bd3b6a6077dafb38
+          name: 'Topology walk: interfaces, LLDP, CDP, LAG'
+          type: SNMP_AGENT
+          snmp_oid: 'walk[1.3.6.1.2.1.1.5,1.3.6.1.2.1.2.2.1,1.3.6.1.2.1.31.1.1.1.1,1.3.6.1.2.1.31.1.1.1.15,1.0.8802.1.1.2.1.3.2,1.0.8802.1.1.2.1.3.7,1.0.8802.1.1.2.1.4.1,1.0.8802.1.1.2.1.4.2,1.2.840.10006.300.43.1.2.1.1.13,1.3.6.1.4.1.9.9.23.1.2.1.1,1.3.6.1.4.1.9.9.23.1.3.1]'
+          key: topology.walk.core
+          delay: 30m
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'One walk of IF-MIB, LLDP-MIB, CISCO-CDP-MIB and the 802.3ad aggregation table; feeds the ports, LLDP, CDP and LAG rules.'
+        - uuid: 81884adc892d4907841aa2d0fbddc6dd
+          name: 'Topology walk: bridge tables (FDB)'
+          type: SNMP_AGENT
+          snmp_oid: 'walk[1.3.6.1.2.1.17.1.4.1.2,1.3.6.1.2.1.17.7.1.2.2.1,1.3.6.1.2.1.17.4.3.1]'
+          key: topology.walk.fdb
+          delay: 10m
+          history: '0'
+          trends: '0'
+          value_type: TEXT
+          description: 'BRIDGE-MIB / Q-BRIDGE-MIB forwarding tables; feeds the learned MACs rule. A device without these tables answers "No Such Instance"; that specific error becomes an empty walk (the rule then returns an empty result), any other error (timeout, wrong community) keeps the item unsupported so the last good snapshot stays.'
+          preprocessing:
+            - type: CHECK_NOT_SUPPORTED
+              parameters:
+                - '0'
+                - 'No Such (Instance|Object)'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '# device has no bridge tables'
+      discovery_rules:
+        - uuid: 3ce75a14450f42eea1377e424f72249c
+          name: 'Topology ports'
+          type: DEPENDENT
+          key: topology.ports
+          topology_role: PORTS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'One row per interface (IF-MIB ifTable / ifXTable).'
+          master_item:
+            key: topology.walk.core
+          preprocessing:
+            - type: SNMP_WALK_TO_TOPOLOGY
+              parameters:
+                - ports
+                - error
+                - '20'
+        - uuid: 2814ec0930c04bceb1f43e8a6f6b7807
+          name: 'Topology neighbors (LLDP)'
+          type: DEPENDENT
+          key: topology.lldp
+          topology_role: NEIGHBORS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'LLDP neighbors (LLDP-MIB lldpRemTable), joined to the local ifIndex.'
+          master_item:
+            key: topology.walk.core
+          preprocessing:
+            - type: SNMP_WALK_TO_TOPOLOGY
+              parameters:
+                - lldp
+                - empty
+                - '20'
+        - uuid: 31d5ee7a950149aba23991709b10ccce
+          name: 'Topology neighbors (CDP)'
+          type: DEPENDENT
+          key: topology.cdp
+          topology_role: NEIGHBORS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'CDP neighbors (CISCO-CDP-MIB cdpCacheTable).'
+          master_item:
+            key: topology.walk.core
+          preprocessing:
+            - type: SNMP_WALK_TO_TOPOLOGY
+              parameters:
+                - cdp
+                - empty
+                - '20'
+        - uuid: f61b550d9a9b4ea5a515af4ca6c21f7e
+          name: 'Topology learned MACs'
+          type: DEPENDENT
+          key: topology.fdb
+          topology_role: LEARNED_MACS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'MAC addresses learned per port (Q-BRIDGE-MIB, else BRIDGE-MIB); a port with more MACs than the limit is reported by count only.'
+          master_item:
+            key: topology.walk.fdb
+          preprocessing:
+            - type: SNMP_WALK_TO_TOPOLOGY
+              parameters:
+                - fdb
+                - empty
+                - '20'
+        - uuid: b9aab0e1c37c48c89bd1590311748246
+          name: 'Topology LAG membership'
+          type: DEPENDENT
+          key: topology.lag
+          topology_role: LAG
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'Member ports of link aggregations (IEEE8023-LAG-MIB).'
+          master_item:
+            key: topology.walk.core
+          preprocessing:
+            - type: SNMP_WALK_TO_TOPOLOGY
+              parameters:
+                - lag
+                - empty
+                - '20'
