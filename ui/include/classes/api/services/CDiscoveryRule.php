@@ -432,6 +432,7 @@ class CDiscoveryRule extends CDiscoveryRuleGeneral {
 		self::checkHostInterfaces($items);
 		self::checkDependentItems($items);
 		self::checkNestedItems($items);
+		self::checkTopologyPreprocessing($items);
 		CConditionHelper::checkFilterFormula($items);
 		self::checkOverridesFilterFormula($items);
 		self::checkOverridesOperationTemplates($items);
@@ -583,6 +584,7 @@ class CDiscoveryRule extends CDiscoveryRuleGeneral {
 		self::checkHostInterfaces($items, $db_items);
 		self::checkDependentItems($items, $db_items);
 		self::checkNestedItems($items, $db_items);
+		self::checkTopologyPreprocessing($items, $db_items);
 		CConditionHelper::checkFilterFormula($items);
 		self::checkOverridesFilterFormula($items);
 		self::checkOverridesOperationTemplates($items);

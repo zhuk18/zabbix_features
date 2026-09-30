@@ -53,6 +53,65 @@ abstract class CDiscoveryRuleGeneral extends CItemGeneral {
 		'lld_override_opinventory' => 'opinventory'
 	];
 
+	/**
+	 * A rule with a topology role treats every LLD value as a confirmation that the links are alive, so
+	 * "Discard unchanged with heartbeat" would silently stop refreshing the snapshot clock. The check works on the
+	 * resulting state: incoming fields are merged with the stored ones.
+	 *
+	 * @param array      $items
+	 * @param array|null $db_items  Null on create.
+	 *
+	 * @throws APIException
+	 */
+	protected static function checkTopologyPreprocessing(array $items, ?array $db_items = null): void {
+		$db_itemids = [];
+
+		foreach ($items as $item) {
+			$role = $item['topology_role']
+				?? ($db_items !== null ? $db_items[$item['itemid']]['topology_role'] : ZBX_TOPOLOGY_ROLE_NONE);
+
+			if ($role != ZBX_TOPOLOGY_ROLE_NONE && $db_items !== null && !array_key_exists('preprocessing', $item)) {
+				$db_itemids[] = $item['itemid'];
+			}
+		}
+
+		$db_types = [];
+
+		if ($db_itemids) {
+			$db_preprocessing = DBselect(
+				'SELECT ip.itemid,ip.type'.
+				' FROM item_preproc ip'.
+				' WHERE '.dbConditionId('ip.itemid', $db_itemids)
+			);
+
+			while ($row = DBfetch($db_preprocessing)) {
+				$db_types[$row['itemid']][] = (int) $row['type'];
+			}
+		}
+
+		foreach ($items as $i => $item) {
+			$role = $item['topology_role']
+				?? ($db_items !== null ? $db_items[$item['itemid']]['topology_role'] : ZBX_TOPOLOGY_ROLE_NONE);
+
+			if ($role == ZBX_TOPOLOGY_ROLE_NONE) {
+				continue;
+			}
+
+			$types = array_key_exists('preprocessing', $item)
+				? array_column($item['preprocessing'], 'type')
+				: ($db_types[$item['itemid']] ?? []);
+
+			$forbidden = [ZBX_PREPROC_THROTTLE_VALUE, ZBX_PREPROC_THROTTLE_TIMED_VALUE];
+
+			if (array_intersect(array_map('intval', $types), $forbidden)) {
+				self::exception(ZBX_API_ERROR_PARAMETERS, _s('Invalid parameter "%1$s": %2$s.',
+					'/'.($i + 1).(array_key_exists('preprocessing', $item) ? '/preprocessing' : '/topology_role'),
+					_('a discovery rule with a topology role cannot use "Discard unchanged" preprocessing')
+				));
+			}
+		}
+	}
+
 	protected function addRelatedObjects(array $options, array $result) {
 		$result = parent::addRelatedObjects($options, $result);
 

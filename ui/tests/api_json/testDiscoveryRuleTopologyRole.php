@@ -381,6 +381,140 @@ class testDiscoveryRuleTopologyRole extends CAPITest {
 		$this->call('discoveryrule.update', ['itemid' => $rules[0]['itemid'], 'topology_role' => ZBX_TOPOLOGY_ROLE_LAG]);
 	}
 
+	private const DISCARD_ERROR = 'a discovery rule with a topology role cannot use "Discard unchanged" preprocessing';
+
+	private static function heartbeatStep(): array {
+		return [
+			'type' => ZBX_PREPROC_THROTTLE_TIMED_VALUE,
+			'params' => '1h',
+			'error_handler' => ZBX_PREPROC_FAIL_DEFAULT,
+			'error_handler_params' => ''
+		];
+	}
+
+	private function createDiscardTemplate(string $name): string {
+		return CDataHelper::call('template.create', [
+			'host' => 'API topology role '.$name,
+			'groups' => [['groupid' => self::$ids['tpl_groupid']]]
+		])['templateids'][0];
+	}
+
+	/**
+	 * "Discard unchanged with heartbeat" stops the snapshot clock, so a rule with a topology role must not have it.
+	 * The check runs on the resulting state, in every direction: create, role change, preprocessing change.
+	 */
+	public function testDiscoveryRuleTopologyRole_DiscardUnchangedCreate(): void {
+		$hostid = $this->createDiscardTemplate('discard create');
+		$rule = ['hostid' => $hostid, 'name' => 'Discard', 'key_' => 'topo.discard.create', 'type' => ITEM_TYPE_TRAPPER];
+
+		$this->call('discoveryrule.create', $rule + [
+			'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS,
+			'preprocessing' => [self::heartbeatStep()]
+		], 'Invalid parameter "/1/preprocessing": '.self::DISCARD_ERROR.'.');
+
+		// Without a role the step stays available.
+		$this->call('discoveryrule.create', ['key_' => 'topo.discard.norole', 'name' => 'No role'] + $rule + [
+			'preprocessing' => [self::heartbeatStep()]
+		]);
+	}
+
+	public function testDiscoveryRuleTopologyRole_DiscardUnchangedUpdate(): void {
+		$hostid = $this->createDiscardTemplate('discard update');
+
+		$with_step = $this->call('discoveryrule.create', [
+			'hostid' => $hostid, 'name' => 'Has step', 'key_' => 'topo.discard.step', 'type' => ITEM_TYPE_TRAPPER,
+			'preprocessing' => [self::heartbeatStep()]
+		])['result']['itemids'][0];
+		$with_role = $this->call('discoveryrule.create', [
+			'hostid' => $hostid, 'name' => 'Has role', 'key_' => 'topo.discard.role', 'type' => ITEM_TYPE_TRAPPER,
+			'topology_role' => ZBX_TOPOLOGY_ROLE_NEIGHBORS
+		])['result']['itemids'][0];
+
+		// The step is already stored; only the role arrives.
+		$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS],
+			'Invalid parameter "/1/topology_role": '.self::DISCARD_ERROR.'.'
+		);
+
+		// The role is already stored; only the step arrives.
+		$this->call('discoveryrule.update', ['itemid' => $with_role, 'preprocessing' => [self::heartbeatStep()]],
+			'Invalid parameter "/1/preprocessing": '.self::DISCARD_ERROR.'.'
+		);
+
+		// Unrelated updates of a rule that is valid stay possible.
+		$this->call('discoveryrule.update', ['itemid' => $with_role, 'description' => 'still fine']);
+		$this->call('discoveryrule.update', ['itemid' => $with_step, 'description' => 'still fine']);
+
+		// Removing the role and setting the step, or removing the step and setting the role, in one call is valid.
+		$this->call('discoveryrule.update', [
+			'itemid' => $with_role, 'topology_role' => ZBX_TOPOLOGY_ROLE_NONE, 'preprocessing' => [self::heartbeatStep()]
+		]);
+		$this->call('discoveryrule.update', [
+			'itemid' => $with_step, 'topology_role' => ZBX_TOPOLOGY_ROLE_LAG, 'preprocessing' => []
+		]);
+	}
+
+	public function testDiscoveryRuleTopologyRole_DiscardUnchangedPrototype(): void {
+		$hostid = $this->createDiscardTemplate('discard prototype');
+
+		$parent = $this->call('discoveryrule.create', [
+			'hostid' => $hostid, 'name' => 'Parent', 'key_' => 'topo.discard.parent', 'type' => ITEM_TYPE_TRAPPER
+		])['result']['itemids'][0];
+		$prototype = ['hostid' => $hostid, 'ruleid' => $parent, 'type' => ITEM_TYPE_TRAPPER];
+
+		$this->call('discoveryruleprototype.create', $prototype + [
+			'name' => 'Proto {#N}', 'key_' => 'topo.discard.proto[{#N}]',
+			'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS,
+			'preprocessing' => [self::heartbeatStep()]
+		], 'Invalid parameter "/1/preprocessing": '.self::DISCARD_ERROR.'.');
+
+		$plain = $this->call('discoveryruleprototype.create', $prototype + [
+			'name' => 'Proto plain {#N}', 'key_' => 'topo.discard.plain[{#N}]',
+			'preprocessing' => [self::heartbeatStep()]
+		])['result']['itemids'][0];
+
+		$this->call('discoveryruleprototype.update', ['itemid' => $plain, 'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS],
+			'Invalid parameter "/1/topology_role": '.self::DISCARD_ERROR.'.'
+		);
+	}
+
+	/**
+	 * Linking goes through the inheritance code, not through validateCreate/validateUpdate: whatever it does with a
+	 * host rule that already has "Discard unchanged", the result must not be a role together with the step.
+	 */
+	public function testDiscoveryRuleTopologyRole_DiscardUnchangedOnLink(): void {
+		$templateid = $this->createDiscardTemplate('discard link template');
+		$this->call('discoveryrule.create', [
+			'hostid' => $templateid, 'name' => 'Linked', 'key_' => 'topo.discard.link', 'type' => ITEM_TYPE_TRAPPER,
+			'topology_role' => ZBX_TOPOLOGY_ROLE_PORTS
+		]);
+
+		$hostid = $this->call('host.create', [
+			'host' => 'API topology role discard link host',
+			'groups' => [['groupid' => self::$ids['groupid']]]
+		])['result']['hostids'][0];
+		$this->call('discoveryrule.create', [
+			'hostid' => $hostid, 'name' => 'Linked', 'key_' => 'topo.discard.link', 'type' => ITEM_TYPE_TRAPPER,
+			'preprocessing' => [self::heartbeatStep()]
+		]);
+
+		$this->call('host.update', ['hostid' => $hostid, 'templates' => [['templateid' => $templateid]]]);
+
+		$rule = $this->call('discoveryrule.get', [
+			'output' => ['itemid', 'topology_role'],
+			'hostids' => $hostid,
+			'filter' => ['key_' => 'topo.discard.link']
+		])['result'][0];
+
+		$steps = CDBHelper::getColumn(
+			'SELECT type FROM item_preproc WHERE itemid='.zbx_dbstr($rule['itemid']), 'type'
+		);
+
+		$this->assertFalse($rule['topology_role'] != ZBX_TOPOLOGY_ROLE_NONE
+				&& array_intersect($steps, [ZBX_PREPROC_THROTTLE_VALUE, ZBX_PREPROC_THROTTLE_TIMED_VALUE]) !== [],
+			'A linked rule ended up with a topology role and a "Discard unchanged" step.'
+		);
+	}
+
 	private function getHostRuleId(string $key): string {
 		return $this->call('discoveryrule.get', [
 			'output' => ['itemid'],
