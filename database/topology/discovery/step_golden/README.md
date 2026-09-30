@@ -50,6 +50,52 @@ Additions that do not change any JS output:
 An older proxy that does not know the step type answers "unknown preprocessing step" (`pp_execute.c`): the rule
 becomes unsupported with that message and keeps its last snapshot. Nothing crashes and no step is skipped.
 
+## Identity normalization: what is and is not normalized
+
+A remote chassis id reported by device A must be byte-identical to device B's own `{#LOC_CHASSIS}`, otherwise the
+neighbor becomes a second Device. The lab equivalence check cannot show this: its reference is the JS, with its gaps.
+Facts below are outputs of the step (= the JS) on probe walks; `ingest.php` lowercases a chassis id only when it is
+already `aa:bb:cc:dd:ee:ff` (`$looks_like_mac`), and matches `chassis_id` as received (binary collation).
+
+| Case | Output | In the lab? | Risk |
+|---|---|---|---|
+| MAC as Hex-STRING, any case (chassis type 4, or no type row) | lowercase colon hex | **yes, all of it** (13 chassis ids, 6 local, 18 port MACs) | none |
+| MAC as text `"AA:BB:.."` (STRING) | kept as received, UPPER | no | remote `AA:..` vs local `aa:..` are two Devices unless ingest's `strtolower` catches it (it does for the padded colon form) |
+| MAC as text unpadded `0:bb:cc:0:0:a` | kept as received | no | never matches; not even recognised as a MAC by ingest |
+| MAC with hyphens / dots `aa-bb-..` | kept as received | no | never matches |
+| chassis type 5 (networkAddress), IPv4, Hex | dotted IPv4 | no | remote side only, see next row |
+| **local** chassis that is a networkAddress | raw colon hex `01:c0:a8:01:0b` (the local id is not decoded by subtype; `lldpLocChassisIdSubtype` is not even in the walk) | no | its neighbors report `192.168.1.11`: two Devices |
+| chassis type 5, IPv6, Hex | colon hex with the family byte `02:20:01:..` | no | never matches an IPv6 address written any other way |
+| chassis type 6 / 7 / others (text) | trimmed only, case kept | no | local and remote spell it the same way in practice; not guaranteed |
+| no `lldpLocChassisId` | MAC of the lowest-ifIndex port | no (all lab devices have it) | a port MAC is not the chassis id the neighbors see: two Devices |
+| management address IPv6 (LLDP) | not read | no | none for LLDP (identity is the chassis id) |
+| CDP neighbor without IPv4 | no `{#REM_MGMT_IP}` for IPv6 is emitted only when the address type is 20 and 16 octets; nothing else | no | CDP has no chassis id: identity is the management IP and the name, so an IPv6-only CDP neighbor rests on the name |
+
+The lab uses only the first row, so the equivalence result holds for it and says nothing about a mixed fleet. To make
+identities safe on one, decide before this leaves the prototype:
+
+1. Read `lldpLocChassisIdSubtype` and decode the local id with the same function as the remote one.
+2. One normalizer for MAC-like text (lowercase, colon, padded to two digits) applied to local and remote ids, in the step
+   (changes ids of Devices that were created from text MACs) or in ingest.
+3. IPv6 network addresses in dotted/compressed form for both chassis ids and CDP management addresses.
+
+Each changes existing `topo_nodes.chassis_id` values, so it needs a one-time re-ingest or a migration (spec §9).
+
+## `CHECK_NOT_SUPPORTED` on the bridge master (checked live)
+
+The template's bridge master turns the error `No Such (Instance|Object)` into the comment `# device has no bridge tables`,
+which the step reads as "no bridge tables" (an empty snapshot). The step is `match type 0` (error matches the regular
+expression), not "any error", so other errors stay errors. Two runs against a simulated device with real FDB data
+(3 + 25 MACs, one trunk over the limit):
+
+- the device stops answering (timeout): a network error, the master gets **no value**, the snapshot (4 rows) keeps its
+  `rows_hash` and `clock`; nothing empties `learned_macs`;
+- the device answers `No Such Instance` for the bridge tables: snapshot `[]`, rule supported. That is "there is
+  nothing", which is what it says.
+
+Removing the step and relying on `missing_mib = empty` would not work: a master that fails has no value at all, so
+the rule would never run and the last snapshot would stay forever after a device really drops its tables.
+
 ## Acceptance record (lab, 2026-09-30)
 
 Run on the snmpsim lab (5 hosts, 127.0.0.2-6:1611) with the rebuilt server (the old binary is kept as
@@ -74,7 +120,7 @@ Not verified:
 
 - **Proxy-monitored device:** no proxy in the lab. The step is in the shared library, and an older proxy answers
   "unknown preprocessing step" (seen on the old server binary through the Test dialog).
-- **FDB and LAG with data, and a trunk over the MAC limit, on a live server:** the lab devices have none of it. Covered by
-  the synthetic golden walks only.
+- **LAG with data on a live server:** the lab devices have none. FDB with data and a trunk over the limit was run live on
+  a simulated device (see above); LAG is covered by the synthetic golden walks only.
 - **The YAML unit cases** in `tests/libs/zbxpreproc/zbx_item_preproc.yaml` were run through `driver.c` by hand, not by
   cmocka (cmocka and libyaml-dev are not installed here).
