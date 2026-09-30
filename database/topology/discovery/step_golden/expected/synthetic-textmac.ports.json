@@ -1,0 +1,23 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#IFMAC}": "02:00:00:00:00:01",
+        "{#IFNAME}": "Gi0/1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01"
+    },
+    {
+        "{#IFINDEX}": "2",
+        "{#IFMAC}": "02:00:00:00:00:02",
+        "{#IFNAME}": "Gi0/2",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01"
+    },
+    {
+        "{#IFINDEX}": "3",
+        "{#IFMAC}": "02:00:00:00:00:03",
+        "{#IFNAME}": "Gi0/3",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01"
+    }
+]

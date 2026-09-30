@@ -111,6 +111,34 @@ function qbridge_fdb(int $trunk_macs): string {
 	return $f;
 }
 
+/** Text MACs in every place a MAC is read: ifPhysAddress, the local chassis, local and remote ids. */
+function text_macs(): string {
+	$w = line('1.3.6.1.2.1.1.5.0', 'STRING', '"edge9"');
+	$phys = [1 => '2:0:0:0:0:1', 2 => '02-00-00-00-00-02', 3 => '0200.0000.0003'];
+
+	foreach ($phys as $i => $mac) {
+		$w .= line("1.3.6.1.2.1.2.2.1.1.{$i}", 'INTEGER', (string) $i);
+		$w .= line("1.3.6.1.2.1.2.2.1.3.{$i}", 'INTEGER', 'ethernetCsmacd(6)');
+		$w .= line("1.3.6.1.2.1.2.2.1.6.{$i}", 'STRING', $mac);
+		$w .= line("1.3.6.1.2.1.31.1.1.1.1.{$i}", 'STRING', '"Gi0/'.$i.'"');
+	}
+
+	$w .= line('1.0.8802.1.1.2.1.3.2.0', 'STRING', '"AA-BB-CC-0-0-1"');
+	$loc = '1.0.8802.1.1.2.1.3.7.1';
+	$w .= line("{$loc}.2.201", 'INTEGER', '3').line("{$loc}.3.201", 'STRING', '2:0:0:0:0:2');
+	$w .= line("{$loc}.2.202", 'INTEGER', '3').line("{$loc}.3.202", 'Hex-STRING', '02 00 00 00 00 03');
+	$rem = '1.0.8802.1.1.2.1.4.1.1';
+	// the same neighbor MAC spelled four ways, and as a port id
+	$w .= line("{$rem}.4.0.201.1", 'INTEGER', 'macAddress(4)').line("{$rem}.5.0.201.1", 'STRING', '"AA:BB:CC:0:0:A"').
+		line("{$rem}.6.0.201.1", 'INTEGER', 'macAddress(3)').line("{$rem}.7.0.201.1", 'STRING', '"0-C-29-1-2-3"');
+	$w .= line("{$rem}.4.0.202.1", 'INTEGER', 'macAddress(4)').line("{$rem}.5.0.202.1", 'Hex-STRING', 'AA BB CC 00 00 0A').
+		line("{$rem}.6.0.202.1", 'INTEGER', 'macAddress(3)').line("{$rem}.7.0.202.1", 'Hex-STRING', '00 0C 29 01 02 03');
+	$w .= line("{$rem}.5.0.203.1", 'STRING', 'aabb.cc00.000a').line("{$rem}.9.0.203.1", 'STRING', '"no-type"');
+	$w .= line("{$rem}.4.0.204.1", 'INTEGER', 'local(7)').line("{$rem}.5.0.204.1", 'STRING', '"aa-bb-cc-00-00-0a"');
+
+	return $w;
+}
+
 function cdp(): string {
 	$c = '1.3.6.1.4.1.9.9.23.1.2.1.1';
 	$w = line('1.3.6.1.4.1.9.9.23.1.3.1.0', 'INTEGER', 'true(1)');
@@ -150,6 +178,8 @@ $files = [
 	// LAG table present, every member self-attached or 0
 	'synthetic-lag-empty.walk' => interfaces().line('1.2.840.10006.300.43.1.2.1.1.13.1', 'INTEGER', '0').
 		line('1.2.840.10006.300.43.1.2.1.1.13.2', 'INTEGER', '2'),
+	// text MACs (unpadded, upper case, hyphens, Cisco dots) must come out as the Hex-STRING spelling
+	'synthetic-textmac.walk' => text_macs(),
 	// CISCO-CDP-MIB (no JS reference: the expectation is reviewed by hand)
 	'synthetic-cdp.walk' => interfaces().cdp(),
 ];

@@ -60,9 +60,7 @@ already `aa:bb:cc:dd:ee:ff` (`$looks_like_mac`), and matches `chassis_id` as rec
 | Case | Output | In the lab? | Risk |
 |---|---|---|---|
 | MAC as Hex-STRING, any case (chassis type 4, or no type row) | lowercase colon hex | **yes, all of it** (13 chassis ids, 6 local, 18 port MACs) | none |
-| MAC as text `"AA:BB:.."` (STRING) | kept as received, UPPER | no | remote `AA:..` vs local `aa:..` are two Devices unless ingest's `strtolower` catches it (it does for the padded colon form) |
-| MAC as text unpadded `0:bb:cc:0:0:a` | kept as received | no | never matches; not even recognised as a MAC by ingest |
-| MAC with hyphens / dots `aa-bb-..` | kept as received | no | never matches |
+| MAC as text: upper case, unpadded `0:bb:cc:0:0:a`, hyphens `aa-bb-..`, Cisco dots `aabb.cc00.000a` | **normalized** to `aa:bb:cc:00:00:0a` (step and JS, since 2026-09-30): `ifPhysAddress`, the local chassis, and remote chassis / port ids of type macAddress or without a type; the lldpLocPortTable id of type macAddress is matched normalized | no | none. Regenerating `expected/` changed no existing file, so no existing identity moved and no migration is needed |
 | chassis type 5 (networkAddress), IPv4, Hex | dotted IPv4 | no | remote side only, see next row |
 | **local** chassis that is a networkAddress | raw colon hex `01:c0:a8:01:0b` (the local id is not decoded by subtype; `lldpLocChassisIdSubtype` is not even in the walk) | no | its neighbors report `192.168.1.11`: two Devices |
 | chassis type 5, IPv6, Hex | colon hex with the family byte `02:20:01:..` | no | never matches an IPv6 address written any other way |
@@ -75,11 +73,10 @@ The lab uses only the first row, so the equivalence result holds for it and says
 identities safe on one, decide before this leaves the prototype:
 
 1. Read `lldpLocChassisIdSubtype` and decode the local id with the same function as the remote one.
-2. One normalizer for MAC-like text (lowercase, colon, padded to two digits) applied to local and remote ids, in the step
-   (changes ids of Devices that were created from text MACs) or in ingest.
+2. ~~One normalizer for MAC-like text~~ — done in the step and the JS (`normMac`), see the table.
 3. IPv6 network addresses in dotted/compressed form for both chassis ids and CDP management addresses.
 
-Each changes existing `topo_nodes.chassis_id` values, so it needs a one-time re-ingest or a migration (spec §9).
+Points 1 and 3 change existing `topo_nodes.chassis_id` values, so they need a one-time re-ingest or a migration (spec §9). Point 2 is done for text MACs and moved nothing (see the table). The IPv4-only decoding of a networkAddress chassis id stays as it is: that subtype is rare; it is an open question.
 
 ## `CHECK_NOT_SUPPORTED` on the bridge master (checked live)
 

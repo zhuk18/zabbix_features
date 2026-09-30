@@ -307,6 +307,76 @@ static char	*topo_decode(const zbx_snmp_value_pair_t *pair)
 	return out;
 }
 
+/* A MAC written as text -> "aa:bb:cc:00:00:0a": six octets of one or two hex digits joined by ':' or '-' (net-snmp
+ * prints "0:c:29:..", some agents "AA-BB-.."), or the Cisco form "aabb.cc00.000a". Anything else is returned as it
+ * came. The same MAC arrives as a Hex-STRING from another device (topo_decode() already gives it this spelling), so
+ * both end in one form. Takes ownership of text, returns the result (same as normMac() of lld_js/common.js). */
+static char	*topo_mac_normalize(char *text)
+{
+	unsigned int	octets[6];
+	int		num = 0;
+	const char	*p = text;
+	char		sep = '\0', *out;
+
+	/* dotted Cisco form: 3 groups of 4 hex digits */
+	if (14 == strlen(text) && '.' == text[4] && '.' == text[9])
+	{
+		for (int g = 0; g < 3; g++)
+		{
+			const char	*q = text + g * 5;
+
+			for (int i = 0; i < 4; i++)
+			{
+				if (0 == isxdigit((unsigned char)q[i]))
+					return text;
+			}
+
+			char	pair[3] = {q[0], q[1], '\0'};
+
+			octets[num++] = (unsigned int)strtoul(pair, NULL, 16);
+			pair[0] = q[2];
+			pair[1] = q[3];
+			octets[num++] = (unsigned int)strtoul(pair, NULL, 16);
+		}
+	}
+	else
+	{
+		while (6 > num)
+		{
+			int	digits = 0;
+			char	pair[3] = {'\0', '\0', '\0'};
+
+			while (2 > digits && 0 != isxdigit((unsigned char)*p))
+				pair[digits++] = *p++;
+
+			if (0 == digits)
+				return text;
+
+			octets[num++] = (unsigned int)strtoul(pair, NULL, 16);
+
+			if (6 == num)
+				break;
+
+			if (':' != *p && '-' != *p)
+				return text;
+
+			if ('\0' != sep && sep != *p)
+				return text;
+
+			sep = *p++;
+		}
+
+		if ('\0' != *p)
+			return text;
+	}
+
+	out = zbx_dsprintf(NULL, "%02x:%02x:%02x:%02x:%02x:%02x", octets[0], octets[1], octets[2], octets[3],
+			octets[4], octets[5]);
+	zbx_free(text);
+
+	return out;
+}
+
 /******************************************************************************
  *                                                                            *
  * tables                                                                     *
@@ -464,7 +534,7 @@ static void	topo_ifs_load(const zbx_snmp_value_cache_t *cache, zbx_vector_topo_i
 		if ('\0' == *item.name)
 			item.name = zbx_dsprintf(item.name, "if" ZBX_FS_UI64, item.index);
 
-		item.mac = topo_table_text(&phys, suffix);
+		item.mac = topo_mac_normalize(topo_table_text(&phys, suffix));
 
 		zbx_vector_topo_if_append(ifs, item);
 	}
@@ -496,7 +566,7 @@ static char	*topo_local_chassis(const zbx_snmp_value_cache_t *cache, const zbx_v
 
 	/* lldpLocChassisId.0 is a single variable: load its base and read the ".0" cell */
 	topo_table_load(cache, "1.0.8802.1.1.2.1.3.2", &loc);
-	chassis = topo_table_text(&loc, "0");
+	chassis = topo_mac_normalize(topo_table_text(&loc, "0"));
 	topo_table_clear(&loc);
 
 	if ('\0' != *chassis)
@@ -763,6 +833,9 @@ static const topo_if_t	*lldp_local_if(const zbx_vector_topo_if_t *ifs, const top
 	char		*id = topo_table_text(loc_id, port_num);
 	const topo_if_t	*found = NULL;
 
+	if (3 == type)
+		id = topo_mac_normalize(id);
+
 	if ('\0' != *id)
 	{
 		if (5 == type)
@@ -921,7 +994,13 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 
 		if (NULL != (pair = topo_table_get(&rem_chassis, suffix)))
 		{
-			topo_row_add_owned(row, "{#REM_CHASSIS}", lldp_decode_id(pair, chassis_type));
+			char	*id = lldp_decode_id(pair, chassis_type);
+
+			/* a text MAC gets the spelling of a Hex-STRING one */
+			if (4 == chassis_type || 0 == chassis_type)
+				id = topo_mac_normalize(id);
+
+			topo_row_add_owned(row, "{#REM_CHASSIS}", id);
 
 			if (NULL != lldp_chassis_subtype_name(chassis_type))
 				topo_row_add(row, "{#REM_CHASSIS_TYPE}", lldp_chassis_subtype_name(chassis_type));
@@ -939,7 +1018,12 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 
 		if (NULL != (pair = topo_table_get(&rem_port, suffix)))
 		{
-			topo_row_add_owned(row, "{#REM_PORT}", lldp_decode_id(pair, port_type));
+			char	*id = lldp_decode_id(pair, port_type);
+
+			if (3 == port_type || 0 == port_type)
+				id = topo_mac_normalize(id);
+
+			topo_row_add_owned(row, "{#REM_PORT}", id);
 
 			if (NULL != lldp_port_subtype_name(port_type))
 				topo_row_add(row, "{#REM_PORT_TYPE}", lldp_port_subtype_name(port_type));

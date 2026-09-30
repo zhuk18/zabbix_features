@@ -44,8 +44,8 @@ function localIfIndex(portNum) {
 			return byName[id];
 		}
 
-		if (type === 3 && byMac[id] !== undefined) {
-			return byMac[id];
+		if (type === 3 && byMac[normMac(id)] !== undefined) {
+			return byMac[normMac(id)];
 		}
 
 		if (type === 7 && ifs[id] !== undefined) {
@@ -121,6 +121,10 @@ for (i = 0; i < sorted.length; i++) {
 	if (remChassis[sfx] !== undefined) {
 		row['{#REM_CHASSIS}'] = decodeId(remChassis[sfx], chassisType);
 
+		if (chassisType === 4 || chassisType === 0) {
+			row['{#REM_CHASSIS}'] = normMac(row['{#REM_CHASSIS}']);	/* text MAC -> the Hex-STRING spelling */
+		}
+
 		if (LLDP_CHASSIS_SUBTYPE[chassisType] !== undefined) {
 			row['{#REM_CHASSIS_TYPE}'] = LLDP_CHASSIS_SUBTYPE[chassisType];
 		}
@@ -136,6 +140,10 @@ for (i = 0; i < sorted.length; i++) {
 
 	if (remPort[sfx] !== undefined) {
 		row['{#REM_PORT}'] = decodeId(remPort[sfx], portType);
+
+		if (portType === 3 || portType === 0) {
+			row['{#REM_PORT}'] = normMac(row['{#REM_PORT}']);
+		}
 
 		if (LLDP_PORT_SUBTYPE[portType] !== undefined) {
 			row['{#REM_PORT_TYPE}'] = LLDP_PORT_SUBTYPE[portType];

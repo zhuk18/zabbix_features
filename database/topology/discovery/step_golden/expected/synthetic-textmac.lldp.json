@@ -1,0 +1,34 @@
+[
+    {
+        "{#IFINDEX}": "2",
+        "{#IFNAME}": "Gi0/2",
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "macAddress",
+        "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
+        "{#REM_PORT_TYPE}": "macAddress",
+        "{#REM_PORT}": "00:0c:29:01:02:03",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#IFINDEX}": "3",
+        "{#IFNAME}": "Gi0/3",
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "macAddress",
+        "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
+        "{#REM_PORT_TYPE}": "macAddress",
+        "{#REM_PORT}": "00:0c:29:01:02:03",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "local",
+        "{#REM_CHASSIS}": "aa-bb-cc-00-00-0a",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
+        "{#REM_SYSNAME}": "no-type",
+        "{#SOURCE}": "lldp"
+    }
+]

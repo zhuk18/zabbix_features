@@ -82,6 +82,37 @@ function decode(row) {
 	return raw;
 }
 
+/* A MAC written as text -> "aa:bb:cc:00:00:0a": six octets of one or two hex digits joined by ':' or '-' (net-snmp
+ * prints "0:c:29:..", some agents "AA-BB-.."), or the Cisco form "aabb.cc00.000a". Anything else is returned as it
+ * came. The same MAC arrives as a Hex-STRING from another device, so both must end in one spelling (Hex-STRING is
+ * already in it, see decode()). */
+function normMac(text) {
+	var m = /^([0-9a-fA-F]{1,2})([:-])([0-9a-fA-F]{1,2})\2([0-9a-fA-F]{1,2})\2([0-9a-fA-F]{1,2})\2([0-9a-fA-F]{1,2})\2([0-9a-fA-F]{1,2})$/.exec(text), i,
+		octets = [], d;
+
+	if (m !== null) {
+		for (i = 1; i <= 7; i++) {
+			if (i !== 2) {
+				octets.push(m[i]);
+			}
+		}
+	}
+	else if ((d = /^([0-9a-fA-F]{4})\.([0-9a-fA-F]{4})\.([0-9a-fA-F]{4})$/.exec(text)) !== null) {
+		for (i = 1; i <= 3; i++) {
+			octets.push(d[i].substring(0, 2), d[i].substring(2));
+		}
+	}
+	else {
+		return text;
+	}
+
+	for (i = 0; i < octets.length; i++) {
+		octets[i] = (octets[i].length < 2 ? '0' : '') + octets[i].toLowerCase();
+	}
+
+	return octets.join(':');
+}
+
 /* {suffix: row} for every variable under `base` (base without a trailing dot). */
 function table(base) {
 	var out = {}, prefix = base + '.', oid;
@@ -138,7 +169,7 @@ function interfaces() {
 
 			result[k] = {
 				name: name !== '' ? name : 'if' + k,
-				mac: phys[k] !== undefined ? decode(phys[k]) : ''
+				mac: phys[k] !== undefined ? normMac(decode(phys[k])) : ''
 			};
 		}
 	}
@@ -149,7 +180,7 @@ function interfaces() {
 /* The device's own chassis id: lldpLocChassisId, else the MAC of its lowest-ifIndex port that has one. The fallback
  * is push.py's own convention; every rule of a host must derive the same value, so it lives here. */
 function localChassis(ifs) {
-	var row = WALK.rows['1.0.8802.1.1.2.1.3.2.0'], value = row !== undefined ? decode(row) : '', keys, i;
+	var row = WALK.rows['1.0.8802.1.1.2.1.3.2.0'], value = row !== undefined ? normMac(decode(row)) : '', keys, i;
 
 	if (value !== '') {
 		return value;
