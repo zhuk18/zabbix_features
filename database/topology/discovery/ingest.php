@@ -1259,8 +1259,30 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			}
 			return $out;
 		};
+		$supersede_legacy = static function (int $lid, int $at) use ($pdo, &$links, &$summary): void {
+			$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$lid}")->fetchColumn(),
+				true, 512, JSON_THROW_ON_ERROR);
+			$attrs['superseded_at'] = $at;
+			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $lid]);
+			$links[$lid]['superseded_at'] = $at;
+			$summary['links_superseded']++;
+		};
 		$ports = array_keys($by_port);
 		sort($ports);
+		// (v2.1 §6.5) An active discovered link that shares a port with a manual link: manual wins.
+		foreach ($ports as $port) {
+			$has_manual = false;
+			foreach ($by_port[$port] as $lid) {
+				$has_manual = $has_manual || $links[$lid]['manual'];
+			}
+			if (!$has_manual) {
+				continue;
+			}
+			foreach ($active_on($port) as $lid) {
+				$supersede_legacy($lid, max($links[$lid]['seen'] ?? 0, $support_clock[$links[$lid]['key']] ?? 0));
+			}
+		}
 		foreach ($ports as $port) {
 			$active = $active_on($port);
 			if (count($active) < 2) {
@@ -1272,16 +1294,9 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 				$sy = isset($rules_of[$links[$y]['key']]) ? 1 : 0;
 				return [$sy, $links[$y]['seen'] ?? 0, $x] <=> [$sx, $links[$x]['seen'] ?? 0, $y];
 			});
-			$keep = array_shift($active);
-			$at = max($links[$keep]['seen'] ?? 0, $support_clock[$links[$keep]['key']] ?? 0);
+			array_shift($active);
 			foreach ($active as $lid) {
-				$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$lid}")->fetchColumn(),
-					true, 512, JSON_THROW_ON_ERROR);
-				$attrs['superseded_at'] = $at;
-				$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
-					->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $lid]);
-				$links[$lid]['superseded_at'] = $at;
-				$summary['links_superseded']++;
+				$supersede_legacy($lid, max($links[$lid]['seen'] ?? 0, $support_clock[$links[$lid]['key']] ?? 0));
 			}
 		}
 	}
@@ -1349,6 +1364,37 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$claims[$key]['indexes'][] = $i;
 	}
 	ksort($claims);
+
+	// 4b. (v2.1 §5.2) Competing new claims: a port without an active link that several different pairs claim
+	//     (X and Y both report R:P; R's LLDP shows X on P while its CDP shows Y). Nothing blocks any of them, the
+	//     port simply has several claimants: no link, all ambiguous. Decided on the claims as they are, once.
+	$claimants_of = [];
+	foreach ($claims as $key => $claim) {
+		$claimants_of[$claim['a']][$key] = true;
+		$claimants_of[$claim['b']][$key] = true;
+	}
+	$competing = [];
+	ksort($claimants_of);
+	foreach ($claimants_of as $port => $keys) {
+		if (count($keys) < 2) {
+			continue;
+		}
+		foreach ($by_port[$port] ?? [] as $lid) {
+			if ($links[$lid]['manual'] || $is_active_discovered($links[$lid])) {
+				continue 2; // the port has an active link: §3 decides, as usual
+			}
+		}
+		foreach ($keys as $key => $unused) {
+			$competing[$key] = true;
+		}
+		$summary['ports_ambiguous']++;
+	}
+	foreach (array_keys($competing) as $key) {
+		foreach ($claims[$key]['indexes'] as $i) {
+			$result[$i] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
+		}
+		unset($claims[$key]);
+	}
 
 	// 5. Which claims win, and which existing links they supersede.
 	$claims_by_port = [];

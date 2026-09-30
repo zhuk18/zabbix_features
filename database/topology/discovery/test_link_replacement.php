@@ -383,8 +383,16 @@ foreach (['no link before' => false, 'a link before' => true] as $label => $with
 		}
 	}
 	check(count(array_unique(array_map('json_encode', array_slice($pictures, 1)))) === 1, 'one stable picture across all six runs');
-	$conflicts = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='conflict'");
-	check($conflicts >= 1, 'the disagreement is reported as conflict');
+	if ($with_link) {
+		check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='conflict'") >= 1,
+			'the disagreement over an active link is a conflict');
+	}
+	else {
+		check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='conflict'") === 0
+			&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='ambiguous' AND edge_id IS NULL") === 2
+			&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges") === 0,
+			'without an active link the claimants are ambiguous with no edge, and no link exists');
+	}
 }
 
 // ============================================================================================================
@@ -577,5 +585,97 @@ check((int) $r['summary']['links_superseded'] === 2, 'both cleanups are counted'
 $before = fingerprint($pdo);
 ingest($dsn, $user, $password, $pdo, 'in the second full run');
 check(fingerprint($pdo) === $before, 'and the cleanup is one-time');
+
+// ============================================================================================================
+echo "\n=== 14: competing new claims on a port without an active link ===\n";
+reset_db($pdo);
+$X = 'e0:00:00:00:00:05';
+$Y = 'f0:00:00:00:00:06';
+add_host($pdo, 105, 'SwX', 'Switch X', '10.0.0.5');
+add_host($pdo, 106, 'SwY', 'Switch Y', '10.0.0.6');
+snapshot($pdo, 5001, 105, 1, CLOCK, ports_rows($X, [1 => 'Gi0/1']));
+snapshot($pdo, 6001, 106, 1, CLOCK, ports_rows($Y, [1 => 'Gi0/1']));
+snapshot($pdo, 5002, 105, 2, CLOCK + 50, [nbr($X, 1, $R, 'Gi0/1')]);        // X and Y both report R:Gi0/1
+snapshot($pdo, 6002, 106, 2, CLOCK + 60, [nbr($Y, 1, $R, 'Gi0/1')]);        // R is not a reporter
+ingest($dsn, $user, $password, $pdo, 'with X and Y claiming R:P');
+$RP = ports_of($pdo, $R)['Gi0/1'];
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE src_id=? OR dst_id=?", [$RP, $RP]) === 0, 'no link on R:P');
+$ox = observation($pdo, 5002, $R);
+$oy = observation($pdo, 6002, $R);
+check($ox['outcome'] === 'ambiguous' && $oy['outcome'] === 'ambiguous' && $ox['edge_id'] === null && $oy['edge_id'] === null,
+	'both observations are ambiguous, without an edge');
+$picture = natural_picture($pdo);
+for ($i = 0; $i < 3; $i++) {
+	ingest($dsn, $user, $password, $pdo, 'in a rerun');
+}
+check(natural_picture($pdo) === $picture, 'stable over reruns');
+snapshot($pdo, 6002, 106, 2, CLOCK + 100, []);                                 // Y stops reporting R:P
+ingest($dsn, $user, $password, $pdo, 'after Y stops reporting');
+$XP = ports_of($pdo, $X)['Gi0/1'];
+$link = link_between($pdo, $XP, $RP);
+check(is_active($link) && observation($pdo, 5002, $R)['outcome'] === 'applied', 'X<->R:P is created and applied');
+
+echo "\n=== 14b: LLDP against CDP on a port without a link ===\n";
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);                       // LLDP: B
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nbr($R, 1, $C, 'eth0', 'cdp')]);                  // CDP: C
+ingest($dsn, $user, $password, $pdo, 'with LLDP and CDP disagreeing');
+$P = ports_of($pdo, $R)['Gi0/1'];
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE src_id=? OR dst_id=?", [$P, $P]) === 0, 'no link on R:P');
+check(observation($pdo, 1002, $B)['outcome'] === 'ambiguous' && observation($pdo, 1003, $C)['outcome'] === 'ambiguous'
+	&& observation($pdo, 1002, $B)['edge_id'] === null, 'both are ambiguous, without an edge (not conflict)');
+snapshot($pdo, 1003, 101, 2, CLOCK + 80, []);                                                 // CDP stops showing C
+ingest($dsn, $user, $password, $pdo, 'after CDP stops showing C');
+check(is_active(link_between($pdo, $P, ports_of($pdo, $B)['Gi0/24'])) && observation($pdo, 1002, $B)['outcome'] === 'applied',
+	'the link appears when one claimant goes away');
+$fp = fingerprint($pdo);
+ingest($dsn, $user, $password, $pdo, 'in a rerun');
+check(fingerprint($pdo) === $fp, 'and stays');
+
+// ============================================================================================================
+echo "\n=== 15: legacy data (c) — an active discovered link sharing a port with a manual link ===\n";
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24')]);
+ingest($dsn, $user, $password, $pdo, 'to create R:P<->B');
+$P = ports_of($pdo, $R)['Gi0/1'];
+$Q = ports_of($pdo, $B)['Gi0/24'];
+$raw_port = static function (PDO $pdo, string $chassis, string $name): int {
+	$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
+		->execute([json_encode(['chassis_id' => $chassis, 'sysname' => $chassis, 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
+	$device = (int) $pdo->lastInsertId();
+	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	return (int) $pdo->lastInsertId();
+};
+$raw_link = static function (PDO $pdo, int $a, int $b, string $via, int $seen): int {
+	$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")
+		->execute([min($a, $b), max($a, $b), json_encode(['discovered_via' => $via, 'last_seen' => $seen])]);
+	return (int) $pdo->lastInsertId();
+};
+$M = $raw_port($pdo, 'aa:00:00:00:00:0a', 'm1');
+$manual_id = $raw_link($pdo, $P, $M, 'manual', 1);                       // manual next to the reported discovered link
+$Z = $raw_port($pdo, 'bb:00:00:00:00:0b', 'z1');                         // (no candidate anywhere near it)
+$W3 = $raw_port($pdo, 'cc:00:00:00:00:0c', 'w3');
+$W4 = $raw_port($pdo, 'dd:00:00:00:00:0d', 'w4');
+$manual_z = $raw_link($pdo, $Z, $W3, 'manual', 1);
+$raw_link($pdo, $Z, $W4, 'lldp', 500);
+check(active_link_count($pdo, $P) === 2 && active_link_count($pdo, $Z) === 2, 'fixture: a manual and a discovered link on P and on Z');
+$r = ingest($dsn, $user, $password, $pdo, 'in a scoped run', ['SwR'], null, false);
+check(active_link_count($pdo, $P) === 2, 'a partial run leaves it alone');
+$r = ingest($dsn, $user, $password, $pdo, 'in the first full run');
+check(active_link_count($pdo, $P) === 1 && isset(link_between($pdo, $P, $Q)['superseded_at']), 'the discovered link on P is superseded');
+check(($m = link_between($pdo, $P, $M)) && $m['discovered_via'] === 'manual' && is_active($m), 'the manual link is untouched');
+check(active_link_count($pdo, $Z) === 1 && isset(link_between($pdo, $Z, $W4)['superseded_at'])
+	&& is_active(link_between($pdo, $Z, $W3)), 'and so is the one on Z, which no candidate touches');
+check((int) $r['summary']['links_superseded'] === 2, 'both are counted');
+$obs = observation($pdo, 1002, $B);
+check($obs['outcome'] === 'shadowed' && (int) $obs['edge_id'] === $manual_id, 'the neighbor that is still reported is shadowed by the manual link');
+$fp = fingerprint($pdo);
+ingest($dsn, $user, $password, $pdo, 'in the second run');
+check(fingerprint($pdo) === $fp, 'a second run changes nothing');
 
 echo "\nAll link replacement tests passed.\n";
