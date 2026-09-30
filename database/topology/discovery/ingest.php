@@ -637,6 +637,8 @@ $summary += [
 	'links_superseded' => 0,
 	'links_revived' => 0,
 	'ports_ambiguous' => 0,
+	// topology-manual-contradiction-spec.md §7: manual links that discovery contradicts and nobody acknowledged.
+	'manual_links_contradicted' => 0,
 ];
 
 $snap_node_attrs = static function (int $node_id) use ($pdo): array {
@@ -750,7 +752,8 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 // deliberate changes (spec §6.6): the time is the snapshot clock and only ever moves forward (so an older
 // snapshot processed later cannot pull it back, and two rules confirming one side keep the newer clock);
 // discovered_via is the row's source; any non-manual source upgrades a manual link. Returns the edge id.
-$snap_link = static function (int $port_a, int $port_b, string $source, int $reporter_port_id, int $seen_at) use (
+$snap_link = static function (int $port_a, int $port_b, string $source, int $reporter_port_id, int $seen_at,
+		bool $keep_manual = false) use (
 	$pdo, $insert_edge, $now, $last_insert_id, &$summary
 ): int {
 	$reporter_is_a = $reporter_port_id === $port_a;
@@ -765,7 +768,10 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 	if ($existing = $stmt->fetch(PDO::FETCH_ASSOC)) {
 		$before = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		$attrs = $before;
-		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+		// A discovery source upgrades a manual link it confirms, except while discovery also shows a different
+		// neighbor on one of its ports (topology-manual-contradiction-spec.md: the operator decides that, not
+		// ingest): then the link stays manual. Every other attr, shadow_ack included, is carried over untouched.
+		if (($attrs['discovered_via'] ?? 'manual') === 'manual' && !$keep_manual) {
 			$attrs['discovered_via'] = $source;
 		}
 		$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
@@ -1448,11 +1454,22 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	}
 
 	// 6. Write links: winners (created / revived), stayers (confirmed), then the superseded ones.
-	$write_link = static function (string $key, array $indexes) use ($candidates, $snap_link, $pdo): int {
+	//    A manual link that hides a neighbor stays manual even when another reporter confirms it.
+	$shadowing_manual = [];
+	foreach ($result as $r) {
+		if ($r['outcome'] === 'shadowed') {
+			$shadowing_manual[$r['edge_id']] = true;
+		}
+	}
+	$write_link = static function (string $key, array $indexes) use ($candidates, $snap_link, &$links, &$link_by_key,
+			&$shadowing_manual): int {
 		$id = 0;
+		$existing = $link_by_key[$key] ?? null;
+		$keep_manual = $existing !== null && $links[$existing]['manual'] && isset($shadowing_manual[$existing]);
 		foreach ($indexes as $i) {
 			$c = $candidates[$i];
-			$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock']);
+			$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock'],
+				$keep_manual);
 		}
 		return $id;
 	};
@@ -1560,6 +1577,28 @@ $skipped = 0;
 
 // ---- LLD snapshot reporters (topology-lld-part2-spec.md) ----
 $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
+
+// Manual links contradicted by discovery at the end of a run (topology-manual-contradiction-spec.md §3): a
+// `shadowed` observation of the link whose hidden neighbor Device is not in its attrs.shadow_ack (a shadow without
+// a Device cannot be acknowledged). Ingest only reads shadow_ack here to count; it never writes it.
+$count_contradicted_manual_links = static function () use ($pdo): int {
+	$links = [];
+	foreach ($pdo->query("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link'")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+			$links[(int) $edge['id']] = array_fill_keys(array_map('strval', array_column($attrs['shadow_ack'] ?? [], 'device_id')), true);
+		}
+	}
+	$contradicted = [];
+	foreach ($pdo->query("SELECT edge_id, device_id FROM topo_observations WHERE outcome = 'shadowed' AND edge_id IS NOT NULL")
+			->fetchAll(PDO::FETCH_ASSOC) as $observation) {
+		$edge_id = (int) $observation['edge_id'];
+		if (isset($links[$edge_id]) && ($observation['device_id'] === null || !isset($links[$edge_id][(string) $observation['device_id']]))) {
+			$contradicted[$edge_id] = true;
+		}
+	}
+	return count($contradicted);
+};
 
 // Test hook: --reporter-order <hostid,hostid,...> walks the reporters in that order (the rest after them), to show
 // that the result does not depend on it. Normal runs go by hostid.
@@ -1813,6 +1852,7 @@ foreach ($reporter_items as $reporter_item) {
 
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
 
+$summary['manual_links_contradicted'] = $count_contradicted_manual_links();
 $ok = $processed > 0 || $skipped === 0;
 write_status([
 	'status' => $ok ? 'done' : 'error',
