@@ -371,4 +371,42 @@ echo "\n=== 11: --zabbix-host scoping and a host with no data ===\n";
 $r = run_ingest($dsn, $user, $password, ['SwB']);
 check($r['code'] === 0 && ($r['summary']['reporters_processed'] ?? 0) === 1, 'the host filter limits the run to one reporter');
 
+// ============================================================================================================
+echo "\n=== 12: observations of rules without a usable snapshot ===\n";
+$obs_of = static fn (int $itemid): int => (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_observations WHERE itemid=?', [$itemid]);
+check($obs_of(1001) >= 1, 'fixture: rule 1001 has observations');
+// (a) a scoped run cannot tell "not selected" from "not usable": it removes nothing
+$pdo->exec('UPDATE items SET status=1 WHERE itemid=1001');                         // the rule is disabled
+$r = run_ingest($dsn, $user, $password, ['SwB']);
+check($obs_of(1001) >= 1 && ($r['summary']['observations_removed'] ?? 0) === 0, 'a scoped run leaves the observations alone');
+// (b) a full run removes the observations of the disabled rule, and only those
+$other = $obs_of(2002);
+$r = run_ingest($dsn, $user, $password);
+check($obs_of(1001) === 0, 'a full run removes the observations of a disabled rule');
+check($obs_of(2002) === $other, 'and keeps those of the rules that still have a snapshot');
+check(($r['summary']['observations_removed'] ?? 0) >= 1, 'the status counts the removed observations');
+// (c) the rule is enabled again: the observations come back from the snapshot
+$pdo->exec('UPDATE items SET status=0 WHERE itemid=1001');
+run_ingest($dsn, $user, $password);
+check($obs_of(1001) >= 1, 'an enabled rule with a snapshot has its observations again');
+// (d) the rule's role changed: its snapshot is ignored, so its observations go
+$pdo->exec('UPDATE items SET topology_role=1 WHERE itemid=1001');
+run_ingest($dsn, $user, $password);
+check($obs_of(1001) === 0, 'a rule whose role changed loses its observations');
+$pdo->exec('UPDATE items SET topology_role=2 WHERE itemid=1001');
+run_ingest($dsn, $user, $password);
+// (e) the snapshot is gone
+$pdo->exec('DELETE FROM topo_lld_snapshot WHERE itemid=1001');
+run_ingest($dsn, $user, $password);
+check($obs_of(1001) === 0, 'a rule without a snapshot has no observations');
+// (f) a reporter that is skipped (identity) has no usable snapshot: its observations go too
+snapshot($pdo, 7001, 101, 2, CLOCK + 900, [['if_index' => 1, 'rem_chassis' => 'ab:00:00:00:00:0c', 'rem_port' => 'x', 'loc_chassis' => $A]]);
+run_ingest($dsn, $user, $password);
+check($obs_of(7001) >= 1, 'fixture: rule 7001 has an observation');
+snapshot($pdo, 7002, 101, 1, CLOCK + 900, [['if_index' => 1, 'name' => 'a', 'loc_chassis' => 'f0:00:00:00:00:99'],
+	['if_index' => 2, 'name' => 'b', 'loc_chassis' => 'f0:00:00:00:00:98']]);       // two chassis on the host: identity_ambiguous
+$r = run_ingest($dsn, $user, $password);
+check(($r['summary']['reporters_skipped']['identity_ambiguous'] ?? 0) >= 1 && $obs_of(7001) === 0,
+	'a skipped reporter loses its observations');
+
 echo "\nAll snapshot ingest tests passed.\n";

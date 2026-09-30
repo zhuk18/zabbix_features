@@ -643,6 +643,9 @@ $summary += [
 	'ports_ambiguous' => 0,
 	// topology-manual-contradiction-spec.md §7: manual links that discovery contradicts and nobody acknowledged.
 	'manual_links_contradicted' => 0,
+	// Observations of rules that have no usable snapshot any more (disabled, role changed, reporter skipped,
+	// snapshot gone): removed by a full run, see $clean_stale_observations.
+	'observations_removed' => 0,
 ];
 
 $snap_node_attrs = static function (int $node_id) use ($pdo): array {
@@ -1600,14 +1603,39 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 		}
 	}
 	$contradicted = [];
-	foreach ($pdo->query("SELECT edge_id, device_id FROM topo_observations WHERE outcome = 'shadowed' AND edge_id IS NOT NULL")
-			->fetchAll(PDO::FETCH_ASSOC) as $observation) {
+	// Only observations of rules that still have a usable snapshot (the test of $clean_stale_observations).
+	foreach ($pdo->query("SELECT o.edge_id, o.device_id FROM topo_observations o".
+			" JOIN items i ON i.itemid = o.itemid AND i.status = 0".
+			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.role = i.topology_role".
+			" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
 		$edge_id = (int) $observation['edge_id'];
 		if (isset($links[$edge_id]) && ($observation['device_id'] === null || !isset($links[$edge_id][(string) $observation['device_id']]))) {
 			$contradicted[$edge_id] = true;
 		}
 	}
 	return count($contradicted);
+};
+
+// An observation mirrors the latest snapshot of its rule (Part 2 §7). When the rule has no usable snapshot any more —
+// disabled, its role changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
+// rows and they would keep saying what the rule said last: a stale shadow would keep a manual link contradicted, a
+// stale conflict would keep blocking an operator's eye. A FULL run therefore removes the observations of every rule
+// that did not contribute a snapshot to it; a run scoped with --zabbix-host cannot tell "not selected" from "not
+// usable" and leaves them alone. The readers (topology.observations.get, the contradictions) apply the same test at
+// read time (enabled rule, snapshot of the rule's current role), so a stale row is not shown even before the next run.
+$clean_stale_observations = static function (array $usable_itemids) use ($pdo, &$summary): void {
+	$usable = array_fill_keys(array_map('intval', $usable_itemids), true);
+	$stale = [];
+	foreach ($pdo->query('SELECT id, itemid FROM topo_observations')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		if (!isset($usable[(int) $row['itemid']])) {
+			$stale[] = (int) $row['id'];
+		}
+	}
+	foreach (array_chunk($stale, 500) as $chunk) {
+		$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
+			->execute($chunk);
+	}
+	$summary['observations_removed'] += count($stale);
 };
 
 // Test hook: --reporter-order <hostid,hostid,...> walks the reporters in that order (the rest after them), to show
@@ -1657,6 +1685,7 @@ foreach ($snapshot_reporters as $reporter) {
 }
 
 // Phase 2: links and observations, decided once for all reporters (topology-link-replacement-spec.md §6).
+$phase_2_done = true;
 if ($link_candidates || $neighbor_snapshots) {
 	try {
 		$pdo->beginTransaction();
@@ -1667,9 +1696,23 @@ if ($link_candidates || $neighbor_snapshots) {
 		if ($pdo->inTransaction()) {
 			$pdo->rollBack();
 		}
+		$phase_2_done = false;
 		fwrite(STDERR, "ERROR: failed to resolve the neighbor links: {$exception->getMessage()}\n");
 		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
 		$skipped++;
+	}
+}
+if ($phase_2_done && !$zabbix_host_filter) {
+	try {
+		$pdo->beginTransaction();
+		$clean_stale_observations(array_keys($neighbor_snapshots));
+		$pdo->commit();
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
+		fwrite(STDERR, "ERROR: failed to remove stale observations: {$exception->getMessage()}\n");
 	}
 }
 
@@ -1693,6 +1736,9 @@ if (!$reporter_items && !$snapshot_reporters) {
 	// nothing to do rather than failing the run.
 	echo "No reporters found (no host has LLD snapshots or carries the topology.discovery.raw item yet — nothing ".
 		"onboarded, or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
+	if (!$zabbix_host_filter) {
+		$clean_stale_observations([]);
+	}
 	write_status(['status' => 'done', 'started_at' => $run_started_at, 'finished_at' => time(),
 		'summary' => $summary, 'error' => null]);
 	exit(0);
