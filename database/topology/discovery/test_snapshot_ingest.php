@@ -269,11 +269,16 @@ snapshot($pdo, 1001, 101, 2, CLOCK + 400, [['if_index' => 1, 'rem_chassis' => $C
 	'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $A]]);
 run_ingest($dsn, $user, $password);
 $obs = $pdo->query("SELECT outcome, edge_id FROM topo_observations WHERE itemid=1001")->fetchAll(PDO::FETCH_ASSOC);
-check(count($obs) === 1 && $obs[0]['outcome'] === 'conflict' && (int) $obs[0]['edge_id'] === $b_edge,
-	'cable move: the observation is a conflict pointing at the contradicted link');
-check(count(edges($pdo)) === $link_count + 1, 'blob-path behaviour kept: the new link is added, the old one stays');
+// topology-link-replacement-spec.md: B's latest snapshot (clock CLOCK+20) still shows the old link but is older
+// than R's contradiction (CLOCK+400), so the old link is replaced instead of lingering next to the new one.
+check(count($obs) === 1 && $obs[0]['outcome'] === 'applied' && (int) $obs[0]['edge_id'] !== $b_edge,
+	'cable move: the new neighbor is applied on a new link (the old one had no support as recent)');
+check(count(edges($pdo)) === $link_count + 1, 'the new link is added and the old one is kept, not deleted');
 $old = json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_edges WHERE id=?', [$b_edge]), true);
+check(($old['superseded_at'] ?? null) === CLOCK + 400, 'the old link is superseded at the contradiction clock');
 check(max($old['last_seen_src'] ?? 0, $old['last_seen_dst'] ?? 0) < CLOCK + 400, 'the old link\'s last_seen stays frozen (no longer confirmed)');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='physical_link' AND (src_id=? OR dst_id=?) AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL", [$port_a1, $port_a1]) === 1,
+	'port 1 has exactly one active link');
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE itemid=1001 AND remote_key LIKE '%b0:00:00:00:00:02'") === 0,
 	'the neighbor that disappeared from the snapshot has no observation left');
 

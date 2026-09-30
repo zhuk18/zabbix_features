@@ -47,7 +47,7 @@ function fail(string $message): void {
 }
 
 $options = getopt('', ['api-url:', 'api-token:', 'pdo-dsn:', 'pdo-user:', 'pdo-password:',
-	'zabbix-host:', 'help']);
+	'zabbix-host:', 'reporter-order:', 'help']);
 
 if (isset($options['help'])) {
 	fwrite(STDOUT, "See the file header for usage.\n");
@@ -633,6 +633,10 @@ $summary += [
 	'reporters_skipped' => [],
 	'snapshots_ignored_role_mismatch' => 0,
 	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
+	// topology-link-replacement-spec.md §7: per-run counts of the discovered-vs-discovered replacement rule.
+	'links_superseded' => 0,
+	'links_revived' => 0,
+	'ports_ambiguous' => 0,
 ];
 
 $snap_node_attrs = static function (int $node_id) use ($pdo): array {
@@ -904,10 +908,13 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary
 // Ingests one reporter from its snapshots. Order (spec §5.3): self Device -> PORTS -> LAG -> NEIGHBORS ->
 // LEARNED_MACS. Returns ['status' => 'ok'] or ['status' => 'skipped', 'reason' => ...]; the caller owns the
 // transaction. Nothing is written for a skipped reporter.
+$link_candidates = [];
+$neighbor_snapshots = [];
 $snap_ingest_reporter = static function (array $reporter) use (
 	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $pseudo_if_index, $reconcile_device, $update_node, $now, &$summary
+	$find_matching_real_port, $resolve_port_label, $pseudo_if_index, $reconcile_device, $update_node, $now, &$summary,
+	&$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
 	$label = $reporter['host'];
@@ -1036,11 +1043,14 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		$pdo->prepare($sql)->execute($params);
 	}
 
-	// ---- NEIGHBORS ----
+	// ---- NEIGHBORS: phase 1 "collect" (topology-link-replacement-spec.md §6) ----
+	// Devices and remote ports are resolved and created exactly as before, but no link and no observation is
+	// written here: whether a candidate link may take its port depends on what EVERY reporter's latest snapshot
+	// says, so the decision is made once, after all reporters, by $snap_resolve_links().
 	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
 		$itemid = $snapshot['itemid'];
 		$clock = $snapshot['clock'];
-		$touched = [];
+		$neighbor_snapshots[$itemid] = ['itemid' => $itemid, 'clock' => $clock, 'hostid' => $reporter['hostid']];
 
 		foreach ($snapshot['rows'] as $row) {
 			$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
@@ -1062,25 +1072,28 @@ $snap_ingest_reporter = static function (array $reporter) use (
 			], $local_port_id, $clock);
 			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
 
-			$outcome = 'applied';
-			$edge_id = null;
+			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
+				'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
+				'remote_key' => $snap_remote_key($row), 'remote_attrs' => $remote_attrs,
+				'pre_outcome' => null, 'remote_port_id' => null, 'port_label' => null, 'pseudo_index' => null,
+				'pseudo_mac' => $looks_like_mac ? strtolower($chassis_id) : null];
 			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
 
 			if (!$has_remote_port) {
 				// Model spec §3 rule 1: no physical_link without a resolved Port on both ends.
-				$outcome = 'device_only';
+				$candidate['pre_outcome'] = 'device_only';
 			}
 			else {
 				$port_label = $resolve_port_label($row['rem_port_desc'] ?? null, $row['rem_port'] ?? null,
 					$row['rem_port_type'] ?? null);
 				$ambiguous = false;
 				$remote_port_id = $find_matching_real_port($remote_device_id, $port_label, $ambiguous);
+				$pseudo_index = $pseudo_if_index($row['rem_port'] ?? null, $row['rem_port_type'] ?? null);
 				if ($ambiguous) {
-					$outcome = 'ambiguous'; // several real ports match the label: never guess which one
+					$candidate['pre_outcome'] = 'ambiguous'; // several real ports match the label: never guess
 				}
 				else {
 					if ($remote_port_id === null) {
-						$pseudo_index = $pseudo_if_index($row['rem_port'] ?? null, $row['rem_port_type'] ?? null);
 						$pseudo_id = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
 							" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
 						$pseudo_id->execute([$remote_device_id, $pseudo_index]);
@@ -1092,41 +1105,13 @@ $snap_ingest_reporter = static function (array $reporter) use (
 								'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
 							]);
 					}
-
-					$others = $snap_other_links($local_port_id, $remote_port_id);
-					if ($others['manual']) {
-						// Manual wins: the link is skipped, the evidence is kept (spec §7 "shadowed").
-						$outcome = 'shadowed';
-						$edge_id = $others['manual'][0];
-					}
-					else {
-						$link_id = $snap_link($local_port_id, $remote_port_id, $source, $local_port_id, $clock);
-						if ($others['discovered']) {
-							// Cable moved: both links stay, as the blob path does (spec §6.7); the older one goes
-							// stale on its own last_seen. The observation points at the contradicted link.
-							$outcome = 'conflict';
-							$edge_id = $others['discovered'][0];
-						}
-						else {
-							$edge_id = $link_id;
-						}
-					}
+					$candidate['remote_port_id'] = $remote_port_id;
+					$candidate['port_label'] = $port_label;
+					$candidate['pseudo_index'] = $pseudo_index;
 				}
 			}
 
-			$touched[] = $snap_observation($itemid, $local_port_id, $snap_remote_key($row), $remote_attrs, $outcome,
-				$edge_id, $remote_device_id, $clock);
-			$summary['observations'][$outcome]++;
-		}
-
-		// The table mirrors the latest snapshot of the rule: whatever is no longer reported goes away. Edges keep
-		// their frozen last_seen (the history lives there, not here).
-		$all = $pdo->prepare('SELECT id FROM topo_observations WHERE itemid = ?');
-		$all->execute([$itemid]);
-		$stale = array_diff(array_map('intval', $all->fetchAll(PDO::FETCH_COLUMN)), $touched);
-		foreach (array_chunk($stale, 500) as $chunk) {
-			$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
-				->execute($chunk);
+			$link_candidates[] = $candidate;
 		}
 	}
 
@@ -1174,6 +1159,296 @@ $snap_ingest_reporter = static function (array $reporter) use (
 	return ['status' => 'ok', 'device_id' => $device_id];
 };
 
+// ============================================================================================================
+// NEIGHBORS phase 2 "resolve" (topology-link-replacement-spec.md §3-§6)
+//
+// One decision for the whole run, from the candidates of EVERY reporter's latest NEIGHBORS snapshots, so the
+// result cannot depend on the order the reporters were walked in. A discovered link keeps its port while some
+// reporter confirms it at least as recently as the contradiction that challenges it.
+//
+// Terms: an *entity* is a pair of ports {P,X}: an existing link, a candidate, or both. support(entity) is the
+// newest clock among the candidates that show the pair (from either end, from any rule of any reporter);
+// none if no latest snapshot shows it. A candidate that is not in a §5 group and not behind a manual link
+// *claims* its pair at time T (the newest clock among the claiming candidates of that pair). A claim WINS when
+// every other entity touching either of its ports (active discovered links, and the other claims) has no
+// support, or support older than T (equal counts as support: simultaneous disagreement is a conflict). A winner
+// is written (created, or revived when it was superseded and T is newer than superseded_at); every existing
+// active link it blocks becomes superseded at T. An existing active link stays unless a winner supersedes it,
+// and its own candidates are then "applied"; a losing claim is a "conflict" that points at the link holding
+// the port.
+// ============================================================================================================
+$snap_resolve_links = static function (array $candidates, array $neighbor_snapshots, bool $replacement_enabled) use (
+	$pdo, $find_matching_real_port, $snap_port, $snap_link, $snap_observation, &$summary
+): void {
+	$pair_key = static fn (int $x, int $y): string => min($x, $y).'-'.max($x, $y);
+
+	// 1. Remote ports are looked up again: a reporter processed later in phase 1 may have merged the pseudo-Port
+	//    a candidate was pointing at into its real Port.
+	foreach ($candidates as &$candidate) {
+		if ($candidate['remote_port_id'] === null) {
+			continue;
+		}
+		$ambiguous = false;
+		$real = $find_matching_real_port($candidate['remote_device_id'], $candidate['port_label'], $ambiguous);
+		if ($ambiguous) {
+			$candidate['pre_outcome'] = 'ambiguous';
+			$candidate['remote_port_id'] = null;
+		}
+		elseif ($real !== null) {
+			$candidate['remote_port_id'] = $real;
+		}
+		else {
+			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+				" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+			$stmt->execute([$candidate['remote_device_id'], $candidate['pseudo_index']]);
+			$candidate['remote_port_id'] = ($found = $stmt->fetchColumn()) !== false ? (int) $found
+				: $snap_port($candidate['remote_device_id'], $candidate['pseudo_index'], ['if_index' => $candidate['pseudo_index'],
+					'name' => $candidate['port_label'], 'pseudo' => true, 'mac' => $candidate['pseudo_mac']]);
+		}
+	}
+	unset($candidate);
+
+	// 2. Existing physical links, by port.
+	$links = [];
+	$by_port = [];
+	$link_by_key = [];
+	$rows = $pdo->query("SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link' ORDER BY id")
+		->fetchAll(PDO::FETCH_ASSOC);
+	foreach ($rows as $edge) {
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		$key = $pair_key((int) $edge['src_id'], (int) $edge['dst_id']);
+		$links[(int) $edge['id']] = ['id' => (int) $edge['id'], 'a' => (int) $edge['src_id'], 'b' => (int) $edge['dst_id'],
+			'key' => $key, 'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
+			'superseded_at' => isset($attrs['superseded_at']) ? (int) $attrs['superseded_at'] : null];
+		$by_port[(int) $edge['src_id']][] = (int) $edge['id'];
+		$by_port[(int) $edge['dst_id']][] = (int) $edge['id'];
+		$link_by_key[$key] = (int) $edge['id'];
+	}
+	$is_active_discovered = static fn (array $link): bool => !$link['manual'] && $link['superseded_at'] === null;
+
+	// 3. Support: what the latest snapshots say, whatever became of the candidate.
+	$support = [];
+	$groups = [];
+	foreach ($candidates as $i => $candidate) {
+		if ($candidate['remote_port_id'] === null || $candidate['remote_port_id'] === $candidate['local_port_id']) {
+			continue;
+		}
+		$key = $pair_key($candidate['local_port_id'], $candidate['remote_port_id']);
+		$support[$key] = max($support[$key] ?? 0, $candidate['clock']);
+		$groups[$candidate['itemid'].'|'.$candidate['local_port_id']][$candidate['remote_port_id']] = true;
+	}
+
+	// 4. Classify every candidate: fixed outcome, shadowed by a manual link, part of a §5 group, or a claim.
+	$result = [];      // index => ['outcome' => ..., 'edge_id' => ..., 'link' => key|null (link it confirms/claims)]
+	$claims = [];      // key => ['a' =>, 'b' =>, 'T' =>, 'indexes' => []]
+	$confirming = [];  // key => [indexes] of §5 candidates that confirm an existing active link
+	$counted_groups = [];
+	foreach ($candidates as $i => $candidate) {
+		if ($candidate['pre_outcome'] !== null) {
+			$result[$i] = ['outcome' => $candidate['pre_outcome'], 'edge_id' => null, 'key' => null];
+			continue;
+		}
+		$port = $candidate['local_port_id'];
+		$remote = $candidate['remote_port_id'];
+		if ($remote === $port) {
+			$result[$i] = ['outcome' => 'device_only', 'edge_id' => null, 'key' => null];
+			continue;
+		}
+		$key = $pair_key($port, $remote);
+
+		// Manual wins (model spec §3 rule 5): unchanged, untouched by the replacement rule.
+		$manual = [];
+		foreach ([$port, $remote] as $touched) {
+			foreach ($by_port[$touched] ?? [] as $lid) {
+				if ($links[$lid]['manual'] && $links[$lid]['key'] !== $key) {
+					$manual[] = $lid;
+				}
+			}
+		}
+		if ($manual) {
+			$result[$i] = ['outcome' => 'shadowed', 'edge_id' => min($manual), 'key' => null];
+			continue;
+		}
+
+		// §5: several neighbors on one port in one snapshot are not a sequence. None replaces another; the
+		// existing active link on the port, if it is one of them, stays.
+		$group_key = $candidate['itemid'].'|'.$port;
+		if (count($groups[$group_key]) >= 2) {
+			if (!isset($counted_groups[$group_key])) {
+				$counted_groups[$group_key] = true;
+				$summary['ports_ambiguous']++;
+			}
+			$holder = null;
+			foreach ($by_port[$port] ?? [] as $lid) {
+				$link = $links[$lid];
+				$other = $link['a'] === $port ? $link['b'] : $link['a'];
+				if ($is_active_discovered($link) && isset($groups[$group_key][$other])) {
+					$holder = $holder ?? $link;
+				}
+			}
+			if ($holder !== null && $holder['key'] === $key) {
+				$result[$i] = ['outcome' => 'applied', 'edge_id' => $holder['id'], 'key' => $key];
+				$confirming[$key][] = $i;
+			}
+			else {
+				$result[$i] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
+			}
+			continue;
+		}
+
+		$claims[$key] ??= ['a' => $port, 'b' => $remote, 'T' => 0, 'indexes' => []];
+		$claims[$key]['T'] = max($claims[$key]['T'], $candidate['clock']);
+		$claims[$key]['indexes'][] = $i;
+	}
+	ksort($claims);
+
+	// 5. Which claims win, and which existing links they supersede.
+	$claims_by_port = [];
+	foreach ($claims as $key => $claim) {
+		$claims_by_port[$claim['a']][] = $key;
+		$claims_by_port[$claim['b']][] = $key;
+	}
+	$wins = [];
+	$blockers = [];      // claim key => [entity keys touching its ports]
+	foreach ($claims as $key => $claim) {
+		$entities = [];
+		foreach ([$claim['a'], $claim['b']] as $touched) {
+			foreach ($by_port[$touched] ?? [] as $lid) {
+				if ($links[$lid]['key'] !== $key && $is_active_discovered($links[$lid])) {
+					$entities[$links[$lid]['key']] = 'link';
+				}
+			}
+			foreach ($claims_by_port[$touched] ?? [] as $other_key) {
+				if ($other_key !== $key) {
+					$entities[$other_key] ??= 'claim';
+				}
+			}
+		}
+		$blockers[$key] = $entities;
+		$ok = true;
+		foreach ($entities as $entity_key => $kind) {
+			if (isset($support[$entity_key]) && $support[$entity_key] >= $claim['T']) {
+				$ok = false;
+			}
+			// A run scoped with --zabbix-host sees only some reporters: it cannot know that nobody else
+			// supports an existing link, so it never replaces one (the old, conservative behaviour).
+			if ($kind === 'link' && !$replacement_enabled) {
+				$ok = false;
+			}
+		}
+		if (isset($link_by_key[$key]) && $links[$link_by_key[$key]]['superseded_at'] !== null
+				&& $claim['T'] <= $links[$link_by_key[$key]]['superseded_at']) {
+			$ok = false; // a confirmation not newer than the replacement does not revive the link
+		}
+		$wins[$key] = $ok;
+	}
+
+	$superseded = []; // link key => T (the earliest winning contradiction)
+	$superseded_by = [];
+	foreach ($claims as $key => $claim) {
+		if (!$wins[$key]) {
+			continue;
+		}
+		foreach ($blockers[$key] as $entity_key => $kind) {
+			if ($kind === 'link' && isset($link_by_key[$entity_key])) {
+				$superseded[$entity_key] = min($superseded[$entity_key] ?? PHP_INT_MAX, $claim['T']);
+				$superseded_by[$entity_key][] = $key;
+			}
+		}
+	}
+
+	// 6. Write links: winners (created / revived), stayers (confirmed), then the superseded ones.
+	$write_link = static function (string $key, array $indexes) use ($candidates, $snap_link, $pdo): int {
+		$id = 0;
+		foreach ($indexes as $i) {
+			$c = $candidates[$i];
+			$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock']);
+		}
+		return $id;
+	};
+	$after = [];        // key => link id, for every entity that is an active link once this run is done
+	foreach ($claims as $key => $claim) {
+		$existing = isset($link_by_key[$key]) ? $links[$link_by_key[$key]] : null;
+		$stays = $existing !== null && ($existing['manual'] || $existing['superseded_at'] === null)
+			&& !isset($superseded[$key]);
+		if ($wins[$key] || $stays) {
+			$id = $write_link($key, $claim['indexes']);
+			if ($existing !== null && $existing['superseded_at'] !== null && $wins[$key]) {
+				$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(),
+					true, 512, JSON_THROW_ON_ERROR);
+				unset($attrs['superseded_at']);
+				$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+					->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+				$summary['links_revived']++;
+			}
+			$after[$key] = $id;
+		}
+	}
+	foreach ($confirming as $key => $indexes) {
+		$after[$key] = $write_link($key, $indexes);
+	}
+	foreach ($superseded as $key => $at) {
+		$id = $link_by_key[$key];
+		$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(),
+			true, 512, JSON_THROW_ON_ERROR);
+		$attrs['superseded_at'] = $at;
+		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+		$summary['links_superseded']++;
+	}
+	// Existing active links that stay are active too; a conflict points at them.
+	foreach ($links as $link) {
+		if (($link['manual'] || $link['superseded_at'] === null) && !isset($superseded[$link['key']])) {
+			$after[$link['key']] ??= $link['id'];
+		}
+	}
+
+	// 7. Outcomes of the claims.
+	foreach ($claims as $key => $claim) {
+		foreach ($claim['indexes'] as $i) {
+			if (isset($after[$key])) {
+				$result[$i] = ['outcome' => 'applied', 'edge_id' => $after[$key], 'key' => $key];
+				continue;
+			}
+			// The link that keeps the port: an existing/created active link among the entities that beat this
+			// claim (support at least as recent), or the winner that superseded this claim's own link.
+			$holding = [];
+			foreach (array_merge(array_keys($blockers[$key]), $superseded_by[$key] ?? []) as $entity_key) {
+				if (isset($after[$entity_key]) && (($support[$entity_key] ?? -1) >= $claim['T']
+						|| in_array($entity_key, $superseded_by[$key] ?? [], true))) {
+					$holding[] = $after[$entity_key];
+				}
+			}
+			foreach ($superseded_by[$key] ?? [] as $winner_key) {
+				if (isset($after[$winner_key])) {
+					$holding[] = $after[$winner_key];
+				}
+			}
+			$result[$i] = ['outcome' => 'conflict', 'edge_id' => $holding ? min($holding) : (isset($link_by_key[$key])
+				? $link_by_key[$key] : null), 'key' => $key];
+		}
+	}
+
+	// 8. Observations mirror the latest snapshot of each rule.
+	$touched = [];
+	foreach ($candidates as $i => $candidate) {
+		$outcome = $result[$i]['outcome'];
+		$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_id'],
+			$candidate['remote_key'], $candidate['remote_attrs'], $outcome, $result[$i]['edge_id'],
+			$candidate['remote_device_id'], $candidate['clock']);
+		$summary['observations'][$outcome]++;
+	}
+	foreach ($neighbor_snapshots as $itemid => $snapshot) {
+		$all = $pdo->prepare('SELECT id FROM topo_observations WHERE itemid = ?');
+		$all->execute([$itemid]);
+		$stale = array_diff(array_map('intval', $all->fetchAll(PDO::FETCH_COLUMN)), $touched[$itemid] ?? []);
+		foreach (array_chunk($stale, 500) as $chunk) {
+			$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
+				->execute($chunk);
+		}
+	}
+};
+
 // ---- Testability hook, no effect on a normal CLI invocation (the constant is never defined
 // there) ----
 //
@@ -1196,8 +1471,22 @@ $skipped = 0;
 // ---- LLD snapshot reporters (topology-lld-part2-spec.md) ----
 $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 
+// Test hook: --reporter-order <hostid,hostid,...> walks the reporters in that order (the rest after them), to show
+// that the result does not depend on it. Normal runs go by hostid.
+if (isset($options['reporter-order'])) {
+	$order = array_map('intval', explode(',', (string) $options['reporter-order']));
+	uksort($snapshot_reporters, static function (int $x, int $y) use ($order): int {
+		$px = array_search($x, $order, true);
+		$py = array_search($y, $order, true);
+		return ($px === false ? PHP_INT_MAX : $px) <=> ($py === false ? PHP_INT_MAX : $py) ?: $x <=> $y;
+	});
+}
+
+$link_candidates = [];
+$neighbor_snapshots = [];
 foreach ($snapshot_reporters as $reporter) {
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
+	$mark = [count($link_candidates), $neighbor_snapshots];
 	try {
 		$pdo->beginTransaction();
 		$result = $snap_ingest_reporter($reporter);
@@ -1210,6 +1499,8 @@ foreach ($snapshot_reporters as $reporter) {
 		}
 		else {
 			$pdo->rollBack();
+			$link_candidates = array_slice($link_candidates, 0, $mark[0]);
+			$neighbor_snapshots = $mark[1];
 			$summary['reporters_skipped'][$result['reason']] = ($summary['reporters_skipped'][$result['reason']] ?? 0) + 1;
 			$skipped++;
 		}
@@ -1218,7 +1509,26 @@ foreach ($snapshot_reporters as $reporter) {
 		if ($pdo->inTransaction()) {
 			$pdo->rollBack();
 		}
+		$link_candidates = array_slice($link_candidates, 0, $mark[0]);
+		$neighbor_snapshots = $mark[1];
 		fwrite(STDERR, "ERROR: failed to ingest LLD snapshots of '{$reporter['host']}': {$exception->getMessage()}\n");
+		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
+		$skipped++;
+	}
+}
+
+// Phase 2: links and observations, decided once for all reporters (topology-link-replacement-spec.md §6).
+if ($link_candidates || $neighbor_snapshots) {
+	try {
+		$pdo->beginTransaction();
+		$snap_resolve_links($link_candidates, $neighbor_snapshots, !$zabbix_host_filter);
+		$pdo->commit();
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
+		fwrite(STDERR, "ERROR: failed to resolve the neighbor links: {$exception->getMessage()}\n");
 		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
 		$skipped++;
 	}
