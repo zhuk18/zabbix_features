@@ -5055,4 +5055,150 @@ out:
   out:
     return: SUCCEED
     value: "AAA"
+---
+test case: SNMP walk to topology rows - ports
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+      .1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)
+      .1.3.6.1.2.1.31.1.1.1.1.1 = STRING: "Gi0/1"
+      .1.3.6.1.2.1.2.2.1.6.1 = Hex-STRING: 02 00 00 00 00 01
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      ports
+      error
+      20
+out:
+  return: SUCCEED
+  value: '[{"{#IFINDEX}":"1","{#IFNAME}":"Gi0/1","{#IFTYPE}":"6","{#IFMAC}":"02:00:00:00:00:01","{#LOC_CHASSIS}":"02:00:00:00:00:01"}]'
+---
+test case: SNMP walk to topology rows - LLDP with no neighbors is an empty result
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+      .1.0.8802.1.1.2.1.3.7.1.2.1 = INTEGER: interfaceName(5)
+      .1.0.8802.1.1.2.1.3.7.1.3.1 = STRING: "Gi0/1"
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      lldp
+      error
+      20
+out:
+  return: SUCCEED
+  value: '[]'
+---
+test case: SNMP walk to topology rows - MIB absent, missing MIB is an empty result
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      lldp
+      empty
+      20
+out:
+  return: SUCCEED
+  value: '[]'
+---
+test case: SNMP walk to topology rows - MIB absent, missing MIB is an error
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      lldp
+      error
+      20
+out:
+  return: FAIL
+---
+test case: SNMP walk to topology rows - bad data is an error, not an empty result
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      bad data
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      fdb
+      empty
+      20
+out:
+  return: FAIL
+---
+test case: SNMP walk to topology rows - invalid source
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      routes
+      error
+      20
+out:
+  return: FAIL
+---
+test case: SNMP walk to topology rows - MACs at the limit get one row each
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.17.1.4.1.2.1 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.2.0.17.34.51.68.170 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.3.0.17.34.51.68.170 = INTEGER: learned(3)
+      .1.3.6.1.2.1.17.4.3.1.2.0.17.34.51.68.187 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.3.0.17.34.51.68.187 = INTEGER: learned(3)
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      fdb
+      empty
+      2
+out:
+  return: SUCCEED
+  value: '[{"{#IFINDEX}":"1","{#MAC}":"00:11:22:33:44:aa"},{"{#IFINDEX}":"1","{#MAC}":"00:11:22:33:44:bb"}]'
+---
+test case: SNMP walk to topology rows - over the limit is one count-only row
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.3.6.1.2.1.17.1.4.1.2.1 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.2.0.17.34.51.68.170 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.3.0.17.34.51.68.170 = INTEGER: learned(3)
+      .1.3.6.1.2.1.17.4.3.1.2.0.17.34.51.68.187 = INTEGER: 1
+      .1.3.6.1.2.1.17.4.3.1.3.0.17.34.51.68.187 = INTEGER: learned(3)
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      fdb
+      empty
+      1
+out:
+  return: SUCCEED
+  value: '[{"{#IFINDEX}":"1","{#PORT_MAC_COUNT}":"2"}]'
 ...

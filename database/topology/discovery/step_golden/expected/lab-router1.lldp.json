@@ -1,0 +1,22 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#IFNAME}": "Gi0/0",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:01",
+        "{#REM_CHASSIS}": "00:11:22:33:44:02",
+        "{#REM_PORT_DESC}": "GigabitEthernet0/24",
+        "{#REM_PORT}": "Gi0/24",
+        "{#REM_SYSNAME}": "Switch1",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#IFINDEX}": "2",
+        "{#IFNAME}": "Gi0/1",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:01",
+        "{#REM_CHASSIS}": "00:11:22:33:44:09",
+        "{#REM_PORT_DESC}": "GigabitEthernet0/1",
+        "{#REM_PORT}": "Gi0/1",
+        "{#REM_SYSNAME}": "Printer1",
+        "{#SOURCE}": "lldp"
+    }
+]

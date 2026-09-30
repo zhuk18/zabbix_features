@@ -1,0 +1,12 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#IFNAME}": "Gi0/1",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:08",
+        "{#REM_CHASSIS}": "00:11:22:33:44:07",
+        "{#REM_PORT_DESC}": "GigabitEthernet0/2",
+        "{#REM_PORT}": "Gi0/2",
+        "{#REM_SYSNAME}": "AccessSwitch1",
+        "{#SOURCE}": "lldp"
+    }
+]

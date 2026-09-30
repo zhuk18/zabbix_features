@@ -1,0 +1,52 @@
+[
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "1",
+        "{#IFMAC}": "02:00:00:00:00:01",
+        "{#IFNAME}": "Gi0/1",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFSPEED}": "1000",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:02"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "10",
+        "{#IFMAC}": "02:00:00:00:00:0a",
+        "{#IFNAME}": "Po1",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFSPEED}": "2000",
+        "{#IFTYPE}": "161",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:02"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "11",
+        "{#IFMAC}": "02:00:00:00:00:0b",
+        "{#IFNAME}": "Gi0/4",
+        "{#IFOPERSTATUS}": "2",
+        "{#IFSPEED}": "1000",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:02"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "2",
+        "{#IFMAC}": "02:00:00:00:00:02",
+        "{#IFNAME}": "Gi0/2",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFSPEED}": "1000",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:02"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "3",
+        "{#IFMAC}": "02:00:00:00:00:03",
+        "{#IFNAME}": "Gi0/3",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFSPEED}": "1000",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:02"
+    }
+]

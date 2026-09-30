@@ -1,0 +1,10 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#LAG_IFINDEX}": "10"
+    },
+    {
+        "{#IFINDEX}": "2",
+        "{#LAG_IFINDEX}": "10"
+    }
+]

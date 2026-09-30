@@ -91,6 +91,8 @@ static int	str_to_preproc_type(const char *str)
 		return ZBX_PREPROC_SNMP_WALK_VALUE;
 	if (0 == strcmp(str, "ZBX_PREPROC_SNMP_GET_VALUE"))
 		return ZBX_PREPROC_SNMP_GET_VALUE;
+	if (0 == strcmp(str, "ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY"))
+		return ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY;
 	if (0 == strcmp(str, "ZBX_PREPROC_SCRIPT"))
 		return ZBX_PREPROC_SCRIPT;
 	if (0 == strcmp(str, "ZBX_PREPROC_VALIDATE_NOT_SUPPORTED"))

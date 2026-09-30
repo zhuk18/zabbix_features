@@ -1,0 +1,29 @@
+[
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "1",
+        "{#IFMAC}": "02:00:00:06:00:01",
+        "{#IFNAME}": "Gi0/1",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:08"
+    },
+    {
+        "{#IFADMINSTATUS}": "2",
+        "{#IFINDEX}": "2",
+        "{#IFMAC}": "02:00:00:06:00:02",
+        "{#IFNAME}": "Gi0/2",
+        "{#IFOPERSTATUS}": "2",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:08"
+    },
+    {
+        "{#IFADMINSTATUS}": "2",
+        "{#IFINDEX}": "3",
+        "{#IFMAC}": "02:00:00:06:00:03",
+        "{#IFNAME}": "Gi0/3",
+        "{#IFOPERSTATUS}": "2",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:08"
+    }
+]

@@ -7,6 +7,8 @@ libzbxpreproc_a_SOURCES = \
 	item_preproc.h \
 	preproc_snmp.c \
 	preproc_snmp.h \
+	preproc_topology.c \
+	preproc_topology.h \
 	pp_cache.c \
 	pp_cache.h \
 	pp_diag.c \

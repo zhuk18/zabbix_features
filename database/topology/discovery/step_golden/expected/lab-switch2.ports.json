@@ -1,0 +1,56 @@
+[
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "1",
+        "{#IFMAC}": "02:00:00:03:00:01",
+        "{#IFNAME}": "Gi0/24",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "2",
+        "{#IFMAC}": "02:00:00:03:00:02",
+        "{#IFNAME}": "Gi0/1",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "3",
+        "{#IFMAC}": "02:00:00:03:00:03",
+        "{#IFNAME}": "Gi0/2",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "4",
+        "{#IFMAC}": "02:00:00:03:00:04",
+        "{#IFNAME}": "Gi0/3",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    },
+    {
+        "{#IFADMINSTATUS}": "2",
+        "{#IFINDEX}": "5",
+        "{#IFMAC}": "02:00:00:03:00:05",
+        "{#IFNAME}": "Gi0/4",
+        "{#IFOPERSTATUS}": "2",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    },
+    {
+        "{#IFADMINSTATUS}": "1",
+        "{#IFINDEX}": "6",
+        "{#IFMAC}": "02:00:00:03:00:06",
+        "{#IFNAME}": "Gi0/5",
+        "{#IFOPERSTATUS}": "1",
+        "{#IFTYPE}": "6",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:12"
+    }
+]

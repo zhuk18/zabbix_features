@@ -1,0 +1,42 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#IFNAME}": "Gi0/1",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "macAddress",
+        "{#REM_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#REM_MGMT_IP}": "10.0.0.9",
+        "{#REM_PORT_DESC}": "TenGigabitEthernet1/0/1",
+        "{#REM_PORT_TYPE}": "interfaceName",
+        "{#REM_PORT}": "Te1/0/1",
+        "{#REM_SYSNAME}": "dist1",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#IFINDEX}": "2",
+        "{#IFNAME}": "Gi0/2",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "networkAddress",
+        "{#REM_CHASSIS}": "192.168.1.10",
+        "{#REM_PORT_TYPE}": "macAddress",
+        "{#REM_PORT}": "aa:bb:cc:00:00:09",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#IFINDEX}": "3",
+        "{#IFNAME}": "Gi0/3",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_CHASSIS_TYPE}": "local",
+        "{#REM_CHASSIS}": "sw-local",
+        "{#REM_PORT_TYPE}": "local",
+        "{#REM_PORT}": "12",
+        "{#REM_SYSNAME}": "edge3",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_CHASSIS}": "orphan",
+        "{#REM_SYSNAME}": "orphan-sys",
+        "{#SOURCE}": "lldp"
+    }
+]

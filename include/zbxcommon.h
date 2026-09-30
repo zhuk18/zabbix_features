@@ -735,6 +735,7 @@ int	zbx_alarm_timed_out(void);
 #define ZBX_PREPROC_SNMP_WALK_VALUE		28
 #define ZBX_PREPROC_SNMP_WALK_TO_JSON		29
 #define ZBX_PREPROC_SNMP_GET_VALUE		30
+#define ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY	31
 
 /* custom on fail actions */
 #define ZBX_PREPROC_FAIL_DEFAULT	0

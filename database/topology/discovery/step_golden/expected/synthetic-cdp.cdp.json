@@ -1,0 +1,31 @@
+[
+    {
+        "{#IFINDEX}": "1",
+        "{#IFNAME}": "Gi0/1",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_MGMT_IP}": "10.0.0.1",
+        "{#REM_PORT}": "GigabitEthernet0/0",
+        "{#REM_PORT_TYPE}": "interfaceName",
+        "{#REM_SYSNAME}": "router-a.example.net",
+        "{#SOURCE}": "cdp"
+    },
+    {
+        "{#IFINDEX}": "2",
+        "{#IFNAME}": "Gi0/2",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_PORT}": "Gi1/0/48",
+        "{#REM_PORT_TYPE}": "interfaceName",
+        "{#REM_SYSNAME}": "sw-b",
+        "{#SOURCE}": "cdp"
+    },
+    {
+        "{#IFINDEX}": "3",
+        "{#IFNAME}": "Gi0/3",
+        "{#LOC_CHASSIS}": "02:00:00:00:00:01",
+        "{#REM_MGMT_IP}": "2001:db8::1",
+        "{#REM_PORT}": "eth1",
+        "{#REM_PORT_TYPE}": "interfaceName",
+        "{#REM_SYSNAME}": "v6-host",
+        "{#SOURCE}": "cdp"
+    }
+]
