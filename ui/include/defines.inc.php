@@ -785,6 +785,7 @@ define('ZBX_PREPROC_XML_TO_JSON',				27);
 define('ZBX_PREPROC_SNMP_WALK_VALUE',			28);
 define('ZBX_PREPROC_SNMP_WALK_TO_JSON',			29);
 define('ZBX_PREPROC_SNMP_GET_VALUE',			30);
+define('ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY',		31);
 
 // Item pre-processing error handlers.
 define('ZBX_PREPROC_FAIL_DEFAULT',			0);
@@ -848,6 +849,16 @@ define('ZBX_TOPOLOGY_ROLE_PORTS',			1);
 define('ZBX_TOPOLOGY_ROLE_NEIGHBORS',		2);
 define('ZBX_TOPOLOGY_ROLE_LEARNED_MACS',	3);
 define('ZBX_TOPOLOGY_ROLE_LAG',				4);
+
+// "SNMP walk to topology rows" preprocessing step: source table set and what to do when its MIB is absent.
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS',	'ports');
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP',	'lldp');
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_CDP',	'cdp');
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_FDB',	'fdb');
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_LAG',	'lag');
+define('ZBX_PREPROC_TOPOLOGY_MISSING_ERROR',	'error');
+define('ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY',	'empty');
+define('ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT',	20);
 define('ZBX_LLD_RULE_DELAY_DEFAULT',	'1h');
 
 define('GRAPH_DISCOVER',	0);

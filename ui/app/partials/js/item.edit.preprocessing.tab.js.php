@@ -204,6 +204,14 @@ var ItemEditPreprocessingTab = class {
 			}
 		}
 
+		const topology_source = row.querySelector('.js-preproc-param-topology-source');
+
+		if (topology_source) {
+			// The MAC limit only matters for the learned MACs (FDB) source; the input stays in the form with its value.
+			row.querySelector('.js-preproc-param-topology-mac-limit').style.display =
+				topology_source.getAttribute('value') === '<?= ZBX_PREPROC_TOPOLOGY_SOURCE_FDB ?>' ? '' : 'none';
+		}
+
 		if (this.#readonly) {
 			this.#readonlyAllInputs(row);
 		}
@@ -258,6 +266,7 @@ var ItemEditPreprocessingTab = class {
 			case '<?= ZBX_PREPROC_THROTTLE_TIMED_VALUE ?>':
 			case '<?= ZBX_PREPROC_SCRIPT ?>':
 			case '<?= ZBX_PREPROC_STR_REPLACE ?>':
+			case '<?= ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY ?>':
 				on_fail_input.checked = false;
 				on_fail_input.removeAttribute('readonly');
 				on_fail_input.disabled = true;
@@ -288,6 +297,9 @@ var ItemEditPreprocessingTab = class {
 			?.addEventListener('change', (e) => this.#updateRow(e.target.closest('.preprocessing-list-item')));
 
 		row.querySelector('.js-preproc-param-prometheus-pattern-function')
+			?.addEventListener('change', (e) => this.#updateRow(e.target.closest('.preprocessing-list-item')));
+
+		row.querySelector('.js-preproc-param-topology-source')
 			?.addEventListener('change', (e) => this.#updateRow(e.target.closest('.preprocessing-list-item')));
 
 		const multiline = row.querySelector('.multilineinput-control');
@@ -383,6 +395,9 @@ var ItemEditPreprocessingTab = class {
 
 			case '<?= ZBX_PREPROC_SNMP_GET_VALUE ?>':
 				return 'preprocessing-steps-parameters-snmp-get-value-tmpl';
+
+			case '<?= ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY ?>':
+				return 'preprocessing-steps-parameters-snmp-walk-to-topology-tmpl';
 		}
 
 		return null;
@@ -416,6 +431,12 @@ var ItemEditPreprocessingTab = class {
 
 			case '<?= ZBX_PREPROC_SNMP_GET_VALUE ?>':
 				params[0] = <?= ZBX_PREPROC_SNMP_UTF8_FROM_HEX; ?>;
+				break;
+
+			case '<?= ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY ?>':
+				params[0] = '<?= ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS ?>';
+				params[1] = '<?= ZBX_PREPROC_TOPOLOGY_MISSING_ERROR ?>';
+				params[2] = '<?= ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT ?>';
 				break;
 		}
 

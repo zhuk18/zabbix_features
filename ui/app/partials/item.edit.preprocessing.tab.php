@@ -291,6 +291,32 @@ foreach (get_preprocessing_types(null, true, $data['preprocessing_types']) as $g
 			])
 	]))->addClass('preprocessing-steps-parameters-snmp-get-value-tmpl'),
 	(new CTemplateTag('', [
+		(new CSelect('preprocessing[#{rowNum}][params_0]'))
+			->setValue('#{params[0]}')
+			->setAdaptiveWidth(202)
+			->addClass('js-preproc-param-topology-source')
+			->addOptions([
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS, _('Ports (IF-MIB)')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP, _('LLDP neighbors')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, _('CDP neighbors')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_FDB, _('Learned MACs (FDB)')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_LAG, _('LAG members'))
+			]),
+		(new CSelect('preprocessing[#{rowNum}][params_1]'))
+			->setValue('#{params[1]}')
+			->setAdaptiveWidth(202)
+			->addOptions([
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_MISSING_ERROR, _('Missing MIB: error')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY, _('Missing MIB: empty result'))
+			]),
+		(new CTextBox('preprocessing[#{rowNum}][params_2]', '#{params[2]}'))
+			->setErrorLabel(_('MAC limit'))
+			->setErrorContainer('preprocessing-#{rowNum}-error-container')
+			->addClass('js-preproc-param-topology-mac-limit')
+			->setWidth(ZBX_TEXTAREA_NUMERIC_STANDARD_WIDTH)
+			->setAttribute('placeholder', _('MAC limit'))
+	]))->addClass('preprocessing-steps-parameters-snmp-walk-to-topology-tmpl'),
+	(new CTemplateTag('', [
 		(new CRow([
 			new CCol(
 				(new CTextBox('preprocessing[#{rowNum}][params_set_snmp][#{rowIndex}][name]', '#{name}'))

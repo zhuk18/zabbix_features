@@ -1068,7 +1068,7 @@ class testDiscoveryRule extends CAPITest {
 						]
 					]
 				],
-				'expected_error' => 'Invalid parameter "/1/preprocessing/1/type": value must be one of 5, 11, 12, 14, 15, 16, 17, 20, 21, 23, 24, 25, 27, 28, 29, 30.'
+				'expected_error' => 'Invalid parameter "/1/preprocessing/1/type": value must be one of 5, 11, 12, 14, 15, 16, 17, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31.'
 			],
 			'Test unallowed preprocessing type (integer)' => [
 				'discoveryrule' => [
@@ -1081,7 +1081,7 @@ class testDiscoveryRule extends CAPITest {
 						]
 					]
 				],
-				'expected_error' => 'Invalid parameter "/1/preprocessing/1/type": value must be one of 5, 11, 12, 14, 15, 16, 17, 20, 21, 23, 24, 25, 27, 28, 29, 30.'
+				'expected_error' => 'Invalid parameter "/1/preprocessing/1/type": value must be one of 5, 11, 12, 14, 15, 16, 17, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31.'
 			],
 			'Test valid type but empty preprocessing params (bool)' => [
 				'discoveryrule' => [

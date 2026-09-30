@@ -298,6 +298,7 @@ class CXmlConstantName {
 	const SNMP_WALK_VALUE = 'SNMP_WALK_VALUE';
 	const SNMP_WALK_TO_JSON = 'SNMP_WALK_TO_JSON';
 	const SNMP_GET_VALUE = 'SNMP_GET_VALUE';
+	const SNMP_WALK_TO_TOPOLOGY = 'SNMP_WALK_TO_TOPOLOGY';
 
 	const AND_OR = 'AND_OR';
 	const XML_AND = 'AND';

@@ -68,7 +68,8 @@ class C80ImportValidator extends CImportValidatorGeneral {
 		CXmlConstantValue::XML_TO_JSON => CXmlConstantName::XML_TO_JSON,
 		CXmlConstantValue::SNMP_WALK_VALUE => CXmlConstantName::SNMP_WALK_VALUE,
 		CXmlConstantValue::SNMP_WALK_TO_JSON => CXmlConstantName::SNMP_WALK_TO_JSON,
-		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE
+		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE,
+		CXmlConstantValue::SNMP_WALK_TO_TOPOLOGY => CXmlConstantName::SNMP_WALK_TO_TOPOLOGY
 	];
 
 	private $PREPROCESSING_STEP_TYPE_PARAMS = [
@@ -94,7 +95,8 @@ class C80ImportValidator extends CImportValidatorGeneral {
 		CXmlConstantValue::CHECK_NOT_SUPPORTED => CXmlConstantName::CHECK_NOT_SUPPORTED,
 		CXmlConstantValue::SNMP_WALK_VALUE => CXmlConstantName::SNMP_WALK_VALUE,
 		CXmlConstantValue::SNMP_WALK_TO_JSON => CXmlConstantName::SNMP_WALK_TO_JSON,
-		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE
+		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE,
+		CXmlConstantValue::SNMP_WALK_TO_TOPOLOGY => CXmlConstantName::SNMP_WALK_TO_TOPOLOGY
 	];
 
 	private $PREPROCESSING_STEP_TYPE_ERROR_HANDLING_SUBSET = [

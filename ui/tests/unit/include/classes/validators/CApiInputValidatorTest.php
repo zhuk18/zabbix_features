@@ -8173,6 +8173,72 @@ uwMrOBKatg7CZ1Uenv1K3ioD5w==
 				'Invalid parameter "/1/params": unexpected parameter "2".'
 			],
 			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports",
+				'/1/params',
+				"ports\nerror\n20"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"fdb\nempty\n5",
+				'/1/params',
+				"fdb\nempty\n5"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"lldp\nerror",
+				'/1/params',
+				"lldp\nerror\n20"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"cdp\nempty\n20",
+				'/1/params',
+				"cdp\nempty\n20"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"lag\nerror\n1",
+				'/1/params',
+				"lag\nerror\n1"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"",
+				'/1/params',
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag".'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"routes",
+				'/1/params',
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag".'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports\nmaybe",
+				'/1/params',
+				'Invalid parameter "/1/params/2": value must be one of "error", "empty".'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports\nerror\n0",
+				'/1/params',
+				'Invalid parameter "/1/params/3": value must be one of 1-2147483647.'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports\nerror\nmany",
+				'/1/params',
+				'Invalid parameter "/1/params/3": an integer is expected.'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports\nerror\n20\nextra",
+				'/1/params',
+				'Invalid parameter "/1/params": unexpected parameter "4".'
+			],
+			[
 				['type' => API_PROMETHEUS_PATTERN],
 				'',
 				'/1/prometheus_pattern',

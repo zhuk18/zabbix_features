@@ -4220,6 +4220,15 @@ class CApiInputValidator {
 					'1' =>	['type' => API_INT32, 'flags' => API_REQUIRED, 'in' => implode(',', [ZBX_PREPROC_SNMP_UTF8_FROM_HEX, ZBX_PREPROC_SNMP_MAC_FROM_HEX, ZBX_PREPROC_SNMP_INT_FROM_BITS])]
 				]];
 				break;
+
+			case ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY:
+				// source, missing MIB action, MAC limit (used by the "fdb" source only, validated for all)
+				$api_input_rules = ['type' => API_OBJECT, 'fields' => [
+					'1' =>	['type' => API_STRING_UTF8, 'flags' => API_REQUIRED, 'in' => implode(',', [ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS, ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP, ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, ZBX_PREPROC_TOPOLOGY_SOURCE_FDB, ZBX_PREPROC_TOPOLOGY_SOURCE_LAG])],
+					'2' =>	['type' => API_STRING_UTF8, 'in' => implode(',', [ZBX_PREPROC_TOPOLOGY_MISSING_ERROR, ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY]), 'default' => ZBX_PREPROC_TOPOLOGY_MISSING_ERROR],
+					'3' =>	['type' => API_INT32, 'in' => '1:'.ZBX_MAX_INT32, 'default' => ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT]
+				]];
+				break;
 		}
 
 		if (self::validate($api_input_rules, $params, $path, $error)) {

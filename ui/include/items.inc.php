@@ -1456,6 +1456,10 @@ function get_preprocessing_types($type = null, $grouped = true, array $supported
 			'group' => _('SNMP'),
 			'name' => _('SNMP get value')
 		],
+		ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY => [
+			'group' => _('SNMP'),
+			'name' => _('SNMP walk to topology rows')
+		],
 		ZBX_PREPROC_MULTIPLIER => [
 			'group' => _('Arithmetic'),
 			'name' => _('Custom multiplier')
@@ -1769,6 +1773,7 @@ function normalizeItemPreprocessingSteps(array $preprocessing): array {
 				break;
 
 			case ZBX_PREPROC_SNMP_WALK_VALUE:
+			case ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY:
 			case ZBX_PREPROC_VALIDATE_RANGE:
 				foreach ($step['params'] as &$param) {
 					$param = trim($param);

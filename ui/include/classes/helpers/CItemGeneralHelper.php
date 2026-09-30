@@ -382,7 +382,10 @@ JAVASCRIPT;
 				'sortorder' => ['integer'],
 
 				// Fields.
-				'type' => ['integer', 'required', 'in' => CItem::SUPPORTED_PREPROCESSING_TYPES],
+				// The step types of items and of discovery rules; the API rejects the ones the object does not support.
+				'type' => ['integer', 'required', 'in' => array_values(array_unique(array_merge(
+					CItem::SUPPORTED_PREPROCESSING_TYPES, CDiscoveryRuleGeneral::SUPPORTED_PREPROCESSING_TYPES
+				)))],
 				'params_1' => [
 					['db item_preproc.params', 'required', 'not_empty',
 						'when' => ['type', 'in' => [ZBX_PREPROC_REGSUB]]
@@ -411,7 +414,11 @@ JAVASCRIPT;
 						],
 						'when' => ['type', 'in' => [ZBX_PREPROC_PROMETHEUS_PATTERN]]
 					],
-					['db item_preproc.params', 'when' => ['type', 'in' => [ZBX_PREPROC_CSV_TO_JSON]]]
+					['db item_preproc.params', 'when' => ['type', 'in' => [ZBX_PREPROC_CSV_TO_JSON]]],
+					['db item_preproc.params', 'required', 'not_empty',
+						'in' => [ZBX_PREPROC_TOPOLOGY_MISSING_ERROR, ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY],
+						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]]
+					]
 				],
 				'params_0' => [
 					['db item_preproc.params', 'required', 'not_empty', 'allow_macro',
@@ -439,6 +446,13 @@ JAVASCRIPT;
 							(string) ZBX_PREPROC_SNMP_INT_FROM_BITS
 						],
 						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_GET_VALUE]]
+					],
+					['db item_preproc.params', 'required', 'not_empty',
+						'in' => [ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS, ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP,
+							ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, ZBX_PREPROC_TOPOLOGY_SOURCE_FDB,
+							ZBX_PREPROC_TOPOLOGY_SOURCE_LAG
+						],
+						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]]
 					],
 					['db item_preproc.params', 'required', 'not_empty',
 						'use' => [CNumberParser::class, ['usermacros' => true, 'lldmacros' => $allow_lld_macro]],
@@ -496,6 +510,9 @@ JAVASCRIPT;
 				'params_2' => [
 					['integer', 'in' => [ZBX_PREPROC_CSV_NO_HEADER, ZBX_PREPROC_CSV_HEADER],
 						'when' => ['type', 'in' => [ZBX_PREPROC_CSV_TO_JSON]]
+					],
+					['integer', 'required', 'min' => 1, 'max' => ZBX_MAX_INT32,
+						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]]
 					],
 					['string', 'required', 'not_empty',
 						'use' => [CPrometheusOutputParser::class, ['usermacros' => true, 'lldmacros' => $allow_lld_macro]],
