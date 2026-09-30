@@ -49,3 +49,32 @@ Additions that do not change any JS output:
 
 An older proxy that does not know the step type answers "unknown preprocessing step" (`pp_execute.c`): the rule
 becomes unsupported with that message and keeps its last snapshot. Nothing crashes and no step is skipped.
+
+## Acceptance record (lab, 2026-09-30)
+
+Run on the snmpsim lab (5 hosts, 127.0.0.2-6:1611) with the rebuilt server (the old binary is kept as
+`sbin/zabbix_server.old-20260930`). Clones of the lab hosts on the native template ("Topology by SNMP") were
+compared with the originals on the temporary JS template, so neither side was unlinked.
+
+| Criterion (spec §8) | Result |
+|---|---|
+| golden fixture × source = JS output | 126 checks (`compare.php`), edge cases 56 (`edge_cases.php`) |
+| snapshots JS vs native, per host and role | `rows_hash` identical for all 5 hosts × ports / LLDP / FDB / LAG |
+| ingest from a clean `topo_*` state, by natural keys (`natural_keys.py`) | same 9 Devices, 19 Ports, 8 links, 12 observations, 5 `represented_by`; only the device `sysname` of the two clones differs, because ingest takes it from the Zabbix host name ("E2E native UPS1") |
+| device without CDP / FDB / LAG MIB with the template linked | rules supported, empty snapshots (lab devices have none of them) |
+| wrong community: master gets no value, rules keep snapshots | interface unavailable, `rows_hash` and `clock` of all rules unchanged; data flows again after the fix |
+| Test dialog, ports rule, role PORTS | Rows: 6, passing: 6, failing: 0 |
+| Test dialog, LLDP rule, role NEIGHBORS, no LLD macro paths | Rows: 5, passing: 5, failing: 0 |
+| garbage walk in the Test dialog | step error "cannot parse the SNMP walk: invalid OID format", not `[]` |
+| API rejects the step on items and item prototypes; invalid `source` / `missing_mib` / `mac_limit` | `testDiscoveryRuleTopologyStep` |
+| export → import round trip of the template | every step and parameter preserved (5 rules) |
+| template: masters without discard steps, one step per rule, no JS, no macro paths | `testTopologyBySnmpTemplate` |
+
+Not verified:
+
+- **Proxy-monitored device:** no proxy in the lab. The step is in the shared library, and an older proxy answers
+  "unknown preprocessing step" (seen on the old server binary through the Test dialog).
+- **FDB and LAG with data, and a trunk over the MAC limit, on a live server:** the lab devices have none of it. Covered by
+  the synthetic golden walks only.
+- **The YAML unit cases** in `tests/libs/zbxpreproc/zbx_item_preproc.yaml` were run through `driver.c` by hand, not by
+  cmocka (cmocka and libyaml-dev are not installed here).
