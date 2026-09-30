@@ -12,8 +12,14 @@ class CTopologyPrototype {
 	// already-derived boolean.
 	private const STALE_LINK_SECONDS = 7 * 24 * 60 * 60;
 
-	private static function isLinkStale(?int $last_seen): bool {
-		return $last_seen === null || (time() - $last_seen) > self::STALE_LINK_SECONDS;
+	// A superseded link (topology-link-replacement-spec.md §4) lost its port to a newer one: it is stale
+	// whatever its last_seen says.
+	private static function isLinkStale(?int $last_seen, ?int $superseded_at = null): bool {
+		return $superseded_at !== null || $last_seen === null || (time() - $last_seen) > self::STALE_LINK_SECONDS;
+	}
+
+	private static function supersededAt(array $link_attrs): ?int {
+		return isset($link_attrs['superseded_at']) ? (int) $link_attrs['superseded_at'] : null;
 	}
 
 	/**
@@ -313,17 +319,41 @@ class CTopologyPrototype {
 		// edge per pair rather than stacking duplicates, same "most-confirmed wins" precedent as
 		// getNeighbors()' per-device discovered_via.
 		$device_links = [];
+		// Active discovered links by port, to say which link replaced a superseded one ("Replaced on ...").
+		$active_by_port = [];
+		foreach ($rows as $row) {
+			$row_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			if (self::supersededAt($row_attrs) === null) {
+				$active_by_port[$row['port_a']][] = $row;
+				$active_by_port[$row['port_b']][] = $row;
+			}
+		}
 		foreach ($rows as $row) {
 			$pair = [$row['device_a'], $row['device_b']];
 			sort($pair);
 			$key = implode('-', $pair);
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			$superseded_at = self::supersededAt($link_attrs);
 			// Any source other than 'manual' (lldp, cdp, ...) is a discovered link. 'lldp' stays the normalized
 			// "discovered" value the frontend filter and styling already key on; the raw source rides along in
 			// discovery_source for labels.
 			$discovery_source = (string) ($link_attrs['discovered_via'] ?? 'lldp');
 			$discovered_via = $discovery_source === 'manual' ? 'manual' : 'lldp';
-			if (!isset($device_links[$key]) || $discovered_via === 'lldp') {
+			// An active link between the pair wins over a superseded one; among equals a discovered link wins.
+			$replace = !isset($device_links[$key])
+				|| ($device_links[$key]['superseded_at'] !== null && $superseded_at === null)
+				|| (($device_links[$key]['superseded_at'] === null) === ($superseded_at === null)
+					&& $discovered_via === 'lldp');
+			if ($replace) {
+				$replaced_by = null;
+				if ($superseded_at !== null) {
+					foreach ([$row['port_a'], $row['port_b']] as $port_id) {
+						foreach ($active_by_port[$port_id] ?? [] as $active) {
+							$replaced_by = $active['port_a'] === $port_id ? $active['device_b'] : $active['device_a'];
+							break 2;
+						}
+					}
+				}
 				$port_a = $port_details[$row['port_a']] ?? [];
 				$port_b = $port_details[$row['port_b']] ?? [];
 				$last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
@@ -337,7 +367,8 @@ class CTopologyPrototype {
 					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null,
 					// §7 staleness indicator: rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
-					'stale' => self::isLinkStale($last_seen)];
+					'stale' => self::isLinkStale($last_seen, $superseded_at),
+					'superseded_at' => $superseded_at, 'replaced_by_device' => $replaced_by];
 			}
 		}
 		foreach ($device_links as $relation) {
@@ -497,6 +528,9 @@ class CTopologyPrototype {
 		// §7 staleness indicator: last_seen of whichever physical_link row is currently "the" one
 		// shown for this neighbor — updated in lockstep with $link_ports below (same row wins both).
 		$last_seen = [];
+		// topology-link-replacement-spec.md §7: a superseded link is stale; an active link to the same neighbor
+		// takes precedence over it, the same way an LLDP-confirmed one does over a manual one.
+		$superseded_at = [];
 		// Which specific port pair to LABEL the link with, for the "Link details" panel — a
 		// neighbor reached via more than one physical_link (redundant cabling) still only shows
 		// one pair, upgraded to an LLDP-confirmed pair the same moment $discovered_via upgrades
@@ -517,6 +551,18 @@ class CTopologyPrototype {
 			// throughout this class: if any one of them is LLDP-confirmed, render the neighbor link as such.
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$row_last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
+			$row_superseded = self::supersededAt($link_attrs);
+			if ($row_superseded !== null && array_key_exists($row['id'], $superseded_at)
+					&& $superseded_at[$row['id']] === null) {
+				continue; // an active link to this neighbor is already the one shown
+			}
+			if ($row_superseded === null && ($superseded_at[$row['id']] ?? null) !== null) {
+				// the first row seen was a superseded link: this active one replaces it as "the" link
+				$discovered_via[$row['id']] = 'manual';
+				$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+				unset($last_seen[$row['id']]);
+			}
+			$superseded_at[$row['id']] = $row_superseded;
 			if (($link_attrs['discovered_via'] ?? 'lldp') !== 'manual') {
 				if ($discovered_via[$row['id']] !== 'lldp') {
 					$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
@@ -542,7 +588,8 @@ class CTopologyPrototype {
 			$neighbor['represented_hostid'] = $representing_hostids[$id] ?? null;
 			$neighbor['discovered_via'] = $discovered_via[$id];
 			$neighbor['discovery_source'] = $discovery_source[$id];
-			$neighbor['stale'] = self::isLinkStale($last_seen[$id] ?? null);
+			$neighbor['stale'] = self::isLinkStale($last_seen[$id] ?? null, $superseded_at[$id] ?? null);
+			$neighbor['superseded_at'] = $superseded_at[$id] ?? null;
 			// 'local'/'remote' from $deviceid's own point of view — local_port belongs to the
 			// clicked device, remote_port to this neighbor. Matches the naming already used for
 			// local_port_id/remote_port_id above. Ids ride along too (not just the display
@@ -620,7 +667,24 @@ class CTopologyPrototype {
 		// DB round trip and dozens, on a device with many connected ports.
 		$rows = [];
 		$connected_port_ids = [];
+		$seen_ports = [];
 		while ($row = DBfetch($result, false)) {
+			// A superseded link (topology-link-replacement-spec.md §4) is not active: it neither connects the
+			// port nor gives it a second row next to the link that replaced it.
+			if ($row['linkid'] !== null
+					&& self::supersededAt(json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR)) !== null) {
+				if (isset($seen_ports[$row['id']])) {
+					continue;
+				}
+				$row['linkid'] = null;
+				$row['link_attrs'] = null;
+				$row['linked_port_id'] = null;
+			}
+			elseif ($row['linkid'] !== null && isset($seen_ports[$row['id']])) {
+				// an active link after a superseded placeholder for the same port: it takes the port's row
+				$rows = array_values(array_filter($rows, static fn (array $r): bool => $r['id'] !== $row['id']));
+			}
+			$seen_ports[$row['id']] = true;
 			$rows[] = $row;
 			if ($row['linkid'] !== null) {
 				$connected_port_ids[] = $row['id'];
@@ -795,6 +859,14 @@ class CTopologyPrototype {
 
 		if ($existing) {
 			$attrs = self::attrs($existing);
+			if ($discovered_via === 'manual' && self::supersededAt($attrs) !== null) {
+				// The user declares the pair again: it is a manual link now, and manual links are never superseded.
+				$attrs['discovered_via'] = 'manual';
+				$attrs['last_seen'] = time();
+				unset($attrs['superseded_at']);
+				DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($existing['id']));
+				return;
+			}
 			if ($discovered_via === 'lldp' && ($attrs['discovered_via'] ?? null) !== 'lldp') {
 				$attrs['discovered_via'] = 'lldp';
 				$attrs['last_seen'] = time();
@@ -883,7 +955,11 @@ class CTopologyPrototype {
 				// The link that blocked this observation (shadowed/conflict) or that it confirmed (applied).
 				'edge_id' => $row['edge_id'],
 				'first_seen' => (int) $row['first_seen'],
-				'last_seen' => (int) $row['last_seen']
+				'last_seen' => (int) $row['last_seen'],
+				// How long the observation has been continuously present: a `conflict` younger than the
+				// reporter's NEIGHBORS interval is the expected transient after a recable
+				// (topology-link-replacement-spec.md §3, §7), so a UI can filter on it.
+				'age' => max(0, time() - (int) $row['first_seen'])
 			];
 		}
 

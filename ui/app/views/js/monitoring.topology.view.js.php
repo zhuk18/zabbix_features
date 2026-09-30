@@ -169,7 +169,10 @@ const view = new class {
 					`\n${<?= json_encode(_('Devices created')) ?>}: ${summary.devices_created ?? 0}` +
 					`\n${<?= json_encode(_('Devices updated')) ?>}: ${summary.devices_updated ?? 0}` +
 					`\n${<?= json_encode(_('Ports created')) ?>}: ${summary.ports_created ?? 0}` +
-					`\n${<?= json_encode(_('Links created')) ?>}: ${summary.links_created ?? 0}`);
+					`\n${<?= json_encode(_('Links created')) ?>}: ${summary.links_created ?? 0}` +
+					`\n${<?= json_encode(_('Links superseded')) ?>}: ${summary.links_superseded ?? 0}` +
+					`\n${<?= json_encode(_('Links revived')) ?>}: ${summary.links_revived ?? 0}` +
+					`\n${<?= json_encode(_('Ports with several neighbors')) ?>}: ${summary.ports_ambiguous ?? 0}`);
 				await this.loadDevices();
 			}
 			else if (status.status === 'error') {
@@ -219,7 +222,8 @@ const view = new class {
 			source_port_id: relation.source_port_id, target_port_id: relation.target_port_id,
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
-			stale: relation.stale
+			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
+			replaced_by_device: relation.replaced_by_device ?? null
 		}));
 		// §2.3/§6: monitoring assignment is no longer a stored edge — relations never carries a
 		// 'monitored_by' entry. Synthesize the line here from each Host's own live-resolved
@@ -301,6 +305,7 @@ const view = new class {
 			}
 			link.discovered_via = neighbor.discovered_via;
 			link.stale = neighbor.stale;
+			link.superseded_at = neighbor.superseded_at ?? null;
 			// neighbor.local_*/remote_* are from the CLICKED device's (node's) point of view —
 			// map them onto whichever of link.source/link.target actually IS node_id, same
 			// orientation concern as the undirected match above.
@@ -382,6 +387,9 @@ const view = new class {
 			if (speed_mismatch) {
 				rows.push([<?= json_encode(_('Note')) ?>, <?= json_encode(_('Speed mismatch between the two ends.')) ?>]);
 			}
+			if (link.superseded_at) {
+				rows.push([<?= json_encode(_('Replaced')) ?>, this.replacedNote(link)]);
+			}
 		}
 		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw]) =>
 			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>`;
@@ -407,6 +415,18 @@ const view = new class {
 				await this.loadDevices();
 			}));
 		}
+	}
+
+	// "Replaced on <date>", and the neighbor that took the port when the payload says which one it is.
+	replacedNote(link) {
+		const date = new Date(link.superseded_at * 1000).toLocaleString();
+		const node = link.replaced_by_device !== null && link.replaced_by_device !== undefined
+			? this.nodes.get(String(link.replaced_by_device))
+			: null;
+
+		return <?= json_encode(_('Replaced on')) ?> + ' ' + date + (node
+			? ' ' + <?= json_encode(_('by a link to')) ?> + ' ' + (node.name ?? node.sysname ?? '')
+			: '') + '.';
 	}
 
 	// Same colored-dot convention showPorts() already uses for a port's own oper_status.
@@ -878,7 +898,9 @@ const view = new class {
 				if (link.target_status) {
 					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
 				}
-				const stale_note = link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '';
+				const stale_note = link.superseded_at
+					? ` ${this.replacedNote(link)}`
+					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '');
 				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
 			}
 			return '';
