@@ -3,7 +3,6 @@
 class CControllerTopologyPromote extends CController {
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
-		$this->disableCsrfValidation();
 	}	
 	protected function checkInput(): bool {
 		return $this->validateInput([

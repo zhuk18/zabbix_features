@@ -2,6 +2,13 @@
 <script>
 const view = new class {
 	async request(action, options = {}) {
+		// Every POST carries the CSRF token in its JSON body.
+		if (options.method === 'POST') {
+			options = {...options, body: JSON.stringify({
+				...JSON.parse(options.body || '{}'),
+				[<?= json_encode(CSRF_TOKEN_NAME) ?>]: <?= json_encode(CCsrfTokenHelper::get('topology')) ?>
+			})};
+		}
 		const response = await fetch(`zabbix.php?action=${action}`, options);
 		const payload = await response.json();
 		if (!response.ok || payload.error) {
@@ -401,8 +408,7 @@ const view = new class {
 			return;
 		}
 		const post = (name, body) => this.request(name, {
-			method: 'POST', headers: {'Content-Type': 'application/json'},
-			body: JSON.stringify({...body, [<?= json_encode(CSRF_TOKEN_NAME) ?>]: <?= json_encode(CCsrfTokenHelper::get('topology')) ?>})
+			method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 		});
 		if (action === 'keep') {
 			await post('topology.manual.keep', {edge_id, device_id});
