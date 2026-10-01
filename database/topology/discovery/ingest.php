@@ -643,7 +643,7 @@ $summary += [
 	'ports_ambiguous' => 0,
 	// topology-manual-contradiction-spec.md §7: manual links that discovery contradicts and nobody acknowledged.
 	'manual_links_contradicted' => 0,
-	// Observations of rules that have no usable snapshot any more (disabled, role changed, reporter skipped,
+	// Observations of rules that have no usable snapshot any more (rule or host disabled, role changed, reporter skipped,
 	// snapshot gone): removed by a full run, see $clean_stale_observations.
 	'observations_removed' => 0,
 ];
@@ -888,7 +888,7 @@ $snap_remote_key = static function (array $row): string {
 $snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary): array {
 	$rows = $pdo->query(
 		'SELECT s.itemid, s.hostid, s.role, s.clock, s.rows_json, i.topology_role AS rule_role,'.
-		' i.status AS rule_status, h.host, h.name AS host_name'.
+		' i.status AS rule_status, h.status AS host_status, h.host, h.name AS host_name'.
 		' FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid JOIN hosts h ON h.hostid = s.hostid'.
 		' ORDER BY s.hostid, s.role, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
 	$reporters = [];
@@ -896,7 +896,9 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary
 		if ($host_filter && !in_array($row['host'], $host_filter, true)) {
 			continue;
 		}
-		if ((int) $row['rule_status'] !== 0) {
+		// A usable snapshot belongs to an enabled rule on an enabled (monitored) host
+		// (topology-observation-cleanup-spec.md, rule 1).
+		if ((int) $row['rule_status'] !== 0 || (int) $row['host_status'] !== 0) {
 			continue;
 		}
 		if ((int) $row['role'] !== (int) $row['rule_role']) {
@@ -1606,6 +1608,7 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 	// Only observations of rules that still have a usable snapshot (the test of $clean_stale_observations).
 	foreach ($pdo->query("SELECT o.edge_id, o.device_id FROM topo_observations o".
 			" JOIN items i ON i.itemid = o.itemid AND i.status = 0".
+			" JOIN hosts h ON h.hostid = i.hostid AND h.status = 0".
 			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.role = i.topology_role".
 			" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
 		$edge_id = (int) $observation['edge_id'];
@@ -1617,7 +1620,7 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 };
 
 // An observation mirrors the latest snapshot of its rule (Part 2 §7). When the rule has no usable snapshot any more —
-// disabled, its role changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
+// disabled (the rule or its host), its role changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
 // rows and they would keep saying what the rule said last: a stale shadow would keep a manual link contradicted, a
 // stale conflict would keep blocking an operator's eye. A FULL run therefore removes the observations of every rule
 // that did not contribute a snapshot to it; a run scoped with --zabbix-host cannot tell "not selected" from "not

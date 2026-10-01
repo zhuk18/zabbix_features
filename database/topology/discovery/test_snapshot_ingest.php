@@ -44,7 +44,7 @@ foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
-$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '')");
+$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0)');
 $pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
@@ -408,5 +408,20 @@ snapshot($pdo, 7002, 101, 1, CLOCK + 900, [['if_index' => 1, 'name' => 'a', 'loc
 $r = run_ingest($dsn, $user, $password);
 check(($r['summary']['reporters_skipped']['identity_ambiguous'] ?? 0) >= 1 && $obs_of(7001) === 0,
 	'a skipped reporter loses its observations');
+
+// (g) a disabled HOST: its rules have no usable snapshot, whatever their own status says
+add_host($pdo, 106, 'SwH', 'Switch H', '10.0.0.6');
+$H = 'e0:00:00:00:00:77';
+snapshot($pdo, 8001, 106, 2, CLOCK + 950, [['if_index' => 1, 'rem_chassis' => 'ab:00:00:00:00:0d', 'rem_port' => 'x', 'loc_chassis' => $H]]);
+run_ingest($dsn, $user, $password);
+check($obs_of(8001) >= 1, 'fixture: the observation of a rule on an enabled host');
+$pdo->exec('UPDATE hosts SET status=1 WHERE hostid=106');
+$r = run_ingest($dsn, $user, $password, ['SwH']);
+check($obs_of(8001) >= 1, 'a scoped run leaves the observations of a disabled host alone');
+$r = run_ingest($dsn, $user, $password);
+check($obs_of(8001) === 0 && ($r['summary']['observations_removed'] ?? 0) >= 1, 'a full run removes the observations of a disabled host');
+$pdo->exec('UPDATE hosts SET status=0 WHERE hostid=106');
+run_ingest($dsn, $user, $password);
+check($obs_of(8001) >= 1, 'the host is enabled again: its last snapshot is used again');
 
 echo "\nAll snapshot ingest tests passed.\n";

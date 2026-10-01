@@ -45,7 +45,7 @@ function reset_db(PDO $pdo): void {
 		$pdo->exec("DROP TABLE IF EXISTS {$table}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
-	$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '')");
+	$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 	$pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 	$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0)');
 	$pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
@@ -446,5 +446,21 @@ snapshot($pdo, 1002, 101, 2, CLOCK + 400, []);
 snapshot($pdo, 2002, 102, 2, CLOCK + 410, [nbr($U, 1, $R, 'Gi0/1')]);
 ingest($dsn, $user, $password, $pdo, 'after revoking every acknowledgment');
 check(link_between($pdo, $lab['P'], $lab['Up'])['discovered_via'] !== 'manual', 'without acknowledgments and without a shadow the confirmed manual link is upgraded, as before');
+
+// ============================================================================================================
+echo "\n=== 10: a disabled rule or host takes its shadows with it ===\n";
+reset_db($pdo);
+$lab = lab_case($pdo, $dsn, $user, $password, $R, $U, $PR);
+$r = ingest($dsn, $user, $password, $pdo, 'with the printer behind the manual link');
+check(contradicted($r) === 1, 'contradicted while the rule and the host are enabled');
+$pdo->exec('UPDATE hosts SET status=1 WHERE hostid=101');
+$r = ingest($dsn, $user, $password, $pdo, 'with the host disabled');
+check(contradicted($r) === 0, 'not contradicted: the only reporter that sees the printer is disabled');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='shadowed'") === 0, 'and its shadowing observation is gone');
+check(is_active(link_between($pdo, $lab['P'], $lab['Up'])) && link_between($pdo, $lab['P'], $lab['Up'])['discovered_via'] === 'manual',
+	'the manual link itself is untouched');
+$pdo->exec('UPDATE hosts SET status=0 WHERE hostid=101');
+$r = ingest($dsn, $user, $password, $pdo, 'with the host enabled again');
+check(contradicted($r) === 1, 'contradicted again from the same last snapshot');
 
 echo "\nAll manual contradiction ingest tests passed.\n";
