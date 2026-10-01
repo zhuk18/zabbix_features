@@ -54,24 +54,14 @@ if (isset($options['help'])) {
 	exit(0);
 }
 
-// ---- Run lock + status file (spec §6/§7: shared by the CLI and the web controller that spawns this
-// same script — adding it once here, at the entrypoint every caller goes through, covers both without
-// any separate locking code on the API path). Deliberately NOT next to this script (__DIR__, inside
-// the git-tracked source tree): a real deployment runs the CLI as one OS user (an operator's shell)
-// and the web-spawned copy as another (e.g. www-data under Apache/PHP-FPM), and a source directory is
-// commonly owned by the former with no write access for the latter — confirmed the hard way against
-// this box's own Apache vhost (docroot owned by a human user, group-writable but www-data isn't a
-// member): the web-triggered run's fopen() on the lock file silently failed under www-data, so it hit
-// the "already running" fail() path immediately, produced no new lock/status/log file, and the status
-// endpoint kept serving a stale (from an earlier, same-OS-user) "done" result — the UI reported success
-// for a run that never actually happened. sys_get_temp_dir() (world-writable, sticky bit) is a
-// reliable common ground regardless of which OS user runs which caller. Acquired after --help (which
-// should never be blocked by an in-progress run) but before argument validation, so even a malformed
-// invocation can't race a real run — it just fails fast under the lock and the shutdown handler below
-// turns that into a clean "error" status rather than leaving "running" stuck. ----
+// ---- Run exclusion + status file (spec §6/§7). The run lock is a DATABASE advisory lock (MySQL GET_LOCK /
+// PostgreSQL pg_try_advisory_lock), taken below once the connection exists: a file lock cannot do this job because
+// the CLI and the web server's PHP-FPM do not share a temporary directory (FPM runs with a private /tmp), so they
+// took different lock files and never excluded each other. The database is the one thing every caller shares. The
+// STATUS file still lives in sys_get_temp_dir(): a run's status is visible to callers of the same temporary
+// directory only (a web-started run to the web page; a CLI run is reported on the CLI) — see the loser's branch. ----
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
-const INGEST_LOCK_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest.lock';
 const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.json';
 // Identifies this run in the status file: a caller that has just started a run can tell "my run" from the previous
 // one (started_at has a resolution of one second, so two runs can share it).
@@ -85,32 +75,6 @@ function write_status(array $status): void {
 	file_put_contents($tmp, json_encode($status, JSON_THROW_ON_ERROR));
 	rename($tmp, INGEST_STATUS_FILE);
 }
-
-$lock_handle = fopen(INGEST_LOCK_FILE, 'c');
-if ($lock_handle === false || !flock($lock_handle, LOCK_EX | LOCK_NB)) {
-	fail('Ingest already running (lock held on '.INGEST_LOCK_FILE.') — exiting rather than running '.
-		'concurrently or blocking. Try again once the in-progress run finishes.');
-}
-// Lock is held for the lifetime of this process ($lock_handle stays open; PHP releases it on exit,
-// including on a fatal error) — no explicit unlock call needed, and none is safe to add mid-script
-// since a PHP fatal error would then skip it anyway.
-
-$run_started_at = time();
-write_status(['status' => 'running', 'started_at' => $run_started_at, 'finished_at' => null, 'summary' => null]);
-
-register_shutdown_function(static function () use ($run_started_at) {
-	// Catches every path that doesn't already write a terminal status itself: an uncaught Throwable
-	// escaping the whole script, a PHP fatal error (e.g. OOM), or an early fail()/exit(1) for bad args
-	// — all would otherwise leave the status file stuck on "running" forever, wedging the UI's poll loop.
-	$error = error_get_last();
-	$current = @file_get_contents(INGEST_STATUS_FILE);
-	$current = $current ? json_decode($current, true) : null;
-	if ($current !== null && $current['status'] === 'running') {
-		write_status(['status' => 'error', 'started_at' => $run_started_at, 'finished_at' => time(),
-			'summary' => null,
-			'error' => $error ? $error['message'] : 'ingest.php exited without reporting a final status']);
-	}
-});
 
 $api_url = $options['api-url'] ?? getenv('ZABBIX_API_URL') ?: null;
 $api_token = $options['api-token'] ?? getenv('ZABBIX_API_TOKEN') ?: null;
@@ -133,6 +97,63 @@ if (!$pdo_dsn || !$pdo_user) {
 // Optional operator scoping — a filter on top of dynamic discovery, never a substitute for it (see the
 // file header). Empty means "no filter": every host carrying topology.discovery.raw is a reporter.
 $zabbix_host_filter = isset($options['zabbix-host']) ? (array) $options['zabbix-host'] : [];
+
+// ---- Connect, then take the run lock (the very first thing a run does with the database) ----
+
+try {
+	$pdo = new PDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+}
+catch (Throwable $exception) {
+	fail('Cannot connect to the database: '.$exception->getMessage());
+}
+
+/** True when this connection now holds the topology ingest lock. Non-blocking; released when the connection ends. */
+function acquire_ingest_lock(PDO $pdo): bool {
+	if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql') {
+		// advisory locks are per database already; the key only has to be the same for every caller
+		return (bool) $pdo->query('SELECT pg_try_advisory_lock('.crc32('topology_ingest').')')->fetchColumn();
+	}
+	// MySQL lock names are server-wide: the database name keeps two databases on one server apart
+	$name = 'topology_ingest:'.substr(md5((string) $pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 16);
+	$stmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
+	$stmt->execute([$name]);
+	return (int) $stmt->fetchColumn() === 1;
+}
+
+if (!acquire_ingest_lock($pdo)) {
+	$message = 'Ingest already running (database advisory lock held) — exiting rather than running concurrently or '.
+		'blocking. Try again once the in-progress run finishes.';
+	// If the status file of THIS temporary directory says "running", that run is the holder and the file is its
+	// truth: leave it alone. Otherwise the holder is a process with another temporary directory (the CLI next to a
+	// web-started run, or the reverse): record the refusal, so a caller that follows the status (the page after
+	// "Run discovery ingest") is told instead of waiting.
+	$current = is_file(INGEST_STATUS_FILE) ? json_decode((string) @file_get_contents(INGEST_STATUS_FILE), true) : null;
+	if (($current['status'] ?? null) !== 'running') {
+		write_status(['status' => 'error', 'started_at' => time(), 'finished_at' => time(), 'summary' => null,
+			'error' => $message]);
+	}
+	fail($message);
+}
+// The lock belongs to the connection: it is released when this process ends, however it ends (a fatal error, kill -9
+// included), and is never released earlier — $pdo must stay the one connection of the run.
+
+$run_started_at = time();
+write_status(['status' => 'running', 'started_at' => $run_started_at, 'finished_at' => null, 'summary' => null]);
+
+register_shutdown_function(static function () use ($run_started_at) {
+	// Catches every path that doesn't already write a terminal status itself: an uncaught Throwable
+	// escaping the whole script, a PHP fatal error (e.g. OOM), or an early fail()/exit(1) — all would otherwise
+	// leave the status file stuck on "running" forever, wedging the UI's poll loop. Registered only after the
+	// lock is held, so a run that lost it can never overwrite the status of the one that holds it.
+	$error = error_get_last();
+	$current = @file_get_contents(INGEST_STATUS_FILE);
+	$current = $current ? json_decode($current, true) : null;
+	if ($current !== null && $current['status'] === 'running') {
+		write_status(['status' => 'error', 'started_at' => $run_started_at, 'finished_at' => time(),
+			'summary' => null,
+			'error' => $error ? $error['message'] : 'ingest.php exited without reporting a final status']);
+	}
+});
 
 // ---- Zabbix API (read-only: host.get/item.get/history.get) ----
 
@@ -201,7 +222,6 @@ final class ZabbixApi {
 // ---- DB layer: mirrors seed.php's upsert helpers, plus the two pieces seed.php doesn't need
 // (physical_link's no-downgrade rule, and Device<->Host/Proxy reconciliation) ----
 
-$pdo = new PDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $now = time();
 
 // Rule 4's third Device-match key (chassis_id -> mgmt_ip -> sysname). The sysname key is deliberately NOT a
