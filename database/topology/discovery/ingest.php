@@ -740,6 +740,10 @@ $summary += [
 	// topology-device-level-edge-spec.md §8: active device-level links at the end of the run, links converted to
 	// port level (§5.1) or down to device level (§5.2) in this run, and the device-level links per reason.
 	'links_device_level' => 0,
+	// topology-push-transport-spec.md §5: snapshot rows skipped because an identity field could not be normalized (per
+	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
+	'rows_identity_invalid' => [],
+	'hosts_duplicate_transport' => [],
 	'links_refined' => 0,
 	'links_downgraded' => 0,
 	'device_level_reasons' => [],
@@ -1184,13 +1188,87 @@ $snap_remote_key = static function (array $row): string {
 // Reporters = hosts with at least one usable snapshot. Snapshots of disabled rules are skipped; a snapshot
 // written under a role the rule no longer has is ignored (the API also deletes it on a role change — this is
 // the defense in depth from spec §4.6). Returns [hostid => reporter].
-$snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary): array {
+// Identity normalization of a snapshot row (topology-lld-part3-spec.md §4.2, topology-push-transport-spec.md §5.1): the
+// one place that decides how identity strings are spelled, whatever transport produced the snapshot. On the output of
+// the native step it is a no-op (that output is already in the normal form: test_push.php runs every golden output
+// through it). A MAC (chassis id of type macAddress or without a type, port id of type macAddress, ifPhysAddress, FDB
+// MAC) becomes lowercase, colon-separated, six octets; a value that is shaped like a MAC but has the wrong number of
+// octets cannot be normalized and the row is skipped, never guessed. A management IP becomes dotted IPv4 / compressed
+// lowercase IPv6; a malformed one skips the row. A networkAddress chassis id that is an IP is written the same way; any
+// other chassis / port id is text, trimmed of trailing NUL and spaces. Returns [row, null] or [null, "field: why"].
+$snap_normalize_row = static function (array $row): array {
+	$mac = static function (string $value, bool $strict): ?string {
+		$octets = null;
+		if (preg_match('/^[0-9a-f]{1,2}([:-][0-9a-f]{1,2})+$/i', $value)) {
+			$octets = preg_split('/[:-]/', $value);
+		}
+		elseif (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4})+$/i', $value)) {
+			$octets = str_split(str_replace('.', '', $value), 2);
+		}
+		if ($octets === null) {
+			return $value;                       // not shaped like a MAC: text, left alone
+		}
+		if (count($octets) !== 6) {
+			// Wrong length: an error where the field is known to be a MAC (ifPhysAddress, a macAddress id). Elsewhere it
+			// is another kind of id that happens to look alike (a local networkAddress chassis is colon hex of 5 octets).
+			return $strict ? null : $value;
+		}
+
+		return implode(':', array_map(static fn (string $o): string => strtolower(str_pad($o, 2, '0', STR_PAD_LEFT)), $octets));
+	};
+	$ip = static function (string $value): ?string {
+		if (filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+			return $value;
+		}
+		$packed = filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false ? @inet_pton($value) : false;
+
+		return $packed === false ? null : strtolower((string) inet_ntop($packed));
+	};
+
+	foreach (['loc_chassis', 'mac', 'rem_chassis', 'rem_port', 'rem_mgmt_ip', 'rem_chassis_type', 'rem_port_type'] as $field) {
+		if (isset($row[$field]) && is_string($row[$field])) {
+			$row[$field] = rtrim($row[$field], "\0 ");
+		}
+	}
+
+	foreach (['loc_chassis' => false, 'mac' => true] as $field => $strict) {
+		if (isset($row[$field]) && $row[$field] !== '') {
+			if (($row[$field] = $mac($row[$field], $strict)) === null) {
+				return [null, $field.': a MAC of the wrong length'];
+			}
+		}
+	}
+	foreach ([['rem_chassis', 'rem_chassis_type'], ['rem_port', 'rem_port_type']] as [$field, $type_field]) {
+		if (!isset($row[$field]) || $row[$field] === '') {
+			continue;
+		}
+		$type = $row[$type_field] ?? '';
+		if ($type === 'macAddress') {
+			if (($row[$field] = $mac($row[$field], true)) === null) {
+				return [null, $field.': a MAC of the wrong length'];
+			}
+		}
+		elseif ($type === 'networkAddress' && ($normal = $ip($row[$field])) !== null) {
+			$row[$field] = $normal;
+		}
+	}
+	if (isset($row['rem_mgmt_ip']) && $row['rem_mgmt_ip'] !== '') {
+		if (($row['rem_mgmt_ip'] = $ip($row['rem_mgmt_ip'])) === null) {
+			return [null, 'rem_mgmt_ip: not an IP address'];
+		}
+	}
+
+	return [$row, null];
+};
+
+$snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_normalize_row, &$summary): array {
 	$rows = $pdo->query(
-		'SELECT s.itemid, s.hostid, s.role, s.clock, s.rows_json, i.topology_role AS rule_role,'.
+		'SELECT s.itemid, s.hostid, s.role, s.clock, s.rows_json, i.topology_role AS rule_role, i.type AS rule_type,'.
 		' i.status AS rule_status, h.status AS host_status, h.host, h.name AS host_name'.
 		' FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid JOIN hosts h ON h.hostid = s.hostid'.
 		' ORDER BY s.hostid, s.role, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
 	$reporters = [];
+	$transports = []; // hostid => role => source => transport => itemids
 	foreach ($rows as $row) {
 		if ($host_filter && !in_array($row['host'], $host_filter, true)) {
 			continue;
@@ -1211,11 +1289,48 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, &$summary
 			echo "SKIP: snapshot of rule #{$row['itemid']} holds invalid JSON\n";
 			continue;
 		}
+		// One normalization for every transport (push-transport spec §5.1); a row that cannot be normalized is skipped.
+		$normalized = [];
+		foreach ($decoded as $snapshot_row) {
+			[$snapshot_row, $problem] = is_array($snapshot_row) ? $snap_normalize_row($snapshot_row) : [null, 'not an object'];
+			if ($snapshot_row === null) {
+				$summary['rows_identity_invalid'][(int) $row['itemid']] = ($summary['rows_identity_invalid'][(int) $row['itemid']] ?? 0) + 1;
+				echo "SKIP: a row of rule #{$row['itemid']} has an identity that cannot be normalized ({$problem})\n";
+				continue;
+			}
+			$normalized[] = $snapshot_row;
+		}
 		$hostid = (int) $row['hostid'];
 		$reporters[$hostid] ??= ['hostid' => $hostid, 'host' => $row['host'], 'name' => $row['host_name'],
 			'snapshots' => []];
 		$reporters[$hostid]['snapshots'][(int) $row['role']][] = ['itemid' => (int) $row['itemid'],
-			'clock' => (int) $row['clock'], 'rows' => $decoded];
+			'clock' => (int) $row['clock'], 'rows' => $normalized];
+		// ITEM_TYPE_TRAPPER = 2; every other rule type (SNMP agent, dependent on an SNMP walk, ...) is the LLD transport.
+		// The same data from two transports is what is reported: the same role and, for NEIGHBORS, the same protocol
+		// (the row's source, 'lldp' when absent). LLDP by SNMP and CDP by push is not a duplicate. An empty snapshot
+		// has no rows, so no known source: it is not compared.
+		$transport = (int) $row['rule_type'] === 2 ? 'trapper' : 'snmp';
+		if ((int) $row['role'] === 2) {
+			$sources = array_unique(array_map(static fn(array $r): string => (string) ($r['source'] ?? 'lldp'), $normalized));
+		}
+		else {
+			$sources = [''];
+		}
+		foreach ($sources as $source) {
+			$transports[$hostid][(int) $row['role']][$source][$transport][] = (int) $row['itemid'];
+		}
+	}
+	// One host, one role (and protocol), rules of both transports: both are processed, the host is reported
+	// (push-transport spec §5.2).
+	foreach ($transports as $hostid => $by_role) {
+		foreach ($by_role as $role => $by_source) {
+			foreach ($by_source as $source => $by_transport) {
+				if (count($by_transport) > 1) {
+					$summary['hosts_duplicate_transport'][] = ['hostid' => $hostid, 'host' => $reporters[$hostid]['host'],
+						'role' => $role, 'source' => $source, 'itemids' => $by_transport];
+				}
+			}
+		}
 	}
 	return $reporters;
 };
