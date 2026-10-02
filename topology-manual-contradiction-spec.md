@@ -3,8 +3,9 @@
 **v1.1 (lab simulator S0, 2026-10-02):** a neighbor that reports a port of
 the manual link as its own neighbor also contradicts it, even when it is not
 an end of the link (third-party shadowing observation, §2). The hidden
-neighbor of such an observation is the reporter, not `device_id`. Ingest
-rules do not change.
+neighbor of such an observation is the reporter, not `device_id`. While M
+is contradicted, a superseded edge for the same port pair is not rendered
+(§6.2). Ingest rules do not change.
 
 ## 0. Objective
 
@@ -111,6 +112,14 @@ attrs.shadow_ack = [
 - An acknowledgment stays after its shadowing observation disappears (so
   an LLDP neighbor that flickers in and out doesn't re-raise the signal).
   It's removed only by revoke (§5.3) or together with the link.
+- For a third-party shadowing observation (§2), `remote_key` records the
+  natural key of the reporter's local port, in the same kind-prefixed form
+  as every `remote_key` (`chassis:<type>:<value>`, `ip:<addr>`,
+  `sysname:<name>`): `port:<reporter identity key>:<if_index>`, where the
+  reporter identity key is the reporter Device's own key in that form (for
+  example `port:chassis:-:00:11:22:33:44:12:1`). It is not a node id; the
+  `if_index` is the last segment. Display and audit only, as for the other
+  acknowledgments.
 - Ingest never reads or writes `shadow_ack`. Ingest rewrites of the
   manual link's other attrs must preserve it — check this.
 
@@ -175,6 +184,10 @@ shadows M, M is contradicted again immediately.
   → one ghost.
 - Not a `topo_edges` row, not counted for port uniqueness, not
   selectable as a link; clicking it opens M's details.
+- While M is contradicted, a superseded edge for the same port pair is not
+  rendered; only the ghost is drawn. When the hidden neighbor is
+  acknowledged, the ghost is removed and the superseded edge renders as
+  usual.
 - Acknowledged → no ghost.
 
 ### 6.3 Details of M
@@ -227,12 +240,14 @@ ingest runs as a real process.
   shows Printer1 on Gi0/1; Switch2 LLDP shows UPS1:eth0. → Two shadowing
   observations with `edge_id` = M (Printer1 near-end, Switch2 third-party).
   Hidden neighbors: Printer1 and Switch2. Badges on M, Printer1, Switch2.
-  **No badge on UPS1.** Two ghosts: Router1–Printer1 and Switch2–UPS1.
+  **No badge on UPS1.** Two ghosts: Router1–Printer1 and Switch2–UPS1; the
+  superseded edges of the same two port pairs are not rendered.
 - **UPS1 with LLDP (current lab):** three shadowing observations. Hidden
   neighbors: Printer1 and Switch2 (Switch2 from two observations → one
   hidden neighbor, one badge, one ghost).
 - **Keep manual for Switch2 only:** M stays contradicted (Printer1 not
-  acknowledged); badge on Switch2 gone; ghost Switch2–UPS1 gone.
+  acknowledged); badge on Switch2 gone; ghost Switch2–UPS1 gone, and the
+  superseded Switch2–UPS1 edge renders as usual.
 - **Accept discovery with a third party:** M deleted. After a full
   ingest, Router1–Printer1 and Switch2–UPS1 are active, with the same
   edge ids they had before M was created.

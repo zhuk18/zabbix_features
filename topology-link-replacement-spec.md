@@ -1,6 +1,10 @@
-# Topology — discovered-vs-discovered link replacement: build spec (v2.1)
+# Topology — discovered-vs-discovered link replacement: build spec (v2.2)
 
 ## Changes
+
+**v2.2 (2026-10-02):** one rendering exception in §7: while a manual link is
+contradicted, a superseded edge for the same port pair is not rendered
+(manual-contradiction spec §6.2). No rule changes.
 
 **v2.1 (after `012d1f544de`):**
 1. Competing new claims on a port without an active link → `ambiguous`,
@@ -217,7 +221,9 @@ A second run over the same data changes nothing.
 
 - Superseded links render like stale links (faded). Tooltip / details:
   "Replaced on <date>" and, when known, what replaced it. Hiding them by
-  default is not part of this spec.
+  default is not part of this spec. Exception: while a manual link is
+  contradicted, a superseded edge for the same port pair is not rendered
+  (manual-contradiction spec §6.2).
 - A `conflict` younger than the far end's NEIGHBORS interval is the
   expected transient; don't escalate it. Observations expose `age`.
 - `/topo/ingest/status` per-run counts: `links_superseded`,
