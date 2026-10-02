@@ -328,10 +328,19 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 	zbx_db_row_t	db_row;
 	int		exists = 0, same = 0, ret = SUCCEED;
 
-	result = zbx_db_select("select role,rows_hash from topo_lld_snapshot where itemid=" ZBX_FS_UI64, itemid);
+	result = zbx_db_select("select role,rows_hash,clock from topo_lld_snapshot where itemid=" ZBX_FS_UI64, itemid);
 
 	if (NULL != (db_row = zbx_db_fetch(result)))
 	{
+		/* the snapshot clock never goes back: a value older than the stored one (a delayed or replayed */
+		/* send) changes nothing; an equal clock is accepted */
+		if (atoi(db_row[2]) > now)
+		{
+			zbx_db_free_result(result);
+
+			return SUCCEED;
+		}
+
 		exists = 1;
 		same = role == atoi(db_row[0]) && 0 == strcmp(hash, db_row[1]);
 	}

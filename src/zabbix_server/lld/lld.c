@@ -1106,12 +1106,16 @@ static void	lld_lifetime_init(zbx_lld_lifetime_t *lifetime, const char *key, zbx
  *                                                                            *
  * Parameters: item        - [IN] discovery rule                              *
  *             lld_entries - [IN] discovery entries (rows)                    *
+ *             ts          - [IN] timestamp of the discovery value (the time  *
+ *                               it was collected: for a trapper rule the     *
+ *                               one sent with zabbix_sender -T)              *
  *             error       - [OUT] Error or informational message. Will be    *
  *                               set to empty string on successful discovery  *
  *                               without additional information.              *
  *                                                                            *
  ******************************************************************************/
-int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *lld_entries, char **error)
+int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *lld_entries,
+		const zbx_timespec_t *ts, char **error)
 {
 	zbx_db_result_t			result;
 	zbx_db_row_t			row;
@@ -1193,7 +1197,10 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 	{
 		char	*topology_info = NULL;
 
-		lld_topology_snapshot_update(item->itemid, hostid, topology_role, &lld_rows, (int)now, &topology_info);
+		/* the snapshot is dated by when the value was observed, not when it was processed (topology LLD Part 2 */
+		/* §2 rule 3): a value sent with an old timestamp must not look fresh; no timestamp falls back to now */
+		lld_topology_snapshot_update(item->itemid, hostid, topology_role, &lld_rows,
+				0 < ts->sec ? (int)ts->sec : (int)now, &topology_info);
 
 		if (NULL != topology_info)
 		{

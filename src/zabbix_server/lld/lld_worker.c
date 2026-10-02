@@ -309,7 +309,7 @@ static void	lld_process_value(zbx_lld_value_t *lld_value)
 	char		*error = NULL;
 	unsigned char	state;
 
-	if (SUCCEED == lld_process_discovery_rule(&lld_value->item, &lld_value->entries_sorted, &error))
+	if (SUCCEED == lld_process_discovery_rule(&lld_value->item, &lld_value->entries_sorted, &lld_value->ts, &error))
 		state = ITEM_STATE_NORMAL;
 	else
 		state = ITEM_STATE_NOTSUPPORTED;
