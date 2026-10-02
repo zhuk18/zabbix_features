@@ -1,0 +1,104 @@
+# Lab description (topology-lab-simulator-spec.md §4). Describes the current lab (snmpdata/*) one-to-one:
+# S0 compares a fresh ingest of the data generated from this file with reference-s0.json.
+settings:
+  database: zabbix            # the only allowed value (spec §2); the tool refuses to start otherwise
+  network: 127.0.0.0/24       # lab address range; 127/8 is local, no IP aliases are needed
+  snmp_port: 1611             # the existing lab hosts use 1611 (spec §7 says 161, which needs root)
+  community: zbxlab
+  emit_subtypes: false        # the current fixtures carry no lldp*IdSubtype columns
+  emit_mgmt_addr: false       # ... and no lldpRemManAddrTable
+  adopt: [Router1, Switch1, Switch2, UPS1, AccessSwitch1]   # existing hosts the tool may take over (tag them)
+  zabbix:
+    url: http://localhost/zabbix/ui/api_jsonrpc.php
+    group: Test
+    template_lld: Topology by SNMP
+    template_push: Topology by push
+
+devices:
+  Router1:
+    ip: 127.0.0.2
+    chassis: {subtype: mac, value: "00:11:22:33:44:01"}
+    port_mac_prefix: "02:00:00:01"
+    ports:
+      - {ifindex: 1, name: Gi0/0}
+      - {ifindex: 2, name: Gi0/1}
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  Switch1:
+    ip: 127.0.0.3
+    chassis: {subtype: mac, value: "00:11:22:33:44:02"}
+    port_mac_prefix: "02:00:00:02"
+    ports:
+      - {ifindex: 1, name: Gi0/24}
+      - {ifindex: 2, name: Gi0/2}
+      - {ifindex: 3, name: Gi0/3, admin: down, oper: down}
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  Switch2:
+    ip: 127.0.0.4
+    chassis: {subtype: mac, value: "00:11:22:33:44:12"}
+    port_mac_prefix: "02:00:00:03"
+    ports:
+      - {ifindex: 1, name: Gi0/24}
+      - {ifindex: 2, name: Gi0/1}
+      - {ifindex: 3, name: Gi0/2}
+      - {ifindex: 4, name: Gi0/3}
+      - {ifindex: 5, name: Gi0/4, admin: down, oper: down}   # a cable is attached anyway (AP1), as in the fixture
+      - {ifindex: 6, name: Gi0/5}
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  UPS1:
+    ip: 127.0.0.5
+    chassis: {subtype: mac, value: "00:11:22:33:44:05"}
+    port_mac_prefix: "02:00:00:04"
+    ports:
+      - {ifindex: 1, name: eth0}
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  AccessSwitch1:
+    ip: 127.0.0.6
+    chassis: {subtype: mac, value: "00:11:22:33:44:07"}
+    port_mac_prefix: "02:00:00:05"
+    ports:
+      - {ifindex: 1, name: Gi0/1}
+      - {ifindex: 2, name: Gi0/2}
+      - {ifindex: 3, name: Gi0/3, admin: down, oper: down}
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  # Neighbors seen by LLDP only: no snmpsim process, no Zabbix host.
+  AccessSwitch2:
+    chassis: {subtype: mac, value: "00:11:22:33:44:08"}
+    ports: [{ifindex: 1, name: Gi0/1}]
+    zabbix: {monitored: false}
+  Printer1:
+    chassis: {subtype: mac, value: "00:11:22:33:44:09"}
+    ports: [{ifindex: 1, name: Gi0/1}]
+    zabbix: {monitored: false}
+  UPS2:
+    chassis: {subtype: mac, value: "00:11:22:33:44:06"}
+    ports: [{ifindex: 1, name: Gi0/1}]
+    zabbix: {monitored: false}
+  AP1:
+    chassis: {subtype: mac, value: "00:11:22:33:44:0a"}
+    ports: [{ifindex: 1, name: wlan0}]
+    zabbix: {monitored: false}
+
+cables:
+  - [Router1:Gi0/0, Switch1:Gi0/24]
+  - [Router1:Gi0/1, Printer1:Gi0/1]
+  - [Switch1:Gi0/2, Switch2:Gi0/24]
+  - [Switch2:Gi0/1, UPS1:eth0]
+  - [Switch2:Gi0/2, UPS2:Gi0/1]
+  - [Switch2:Gi0/3, AccessSwitch1:Gi0/1]
+  - [Switch2:Gi0/4, AP1:wlan0]
+  - [AccessSwitch1:Gi0/2, AccessSwitch2:Gi0/1]
+
+# Deviations are inactive until a scenario step enables them. A deviation that needs ports or devices the
+# baseline does not have (e.g. unmanaged-switch-sw1-gi05) is defined by the scenario that adds them (patch:).
+deviations:
+  - id: router1-gi01-manual-vs-lldp
+    reason: "manual-contradiction spec §8, lab case: manual Router1 Gi0/1 - UPS1, LLDP shows Printer1 on Gi0/1"
+    type: zabbix_manual_link
+    link: [Router1:Gi0/1, UPS1:eth0]
+  - id: printer1-hex-sysname
+    reason: "Part 3 §6.2: non-UTF-8 bytes in lldpRemSysName"
+    type: override_oid
+    device: Router1
+    oid: lldpRemSysName
+    row: Gi0/1
+    value_hex: "50726e74fffe"

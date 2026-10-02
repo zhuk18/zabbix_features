@@ -1,0 +1,52 @@
+id: S2
+title: Unmanaged switch (several neighbors on one port)
+base: lab.yaml
+patch:
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 4, name: Gi0/5}
+    PC1:
+      chassis: {subtype: mac, value: "00:11:22:33:44:21"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    PC2:
+      chassis: {subtype: mac, value: "00:11:22:33:44:22"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+  deviations:
+    - id: unmanaged-switch-sw1-gi05
+      reason: "replacement spec §5.1: several neighbors in one snapshot on one port -> ambiguous"
+      type: extra_lldp_neighbor
+      port: Switch1:Gi0/5
+      neighbors: [PC1:eth0, PC2:eth0]
+steps:
+  - id: 0
+    note: baseline (Switch1:Gi0/5 has nothing behind it)
+    assert:
+      - link_absent: [Switch1:Gi0/5, PC1]
+  - id: 1
+    note: PC1 and PC2 both on Switch1:Gi0/5
+    deviations: {enable: [unmanaged-switch-sw1-gi05]}
+    # replacement spec §5.1: no existing link on the port -> no link, all neighbors ambiguous
+    assert:
+      - observation: {reporter: Switch1, port: Gi0/5, remote: PC1}
+        outcome: ambiguous
+      - observation: {reporter: Switch1, port: Gi0/5, remote: PC2}
+        outcome: ambiguous
+      - link_absent: [Switch1:Gi0/5, PC1]
+      - link_absent: [Switch1:Gi0/5, PC2]
+      - status: {field: observations.ambiguous, equals: 2}
+  - id: 2
+    note: PC2 removed; PC1 is the only neighbor on Switch1:Gi0/5
+    deviations: {disable: [unmanaged-switch-sw1-gi05]}
+    cables:
+      add: [[Switch1:Gi0/5, PC1:eth0]]
+    # a single neighbor on a port without a link: a plain new link (replacement spec §3.1)
+    assert:
+      - link: [Switch1:Gi0/5, PC1]
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/5, remote: PC1}
+        outcome: applied
+      - link_absent: [Switch1:Gi0/5, PC2]
+      - status: {field: observations.ambiguous, equals: 0}

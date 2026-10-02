@@ -1,0 +1,65 @@
+id: S3
+title: Neighbor without a known far port
+base: lab.yaml
+patch:
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 6, name: Gi0/6}
+        - {ifindex: 7, name: Gi0/7}
+        - {ifindex: 8, name: Gi0/8}
+    AP1:                                   # monitored in this scenario: it reports Switch1 and Switch2 itself
+      ip: 127.0.0.7
+      port_mac_prefix: "02:00:00:07"
+      add_ports:
+        - {ifindex: 2, name: eth0}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    AP2:                                   # never monitored; advertises its chassis MAC as the port id on both ports
+      chassis: {subtype: mac, value: "00:11:22:33:44:0c"}
+      lldp_local_port_subtype: macAddress
+      ports:
+        - {ifindex: 1, name: eth0, mac: "00:11:22:33:44:0c"}
+        - {ifindex: 2, name: eth1, mac: "00:11:22:33:44:0c"}
+      zabbix: {monitored: false}
+  cables:
+    add: [[Switch1:Gi0/6, AP1:eth0]]
+steps:
+  - id: 0
+    note: Switch1:Gi0/6 - AP1:eth0, both monitored
+    assert:
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+  - id: 1
+    note: AP1 unreachable; Switch1 still sees AP1 on Gi0/6
+    faults: {AP1: unreachable}
+    # Part 2 §2 rule 2 / observation-cleanup rule 6: an unsupported rule keeps its last good snapshot
+    assert:
+      - snapshot_unchanged: {host: AP1, since_step: 0}
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+  - id: 2
+    note: freshness threshold passes, AP1 still seen on Gi0/6
+    assert:
+      - pending: "the freshness threshold is the constant TOPO_LINK_FRESH_SECONDS = 7 days in ingest.php (and STALE_LINK_SECONDS in CTopologyPrototype); no setting, option or environment variable changes it. device-level spec §5.2 (port_lost conversion) cannot be reached in a lab run without changing topology code."
+  - id: 3
+    note: AP2 (not monitored) on Switch1:Gi0/7
+    cables:
+      add: [[Switch1:Gi0/7, AP2:eth0]]
+    # device-level spec §4: AP2 is not a reporter and only one local port names it, so nothing makes the link
+    # device-level; the port is created from the advertisement and the link is port-level ("non-reporter far end")
+    assert:
+      - link: [Switch1:Gi0/7, AP2]
+        state: active
+  - id: 4
+    note: "extension (not in the spec table): AP2 also on Switch1:Gi0/8, same MAC as port id on both ports"
+    cables:
+      add: [[Switch1:Gi0/8, AP2:eth1]]
+    # device-level spec §4.2: the same far port id on two local ports of one reporter -> device-level, port_shared_id
+    assert:
+      - link: [Switch1:Gi0/8, AP2]
+        type: device_link
+        reason: port_shared_id
+        state: active
+      - pending: "Switch1:Gi0/7 - AP2 was already a port-level link when the second port started advertising the same id. No spec says whether it converts to device-level (device-level spec §5.2 converts only after the freshness threshold; §4.2 is written for links created in one run). Observed: it stays a physical_link."

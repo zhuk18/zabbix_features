@@ -1,0 +1,222 @@
+{
+ "note": "S0 reference: natural keys of the topo_* state present before the lab build (5 hosts via LLD, Topology by SNMP, snmpsim snmpdata/*, ingest 2026-10-02 17:06-17:10)",
+ "state": {
+  "devices": [
+   "AP1",
+   "AccessSwitch1",
+   "AccessSwitch2",
+   "Printer1",
+   "Router1",
+   "Switch1",
+   "Switch2",
+   "UPS1",
+   "UPS2"
+  ],
+  "ports": {
+   "AP1": [
+    "wlan0*"
+   ],
+   "AccessSwitch1": [
+    "Gi0/1",
+    "Gi0/2",
+    "Gi0/3"
+   ],
+   "AccessSwitch2": [
+    "GigabitEthernet0/1*"
+   ],
+   "Printer1": [
+    "GigabitEthernet0/1*"
+   ],
+   "Router1": [
+    "Gi0/0",
+    "Gi0/1"
+   ],
+   "Switch1": [
+    "Gi0/2",
+    "Gi0/24",
+    "Gi0/3"
+   ],
+   "Switch2": [
+    "Gi0/1",
+    "Gi0/2",
+    "Gi0/24",
+    "Gi0/3",
+    "Gi0/4",
+    "Gi0/5"
+   ],
+   "UPS1": [
+    "eth0"
+   ],
+   "UPS2": [
+    "GigabitEthernet0/1*"
+   ]
+  },
+  "represented_by": {
+   "AccessSwitch1": "AccessSwitch1",
+   "Router1": "Router1",
+   "Switch1": "Switch1",
+   "Switch2": "Switch2",
+   "UPS1": "UPS1"
+  },
+  "links": [
+   {
+    "type": "physical_link",
+    "ends": [
+     "AP1:wlan0",
+     "Switch2:Gi0/4"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "AccessSwitch1:Gi0/1",
+     "Switch2:Gi0/3"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "AccessSwitch1:Gi0/2",
+     "AccessSwitch2:GigabitEthernet0/1"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "Printer1:GigabitEthernet0/1",
+     "Router1:Gi0/1"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "Router1:Gi0/0",
+     "Switch1:Gi0/24"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "Switch1:Gi0/2",
+     "Switch2:Gi0/24"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "Switch2:Gi0/1",
+     "UPS1:eth0"
+    ],
+    "via": "lldp",
+    "state": "active"
+   },
+   {
+    "type": "physical_link",
+    "ends": [
+     "Switch2:Gi0/2",
+     "UPS2:GigabitEthernet0/1"
+    ],
+    "via": "lldp",
+    "state": "active"
+   }
+  ]
+ },
+ "observations": [
+  {
+   "reporter": "Router1",
+   "port": "Gi0/0",
+   "remote_key": "chassis:-:00:11:22:33:44:02",
+   "outcome": "applied",
+   "device": "Switch1"
+  },
+  {
+   "reporter": "Router1",
+   "port": "Gi0/1",
+   "remote_key": "chassis:-:00:11:22:33:44:09",
+   "outcome": "applied",
+   "device": "Printer1"
+  },
+  {
+   "reporter": "Switch1",
+   "port": "Gi0/24",
+   "remote_key": "chassis:-:00:11:22:33:44:01",
+   "outcome": "applied",
+   "device": "Router1"
+  },
+  {
+   "reporter": "Switch1",
+   "port": "Gi0/2",
+   "remote_key": "chassis:-:00:11:22:33:44:12",
+   "outcome": "applied",
+   "device": "Switch2"
+  },
+  {
+   "reporter": "Switch2",
+   "port": "Gi0/24",
+   "remote_key": "chassis:-:00:11:22:33:44:02",
+   "outcome": "applied",
+   "device": "Switch1"
+  },
+  {
+   "reporter": "Switch2",
+   "port": "Gi0/1",
+   "remote_key": "chassis:-:00:11:22:33:44:05",
+   "outcome": "applied",
+   "device": "UPS1"
+  },
+  {
+   "reporter": "Switch2",
+   "port": "Gi0/2",
+   "remote_key": "chassis:-:00:11:22:33:44:06",
+   "outcome": "applied",
+   "device": "UPS2"
+  },
+  {
+   "reporter": "Switch2",
+   "port": "Gi0/3",
+   "remote_key": "chassis:-:00:11:22:33:44:07",
+   "outcome": "applied",
+   "device": "AccessSwitch1"
+  },
+  {
+   "reporter": "Switch2",
+   "port": "Gi0/4",
+   "remote_key": "chassis:-:00:11:22:33:44:0a",
+   "outcome": "applied",
+   "device": "AP1"
+  },
+  {
+   "reporter": "UPS1",
+   "port": "eth0",
+   "remote_key": "chassis:-:00:11:22:33:44:12",
+   "outcome": "applied",
+   "device": "Switch2"
+  },
+  {
+   "reporter": "AccessSwitch1",
+   "port": "Gi0/1",
+   "remote_key": "chassis:-:00:11:22:33:44:12",
+   "outcome": "applied",
+   "device": "Switch2"
+  },
+  {
+   "reporter": "AccessSwitch1",
+   "port": "Gi0/2",
+   "remote_key": "chassis:-:00:11:22:33:44:08",
+   "outcome": "applied",
+   "device": "AccessSwitch2"
+  }
+ ]
+}

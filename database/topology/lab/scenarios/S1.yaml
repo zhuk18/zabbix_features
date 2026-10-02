@@ -1,0 +1,71 @@
+id: S1
+title: Recabling, flicker and return
+base: lab.yaml
+# The spec's example (Switch1 Gi0/2 -> Gi0/3) does not fit the current lab: Switch1:Gi0/2 carries the Switch2 uplink and
+# Gi0/3 is down. The patch gives Switch1 two spare ports and puts Printer1 on the first one instead of on Router1:Gi0/1.
+patch:
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 4, name: Gi0/4}
+        - {ifindex: 5, name: Gi0/5}
+  cables:
+    remove: [[Router1:Gi0/1, Printer1:Gi0/1]]
+    add:    [[Switch1:Gi0/4, Printer1:Gi0/1]]
+steps:
+  - id: 0
+    note: baseline - Printer1 on Switch1:Gi0/4
+    assert:
+      - link: [Switch1:Gi0/4, Printer1]
+        state: active
+  - id: 1
+    note: Printer1 moved from Switch1:Gi0/4 to Switch1:Gi0/5
+    cables:
+      remove: [[Switch1:Gi0/4, Printer1:Gi0/1]]
+      add:    [[Switch1:Gi0/5, Printer1:Gi0/1]]
+    # replacement spec §3.1/§3.2: nothing else supports the old link -> superseded; the new one is created
+    assert:
+      - link: [Switch1:Gi0/4, Printer1]
+        state: superseded
+      - link: [Switch1:Gi0/5, Printer1]
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/5, remote: Printer1}
+        outcome: applied
+      - status: {field: links_superseded, equals: 1}
+  - id: 2
+    note: Printer1 absent from LLDP for one poll
+    cables:
+      remove: [[Switch1:Gi0/5, Printer1:Gi0/1]]
+    # no contradiction, so nothing is superseded; a link is never deleted when its neighbor disappears (replacement
+    # spec §4, model spec §3 rule 3); the observation mirrors the latest snapshot and goes away (Part 2 §7)
+    assert:
+      - link: [Switch1:Gi0/5, Printer1]
+        state: active
+      - link: [Switch1:Gi0/4, Printer1]
+        state: superseded
+      - status: {field: links_superseded, equals: 0}
+  - id: 3
+    note: Printer1 back on Switch1:Gi0/5
+    cables:
+      add: [[Switch1:Gi0/5, Printer1:Gi0/1]]
+    assert:
+      - edge_id_same_as: {step: 1, link: [Switch1:Gi0/5, Printer1]}
+      - link: [Switch1:Gi0/5, Printer1]
+        state: active
+      - link: [Switch1:Gi0/4, Printer1]
+        state: superseded
+      - observation: {reporter: Switch1, port: Gi0/5, remote: Printer1}
+        outcome: applied
+  - id: 4
+    note: Printer1 back on Switch1:Gi0/4
+    cables:
+      remove: [[Switch1:Gi0/5, Printer1:Gi0/1]]
+      add:    [[Switch1:Gi0/4, Printer1:Gi0/1]]
+    # replacement spec §3.3 revival: the holder (Gi0/5 link) has no support -> superseded, the old link revived
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/4, Printer1]}
+      - link: [Switch1:Gi0/4, Printer1]
+        state: active
+      - link: [Switch1:Gi0/5, Printer1]
+        state: superseded
+      - status: {field: links_revived, equals: 1}

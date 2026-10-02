@@ -1,0 +1,19 @@
+id: S0
+title: Baseline (current lab) and the Router1 / Printer1 / UPS1 manual-link case
+base: lab.yaml
+steps:
+  - id: 0
+    note: baseline - a fresh ingest of the generated data must equal reference-s0.json
+    assert:
+      - matches_reference: reference-s0.json
+  - id: 1
+    note: manual Router1:Gi0/1 - UPS1:eth0 added while LLDP still shows Printer1 on Router1:Gi0/1
+    deviations: {enable: [router1-gi01-manual-vs-lldp]}
+    # manual-contradiction spec §8 "Lab case": manual link stays, Printer1 observation shadowed, M contradicted
+    assert:
+      - link: [Router1:Gi0/1, UPS1:eth0]
+        via: manual
+        state: active
+      - observation: {reporter: Router1, port: Gi0/1, remote: Printer1}
+        outcome: shadowed
+      - status: {field: manual_links_contradicted, equals: 1}

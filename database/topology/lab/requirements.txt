@@ -1,0 +1,3 @@
+snmpsim==1.2.2
+PyYAML
+mysql-connector-python
