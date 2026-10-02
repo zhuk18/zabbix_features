@@ -2,6 +2,12 @@
 
 class CTopologyPrototype {
 
+	// topology-device-level-edge-spec.md §3.1: why a device_link ends at a Device and not at a Port. fdb_mac_only is
+	// reserved (accepted, never produced); manual is what an operator-made device_link carries.
+	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'port_lost', 'manual', 'fdb_mac_only'];
+	public const LINK_TYPES = ['physical_link', 'device_link'];
+
+
 	private static function attrs(array $row): array {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
@@ -380,6 +386,89 @@ class CTopologyPrototype {
 		foreach ($device_links as $relation) {
 			$relations[] = $relation;
 		}
+		foreach (self::getDeviceLevelRelations($node_ids, $own_line) as $relation) {
+			$relations[] = $relation;
+		}
+
+		return $relations;
+	}
+
+	/**
+	 * Device-level links (topology-device-level-edge-spec.md §7) as relations: a line from a Device to the far Device's
+	 * border (the graph draws Devices, so there is no far port to end at). Links between the same two Devices, in
+	 * either direction, are bundled into one relation that carries every link: storage stays per local port.
+	 *
+	 * far_port_hint is the far end's advertisement as received: untrusted text, to be escaped on render (model spec §9).
+	 *
+	 * @param array|null $node_ids  restrict to relations where BOTH Devices are in this set; null = unrestricted
+	 * @param array      $own_line  edge ids that keep a line of their own (contradicted / acknowledged manual links)
+	 */
+	private static function getDeviceLevelRelations(?array $node_ids, array $own_line): array {
+		$sql = 'SELECT link.id AS link_id,link.src_id AS port_id,link.dst_id AS far_device,'.
+				'src_port.device_id AS near_device,link.attrs AS link_attrs,link.created_at AS link_created_at'.
+			' FROM topo_edges link'.
+			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
+			' JOIN topo_nodes dst_device ON dst_device.id=link.dst_id'.
+			' WHERE link.type='.zbx_dbstr('device_link');
+		if ($node_ids !== null) {
+			$sql .= $node_ids
+				? ' AND '.dbConditionId('src_port.device_id', $node_ids).' AND '.dbConditionId('link.dst_id', $node_ids)
+				: ' AND 1=0';
+		}
+		$rows = DBfetchArray(DBselect($sql));
+		if (!$rows) {
+			return [];
+		}
+		$port_details = self::getPortDetails(array_column($rows, 'port_id'));
+
+		$bundles = [];
+		foreach ($rows as $row) {
+			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			$pair = [$row['near_device'], $row['far_device']];
+			sort($pair);
+			$key = implode('-', $pair).(isset($own_line[$row['link_id']]) ? '#'.$row['link_id'] : '');
+			$discovery_source = (string) ($link_attrs['discovered_via'] ?? 'lldp');
+			$last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
+			$superseded_at = self::supersededAt($link_attrs);
+			$bundles[$key][] = [
+				'edge_id' => $row['link_id'],
+				'near_device' => $row['near_device'], 'far_device' => $row['far_device'],
+				'near_port_id' => $row['port_id'],
+				'near_port' => $port_details[$row['port_id']]['name'] ?? null,
+				'near_status' => self::portStatus($port_details[$row['port_id']] ?? []),
+				'near_speed' => $port_details[$row['port_id']]['speed'] ?? null,
+				'far_port_reason' => (string) ($link_attrs['far_port_reason'] ?? ''),
+				'far_port_hint' => is_array($link_attrs['far_port_hint'] ?? null) ? $link_attrs['far_port_hint'] : null,
+				'created_by' => $link_attrs['created_by'] ?? null, 'created_at' => (int) $row['link_created_at'],
+				'discovered_via' => $discovery_source === 'manual' ? 'manual' : 'lldp',
+				'discovery_source' => $discovery_source,
+				'last_seen' => $last_seen,
+				// reason port_lost: when the far port was last confirmed ("not confirmed since ...")
+				'last_seen_port' => isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port'] : null,
+				'stale' => self::isLinkStale($last_seen, $superseded_at),
+				'superseded_at' => $superseded_at
+			];
+		}
+
+		$relations = [];
+		foreach ($bundles as $links) {
+			// Like physical links: an active link between the pair wins over a superseded one.
+			$active = array_values(array_filter($links, static fn (array $l): bool => $l['superseded_at'] === null));
+			$shown = $active ?: $links;
+			usort($shown, static fn (array $a, array $b): int => (int) $a['edge_id'] <=> (int) $b['edge_id']);
+			$first = $shown[0];
+			$manual = !array_filter($shown, static fn (array $l): bool => $l['discovered_via'] !== 'manual');
+			$relations[] = [
+				'source' => $first['near_device'], 'target' => $first['far_device'], 'type' => 'device_link',
+				'discovered_via' => $manual ? 'manual' : 'lldp',
+				'discovery_source' => $manual ? 'manual' : $first['discovery_source'],
+				'count' => count($shown), 'links' => $shown,
+				'stale' => !array_filter($shown, static fn (array $l): bool => !$l['stale']),
+				'superseded_at' => $active ? null : max(array_column($shown, 'superseded_at')),
+				// Same contract as physical links: the stored link, for the manual-contradiction panel.
+				'edge_id' => $first['edge_id']
+			];
+		}
 
 		return $relations;
 	}
@@ -423,6 +512,17 @@ class CTopologyPrototype {
 			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
 			' JOIN topo_nodes dst_port ON dst_port.id=link.dst_id'.
 			' WHERE link.type='.zbx_dbstr('physical_link')
+		);
+		while ($row = DBfetch($result)) {
+			$pairs[] = [$row['device_a'], $row['device_b']];
+		}
+
+		// A device-level link (device-level-edge spec) connects its local Device to the far Device just the same.
+		$result = DBselect(
+			'SELECT src_port.device_id AS device_a,link.dst_id AS device_b'.
+			' FROM topo_edges link'.
+			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
+			' WHERE link.type='.zbx_dbstr('device_link')
 		);
 		while ($row = DBfetch($result)) {
 			$pairs[] = [$row['device_a'], $row['device_b']];
@@ -582,6 +682,54 @@ class CTopologyPrototype {
 			}
 		}
 
+		// Device-level links (topology-device-level-edge-spec.md): a Device reached only through a link that ends at a
+		// Device is a neighbor too. Both directions: a link from one of this Device's ports to the neighbor, and a link
+		// from one of the neighbor's ports to this Device. A neighbor that is also reached by a physical_link keeps
+		// that one (port-level precision wins), as it does for several physical links.
+		$link_types = [];
+		$device_level = DBselect(
+			'SELECT device.id,device.attrs,link.attrs AS link_attrs,local_port.id AS local_port_id,'.
+				'NULL AS remote_port_id'.
+			' FROM topo_nodes local_port'.
+			' JOIN topo_edges link ON link.type='.zbx_dbstr('device_link').' AND link.src_id=local_port.id'.
+			' JOIN topo_nodes device ON device.id=link.dst_id AND device.type='.zbx_dbstr('device').
+			' WHERE local_port.device_id='.zbx_dbstr($deviceid).
+			' UNION ALL '.
+			'SELECT device.id,device.attrs,link.attrs AS link_attrs,NULL AS local_port_id,'.
+				'remote_port.id AS remote_port_id'.
+			' FROM topo_edges link'.
+			' JOIN topo_nodes remote_port ON remote_port.id=link.src_id'.
+			' JOIN topo_nodes device ON device.id=remote_port.device_id AND device.type='.zbx_dbstr('device').
+			' WHERE link.type='.zbx_dbstr('device_link').' AND link.dst_id='.zbx_dbstr($deviceid)
+		);
+		while ($row = DBfetch($device_level, false)) {
+			if ((string) $row['id'] === $deviceid) {
+				continue;
+			}
+			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
+			$row_superseded = self::supersededAt($link_attrs);
+			$row_last_seen = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
+			$source = (string) ($link_attrs['discovered_via'] ?? 'lldp');
+			if (array_key_exists($row['id'], $neighbors)) {
+				// Already reached by a physical_link: port-level precision wins. Already reached by another device-level
+				// link: an active one only replaces a superseded one.
+				if (!isset($link_types[$row['id']])
+						|| !($row_superseded === null && ($superseded_at[$row['id']] ?? null) !== null)) {
+					continue;
+				}
+			}
+			else {
+				$neighbors[$row['id']] = ['id' => $row['id'], 'type' => 'device', 'name' => self::attrs($row)['sysname'] ?? null,
+					'monitoring_state' => null];
+				$link_types[$row['id']] = 'device_link';
+			}
+			$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+			$discovered_via[$row['id']] = $source === 'manual' ? 'manual' : 'lldp';
+			$discovery_source[$row['id']] = $source;
+			$last_seen[$row['id']] = $row_last_seen;
+			$superseded_at[$row['id']] = $row_superseded;
+		}
+
 		$represented_ids = self::getRepresentedIds(array_keys($neighbors));
 		$visible_hostids = self::getVisibleHostIds();
 		$representing_hostids = self::getRepresentingHostIds(array_keys($neighbors), $visible_hostids);
@@ -590,6 +738,9 @@ class CTopologyPrototype {
 		));
 
 		foreach ($neighbors as $id => &$neighbor) {
+			// 'physical_link', or 'device_link' for a neighbor reached only through a link that ends at a Device (its
+			// far port is unknown: no remote_port, and the frontend takes the line from the relations, not from here).
+			$neighbor['link_type'] = $link_types[$id] ?? 'physical_link';
 			$neighbor['represented'] = isset($represented_ids[$id]);
 			$neighbor['represented_hostid'] = $representing_hostids[$id] ?? null;
 			$neighbor['discovered_via'] = $discovered_via[$id];
@@ -698,6 +849,27 @@ class CTopologyPrototype {
 		}
 		$linked_names = self::getLinkedDeviceNames($connected_port_ids);
 
+		// Device-level links (device-level-edge spec): a port whose link ends at a Device is connected too, to a Device
+		// whose port is not known. An active one only; the port keeps its row either way.
+		$device_level = [];
+		$cursor = DBselect(
+			'SELECT link.id,link.src_id,link.attrs,device.attrs AS device_attrs'.
+			' FROM topo_edges link'.
+			' JOIN topo_nodes port ON port.id=link.src_id AND port.device_id='.zbx_dbstr($deviceid).
+			' JOIN topo_nodes device ON device.id=link.dst_id'.
+			' WHERE link.type='.zbx_dbstr('device_link')
+		);
+		while ($link = DBfetch($cursor)) {
+			$link_attrs = json_decode($link['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+			if (self::supersededAt($link_attrs) === null) {
+				$device_level[$link['src_id']] = [
+					'id' => $link['id'], 'discovered_via' => (string) ($link_attrs['discovered_via'] ?? 'lldp'),
+					'reason' => (string) ($link_attrs['far_port_reason'] ?? ''),
+					'device' => json_decode($link['device_attrs'], true)['sysname'] ?? null
+				];
+			}
+		}
+
 		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
 			$discovered_via = $row['linkid'] !== null
@@ -710,7 +882,7 @@ class CTopologyPrototype {
 			elseif ($attrs['if_type'] === 'mgmt') {
 				$group = 'management';
 			}
-			elseif ($row['linkid'] !== null) {
+			elseif ($row['linkid'] !== null || isset($device_level[$row['id']])) {
 				$group = 'connected_lldp';
 			}
 			elseif ($attrs['oper_status'] === 'down') {
@@ -720,12 +892,17 @@ class CTopologyPrototype {
 				$group = 'connected_mac_only';
 			}
 
+			$device_link = $row['linkid'] === null ? ($device_level[$row['id']] ?? null) : null;
 			$groups[$group][] = [
 				'id' => $row['id'], 'port' => $attrs['name'], 'status' => $attrs['oper_status'],
-				'connected_to' => $linked_names[$row['id']] ?? null,
+				'connected_to' => $linked_names[$row['id']] ?? $device_link['device'] ?? null,
 				'linked_port_id' => $row['linkid'] !== null ? $row['linked_port_id'] : null,
-				'source' => $discovered_via === 'manual' ? 'Manual' : ($row['linkid'] !== null ? 'LLDP'
-					: ($group === 'connected_mac_only' ? 'MAC only' : '-'))
+				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
+				'device_link_id' => $device_link['id'] ?? null,
+				'far_port_reason' => $device_link['reason'] ?? null,
+				'source' => $device_link !== null ? ($device_link['discovered_via'] === 'manual' ? 'Manual' : 'LLDP')
+					: ($discovered_via === 'manual' ? 'Manual' : ($row['linkid'] !== null ? 'LLDP'
+					: ($group === 'connected_mac_only' ? 'MAC only' : '-')))
 			];
 		}
 
@@ -740,6 +917,147 @@ class CTopologyPrototype {
 		self::assertPortOnDevice($src_port_id);
 		self::assertPortOnDevice($dst_port_id);
 		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual');
+	}
+
+	// ---- Manual device-level links (topology-device-level-edge-spec.md §3.2) ----
+
+	/**
+	 * The active (not superseded) link on a port, either type and either end of a physical_link, or null. A device_link
+	 * occupies only its local port (topology-device-level-edge-spec.md §3), so it is looked up by src_id.
+	 */
+	private static function getActiveLinkOnPort(string $port_id, ?string $except_edge_id = null): ?array {
+		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE ('.
+			'(type='.zbx_dbstr('physical_link').' AND (src_id='.zbx_dbstr($port_id).' OR dst_id='.zbx_dbstr($port_id).'))'.
+			' OR (type='.zbx_dbstr('device_link').' AND src_id='.zbx_dbstr($port_id).'))');
+		while ($row = DBfetch($result, false)) {
+			if ($except_edge_id !== null && (string) $row['id'] === $except_edge_id) {
+				continue;
+			}
+			if (self::supersededAt(self::attrs($row)) === null) {
+				return $row;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * A manual device_link from a local Port to a Device whose port is not chosen. Same permission and entry point as
+	 * a manual physical_link; far_port_reason = manual, no hint. An existing link on that pair is left alone (never
+	 * downgraded), except a superseded one, which the operator declaring it again makes a manual link.
+	 *
+	 * @return string  the edge id
+	 */
+	public static function linkPortToDevice(string $port_id, string $device_id, string $username): string {
+		self::assertPortOnDevice($port_id);
+		$device = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.zbx_dbstr($device_id).
+			' AND type='.zbx_dbstr('device'), 1));
+		if (!$device) {
+			throw new Exception('Device '.$device_id.' does not exist.');
+		}
+		$own = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.zbx_dbstr($port_id).
+			' AND device_id='.zbx_dbstr($device_id), 1));
+		if ($own) {
+			throw new Exception('A port cannot be linked to its own device.');
+		}
+
+		// At most one active link per port (model spec §2.3), both types counted.
+		$active = self::getActiveLinkOnPort($port_id);
+		if ($active !== null) {
+			throw new Exception('Port '.$port_id.' already has a link.');
+		}
+
+		$existing = DBfetch(DBselect('SELECT id,attrs FROM topo_edges WHERE type='.zbx_dbstr('device_link').
+			' AND src_id='.zbx_dbstr($port_id).' AND dst_id='.zbx_dbstr($device_id), 1));
+		if ($existing) {
+			$attrs = self::attrs($existing);
+			if (self::supersededAt($attrs) !== null) {
+				$attrs = ['discovered_via' => 'manual', 'far_port_reason' => 'manual', 'last_seen' => time(),
+					'created_by' => $username];
+				DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($existing['id']));
+			}
+
+			return (string) $existing['id'];
+		}
+
+		DBexecute('INSERT INTO topo_edges (type,src_id,dst_id,attrs,created_at) VALUES ('.
+			zbx_dbstr('device_link').','.zbx_dbstr($port_id).','.zbx_dbstr($device_id).','.
+			zbx_dbstr(json_encode(['discovered_via' => 'manual', 'far_port_reason' => 'manual', 'last_seen' => time(),
+				'created_by' => $username])).','.time().')');
+
+		return (string) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('device_link').
+			' AND src_id='.zbx_dbstr($port_id).' AND dst_id='.zbx_dbstr($device_id), 1))['id'];
+	}
+
+	/**
+	 * Remove a link by id, either type and either provenance (a discovered one is re-created if it is reported again,
+	 * FR Lifecycle 5c).
+	 */
+	public static function removeLink(string $edge_id): void {
+		$link = DBfetch(DBselect('SELECT id FROM topo_edges WHERE id='.zbx_dbstr($edge_id).' AND '.
+			dbConditionString('type', self::LINK_TYPES), 1));
+		if (!$link) {
+			throw new Exception('Link '.$edge_id.' does not exist.');
+		}
+		DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge_id).' AND '.dbConditionString('type', self::LINK_TYPES));
+	}
+
+	/**
+	 * Convert a MANUAL link in place (same edge id): a device_link to a physical_link by choosing the far Device's
+	 * port, or a physical_link to a device_link by keeping one of its ports and dropping the other port.
+	 * Discovered links are never converted by hand: discovery owns their precision.
+	 *
+	 * @param string|null $far_port_id   device_link -> physical_link: a port of the link's far Device
+	 * @param string|null $keep_port_id  physical_link -> device_link: the port that stays the local one
+	 */
+	public static function convertManualLink(string $edge_id, ?string $far_port_id, ?string $keep_port_id): void {
+		$row = self::getManualLink($edge_id);
+		$attrs = self::attrs($row);
+
+		if ($row['type'] === 'device_link') {
+			if ($far_port_id === null) {
+				throw new Exception('Choose the far port.');
+			}
+			$far = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.zbx_dbstr($far_port_id).
+				' AND type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($row['dst_id']), 1));
+			if (!$far) {
+				throw new Exception('That port does not belong to the linked device.');
+			}
+			if (self::getActiveLinkOnPort($far_port_id, $edge_id) !== null) {
+				throw new Exception('Port '.$far_port_id.' already has a link.');
+			}
+			[$src, $dst] = (int) $row['src_id'] < (int) $far_port_id ? [$row['src_id'], $far_port_id]
+				: [$far_port_id, $row['src_id']];
+			$taken = DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('physical_link').
+				' AND src_id='.zbx_dbstr($src).' AND dst_id='.zbx_dbstr($dst), 1));
+			if ($taken) {
+				throw new Exception('These two ports are already linked.');
+			}
+			unset($attrs['far_port_reason'], $attrs['far_port_hint'], $attrs['last_seen_src'], $attrs['last_seen_dst']);
+			DBexecute('UPDATE topo_edges SET type='.zbx_dbstr('physical_link').',src_id='.zbx_dbstr($src).
+				',dst_id='.zbx_dbstr($dst).',attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge_id));
+
+			return;
+		}
+
+		if ($keep_port_id === null || !in_array((string) $keep_port_id, [(string) $row['src_id'], (string) $row['dst_id']], true)) {
+			throw new Exception('Choose which port of the link stays.');
+		}
+		$other_port = (string) $keep_port_id === (string) $row['src_id'] ? $row['dst_id'] : $row['src_id'];
+		$device = DBfetch(DBselect('SELECT device_id FROM topo_nodes WHERE id='.zbx_dbstr($other_port).
+			' AND type='.zbx_dbstr('port'), 1));
+		if (!$device || $device['device_id'] === null) {
+			throw new Exception('The other port has no device.');
+		}
+		$taken = DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('device_link').
+			' AND src_id='.zbx_dbstr($keep_port_id).' AND dst_id='.zbx_dbstr($device['device_id']), 1));
+		if ($taken) {
+			throw new Exception('That port already has a device-level link to the device.');
+		}
+		$attrs['far_port_reason'] = 'manual';
+		DBexecute('UPDATE topo_edges SET type='.zbx_dbstr('device_link').',src_id='.zbx_dbstr($keep_port_id).
+			',dst_id='.zbx_dbstr($device['device_id']).',attrs='.zbx_dbstr(json_encode($attrs)).
+			' WHERE id='.zbx_dbstr($edge_id));
 	}
 
 	public static function unlinkPorts(string $src_port_id, string $dst_port_id): void {
@@ -922,7 +1240,8 @@ class CTopologyPrototype {
 	 */
 	public static function getContradictions(): array {
 		$manual = [];
-		$result = DBselect('SELECT id,src_id,dst_id,attrs,created_at FROM topo_edges WHERE type='.zbx_dbstr('physical_link'));
+		$result = DBselect('SELECT id,type,src_id,dst_id,attrs,created_at FROM topo_edges WHERE '.
+			dbConditionString('type', self::LINK_TYPES));
 		while ($row = DBfetch($result, false)) {
 			$attrs = self::attrs($row);
 			if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
@@ -956,7 +1275,14 @@ class CTopologyPrototype {
 		$port_ids = [];
 		$device_ids = [];
 		foreach ($manual as $id => $link) {
-			array_push($port_ids, $link['row']['src_id'], $link['row']['dst_id']);
+			// A device_link ends at a Device (device-level-edge spec §3): dst_id is a node of type device, not a port.
+			$port_ids[] = $link['row']['src_id'];
+			if ($link['row']['type'] === 'physical_link') {
+				$port_ids[] = $link['row']['dst_id'];
+			}
+			else {
+				$device_ids[] = $link['row']['dst_id'];
+			}
 			foreach ($observations[$id] ?? [] as $observation) {
 				$port_ids[] = $observation['local_port_id'];
 				if ($observation['device_id'] !== null) {
@@ -994,6 +1320,14 @@ class CTopologyPrototype {
 				}
 			}
 
+			// The Devices the manual link itself joins. A neighbor that is one of them is this link's own far end seen at
+			// another precision (device-level-edge spec §6.3): not a hidden neighbor, so not a contradiction.
+			$own_devices = [];
+			$device_level = $link['row']['type'] === 'device_link';
+			$own_devices[(string) ($ports[$link['row']['src_id']]['device_id'] ?? '')] = true;
+			$own_devices[(string) ($device_level ? $link['row']['dst_id']
+				: ($ports[$link['row']['dst_id']]['device_id'] ?? ''))] = true;
+
 			$shadows = [];
 			$confirmed_from = [];
 			foreach ($observations[$id] ?? [] as $observation) {
@@ -1003,6 +1337,9 @@ class CTopologyPrototype {
 				}
 				$remote_attrs = json_decode((string) $observation['remote_attrs'], true) ?: [];
 				$hidden = $observation['device_id'];
+				if ($hidden !== null && isset($own_devices[(string) $hidden])) {
+					continue;
+				}
 				$shadows[] = [
 					'observation_id' => $observation['id'],
 					'local_port_id' => $observation['local_port_id'],
@@ -1022,15 +1359,16 @@ class CTopologyPrototype {
 				continue;
 			}
 
+			$device_b = $device_level ? $link['row']['dst_id'] : ($ports[$link['row']['dst_id']]['device_id'] ?? null);
 			$result[] = [
-				'edge_id' => $id,
-				'port_a' => $link['row']['src_id'], 'port_b' => $link['row']['dst_id'],
+				'edge_id' => $id, 'type' => $link['row']['type'],
+				'port_a' => $link['row']['src_id'], 'port_b' => $device_level ? null : $link['row']['dst_id'],
 				'port_a_name' => $ports[$link['row']['src_id']]['name'] ?? null,
-				'port_b_name' => $ports[$link['row']['dst_id']]['name'] ?? null,
+				'port_b_name' => $device_level ? null : ($ports[$link['row']['dst_id']]['name'] ?? null),
 				'device_a' => $ports[$link['row']['src_id']]['device_id'] ?? null,
-				'device_b' => $ports[$link['row']['dst_id']]['device_id'] ?? null,
+				'device_b' => $device_b,
 				'device_a_name' => $devices[$ports[$link['row']['src_id']]['device_id'] ?? 0] ?? null,
-				'device_b_name' => $devices[$ports[$link['row']['dst_id']]['device_id'] ?? 0] ?? null,
+				'device_b_name' => $devices[$device_b ?? 0] ?? null,
 				'created_at' => (int) $link['row']['created_at'],
 				'acks' => array_values($acks),
 				'shadows' => $shadows,
@@ -1043,8 +1381,8 @@ class CTopologyPrototype {
 	}
 
 	private static function getManualLink(string $edge_id): array {
-		$row = DBfetch(DBselect('SELECT id,src_id,dst_id,attrs FROM topo_edges WHERE id='.zbx_dbstr($edge_id).
-			' AND type='.zbx_dbstr('physical_link')), false);
+		$row = DBfetch(DBselect('SELECT id,type,src_id,dst_id,attrs FROM topo_edges WHERE id='.zbx_dbstr($edge_id).
+			' AND '.dbConditionString('type', self::LINK_TYPES)), false);
 		if (!$row || (self::attrs($row)['discovered_via'] ?? 'manual') !== 'manual') {
 			throw new Exception('Only a manual link can be resolved this way.');
 		}
@@ -1073,7 +1411,7 @@ class CTopologyPrototype {
 			throw new Exception('This manual link is not contradicted by discovery.');
 		}
 
-		DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge_id).' AND type='.zbx_dbstr('physical_link'));
+		DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge_id).' AND '.dbConditionString('type', self::LINK_TYPES));
 	}
 
 	/**
@@ -1134,9 +1472,11 @@ class CTopologyPrototype {
 	 *
 	 * @param array|null $outcomes   restrict to these outcomes; null = everything except 'applied'
 	 * @param string|null $device_id  restrict to observations resolved to this remote Device
+	 * @param string|null $precision  'port' or 'device' (topology-device-level-edge-spec.md §8): only observations whose
+	 *                                far end was identified that precisely
 	 */
 	public static function getObservations(?array $outcomes = null, ?string $device_id = null,
-			int $limit = 500, bool $contradicted_only = false): array {
+			int $limit = 500, bool $contradicted_only = false, ?string $precision = null): array {
 		$outcomes ??= array_values(array_diff(self::OBSERVATION_OUTCOMES, ['applied']));
 		if ($contradicted_only) {
 			// topology-manual-contradiction-spec.md §7: shadowed and not acknowledged.
@@ -1162,6 +1502,9 @@ class CTopologyPrototype {
 				' AND '.dbConditionId('h.hostid', $visible_hostids);
 		if ($device_id !== null) {
 			$sql .= ' AND o.device_id='.zbx_dbstr($device_id);
+		}
+		if ($precision !== null) {
+			$sql .= ' AND JSON_UNQUOTE(JSON_EXTRACT(o.remote_attrs,'.zbx_dbstr('$.precision').'))='.zbx_dbstr($precision);
 		}
 		$sql .= ' ORDER BY o.last_seen DESC,o.id DESC';
 
@@ -1205,6 +1548,12 @@ class CTopologyPrototype {
 					: ['id' => $row['device_id'], 'name' => $device_attrs['sysname'] ?? null],
 				// The link that blocked this observation (shadowed/conflict) or that it confirmed (applied).
 				'edge_id' => $row['edge_id'],
+				// How precisely the far end was identified: 'port', or 'device' (the far Device is known, its port is not)
+				// with the reason why; null when the observation made no link. precision_lower: it confirms a
+				// port-level link only at device level.
+				'precision' => json_decode((string) $row['remote_attrs'], true)['precision'] ?? null,
+				'far_port_reason' => json_decode((string) $row['remote_attrs'], true)['far_port_reason'] ?? null,
+				'precision_lower' => (bool) (json_decode((string) $row['remote_attrs'], true)['precision_lower'] ?? false),
 				'first_seen' => (int) $row['first_seen'],
 				'last_seen' => (int) $row['last_seen'],
 				// How long the observation has been continuously present: a `conflict` younger than the
@@ -1361,7 +1710,16 @@ class CTopologyPrototype {
 			' JOIN topo_nodes port ON port.id=CASE WHEN link.src_id='.zbx_dbstr($portid).' THEN link.dst_id ELSE link.src_id END'.
 			' JOIN topo_nodes device ON device.id=port.device_id WHERE link.type='.zbx_dbstr('physical_link').
 			' AND (link.src_id='.zbx_dbstr($portid).' OR link.dst_id='.zbx_dbstr($portid).')', 1));
-		return $row ? self::attrs($row)['sysname'] : null;
+		if ($row) {
+			return self::attrs($row)['sysname'];
+		}
+
+		// A device-level link (topology-device-level-edge-spec.md) ends at the Device itself: no Port hop.
+		$row = DBfetch(DBselect('SELECT device.attrs FROM topo_edges link'.
+			' JOIN topo_nodes device ON device.id=link.dst_id AND device.type='.zbx_dbstr('device').
+			' WHERE link.type='.zbx_dbstr('device_link').' AND link.src_id='.zbx_dbstr($portid), 1));
+
+		return $row ? (self::attrs($row)['sysname'] ?? null) : null;
 	}
 
 	/**

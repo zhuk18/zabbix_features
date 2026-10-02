@@ -274,7 +274,9 @@ const view = new class {
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
-			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null
+			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null,
+			// device_link only (topology-device-level-edge-spec.md §7): the bundled links between the two Devices.
+			discovery_source: relation.discovery_source, count: relation.count ?? null, links: relation.links ?? null
 		}));
 		// §2.3/§6: monitoring assignment is no longer a stored edge — relations never carries a
 		// 'monitored_by' entry. Synthesize the line here from each Host's own live-resolved
@@ -473,6 +475,11 @@ const view = new class {
 		const {neighbors} = await this.request(`topology.neighbors.get&id=${encodeURIComponent(device.id)}`);
 		neighbors.forEach(neighbor => {
 			this.nodes.set(String(neighbor.id), neighbor);
+			// A neighbor reached only through a device-level link: the node is all that is missing, the line comes
+			// from the relations (they bundle device-level links) and must not become a physical_link here.
+			if (neighbor.link_type === 'device_link') {
+				return;
+			}
 			// severity is a link-level fact (derived from both endpoint ports' triggers), not a node fact —
 			// carry it onto the physical_link edge object itself, refreshing it even if the link already
 			// exists from a previous selection, since the underlying trigger state can have changed since.
@@ -528,6 +535,7 @@ const view = new class {
 		this.setDetailsTitle(<?= json_encode(_('Link details')) ?>);
 		const type_labels = {
 			physical_link: <?= json_encode(_('Physical link (LLDP/manual)')) ?>,
+			device_link: <?= json_encode(_('Device-level link (far port unknown)')) ?>,
 			monitored_by: <?= json_encode(_('Monitored by')) ?>
 		};
 		const status_labels = {
@@ -577,9 +585,16 @@ const view = new class {
 				rows.push([<?= json_encode(_('Replaced')) ?>, this.replacedNote(link)]);
 			}
 		}
-		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw]) =>
-			`<tr><th>${this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>` +
-			(link.type === 'physical_link' && link.discovered_via === 'manual' && link.edge_id !== null && link.edge_id !== undefined
+		let device_link_actions = '';
+		if (link.type === 'device_link') {
+			// Row labels of a device-level link may carry already-escaped device names; escape() is idempotent on the
+			// plain text rows, so the names go through it once more here only if they were not escaped yet.
+			this.deviceLinkRows(link).forEach(([label, value]) => rows.push([label, value, false, true]));
+			device_link_actions = this.deviceLinkActions(link);
+		}
+		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw, label_escaped]) =>
+			`<tr><th>${label_escaped ? label : this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>` +
+			(['physical_link', 'device_link'].includes(link.type) && link.discovered_via === 'manual' && link.edge_id !== null && link.edge_id !== undefined
 				? this.manualLinkFragment(link.edge_id) : '');
 		// Only physical_link is a real, user/LLDP-declared topo_edges row a person can remove —
 		// monitored_by is a synthesized line, not a stored row at all (§2.3/§6): it's resolved live
@@ -589,7 +604,22 @@ const view = new class {
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-delete-link-button">` +
 				`${this.escape(<?= json_encode(_('Delete link')) ?>)}</button></div>`
 			: '';
-		this.details.innerHTML = `<h2>${this.escape(link.source.name)} ↔ ${this.escape(link.target.name)}</h2>${table}${delete_button}`;
+		// A manual physical_link can become a device-level one by keeping one of its ports (same edge id).
+		const to_device_buttons = link.type === 'physical_link' && link.discovered_via === 'manual' && link.edge_id
+			&& link.source_port_id && link.target_port_id
+			? `<div class="topology-promote">${[[link.source_port_id, link.source_port], [link.target_port_id, link.target_port]]
+				.map(([port_id, name]) => `<button type="button" class="btn-alt" data-topology-keep-port="${this.escape(port_id)}" ` +
+					`data-edge="${this.escape(link.edge_id)}">${this.escape(<?= json_encode(_('Make device-level, keep')) ?>)} ${this.escape(name ?? '?')}</button>`).join(' ')}</div>`
+			: '';
+		this.details.innerHTML = `<h2>${this.escape(link.source.name)} ↔ ${this.escape(link.target.name)}</h2>${table}${device_link_actions}${delete_button}${to_device_buttons}`;
+		this.wireDeviceLinkActions();
+		this.details.querySelectorAll('[data-topology-keep-port]').forEach(keep => keep.addEventListener('click', () => this.guard(async () => {
+			await this.request('topology.link.convert', {
+				method: 'POST', headers: {'Content-Type': 'application/json'},
+				body: JSON.stringify({id: keep.dataset.edge, keep_port_id: keep.dataset.topologyKeepPort})
+			});
+			await this.loadDevices();
+		})));
 		const button = this.details.querySelector('.topology-delete-link-button');
 		if (button) {
 			button.addEventListener('click', () => this.guard(async () => {
@@ -603,6 +633,140 @@ const view = new class {
 				await this.loadDevices();
 			}));
 		}
+	}
+
+	// ---- Device-level links (topology-device-level-edge-spec.md §3.1, §7) ----
+
+	// The far end's advertisement as received (untrusted text: callers escape it).
+	hintText(hint) {
+		if (!hint) {
+			return '';
+		}
+		return String(hint.rem_port_desc || hint.rem_port || '');
+	}
+
+	// Operator-facing explanation of why the far port is unknown. Plain text: callers escape it.
+	farPortReasonText(item, near_name, far_name, local_ports = '') {
+		const hint = this.hintText(item.far_port_hint);
+		const since = item.last_seen_port ? this.formatDate(item.last_seen_port) : '?';
+		switch (item.far_port_reason) {
+			case 'port_unmatched':
+				return `${far_name} ${<?= json_encode(_('reports its own ports, and none of them matches the port')) ?>} ` +
+					`${near_name} ${<?= json_encode(_('sees')) ?>}${hint ? ` (${hint})` : ''}. ` +
+					<?= json_encode(_('The link is drawn to the device until the port can be matched.')) ?>;
+			case 'port_shared_id':
+				return `${far_name} ${<?= json_encode(_('advertises the same identifier')) ?>}${hint ? ` (${hint})` : ''} ` +
+					<?= json_encode(_('on several ports, so the exact port can\'t be told apart.')) ?>;
+			case 'lag_ambiguous':
+				return `${near_name} ${<?= json_encode(_('has several links to')) ?>} ${far_name}` +
+					`${local_ports ? ` (${local_ports})` : ''} ` +
+					<?= json_encode(_('whose remote ports can\'t be told apart, typically a link aggregation.')) ?>;
+			case 'port_lost':
+				return <?= json_encode(_('The remote port hasn\'t been confirmed since')) ?> + ` ${since}; ${far_name} ` +
+					<?= json_encode(_('is still seen on this port. The link was port-to-port until then.')) ?>;
+			case 'manual':
+				return <?= json_encode(_('Created manually without a remote port')) ?> +
+					`${item.created_by ? ' ' + <?= json_encode(_('by')) ?> + ' ' + item.created_by : ''}` +
+					`${item.created_at ? ' ' + <?= json_encode(_('on')) ?> + ' ' + this.formatDate(item.created_at) : ''}.`;
+			case 'fdb_mac_only':
+				return <?= json_encode(_('Found by a learned MAC address (FDB) only; FDB doesn\'t tell which port of the device it is.')) ?>;
+			default:
+				return '';
+		}
+	}
+
+	nodeName(id) {
+		const node = this.nodes.get(String(id));
+		return node ? (node.name ?? node.sysname ?? '?') : '?';
+	}
+
+	// The known local ports of a bundle, per side: "2 links: Gi0/1, Gi0/2 ↔ ?".
+	deviceBundleLabel(link) {
+		const ports_of = device_id => (link.links ?? []).filter(item => String(item.near_device) === String(device_id))
+			.map(item => item.near_port).filter(Boolean).join(', ');
+		const first = link.links[0];
+		const left = ports_of(first.near_device) || '?';
+		const right = ports_of(first.far_device) || '?';
+		return `${link.count} ${<?= json_encode(_('links')) ?>}: ${left} ↔ ${right}`;
+	}
+
+	deviceLinkTooltip(link) {
+		return (link.links ?? []).map(item => {
+			const near = this.nodeName(item.near_device);
+			const far = this.nodeName(item.far_device);
+			const ports = (link.links ?? []).filter(other => String(other.near_device) === String(item.near_device))
+				.map(other => other.near_port).filter(Boolean).join(', ');
+			return `${near} ${item.near_port ?? '?'} → ${far}: ${this.farPortReasonText(item, near, far, ports)}`;
+		}).join('\n');
+	}
+
+	// "Link details" of a device-level link (or bundle): one block per stored link, with its reason, and the actions.
+	deviceLinkRows(link) {
+		const rows = [];
+		(link.links ?? []).forEach((item, index) => {
+			const near = this.nodeName(item.near_device);
+			const far = this.nodeName(item.far_device);
+			const ports = (link.links ?? []).filter(other => String(other.near_device) === String(item.near_device))
+				.map(other => other.near_port).filter(Boolean).join(', ');
+			if (index > 0) {
+				rows.push(['', '']);
+			}
+			rows.push([`${this.escape(near)} ${this.escape(<?= json_encode(_('port')) ?>)}`, item.near_port ?? '?']);
+			rows.push([`${this.escape(far)} ${this.escape(<?= json_encode(_('port')) ?>)}`,
+				<?= json_encode(_('unknown')) ?>]);
+			rows.push([<?= json_encode(_('Why')) ?>, this.farPortReasonText(item, near, far, ports)]);
+			if (item.far_port_hint) {
+				rows.push([<?= json_encode(_('Advertised by the far end')) ?>, this.hintText(item.far_port_hint)]);
+			}
+			rows.push([<?= json_encode(_('Discovered via')) ?>, item.discovered_via === 'manual'
+				? <?= json_encode(_('Manual')) ?> : (item.discovery_source || 'lldp').toUpperCase()]);
+		});
+		return rows;
+	}
+
+	deviceLinkActions(link) {
+		return (link.links ?? []).map(item => {
+			const label = `${this.nodeName(item.near_device)} ${item.near_port ?? '?'}`;
+			const convert = item.discovered_via === 'manual'
+				? `<button type="button" class="btn-alt" data-topology-device-link="convert" data-edge="${this.escape(item.edge_id)}" ` +
+					`data-far="${this.escape(item.far_device)}">${this.escape(<?= json_encode(_('Set the far port')) ?>)}</button> `
+				: '';
+			return `<div class="topology-promote"><span>${this.escape(label)}</span> ${convert}` +
+				`<button type="button" class="btn-alt" data-topology-device-link="remove" data-edge="${this.escape(item.edge_id)}">` +
+				`${this.escape(<?= json_encode(_('Delete link')) ?>)}</button></div>`;
+		}).join('');
+	}
+
+	wireDeviceLinkActions() {
+		this.details.querySelectorAll('[data-topology-device-link]').forEach(button => {
+			button.addEventListener('click', () => this.guard(async () => {
+				const post = (name, body) => this.request(name, {
+					method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+				});
+				if (button.dataset.topologyDeviceLink === 'remove') {
+					await post('topology.link.remove', {id: button.dataset.edge});
+					await this.loadDevices();
+					return;
+				}
+				// convert: pick the far Device's port, then turn the manual device-level link into a port-to-port one
+				const {groups = {}} = await this.request(`topology.ports.get&id=${encodeURIComponent(button.dataset.far)}`);
+				const ports = Object.values(groups).flat();
+				const holder = document.createElement('div');
+				holder.className = 'topology-promote';
+				const select = document.createElement('select');
+				ports.forEach(port => select.add(new Option(port.port, port.id)));
+				const confirm = document.createElement('button');
+				confirm.type = 'button';
+				confirm.className = 'btn-alt';
+				confirm.textContent = <?= json_encode(_('Set')) ?>;
+				confirm.addEventListener('click', () => this.guard(async () => {
+					await post('topology.link.convert', {id: button.dataset.edge, far_port_id: select.value});
+					await this.loadDevices();
+				}));
+				holder.append(select, confirm);
+				button.after(holder);
+			}));
+		});
 	}
 
 	// "Replaced on <date>", and the neighbor that took the port when the payload says which one it is.
@@ -760,7 +924,9 @@ const view = new class {
 			connected_lldp: 'Connected (LLDP)', connected_mac_only: 'Partial connectivity evidence',
 			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
 		};
-		const port_action = port => port.linked_port_id
+		const port_action = port => port.device_link_id
+			? `<button type="button" class="btn-alt topology-remove-link-button" data-edge-id="${this.escape(port.device_link_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
+			: port.linked_port_id
 			? `<button type="button" class="btn-alt topology-unlink-button" data-port-id="${this.escape(port.id)}" data-linked-port-id="${this.escape(port.linked_port_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
 			: `<button type="button" class="btn-alt topology-link-button" data-port-id="${this.escape(port.id)}" data-port-name="${this.escape(port.port)}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`;
 		const source_classes = {LLDP: 'topology-source-lldp', Manual: 'topology-source-manual'};
@@ -772,7 +938,7 @@ const view = new class {
 			${ports.map(port => `<tr>
 				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}</td>
 				<td><span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}</td>
-				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}</td>
+				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}${port.device_link_id ? ` <em>(${this.escape(<?= json_encode(_('port unknown')) ?>)})</em>` : ''}</td>
 				<td>${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
 				<td>${port_action(port)}</td>
 			</tr>`).join('')}
@@ -790,7 +956,13 @@ const view = new class {
 				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
 				<button type="button" class="btn-alt topology-create-host-button">${this.escape(<?= json_encode(_('+ Create host')) ?>)}</button>
 			</div>`;
-		return `${hidden_by}${sections}${promotion}`;
+		// A pick started on another Device's port can also end at this Device as a whole (a manual device-level link,
+		// topology-device-level-edge-spec.md §3.2): the far port is not chosen.
+		const link_to_device = this.link_pick && String(this.link_pick.device_id) !== String(device.id)
+			? `<div class="topology-promote"><button type="button" class="btn-alt topology-link-device-button">` +
+				`${this.escape(<?= json_encode(_('Link to this device (port unknown)')) ?>)}</button></div>`
+			: '';
+		return `${hidden_by}${sections}${link_to_device}${promotion}`;
 	}
 
 	// Search-as-you-type picker for the "Promote to host" panel (§6/§7): debounced, queries
@@ -889,9 +1061,30 @@ const view = new class {
 					await this.selectNode(reselect_node);
 				}
 				else {
-					this.link_pick = {id: port_id, label: `${device.name} / ${link_button.dataset.portName}`};
+					this.link_pick = {id: port_id, device_id: device.id, label: `${device.name} / ${link_button.dataset.portName}`};
 					this.renderLinkPick();
 				}
+			}));
+		});
+		const link_device_button = this.details.querySelector('.topology-link-device-button');
+		if (link_device_button) {
+			link_device_button.addEventListener('click', () => this.guard(async () => {
+				await this.request('topology.devicelink.create', {
+					method: 'POST', headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({port_id: this.link_pick.id, device_id: device.id})
+				});
+				this.link_pick = null;
+				this.renderLinkPick();
+				await this.loadDevices();
+			}));
+		}
+		this.details.querySelectorAll('.topology-remove-link-button').forEach(remove_button => {
+			remove_button.addEventListener('click', () => this.guard(async () => {
+				await this.request('topology.link.remove', {
+					method: 'POST', headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({id: remove_button.dataset.edgeId})
+				});
+				await this.selectNode(reselect_node);
 			}));
 		});
 		this.details.querySelectorAll('.topology-unlink-button').forEach(unlink_button => {
@@ -979,7 +1172,7 @@ const view = new class {
 			.filter(link => link.type !== 'represented_by')
 			// Automatic/manual toggle: only ever hides physical_link edges — monitored_by isn't
 			// physical wiring and passes through regardless of the selector's current value.
-			.filter(link => this.link_filter === 'all' || link.type !== 'physical_link' ||
+			.filter(link => this.link_filter === 'all' || !['physical_link', 'device_link'].includes(link.type) ||
 				link.discovered_via === this.link_filter)
 			.map(link => ({
 				...link,
@@ -1047,11 +1240,14 @@ const view = new class {
 					return '#6b46c1';
 				}
 				const down = link.source_status === 'down' || link.target_status === 'down';
+				if (link.type === 'device_link') {
+					return link.discovered_via === 'manual' ? '#334155' : '#64748b';
+				}
 				return (link.type === 'physical_link' && down) ? '#dc2626' : '#64748b';
 			})
 			.attr('stroke-width', link => {
 				const down = link.source_status === 'down' || link.target_status === 'down';
-				return (link.type === 'physical_link' && down) ? 4 : 2;
+				return link.type === 'device_link' ? 3 : ((link.type === 'physical_link' && down) ? 4 : 2);
 			})
 			.attr('stroke-dasharray', link => {
 				// represented_by and monitored_by both connect monitoring-related nodes and are easy to
@@ -1064,13 +1260,18 @@ const view = new class {
 				if (link.type === 'monitored_by') {
 					return '2 2';
 				}
+				// A device-level link (far port unknown) is dotted: distinct from dashed manual, faded stale and the
+				// orange dotted ghost line. A manual one keeps its manual indicator as a darker stroke below.
+				if (link.type === 'device_link') {
+					return '1 4';
+				}
 				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
 			})
 			// §7 staleness indicator: a THIRD independent channel, deliberately on neither the dash
 			// pattern (provenance) nor the stroke color/width (connectivity) above — a stale manual
 			// link is still dashed, just faded; a stale link with a down/red endpoint is still red,
 			// just faded. Never collapse this into either of the other two.
-			.style('opacity', link => (link.type === 'physical_link' && link.stale) ? 0.45 : 1);
+			.style('opacity', link => (['physical_link', 'device_link'].includes(link.type) && link.stale) ? 0.45 : 1);
 		links.append('title').text(link => {
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'
@@ -1092,8 +1293,17 @@ const view = new class {
 					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '');
 				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
 			}
+			if (link.type === 'device_link') {
+				return this.deviceLinkTooltip(link);
+			}
 			return '';
 		});
+		// A bundle of device-level links between the same two Devices is one line labelled with the count and the
+		// known local ports on each side ("2 links: Gi0/1, Gi0/2 ↔ ?").
+		const bundle_data = simulation_links.filter(link => link.type === 'device_link' && (link.count ?? 0) > 1);
+		const bundle_labels = this.canvas.append('g').selectAll('text').data(bundle_data).join('text')
+			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#475569')
+			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
 		// Manual links contradicted by discovery (topology-manual-contradiction-spec.md §6). Ghost link: where
 		// discovery says the cable actually goes — a dashed orange line from the reporting Device to the hidden
 		// neighbor, not a stored link (not selectable as one; a click opens the manual link's details). One per
@@ -1125,7 +1335,7 @@ const view = new class {
 			`${<?= json_encode(_('on')) ?>} ${ghost.shadow.local_port ?? '?'}`);
 		const ghost_labels = ghosts.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
 			.style('fill', '#c2410c').style('pointer-events', 'none').text(ghost => ghost.shadow.remote_port ?? '');
-		const contradicted_links = simulation_links.filter(link => link.type === 'physical_link' && link.edge_id !== null
+		const contradicted_links = simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type) && link.edge_id !== null
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
 		const link_badges = this.canvas.append('g').selectAll('g').data(contradicted_links).join('g')
 			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
@@ -1308,6 +1518,7 @@ const view = new class {
 				.attr('x2', ghost => ghost.to.x).attr('y2', ghost => ghost.to.y);
 			ghost_labels.attr('x', ghost => (ghost.from.x + ghost.to.x) / 2).attr('y', ghost => (ghost.from.y + ghost.to.y) / 2 - 5);
 			link_badges.attr('transform', link => `translate(${(link.source.x + link.target.x) / 2},${(link.source.y + link.target.y) / 2})`);
+			bundle_labels.attr('x', link => (link.source.x + link.target.x) / 2).attr('y', link => (link.source.y + link.target.y) / 2 - 6);
 		});
 	}
 };

@@ -4,7 +4,8 @@
  * GET topology.observations.get (topology-lld-part2-spec.md §8) — NEIGHBORS evidence recorded by ingest.
  *
  * Optional: outcome (one or more of applied|device_only|shadowed|conflict|ambiguous; default: everything except
- * applied), device_id (only observations resolved to that remote Device), limit.
+ * applied), device_id (only observations resolved to that remote Device), precision (port|device: how precisely the far
+ * end was identified, topology-device-level-edge-spec.md §8), limit.
  *
  * JSON only. Strings in the response originate from LLDP/CDP (model spec §9) and are data: whoever renders them
  * must escape. The JSON hex flags below only guarantee the payload is inert if it is ever embedded in HTML; they
@@ -20,6 +21,7 @@ class CControllerTopologyObservationsGet extends CController {
 			'outcome' => 'array',
 			'device_id' => 'id',
 			'contradicted' => 'in 0,1',
+			'precision' => 'in port,device',
 			'limit' => 'int32|ge 1|le 5000'
 		]);
 
@@ -45,7 +47,8 @@ class CControllerTopologyObservationsGet extends CController {
 		$observations = CTopologyPrototype::getObservations($outcomes,
 			$this->hasInput('device_id') ? $this->getInput('device_id') : null,
 			(int) $this->getInput('limit', 500),
-			(int) $this->getInput('contradicted', 0) === 1
+			(int) $this->getInput('contradicted', 0) === 1,
+			$this->hasInput('precision') ? $this->getInput('precision') : null
 		);
 
 		$this->setResponse(new CControllerResponseData([
