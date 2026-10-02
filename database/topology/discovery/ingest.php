@@ -259,6 +259,16 @@ $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $loc
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 			return [(int) $row['id'], 'sysname'];
 		}
+		// A device-level link (topology-device-level-edge-spec.md) ends at the Device itself: same scoping, no Port hop.
+		$stmt = $pdo->prepare(
+			"SELECT dev.id FROM topo_edges link JOIN topo_nodes dev ON dev.id = link.dst_id".
+			" WHERE link.type = 'device_link' AND link.src_id = ? AND dev.type = 'device'".
+			" AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ?"
+		);
+		$stmt->execute([$local_port_id, $sysname]);
+		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+			return [(int) $row['id'], 'sysname'];
+		}
 	}
 	return null;
 };
@@ -652,6 +662,13 @@ const TOPO_ROLE_NEIGHBORS = 2;
 const TOPO_ROLE_LEARNED_MACS = 3;
 const TOPO_ROLE_LAG = 4;
 
+// topology-device-level-edge-spec.md: why a link ends at a Device instead of a Port (§3.1). fdb_mac_only is
+// reserved: validation accepts it, nothing in this script produces it.
+const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'port_lost', 'manual', 'fdb_mac_only'];
+// The freshness threshold of model spec §7 / FR Lifecycle 5a (the same 7 days CTopologyPrototype::STALE_LINK_SECONDS
+// uses to draw a link as stale): §5.2 downgrades a port-level link whose port was last confirmed longer ago.
+const TOPO_LINK_FRESH_SECONDS = 7 * 24 * 60 * 60;
+
 $summary += [
 	'reporters_processed' => 0,
 	'reporters_skipped' => [],
@@ -666,6 +683,12 @@ $summary += [
 	// Observations of rules that have no usable snapshot any more (rule or host disabled, role changed, reporter skipped,
 	// snapshot gone): removed by a full run, see $clean_stale_observations.
 	'observations_removed' => 0,
+	// topology-device-level-edge-spec.md §8: active device-level links at the end of the run, links converted to
+	// port level (§5.1) or down to device level (§5.2) in this run, and the device-level links per reason.
+	'links_device_level' => 0,
+	'links_refined' => 0,
+	'links_downgraded' => 0,
+	'device_level_reasons' => [],
 ];
 
 $snap_node_attrs = static function (int $node_id) use ($pdo): array {
@@ -686,6 +709,31 @@ $snap_write_attrs = static function (int $node_id, array $attrs, array $before) 
 	}
 	$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $node_id]);
 	return true;
+};
+
+// topology-device-level-edge-spec.md §3: an edge's ends are checked on write. A physical_link joins two Ports, a
+// device_link goes from a Port to a Device; any other combination (and an unknown far_port_reason) is rejected, so
+// code that assumes "a physical link joins two ports" can never receive a device row.
+$validate_edge = static function (string $type, int $src_id, int $dst_id, ?array $attrs = null) use ($pdo): void {
+	$stmt = $pdo->prepare('SELECT id, type FROM topo_nodes WHERE id IN (?, ?)');
+	$stmt->execute([$src_id, $dst_id]);
+	$types = [];
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$types[(int) $row['id']] = $row['type'];
+	}
+	$want = ['physical_link' => ['port', 'port'], 'device_link' => ['port', 'device']][$type] ?? null;
+	if ($want === null) {
+		throw new InvalidArgumentException("unknown edge type '{$type}'");
+	}
+	if (($types[$src_id] ?? null) !== $want[0] || ($types[$dst_id] ?? null) !== $want[1]) {
+		throw new InvalidArgumentException("a {$type} joins a {$want[0]} to a {$want[1]}, got ".
+			($types[$src_id] ?? '?').' #'.$src_id.' -> '.($types[$dst_id] ?? '?').' #'.$dst_id);
+	}
+	if ($type === 'device_link' && $attrs !== null
+			&& !in_array($attrs['far_port_reason'] ?? null, TOPO_FAR_PORT_REASONS, true)) {
+		throw new InvalidArgumentException('a device_link needs a known far_port_reason, got '.
+			json_encode($attrs['far_port_reason'] ?? null));
+	}
 };
 
 // IANA ifType 161 = ieee8023adLag; anything else is "physical" (same classification as push.py — there is no
@@ -781,7 +829,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 // discovered_via is the row's source; any non-manual source upgrades a manual link. Returns the edge id.
 $snap_link = static function (int $port_a, int $port_b, string $source, int $reporter_port_id, int $seen_at,
 		bool $keep_manual = false) use (
-	$pdo, $insert_edge, $now, $last_insert_id, &$summary
+	$pdo, $insert_edge, $now, $last_insert_id, $validate_edge, &$summary
 ): int {
 	$reporter_is_a = $reporter_port_id === $port_a;
 	if ($port_a > $port_b) {
@@ -789,6 +837,7 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 		$reporter_is_a = !$reporter_is_a;
 	}
 	$side = $reporter_is_a ? 'last_seen_src' : 'last_seen_dst';
+	$validate_edge('physical_link', $port_a, $port_b);
 
 	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link' AND src_id = ? AND dst_id = ?");
 	$stmt->execute([$port_a, $port_b]);
@@ -801,19 +850,90 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 		// link back to the upgrade. Every other attr, shadow_ack included, is carried over untouched.
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual' && !$keep_manual) {
 			$attrs['discovered_via'] = $source;
+			unset($attrs['shadow_ack']); // acknowledgments only make sense on a manual link (device-level spec §6.3)
 		}
 		$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
 		$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
+		// device-level spec §3: the clock of the latest snapshot that contained this link at PORT level.
+		$attrs['last_seen_port'] = max((int) ($attrs['last_seen_port'] ?? 0), $seen_at);
 		if ($attrs !== $before) {
 			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
 				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $existing['id']]);
 		}
 		return (int) $existing['id'];
 	}
-	$attrs = ['discovered_via' => $source, $side => $seen_at, 'last_seen' => $seen_at];
+	$attrs = ['discovered_via' => $source, $side => $seen_at, 'last_seen' => $seen_at, 'last_seen_port' => $seen_at];
 	$insert_edge->execute(['physical_link', $port_a, $port_b, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
 	$summary['links_created']++;
 	return $last_insert_id();
+};
+
+// device_link upsert (topology-device-level-edge-spec.md §3): src = the local Port, dst = the far Device, directed by
+// construction (no canonicalization). last_seen_src is the local reporter's side; last_seen_dst is set elsewhere,
+// when the far Device's own reporter names the local Device. A manual link that discovery confirms is upgraded like
+// a manual physical_link ($keep_manual says it must not be); far_port_reason / far_port_hint follow the latest
+// sighting, except that a downgraded link keeps `port_lost` while the same device-level sighting continues.
+$snap_device_link = static function (int $port_id, int $device_id, string $source, string $reason, array $hint,
+		int $seen_at, bool $keep_manual = false) use ($pdo, $insert_edge, $now, $last_insert_id, $validate_edge, &$summary): int {
+	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'device_link' AND src_id = ? AND dst_id = ?");
+	$stmt->execute([$port_id, $device_id]);
+	if ($existing = $stmt->fetch(PDO::FETCH_ASSOC)) {
+		$before = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		$attrs = $before;
+		$manual = ($attrs['discovered_via'] ?? 'manual') === 'manual';
+		if (!$manual || !$keep_manual) {
+			if ($manual) {
+				$attrs['discovered_via'] = $source;
+				unset($attrs['shadow_ack']); // confirmation turns it into a discovered link (device-level spec §6.3)
+			}
+			if (!(($attrs['far_port_reason'] ?? null) === 'port_lost' && $reason === 'port_unmatched')) {
+				$attrs['far_port_reason'] = $reason;
+			}
+			if ($hint) {
+				$attrs['far_port_hint'] = $hint;
+			}
+		}
+		$attrs['last_seen_src'] = max((int) ($attrs['last_seen_src'] ?? 0), $seen_at);
+		$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
+		if ($attrs !== $before) {
+			$validate_edge('device_link', $port_id, $device_id, $attrs);
+			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $existing['id']]);
+		}
+		return (int) $existing['id'];
+	}
+	$attrs = ['discovered_via' => $source, 'far_port_reason' => $reason, 'last_seen_src' => $seen_at,
+		'last_seen' => $seen_at];
+	if ($hint) {
+		$attrs['far_port_hint'] = $hint;
+	}
+	$validate_edge('device_link', $port_id, $device_id, $attrs);
+	$insert_edge->execute(['device_link', $port_id, $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
+	$summary['links_created']++;
+	return $last_insert_id();
+};
+
+// A device-level sighting that confirms an existing PORT-level link at lower precision (§5.2 "before the
+// threshold"): last_seen_* advances, last_seen_port does not. A row without last_seen_port is pinned to its last_seen
+// first, so a link that only ever gets device-level confirmations still ages towards the downgrade.
+$snap_link_confirm_lower = static function (int $edge_id, int $reporter_port_id, int $seen_at) use ($pdo): void {
+	$stmt = $pdo->prepare('SELECT src_id, dst_id, attrs FROM topo_edges WHERE id = ?');
+	$stmt->execute([$edge_id]);
+	if (!($row = $stmt->fetch(PDO::FETCH_ASSOC))) {
+		return;
+	}
+	$before = json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+	$attrs = $before;
+	if (!array_key_exists('last_seen_port', $attrs)) {
+		$attrs['last_seen_port'] = (int) ($attrs['last_seen'] ?? 0);
+	}
+	$side = $reporter_port_id === (int) $row['src_id'] ? 'last_seen_src' : 'last_seen_dst';
+	$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
+	$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
+	if ($attrs !== $before) {
+		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $edge_id]);
+	}
 };
 
 // Physical links touching either port, other than the (a,b) pair itself, split by provenance. A manual link
@@ -868,7 +988,20 @@ $snap_link_reporter_self = static function (int $device_id, string $hostid, stri
 // Observation upsert keyed by (rule, local port, remote identity). first_seen survives while the observation
 // stays continuously present; last_seen is the snapshot clock. Nothing is written when nothing changed.
 $snap_observation = static function (int $itemid, int $local_port_id, string $remote_key, array $remote_attrs,
-		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at) use ($pdo): int {
+		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at, ?string $precision = null,
+		?string $far_port_reason = null, bool $precision_lower = false) use ($pdo): int {
+	// topology-device-level-edge-spec.md §8: how precisely the far end was identified rides in remote_attrs (no schema
+	// change): precision 'port' / 'device' (absent when no link was made), the reason when 'device', and
+	// precision_lower when the observation confirms a port-level link only at device level.
+	if ($precision !== null) {
+		$remote_attrs['precision'] = $precision;
+	}
+	if ($far_port_reason !== null) {
+		$remote_attrs['far_port_reason'] = $far_port_reason;
+	}
+	if ($precision_lower) {
+		$remote_attrs['precision_lower'] = true;
+	}
 	$attrs_json = json_encode($remote_attrs, JSON_THROW_ON_ERROR);
 	$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, last_seen FROM topo_observations'.
 		' WHERE itemid = ? AND local_port_id = ? AND remote_key = ?');
@@ -1108,44 +1241,22 @@ $snap_ingest_reporter = static function (array $reporter) use (
 			], $local_port_id, $clock);
 			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
 
+			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
+			// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
+			// whether the advertisement names a real port, a pseudo one, or none (topology-device-level-edge-spec.md §4).
 			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
 				'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
 				'remote_key' => $snap_remote_key($row), 'remote_attrs' => $remote_attrs,
-				'pre_outcome' => null, 'remote_port_id' => null, 'port_label' => null, 'pseudo_index' => null,
+				'pre_outcome' => $has_remote_port ? null : 'device_only', // model spec §3 rule 1: no port advertised, no link
+				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
+				'port_label' => $has_remote_port ? $resolve_port_label($row['rem_port_desc'] ?? null,
+					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null) : null,
+				'pseudo_index' => $has_remote_port ? $pseudo_if_index($row['rem_port'] ?? null,
+					$row['rem_port_type'] ?? null) : null,
+				'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
+				'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
+					'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
 				'pseudo_mac' => $looks_like_mac ? strtolower($chassis_id) : null];
-			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
-
-			if (!$has_remote_port) {
-				// Model spec §3 rule 1: no physical_link without a resolved Port on both ends.
-				$candidate['pre_outcome'] = 'device_only';
-			}
-			else {
-				$port_label = $resolve_port_label($row['rem_port_desc'] ?? null, $row['rem_port'] ?? null,
-					$row['rem_port_type'] ?? null);
-				$ambiguous = false;
-				$remote_port_id = $find_matching_real_port($remote_device_id, $port_label, $ambiguous);
-				$pseudo_index = $pseudo_if_index($row['rem_port'] ?? null, $row['rem_port_type'] ?? null);
-				if ($ambiguous) {
-					$candidate['pre_outcome'] = 'ambiguous'; // several real ports match the label: never guess
-				}
-				else {
-					if ($remote_port_id === null) {
-						$pseudo_id = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-							" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
-						$pseudo_id->execute([$remote_device_id, $pseudo_index]);
-						// A confirmed port already owns that if_index (LLDP "local" subtype carries a real
-						// ifIndex): it is the same physical port, do not turn it into a pseudo one.
-						$remote_port_id = ($found = $pseudo_id->fetchColumn()) !== false ? (int) $found
-							: $snap_port($remote_device_id, $pseudo_index, [
-								'if_index' => $pseudo_index, 'name' => $port_label, 'pseudo' => true,
-								'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-							]);
-					}
-					$candidate['remote_port_id'] = $remote_port_id;
-					$candidate['port_label'] = $port_label;
-					$candidate['pseudo_index'] = $pseudo_index;
-				}
-			}
 
 			$link_candidates[] = $candidate;
 		}
@@ -1196,98 +1307,336 @@ $snap_ingest_reporter = static function (array $reporter) use (
 };
 
 // ============================================================================================================
-// NEIGHBORS phase 2 "resolve" (topology-link-replacement-spec.md v2, §3-§6)
+// NEIGHBORS phase 2a "classify" (topology-device-level-edge-spec.md §4)
 //
-// One decision for the whole run, from the candidates of EVERY reporter's latest NEIGHBORS snapshots, so the
-// result cannot depend on the order the reporters were walked in.
-//
-// An *entity* is a pair of ports {P,X}: an existing link, a candidate, or both. rules(entity) is the set of
-// NEIGHBORS rules whose latest snapshot contains the pair, from either end. A candidate that is not in a §5 group
-// and not behind a manual link *claims* its pair. Every other entity touching either port of the claim (active
-// discovered links, and the other claims) is HELD against it when some rule outside rules(claim) contains it: a
-// snapshot other than the contradicting one still says it. Clocks are never compared: a reporter's latest snapshot
-// is its current claim however long ago it was polled (the clock only becomes superseded_at). A claim WINS when
-// nothing is held against it; it is then written (created, or revived when it was superseded) and every existing
-// active link it blocks becomes superseded. An existing active link stays unless a winner supersedes it, and its
-// own candidates are then "applied"; a losing claim is a "conflict" pointing at the link that holds the port.
-//
-// Before that, pre-spec data with two active discovered links on one port is cleaned up once (legacy).
+// For every candidate that advertises a far port, decides at which precision the far end is known. level 'port':
+// the far Port is a real one that matches the advertisement, or (far Device is not a reporter) a pseudo-Port made
+// from it, as before. level 'device': the far Device is identified but its port is not, with a far_port_reason:
+//   port_shared_id  (§4.2) several real ports match the advertisement, the far Device's authoritative ports share
+//                   the advertised MAC, or several local ports advertise the same far port id
+//   lag_ambiguous   (§4.3) several local ports of one reporter reach the same far Device and none is told apart
+//   port_unmatched  (§4.1) the far Device is a reporter (its ports are authoritative) and no port matches
+// A candidate that is both unmatched and in a shared / LAG group takes the group's reason (shared id wins over LAG).
+// No port is created on a Device that has authoritative ports: that would be a phantom.
 // ============================================================================================================
-$snap_resolve_links = static function (array $candidates, array $neighbor_snapshots, bool $replacement_enabled) use (
-	$pdo, $find_matching_real_port, $snap_port, $snap_link, $snap_observation, &$summary
-): void {
-	$pair_key = static fn (int $x, int $y): string => min($x, $y).'-'.max($x, $y);
+$snap_classify_candidates = static function (array &$candidates) use ($pdo, $find_matching_real_port, $snap_port): void {
+	$authoritative = [];
+	$is_authoritative = static function (int $device_id) use ($pdo, &$authoritative): bool {
+		if (!array_key_exists($device_id, $authoritative)) {
+			$stmt = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+				" AND JSON_EXTRACT(attrs, '\$.pseudo') = false LIMIT 1");
+			$stmt->execute([$device_id]);
+			$authoritative[$device_id] = (bool) $stmt->fetchColumn();
+		}
+		return $authoritative[$device_id];
+	};
+	$real_ports_with_mac = static function (int $device_id, string $mac) use ($pdo): int {
+		$stmt = $pdo->prepare("SELECT COUNT(*) FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+			" AND JSON_EXTRACT(attrs, '\$.pseudo') = false AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ?");
+		$stmt->execute([$device_id, $mac]);
+		return (int) $stmt->fetchColumn();
+	};
 
-	// 1. Remote ports are looked up again: a reporter processed later in phase 1 may have merged the pseudo-Port
-	//    a candidate was pointing at into its real Port.
 	foreach ($candidates as &$candidate) {
-		if ($candidate['remote_port_id'] === null) {
+		$candidate['level'] = 'port';
+		$candidate['far_port_reason'] = null;
+		$candidate['remote_port_id'] = null;
+		if ($candidate['pre_outcome'] !== null) {
 			continue;
 		}
 		$ambiguous = false;
 		$real = $find_matching_real_port($candidate['remote_device_id'], $candidate['port_label'], $ambiguous);
-		if ($ambiguous) {
-			$candidate['pre_outcome'] = 'ambiguous';
-			$candidate['remote_port_id'] = null;
-		}
-		elseif ($real !== null) {
+		if ($real !== null) {
 			$candidate['remote_port_id'] = $real;
 		}
+		elseif ($ambiguous) {
+			$candidate['level'] = 'device';
+			$candidate['far_port_reason'] = 'port_shared_id';
+		}
+		elseif ($is_authoritative($candidate['remote_device_id'])) {
+			$candidate['level'] = 'device';
+			$shared = $candidate['rem_port_type'] === 'macAddress' && $candidate['rem_port'] !== ''
+				&& $real_ports_with_mac($candidate['remote_device_id'], strtolower($candidate['rem_port'])) >= 2;
+			$candidate['far_port_reason'] = $shared ? 'port_shared_id' : 'port_unmatched';
+		}
 		else {
-			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-				" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
-			$stmt->execute([$candidate['remote_device_id'], $candidate['pseudo_index']]);
-			$candidate['remote_port_id'] = ($found = $stmt->fetchColumn()) !== false ? (int) $found
-				: $snap_port($candidate['remote_device_id'], $candidate['pseudo_index'], ['if_index' => $candidate['pseudo_index'],
-					'name' => $candidate['port_label'], 'pseudo' => true, 'mac' => $candidate['pseudo_mac']]);
+			$candidate['level'] = 'pending'; // far Device without authoritative ports: a pseudo-Port, unless shared
 		}
 	}
 	unset($candidate);
 
-	// 2. Existing physical links, by port.
+	// §4.2: the same far port id advertised on two or more local ports of one reporter names the device, not a port.
+	$by_id = [];
+	foreach ($candidates as $i => $candidate) {
+		if (!in_array($candidate['level'], ['device', 'pending'], true)
+				|| $candidate['far_port_reason'] === 'port_shared_id' || $candidate['rem_port'] === '') {
+			continue;
+		}
+		// One reporter's several local ports: a single far port cannot be cabled to two of them. The same id coming
+		// from two different reporters is the far-end occupancy contest of the replacement spec, not a shared id.
+		$id_key = $candidate['hostid'].'|'.$candidate['remote_device_id'].'|'.$candidate['rem_port_type'].'|'
+			.strtolower($candidate['rem_port']);
+		$by_id[$id_key][$candidate['local_port_id']][] = $i;
+	}
+	foreach ($by_id as $local_ports) {
+		if (count($local_ports) < 2) {
+			continue;
+		}
+		foreach ($local_ports as $indexes) {
+			foreach ($indexes as $i) {
+				$candidates[$i]['level'] = 'device';
+				$candidates[$i]['far_port_reason'] = 'port_shared_id';
+			}
+		}
+	}
+
+	// §4.3: several local ports of one reporter, one far Device, no port told apart.
+	$by_device = [];
+	foreach ($candidates as $i => $candidate) {
+		if ($candidate['level'] === 'device' && $candidate['far_port_reason'] === 'port_unmatched') {
+			$by_device[$candidate['hostid'].'|'.$candidate['remote_device_id']][$candidate['local_port_id']][] = $i;
+		}
+	}
+	foreach ($by_device as $local_ports) {
+		if (count($local_ports) < 2) {
+			continue;
+		}
+		foreach ($local_ports as $indexes) {
+			foreach ($indexes as $i) {
+				$candidates[$i]['far_port_reason'] = 'lag_ambiguous';
+			}
+		}
+	}
+
+	// The remaining far Devices have no authoritative ports: the advertisement is the only description of their port.
+	foreach ($candidates as &$candidate) {
+		if ($candidate['level'] !== 'pending') {
+			continue;
+		}
+		$candidate['level'] = 'port';
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+			" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+		$stmt->execute([$candidate['remote_device_id'], $candidate['pseudo_index']]);
+		// A confirmed port already owns that if_index (LLDP "local" subtype carries a real ifIndex): it is the same
+		// physical port, do not turn it into a pseudo one.
+		$candidate['remote_port_id'] = ($found = $stmt->fetchColumn()) !== false ? (int) $found
+			: $snap_port($candidate['remote_device_id'], $candidate['pseudo_index'], [
+				'if_index' => $candidate['pseudo_index'], 'name' => $candidate['port_label'], 'pseudo' => true,
+				'mac' => $candidate['pseudo_mac'],
+			]);
+	}
+	unset($candidate);
+};
+
+// ============================================================================================================
+// NEIGHBORS phase 2b "resolve" (topology-link-replacement-spec.md v2, §3-§6; topology-device-level-edge-spec.md §5, §6)
+//
+// One decision for the whole run, from the candidates of EVERY reporter's latest NEIGHBORS snapshots, so the
+// result cannot depend on the order the reporters were walked in.
+//
+// An *entity* is a link or a candidate and has an identity (key): a pair of ports {P,X} for a port-level one, or
+// "P>dD" (local port, far Device) for a device-level one. A device-level entity occupies only its local port; it
+// occupies no port on the far Device. rules(entity) is the set of NEIGHBORS rules whose latest snapshot contains it,
+// from either end. A candidate that is not in a §5 group and not behind a manual link *claims* its entity. Every other
+// entity touching a port of the claim (active discovered links, and the other claims) is HELD against it when some
+// rule outside rules(claim) contains it: a snapshot other than the contradicting one still says it. Clocks are
+// never compared: a reporter's latest snapshot is its current claim however long ago it was polled (the clock only
+// becomes superseded_at). A claim WINS when nothing is held against it; it is then written (created, or revived when
+// it was superseded) and every existing active link it blocks becomes superseded. An existing active link stays
+// unless a winner supersedes it, and its own candidates are then "applied"; a losing claim is a "conflict" pointing at
+// the link that holds the port.
+//
+// Device level (device-level-edge spec): two entities are the same cable seen at different precision when they share
+// a local port and the far Device. A device-level sighting of an existing port-level link only confirms it (§5.2, it
+// does not contradict: contradiction compares far Devices, §6.1); a port-level claim over an existing device_link
+// refines it in place (§5.1); a port-level link whose port stays unconfirmed past the freshness threshold while the
+// far Device is still seen on the port is downgraded in place (§5.2).
+//
+// Before that, pre-spec data with two active discovered links on one port is cleaned up once (legacy).
+// ============================================================================================================
+$snap_resolve_links = static function (array $candidates, array $neighbor_snapshots, bool $replacement_enabled) use (
+	$pdo, $snap_classify_candidates, $snap_link, $snap_device_link, $snap_link_confirm_lower, $snap_observation,
+	$validate_edge, $now, &$summary
+): void {
+	$snap_classify_candidates($candidates);
+
+	$pair_key = static fn (int $x, int $y): string => min($x, $y).'-'.max($x, $y);
+	$dev_key = static fn (int $port, int $device): string => $port.'>d'.$device;
+
+	$device_of_cache = [];
+	$device_of = static function (int $port) use ($pdo, &$device_of_cache): ?int {
+		if (!array_key_exists($port, $device_of_cache)) {
+			$stmt = $pdo->prepare("SELECT device_id FROM topo_nodes WHERE id = ? AND type = 'port'");
+			$stmt->execute([$port]);
+			$value = $stmt->fetchColumn();
+			$device_of_cache[$port] = ($value === false || $value === null) ? null : (int) $value;
+		}
+		return $device_of_cache[$port];
+	};
+
+	// The entity a candidate stands for: its key and the ports it occupies. Null key = no entity (not a link).
+	$candidate_entity = static function (array $c) use ($pair_key, $dev_key): array {
+		if ($c['level'] === 'device') {
+			return [$dev_key($c['local_port_id'], $c['remote_device_id']), [$c['local_port_id']]];
+		}
+		if ($c['remote_port_id'] === null || $c['remote_port_id'] === $c['local_port_id']) {
+			return [null, []];
+		}
+		return [$pair_key($c['local_port_id'], $c['remote_port_id']), [$c['local_port_id'], $c['remote_port_id']]];
+	};
+
+	// 1. Existing links of both types, by port.
 	$links = [];
 	$by_port = [];
 	$link_by_key = [];
-	$rows = $pdo->query("SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link' ORDER BY id")
-		->fetchAll(PDO::FETCH_ASSOC);
-	foreach ($rows as $edge) {
+	$rows = $pdo->query("SELECT id, type, src_id, dst_id, attrs FROM topo_edges".
+		" WHERE type IN ('physical_link', 'device_link') ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+	$register_link = static function (array $edge) use (&$links, &$by_port, &$link_by_key, $pair_key, $dev_key): void {
 		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
-		$key = $pair_key((int) $edge['src_id'], (int) $edge['dst_id']);
-		$links[(int) $edge['id']] = ['id' => (int) $edge['id'], 'a' => (int) $edge['src_id'], 'b' => (int) $edge['dst_id'],
-			'key' => $key, 'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
+		$device_level = $edge['type'] === 'device_link';
+		$a = (int) $edge['src_id'];
+		$b = (int) $edge['dst_id'];
+		$key = $device_level ? $dev_key($a, $b) : $pair_key($a, $b);
+		$id = (int) $edge['id'];
+		$links[$id] = ['id' => $id, 'type' => $edge['type'], 'a' => $a, 'b' => $b, 'key' => $key,
+			'occupies' => $device_level ? [$a] : [$a, $b],
+			'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
 			'seen' => (int) ($attrs['last_seen'] ?? 0),
+			// Clock of the latest snapshot that contained the link at port level; a row without it counts as last_seen.
+			'seen_port' => (int) ($attrs['last_seen_port'] ?? $attrs['last_seen'] ?? 0),
 			// The operator has decided something about this manual link (kept it for a hidden neighbor): from then
 			// on no ingest run changes its kind, whether or not a neighbor is hiding behind it right now.
 			'acknowledged' => !empty($attrs['shadow_ack']),
 			'superseded_at' => isset($attrs['superseded_at']) ? (int) $attrs['superseded_at'] : null];
-		$by_port[(int) $edge['src_id']][] = (int) $edge['id'];
-		$by_port[(int) $edge['dst_id']][] = (int) $edge['id'];
-		$link_by_key[$key] = (int) $edge['id'];
+		foreach ($links[$id]['occupies'] as $port) {
+			$by_port[$port][] = $id;
+		}
+		$link_by_key[$key] = $id;
+	};
+	foreach ($rows as $edge) {
+		$register_link($edge);
 	}
 	$is_active_discovered = static fn (array $link): bool => !$link['manual'] && $link['superseded_at'] === null;
+	// The Device at the far end of a link as seen from one of its ports ($port is the port the link is read from).
+	$far_device_from = static function (array $link, int $port) use ($device_of): ?int {
+		if ($link['type'] === 'device_link') {
+			return $link['a'] === $port ? $link['b'] : null;
+		}
+		return $device_of($link['a'] === $port ? $link['b'] : $link['a']);
+	};
+	// The ports of a link that can be named as "local" together with the far Device each implies (cable seen from
+	// each end): a physical_link implies two, a device_link one.
+	$implied_pairs = static function (array $link) use ($device_of): array {
+		if ($link['type'] === 'device_link') {
+			return [[$link['a'], $link['b']]];
+		}
+		return [[$link['a'], $device_of($link['b'])], [$link['b'], $device_of($link['a'])]];
+	};
 
-	// 3. What the latest snapshots say, whatever became of the candidate: the rules that contain each pair (from
+	// 2. What the latest snapshots say, whatever became of the candidate: the rules that contain each entity (from
 	//    either end), and the newest clock among them (only used to date a legacy cleanup).
-	$rules_of = [];
+	$rules_port = [];      // key => itemid set, exactly that entity
+	$rules_of = [];        // same, plus device-level sightings of a port-level link (they still say it is there)
 	$support_clock = [];
 	$groups = [];
+	$device_cands = [];    // local port => [candidate index] of the device-level candidates
 	foreach ($candidates as $i => $candidate) {
-		if ($candidate['remote_port_id'] === null || $candidate['remote_port_id'] === $candidate['local_port_id']) {
+		[$key] = $candidate_entity($candidate);
+		if ($key === null) {
 			continue;
 		}
-		$key = $pair_key($candidate['local_port_id'], $candidate['remote_port_id']);
+		$rules_port[$key][$candidate['itemid']] = true;
 		$rules_of[$key][$candidate['itemid']] = true;
 		$support_clock[$key] = max($support_clock[$key] ?? 0, $candidate['clock']);
-		$groups[$candidate['itemid'].'|'.$candidate['local_port_id']][$candidate['remote_port_id']] = true;
+		$token = $candidate['level'] === 'device' ? 'd'.$candidate['remote_device_id'] : (string) $candidate['remote_port_id'];
+		$groups[$candidate['itemid'].'|'.$candidate['local_port_id']][$token] = true;
+		if ($candidate['level'] === 'device') {
+			$device_cands[$candidate['local_port_id']][] = $i;
+		}
+	}
+	foreach ($links as $link) {
+		if ($link['type'] !== 'physical_link') {
+			continue;
+		}
+		foreach ($implied_pairs($link) as [$local, $device]) {
+			foreach ($device_cands[$local] ?? [] as $i) {
+				if ($candidates[$i]['remote_device_id'] === $device) {
+					$rules_of[$link['key']][$candidates[$i]['itemid']] = true;
+					$support_clock[$link['key']] = max($support_clock[$link['key']] ?? 0, $candidates[$i]['clock']);
+				}
+			}
+		}
 	}
 	// Held against a claim: some rule OUTSIDE the claim's own rules still contains the entity.
 	$held = static function (string $entity_key, string $claim_key) use (&$rules_of): bool {
 		return (bool) array_diff_key($rules_of[$entity_key] ?? [], $rules_of[$claim_key] ?? []);
 	};
 
-	// 3b. Legacy data: pre-spec ingest let a cable move leave two active discovered links on one port. Keep one
-	//     per port, once, whether or not a candidate arrives for that port. A partial run cannot see every
-	//     reporter, so it leaves the data alone (§6.3).
+	// 2b. (device-level spec §5.2) A discovered port-level link nobody has confirmed at port level since the freshness
+	//     threshold, while a latest snapshot still resolves one of its ports to the far Device at device level, becomes
+	//     a device_link (same edge id). A full run only: a partial one cannot see every reporter.
+	$set_attrs = static function (int $id, array $attrs) use ($pdo): void {
+		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+	};
+	$load_attrs = static function (int $id) use ($pdo): array {
+		return json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(), true,
+			512, JSON_THROW_ON_ERROR) ?: [];
+	};
+	if ($replacement_enabled) {
+		foreach ($links as $id => $link) {
+			if ($link['type'] !== 'physical_link' || !$is_active_discovered($link) || !empty($rules_port[$link['key']])
+					|| $now - $link['seen_port'] <= TOPO_LINK_FRESH_SECONDS) {
+				continue;
+			}
+			$best = null; // [clock, -port, candidate index]: the side that still sees the far Device, newer clock first
+			foreach ([[$link['a'], $link['b']], [$link['b'], $link['a']]] as [$mine, $other]) {
+				foreach ($device_cands[$mine] ?? [] as $i) {
+					if ($candidates[$i]['remote_device_id'] !== $device_of($other)) {
+						continue;
+					}
+					$rank = [$candidates[$i]['clock'], -$mine];
+					if ($best === null || $rank > $best['rank']) {
+						$best = ['rank' => $rank, 'port' => $mine, 'other' => $other, 'index' => $i];
+					}
+				}
+			}
+			if ($best === null) {
+				continue; // nothing resolves it to the far Device: the link goes stale by the normal rule
+			}
+			$new_dst = $device_of($best['other']);
+			$new_key = $dev_key($best['port'], $new_dst);
+			if (isset($link_by_key[$new_key])) {
+				continue; // that device-level pair already has an edge: leave this one alone
+			}
+			$attrs = $load_attrs($id);
+			$side = static fn (int $port): int => (int) ($attrs[$port === $link['a'] ? 'last_seen_src' : 'last_seen_dst'] ?? 0);
+			// last_seen_port stays on the device_link: it is what "not confirmed since ..." says (reason port_lost).
+			$converted = ['discovered_via' => $attrs['discovered_via'] ?? 'lldp', 'far_port_reason' => 'port_lost',
+				'last_seen_src' => $side($best['port']), 'last_seen' => $attrs['last_seen'] ?? 0,
+				'last_seen_port' => $link['seen_port']];
+			if ($side($best['other']) > 0) {
+				$converted['last_seen_dst'] = $side($best['other']);
+			}
+			if ($candidates[$best['index']]['far_port_hint']) {
+				$converted['far_port_hint'] = $candidates[$best['index']]['far_port_hint'];
+			}
+			$validate_edge('device_link', $best['port'], $new_dst, $converted);
+			$pdo->prepare("UPDATE topo_edges SET type = 'device_link', src_id = ?, dst_id = ?, attrs = ? WHERE id = ?")
+				->execute([$best['port'], $new_dst, json_encode($converted, JSON_THROW_ON_ERROR), $id]);
+			unset($link_by_key[$link['key']]);
+			foreach ($link['occupies'] as $port) {
+				$by_port[$port] = array_values(array_diff($by_port[$port] ?? [], [$id]));
+			}
+			$register_link(['id' => $id, 'type' => 'device_link', 'src_id' => $best['port'], 'dst_id' => $new_dst,
+				'attrs' => json_encode($converted, JSON_THROW_ON_ERROR)]);
+			$summary['links_downgraded']++;
+		}
+	}
+
+	// 3. Legacy data: pre-spec ingest let a cable move leave two active discovered links on one port. Keep one per
+	//    port, once, whether or not a candidate arrives for that port. A partial run cannot see every reporter, so it
+	//    leaves the data alone (§6.3).
 	if ($replacement_enabled) {
 		$active_on = static function (int $port) use (&$links, &$by_port, $is_active_discovered): array {
 			$out = [];
@@ -1328,7 +1677,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 				continue;
 			}
 			// The link some snapshot still reports stays; then the one confirmed most recently; then the oldest id.
-			usort($active, static function (int $x, int $y) use (&$links, &$rules_of, $rows): int {
+			usort($active, static function (int $x, int $y) use (&$links, &$rules_of): int {
 				$sx = isset($rules_of[$links[$x]['key']]) ? 1 : 0;
 				$sy = isset($rules_of[$links[$y]['key']]) ? 1 : 0;
 				return [$sy, $links[$y]['seen'] ?? 0, $x] <=> [$sx, $links[$x]['seen'] ?? 0, $y];
@@ -1340,9 +1689,19 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 	}
 
+	// A MANUAL device_link is refined too (device-level spec §6.3: discovery that identifies its far port turns it into a
+	// discovered physical_link, same edge id), unless the operator acknowledged a neighbor on it: then it stays manual.
+	$refinable = static function (array $claim, array $link) use ($device_of): bool {
+		if ($claim['dev'] !== null || $link['type'] !== 'device_link' || $link['acknowledged']) {
+			return false;
+		}
+		return ($link['a'] === $claim['a'] && $link['b'] === $device_of($claim['b']))
+			|| ($link['a'] === $claim['b'] && $link['b'] === $device_of($claim['a']));
+	};
+
 	// 4. Classify every candidate: fixed outcome, shadowed by a manual link, part of a §5 group, or a claim.
-	$result = [];      // index => ['outcome' => ..., 'edge_id' => ..., 'link' => key|null (link it confirms/claims)]
-	$claims = [];      // key => ['a' =>, 'b' =>, 'T' =>, 'indexes' => []]
+	$result = [];      // index => ['outcome' => ..., 'edge_id' => ..., 'key' => key|null, 'lower' => bool]
+	$claims = [];      // key => ['a' =>, 'b' => port|null, 'dev' => device|null, 'occupies' => [], 'T' =>, 'indexes' => []]
 	$confirming = [];  // key => [indexes] of §5 candidates that confirm an existing active link
 	$counted_groups = [];
 	foreach ($candidates as $i => $candidate) {
@@ -1350,19 +1709,21 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			$result[$i] = ['outcome' => $candidate['pre_outcome'], 'edge_id' => null, 'key' => null];
 			continue;
 		}
-		$port = $candidate['local_port_id'];
-		$remote = $candidate['remote_port_id'];
-		if ($remote === $port) {
+		[$key, $occupies] = $candidate_entity($candidate);
+		if ($key === null) {
 			$result[$i] = ['outcome' => 'device_only', 'edge_id' => null, 'key' => null];
 			continue;
 		}
-		$key = $pair_key($port, $remote);
+		$port = $candidate['local_port_id'];
 
-		// Manual wins (model spec §3 rule 5): unchanged, untouched by the replacement rule.
+		// Manual wins (model spec §3 rule 5): unchanged, untouched by the replacement rule. Except that a manual
+		// device_link is the same cable as a port-level candidate that identifies its far port: that is a confirmation.
+		$as_claim = ['dev' => $candidate['level'] === 'device' ? $candidate['remote_device_id'] : null,
+			'a' => $port, 'b' => $candidate['level'] === 'device' ? null : $candidate['remote_port_id']];
 		$manual = [];
-		foreach ([$port, $remote] as $touched) {
+		foreach ($occupies as $touched) {
 			foreach ($by_port[$touched] ?? [] as $lid) {
-				if ($links[$lid]['manual'] && $links[$lid]['key'] !== $key) {
+				if ($links[$lid]['manual'] && $links[$lid]['key'] !== $key && !$refinable($as_claim, $links[$lid])) {
 					$manual[] = $lid;
 				}
 			}
@@ -1383,8 +1744,9 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			$holder = null;
 			foreach ($by_port[$port] ?? [] as $lid) {
 				$link = $links[$lid];
-				$other = $link['a'] === $port ? $link['b'] : $link['a'];
-				if ($is_active_discovered($link) && isset($groups[$group_key][$other])) {
+				$token = $link['type'] === 'device_link' ? ($link['a'] === $port ? 'd'.$link['b'] : null)
+					: (string) ($link['a'] === $port ? $link['b'] : $link['a']);
+				if ($token !== null && $is_active_discovered($link) && isset($groups[$group_key][$token])) {
 					$holder = $holder ?? $link;
 				}
 			}
@@ -1398,19 +1760,64 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			continue;
 		}
 
-		$claims[$key] ??= ['a' => $port, 'b' => $remote, 'T' => 0, 'indexes' => []];
+		$claims[$key] ??= ['a' => $port, 'b' => $candidate['level'] === 'device' ? null : $candidate['remote_port_id'],
+			'dev' => $candidate['level'] === 'device' ? $candidate['remote_device_id'] : null,
+			'occupies' => $occupies, 'T' => 0, 'indexes' => []];
 		$claims[$key]['T'] = max($claims[$key]['T'], $candidate['clock']);
 		$claims[$key]['indexes'][] = $i;
 	}
 	ksort($claims);
 
-	// 4b. (v2.1 §5.2) Competing new claims: a port without an active link that several different pairs claim
+	// 4a. Same cable at two precisions (device-level spec §6.2): a device-level claim whose local port and far Device
+	//     are implied by a port-level claim or by an active port-level link is not a claim of its own. It confirms
+	//     that entity at lower precision and takes its outcome.
+	$lower_of = []; // device-level claim key => ['claim' => port-level claim key] | ['link' => link id]
+	foreach ($claims as $key => $claim) {
+		if ($claim['dev'] === null) {
+			continue;
+		}
+		$target = null;
+		foreach ($claims as $other_key => $other) {
+			if ($other['dev'] !== null) {
+				continue;
+			}
+			if (($other['a'] === $claim['a'] && $device_of($other['b']) === $claim['dev'])
+					|| ($other['b'] === $claim['a'] && $device_of($other['a']) === $claim['dev'])) {
+				$target = ['claim' => $other_key];
+				break;
+			}
+		}
+		if ($target === null) {
+			foreach ($by_port[$claim['a']] ?? [] as $lid) {
+				$link = $links[$lid];
+				if ($link['type'] === 'physical_link' && $is_active_discovered($link)
+						&& $far_device_from($link, $claim['a']) === $claim['dev']) {
+					$target = ['link' => $lid];
+					break;
+				}
+			}
+		}
+		if ($target !== null) {
+			$lower_of[$key] = $target;
+		}
+	}
+	foreach ($lower_of as $key => $target) {
+		if (isset($target['claim'])) {
+			foreach ($rules_of[$key] ?? [] as $itemid => $unused) {
+				$rules_of[$target['claim']][$itemid] = true; // the device-level sighting says the cable is there
+			}
+		}
+		unset($claims[$key]);
+	}
+
+	// 4b. (v2.1 §5.2) Competing new claims: a port without an active link that several different entities claim
 	//     (X and Y both report R:P; R's LLDP shows X on P while its CDP shows Y). Nothing blocks any of them, the
 	//     port simply has several claimants: no link, all ambiguous. Decided on the claims as they are, once.
 	$claimants_of = [];
 	foreach ($claims as $key => $claim) {
-		$claimants_of[$claim['a']][$key] = true;
-		$claimants_of[$claim['b']][$key] = true;
+		foreach ($claim['occupies'] as $touched) {
+			$claimants_of[$touched][$key] = true;
+		}
 	}
 	$competing = [];
 	ksort($claimants_of);
@@ -1435,19 +1842,23 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		unset($claims[$key]);
 	}
 
-	// 5. Which claims win, and which existing links they supersede.
+	// 5. Which claims win, and which existing links they supersede. A device_link that is the same cable as a
+	//    port-level claim (forward half R:P -> D, or reverse half D:Q -> R) is refined by that claim (§5.1), not
+	//    contradicted by it.
 	$claims_by_port = [];
 	foreach ($claims as $key => $claim) {
-		$claims_by_port[$claim['a']][] = $key;
-		$claims_by_port[$claim['b']][] = $key;
+		foreach ($claim['occupies'] as $touched) {
+			$claims_by_port[$touched][] = $key;
+		}
 	}
 	$wins = [];
 	$blockers = [];      // claim key => [entity keys touching its ports]
 	foreach ($claims as $key => $claim) {
 		$entities = [];
-		foreach ([$claim['a'], $claim['b']] as $touched) {
+		foreach ($claim['occupies'] as $touched) {
 			foreach ($by_port[$touched] ?? [] as $lid) {
-				if ($links[$lid]['key'] !== $key && $is_active_discovered($links[$lid])) {
+				if ($links[$lid]['key'] !== $key && $is_active_discovered($links[$lid])
+						&& !$refinable($claim, $links[$lid])) {
 					$entities[$links[$lid]['key']] = 'link';
 				}
 			}
@@ -1486,7 +1897,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 	}
 
-	// 6. Write links: winners (created / revived), stayers (confirmed), then the superseded ones.
+	// 6. Write links: winners (created / revived / refined), stayers (confirmed), then the superseded ones.
 	//    A manual link that hides a neighbor, or that has acknowledged neighbors, stays manual even when another
 	//    reporter confirms it: a neighbor that flickers out of a snapshot must not make it upgradeable.
 	$shadowing_manual = [];
@@ -1495,16 +1906,115 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			$shadowing_manual[$r['edge_id']] = true;
 		}
 	}
-	$write_link = static function (string $key, array $indexes) use ($candidates, $snap_link, &$links, &$link_by_key,
-			&$shadowing_manual): int {
+	// (§5.1) The port-level claim X = R:P <-> D:Q takes over an existing device_link of the same cable: the forward
+	// half R:P -> D is converted in place (edge id kept), the reverse half D:Q -> R is absorbed (deleted, its clock
+	// folded into the side for Q). Without a forward half, a reverse half is converted instead.
+	$refine = static function (string $key, array $claim) use ($pdo, $pair_key, $device_of, $refinable, $candidates, &$links,
+			&$by_port, &$link_by_key, $load_attrs, $set_attrs, $validate_edge, &$summary): void {
+		$forward = null;
+		$reverse = null;
+		foreach ([$claim['a'], $claim['b']] as $touched) {
+			foreach ($by_port[$touched] ?? [] as $lid) {
+				$link = $links[$lid];
+				if ($link['superseded_at'] !== null || !$refinable($claim, $link)) {
+					continue;
+				}
+				if ($link['a'] === $claim['a']) {
+					$forward = $forward ?? $link;
+				}
+				else {
+					$reverse = $reverse ?? $link;
+				}
+			}
+		}
+		$converted = $forward ?? $reverse;
+		if ($converted === null) {
+			return;
+		}
+		$absorbed = $forward !== null ? $reverse : null;
+		$existing_id = $link_by_key[$key] ?? null; // a physical_link row for this very pair (e.g. superseded earlier)
+		$attrs = $load_attrs($converted['id']);
+		$side_of_local = (int) ($attrs['last_seen_src'] ?? 0); // the converted device_link's src is its reporter's port
+		$other_side = (int) ($attrs['last_seen_dst'] ?? 0);
+		if ($absorbed !== null) {
+			$other_side = max($other_side, (int) ($load_attrs($absorbed['id'])['last_seen_src'] ?? 0));
+		}
+		$src_port = $converted['a'];
+		$other_port = $src_port === $claim['a'] ? $claim['b'] : $claim['a'];
+		$new_src = min($src_port, $other_port);
+		$new_dst = max($src_port, $other_port);
+		// A manual link that discovery confirms becomes a discovered one (device-level spec §6.3).
+		$new = ['discovered_via' => $converted['manual'] ? $candidates[$claim['indexes'][0]]['source']
+			: ($attrs['discovered_via'] ?? 'lldp')];
+		$sides = [$src_port => $side_of_local, $other_port => $other_side];
+		if ($sides[$new_src] > 0) {
+			$new['last_seen_src'] = $sides[$new_src];
+		}
+		if ($sides[$new_dst] > 0) {
+			$new['last_seen_dst'] = $sides[$new_dst];
+		}
+		$new['last_seen'] = max($sides[$new_src], $sides[$new_dst], (int) ($attrs['last_seen'] ?? 0));
+		foreach (['superseded_at'] as $keep) {
+			if (array_key_exists($keep, $attrs)) {
+				$new[$keep] = $attrs[$keep];
+			}
+		}
+		if ($existing_id !== null) {
+			// The pair already has an edge: fold the device_link into it instead of creating a duplicate.
+			$into = $load_attrs($existing_id);
+			foreach (['last_seen_src', 'last_seen_dst'] as $field) {
+				if (isset($new[$field])) {
+					$into[$field] = max((int) ($into[$field] ?? 0), $new[$field]);
+				}
+			}
+			$into['last_seen'] = max((int) ($into['last_seen_src'] ?? 0), (int) ($into['last_seen_dst'] ?? 0));
+			$set_attrs($existing_id, $into);
+			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$converted['id']]);
+		}
+		else {
+			$validate_edge('physical_link', $new_src, $new_dst);
+			$pdo->prepare("UPDATE topo_edges SET type = 'physical_link', src_id = ?, dst_id = ?, attrs = ? WHERE id = ?")
+				->execute([$new_src, $new_dst, json_encode($new, JSON_THROW_ON_ERROR), $converted['id']]);
+		}
+		if ($absorbed !== null) {
+			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$absorbed['id']]);
+		}
+		// Keep the in-memory picture in step: the converted / absorbed device_links are gone as such.
+		foreach (array_filter([$converted, $absorbed]) as $gone) {
+			unset($link_by_key[$gone['key']]);
+			foreach ($gone['occupies'] as $port) {
+				$by_port[$port] = array_values(array_diff($by_port[$port] ?? [], [$gone['id']]));
+			}
+			unset($links[$gone['id']]);
+		}
+		if ($existing_id === null) {
+			$links[$converted['id']] = ['id' => $converted['id'], 'type' => 'physical_link', 'a' => $new_src, 'b' => $new_dst,
+				'key' => $key, 'occupies' => [$new_src, $new_dst], 'manual' => false, 'seen' => $new['last_seen'],
+				'seen_port' => $new['last_seen'], 'acknowledged' => false,
+				'superseded_at' => $new['superseded_at'] ?? null];
+			$by_port[$new_src][] = $converted['id'];
+			$by_port[$new_dst][] = $converted['id'];
+			$link_by_key[$key] = $converted['id'];
+		}
+		$summary['links_refined']++;
+	};
+
+	$write_link = static function (string $key, array $indexes) use ($candidates, $snap_link, $snap_device_link, &$links,
+			&$link_by_key, &$shadowing_manual): int {
 		$id = 0;
 		$existing = $link_by_key[$key] ?? null;
 		$keep_manual = $existing !== null && $links[$existing]['manual']
 			&& (isset($shadowing_manual[$existing]) || $links[$existing]['acknowledged']);
 		foreach ($indexes as $i) {
 			$c = $candidates[$i];
-			$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock'],
-				$keep_manual);
+			if ($c['level'] === 'device') {
+				$id = $snap_device_link($c['local_port_id'], $c['remote_device_id'], $c['source'], $c['far_port_reason'],
+					$c['far_port_hint'], $c['clock'], $keep_manual);
+			}
+			else {
+				$id = $snap_link($c['local_port_id'], $c['remote_port_id'], $c['source'], $c['local_port_id'], $c['clock'],
+					$keep_manual);
+			}
 		}
 		return $id;
 	};
@@ -1514,6 +2024,10 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$stays = $existing !== null && ($existing['manual'] || $existing['superseded_at'] === null)
 			&& !isset($superseded[$key]);
 		if ($wins[$key] || $stays) {
+			if ($claim['dev'] === null) {
+				$refine($key, $claim);
+				$existing = isset($link_by_key[$key]) ? $links[$link_by_key[$key]] : null;
+			}
 			$id = $write_link($key, $claim['indexes']);
 			if ($existing !== null && $existing['superseded_at'] !== null && $wins[$key]) {
 				$attrs = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(),
@@ -1570,14 +2084,55 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 				? $link_by_key[$key] : null), 'key' => $key];
 		}
 	}
+	// 7b. Device-level sightings of a cable known at port level (4a): they take the outcome of that cable. A sighting
+	//     of an existing active link only advances that link's clocks (last_seen_port stays), and says "lower".
+	foreach ($candidates as $i => $candidate) {
+		[$key] = $candidate_entity($candidate);
+		if ($key === null || !isset($lower_of[$key]) || $candidate['level'] !== 'device') {
+			continue;
+		}
+		$target = $lower_of[$key];
+		if (isset($target['claim'])) {
+			$first = $claims[$target['claim']]['indexes'][0];
+			$result[$i] = ['outcome' => $result[$first]['outcome'], 'edge_id' => $result[$first]['edge_id'],
+				'key' => $target['claim'], 'lower' => true];
+			continue;
+		}
+		$result[$i] = ['outcome' => 'applied', 'edge_id' => $target['link'], 'key' => $links[$target['link']]['key'],
+			'lower' => true];
+		$snap_link_confirm_lower($target['link'], $candidate['local_port_id'], $candidate['clock']);
+	}
+
+	// 7c. last_seen_dst of a device_link: the far Device's own reporter names the local Device on some port.
+	$dev_links = $pdo->query("SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'device_link'")
+		->fetchAll(PDO::FETCH_ASSOC);
+	foreach ($dev_links as $edge) {
+		$local_device = $device_of((int) $edge['src_id']);
+		$reply = 0;
+		foreach ($candidates as $candidate) {
+			if ($candidate['remote_device_id'] === $local_device
+					&& $device_of($candidate['local_port_id']) === (int) $edge['dst_id']) {
+				$reply = max($reply, $candidate['clock']);
+			}
+		}
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if ($reply > (int) ($attrs['last_seen_dst'] ?? 0)) {
+			$attrs['last_seen_dst'] = $reply;
+			$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), $reply);
+			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
+				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $edge['id']]);
+		}
+	}
 
 	// 8. Observations mirror the latest snapshot of each rule.
 	$touched = [];
 	foreach ($candidates as $i => $candidate) {
 		$outcome = $result[$i]['outcome'];
+		$precision = $candidate['pre_outcome'] !== null ? null : $candidate['level'];
 		$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_id'],
 			$candidate['remote_key'], $candidate['remote_attrs'], $outcome, $result[$i]['edge_id'],
-			$candidate['remote_device_id'], $candidate['clock']);
+			$candidate['remote_device_id'], $candidate['clock'], $precision,
+			$candidate['level'] === 'device' ? $candidate['far_port_reason'] : null, !empty($result[$i]['lower']));
 		$summary['observations'][$outcome]++;
 	}
 	foreach ($neighbor_snapshots as $itemid => $snapshot) {
@@ -1588,6 +2143,19 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
 				->execute($chunk);
 		}
+	}
+
+	// 9. Diagnostics (device-level spec §8): active device-level links at the end of the run, per reason.
+	$summary['links_device_level'] = 0;
+	$summary['device_level_reasons'] = [];
+	foreach ($pdo->query("SELECT attrs FROM topo_edges WHERE type = 'device_link'")->fetchAll(PDO::FETCH_COLUMN) as $raw) {
+		$attrs = json_decode($raw, true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if (isset($attrs['superseded_at'])) {
+			continue;
+		}
+		$summary['links_device_level']++;
+		$reason = (string) ($attrs['far_port_reason'] ?? 'unknown');
+		$summary['device_level_reasons'][$reason] = ($summary['device_level_reasons'][$reason] ?? 0) + 1;
 	}
 };
 
@@ -1618,10 +2186,27 @@ $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 // a Device cannot be acknowledged). Ingest only reads shadow_ack here to count; it never writes it.
 $count_contradicted_manual_links = static function () use ($pdo): int {
 	$links = [];
-	foreach ($pdo->query("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link'")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+	$device_of = $pdo->prepare("SELECT device_id FROM topo_nodes WHERE id = ? AND type = 'port'");
+	foreach ($pdo->query("SELECT id, type, src_id, dst_id, attrs FROM topo_edges WHERE type IN ('physical_link', 'device_link')")
+			->fetchAll(PDO::FETCH_ASSOC) as $edge) {
 		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
-			$links[(int) $edge['id']] = array_fill_keys(array_map('strval', array_column($attrs['shadow_ack'] ?? [], 'device_id')), true);
+			// The Devices the manual link itself joins: a neighbor that is one of them is the link's own far end seen at
+			// another precision (device-level spec §6.3), not a hidden neighbor.
+			$own = [];
+			foreach ($edge['type'] === 'device_link' ? [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'device']]
+					: [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'port']] as [$node, $kind]) {
+				if ($kind === 'device') {
+					$own[$node] = true;
+					continue;
+				}
+				$device_of->execute([$node]);
+				if (($device = $device_of->fetchColumn()) !== false && $device !== null) {
+					$own[(int) $device] = true;
+				}
+			}
+			$links[(int) $edge['id']] = ['ack' => array_fill_keys(array_map('strval', array_column($attrs['shadow_ack'] ?? [], 'device_id')), true),
+				'own' => $own];
 		}
 	}
 	$contradicted = [];
@@ -1632,7 +2217,9 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.role = i.topology_role".
 			" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
 		$edge_id = (int) $observation['edge_id'];
-		if (isset($links[$edge_id]) && ($observation['device_id'] === null || !isset($links[$edge_id][(string) $observation['device_id']]))) {
+		if (isset($links[$edge_id]) && ($observation['device_id'] === null
+				|| (!isset($links[$edge_id]['ack'][(string) $observation['device_id']])
+					&& !isset($links[$edge_id]['own'][(int) $observation['device_id']])))) {
 			$contradicted[$edge_id] = true;
 		}
 	}
