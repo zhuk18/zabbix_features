@@ -95,6 +95,7 @@ def natural_state(conn):
                         'JOIN hosts h ON h.hostid=i.hostid ORDER BY o.id'):
         obs.append({'id': o['id'], 'reporter': o['reporter'], 'port': port_label(o['local_port_id']).split(':', 1)[1],
                     'remote_key': o['remote_key'], 'outcome': o['outcome'], 'edge_id': o['edge_id'],
+                    'link_precision': o['link_precision'], 'precision_lower': bool(o['precision_lower']),
                     'device': dev_name(nodes[o['device_id']]) if o['device_id'] in nodes else None})
     return {'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}
 

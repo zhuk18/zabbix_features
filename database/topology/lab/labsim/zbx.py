@@ -147,3 +147,50 @@ def masters(api, hostnames):
 def check_now(api, itemids):
     if itemids:
         api.call('task.create', [{'type': 6, 'request': {'itemid': i}} for i in itemids])
+
+
+SCHEDULE_SUSPENDED = '1d'        # the API's maximum update interval is 86400 s
+
+
+def suspend_schedule(api, masters_by_host, state_file, log=print):
+    """Stop Zabbix's own periodic polling of the lab hosts for the duration of a run.
+
+    A scheduled poll that lands between two steps writes a snapshot the runner did not ask for, which changes ingest
+    counters from run to run. The master items get a long interval; the original intervals are written to state_file
+    first, so restore_schedule() can put them back after a failure or a killed run.
+    """
+    import json
+    if os.path.exists(state_file):
+        restore_schedule(api, state_file, log)
+    items = {}
+    for host, m in masters_by_host.items():
+        for kind in ('core', 'fdb'):
+            if m.get(kind):
+                items[m[kind]['itemid']] = None
+    if not items:
+        return
+    for it in api.call('item.get', {'itemids': list(items), 'output': ['itemid', 'delay']}):
+        items[it['itemid']] = it['delay']
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    with open(state_file, 'w') as f:
+        json.dump(items, f)
+    for itemid in items:
+        api.call('item.update', {'itemid': itemid, 'delay': SCHEDULE_SUSPENDED})
+    log('  scheduled polling of %d master item(s) suspended for the run' % len(items))
+    time.sleep(12)          # let the server's configuration sync pick the change up
+
+
+def restore_schedule(api, state_file, log=print):
+    import json
+    if not os.path.exists(state_file):
+        return False
+    with open(state_file) as f:
+        items = json.load(f)
+    for itemid, delay in items.items():
+        try:
+            api.call('item.update', {'itemid': itemid, 'delay': delay})
+        except LabError as e:           # the item may be gone (host pruned): nothing to restore
+            log('  could not restore delay of item %s: %s' % (itemid, e))
+    os.remove(state_file)
+    log('  scheduled polling restored on %d master item(s)' % len(items))
+    return True

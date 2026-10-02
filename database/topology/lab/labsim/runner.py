@@ -8,6 +8,7 @@ from . import ctl, db, gen, zbx
 from .model import HERE, LabError
 
 INGEST = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'ingest.php'))
+SCHEDULE_FILE = os.path.join(ctl.RUN_DIR, 'schedule.json')
 STATUS_FILE = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'topology-ingest-status.json')
 
 
@@ -78,9 +79,24 @@ def evaluate(a, state, ingest, history, clocks_hist, step):
         o = a['observation']
         hits = [x for x in state['observations'] if x['reporter'] == o['reporter'] and x['port'] == o['port']
                 and (not o.get('remote') or x['device'] == o['remote'])]
-        ok = any(x['outcome'] == a['outcome'] for x in hits)
+        ok = any(x['outcome'] == a['outcome'] and ('precision_lower' not in a or x['precision_lower'] == a['precision_lower'])
+                 for x in hits)
         return Result('observation', a, 'pass' if ok else 'fail',
-                      '' if ok else 'outcome %s not found; observations: %s' % (a['outcome'], [(x['device'], x['outcome']) for x in hits]))
+                      '' if ok else 'outcome %s (precision_lower %s) not found; observations: %s' % (
+                          a['outcome'], a.get('precision_lower', 'any'), [(x['device'], x['outcome'], x['precision_lower']) for x in hits]))
+    if 'link_attr' in a:
+        # link_attr: {link: [a, b], attr: last_seen_port, vs_step: N, is: gt|eq} - an attribute of the link now, against
+        # the same link at step N (e.g. "last_seen_port advanced since step 3", "did not advance")
+        r = a['link_attr']
+        prev = history.get(r['vs_step'])
+        was = find_links(prev, *r['link']) if prev else []
+        now = find_links(state, *r['link'])
+        if not was or not now:
+            return Result('link_attr', a, 'fail', 'link missing at step %s (%d) or now (%d)' % (r['vs_step'], len(was), len(now)))
+        old, new = was[0]['attrs'].get(r['attr']), now[0]['attrs'].get(r['attr'])
+        ok = (new is not None and old is not None and (new > old if r['is'] == 'gt' else new == old))
+        return Result('link_attr', a, 'pass' if ok else 'fail',
+                      '' if ok else '%s: step %s = %r, now = %r, expected %s' % (r['attr'], r['vs_step'], old, new, r['is']))
     if 'edge_id_same_as' in a:
         r = a['edge_id_same_as']
         prev = history.get(r['step'])
@@ -182,6 +198,8 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
         for dev in mon:
             if not ms.get(dev) or not ms[dev]['core']:
                 raise LabError('host %s has no topology.walk.core item (run "provision" first)' % dev)
+        zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
+        report['schedule_suspended'] = True
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
@@ -285,6 +303,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                 log('  ERROR   ' + e)
     finally:
         ctl.down(log)
+        zbx.restore_schedule(api, SCHEDULE_FILE, log)
     return report
 
 

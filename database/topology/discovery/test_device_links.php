@@ -573,7 +573,7 @@ check($o['outcome'] === 'applied' && $o['link_precision'] === 'device' && (int) 
 // ============================================================================================================
 $T = time();
 $day = 86400;
-echo "\n=== 5.2: no early downgrade — the far port was confirmed recently ===\n";
+echo "\n=== 5.2: lost precision — the link stays a physical_link (device-level sighting one day after the port-level one) ===\n";
 reset_db($pdo);
 reporters($pdo, $R, $D);
 snapshot($pdo, 1001, 101, 1, $T - 3 * $day, ports_rows($R, [1 => 'Gi0/1']));
@@ -595,40 +595,40 @@ check($o['link_precision'] === 'device' && (int) $o['precision_lower'] === 1 && 
 	'the observation is applied with precision_lower');
 
 // ============================================================================================================
-echo "\n=== 5.2b: conversion after the threshold — same edge id, now a device_link with reason port_lost ===\n";
+echo "\n=== 5.2b: lost precision, however old the last port-level confirmation — same edge id, still a physical_link ===\n";
 reset_db($pdo);
 reporters($pdo, $R, $D);
-add_host($pdo, 105, 'SwE', 'Switch E', '10.0.0.5');
 snapshot($pdo, 1001, 101, 1, $T - 20 * $day, ports_rows($R, [1 => 'Gi0/1']));
 snapshot($pdo, 4001, 104, 1, $T - 20 * $day, ports_rows($D, [1 => 'Gi0/1']));
-snapshot($pdo, 5001, 105, 1, $T - 20 * $day, ports_rows($E, [1 => 'Gi0/9']));
 snapshot($pdo, 1002, 101, 2, $T - 20 * $day, [nb($R, 1, $D, 'Gi0/1')]);
 run($dsn, $user, $password, $pdo, 'port-level, 20 days ago');
 $P = ports_by_name($pdo, $R)['Gi0/1'];
 $Q = ports_by_name($pdo, $D)['Gi0/1'];
-$Dd = device_id($pdo, $D);
 $L = link_between($pdo, $P, $Q);
 check($L !== null, 'R:P <-> D:Q exists');
 snapshot($pdo, 1002, 101, 2, $T - $day, [nb($R, 1, $D, '1')]);
 $r = run($dsn, $user, $password, $pdo, 'only device-level for 19 days');
-$conv = device_link($pdo, $P, $Dd);
-check($conv !== null && $conv['id'] === $L['id'], 'same edge id, now device_link R:P -> D');
-check(($conv['far_port_reason'] ?? null) === 'port_lost', 'reason port_lost');
-check(link_between($pdo, $P, $Q) === null, 'no physical_link remains');
-check(($r['summary']['links_downgraded'] ?? 0) === 1, 'the run reports links_downgraded = 1');
-// D:Q is free: a candidate for Q in the same run gets it.
-snapshot($pdo, 5002, 105, 2, $T - $day, [nb($E, 1, $D, 'Gi0/1')]);
-run($dsn, $user, $password, $pdo, 'E claims D:Q');
-check(is_active(link_between($pdo, ports_by_name($pdo, $E)['Gi0/9'], $Q)), 'E:1 <-> D:Q is created on the freed port');
-// Port identified again -> back to a physical_link (5.1).
+$L2 = link_between($pdo, $P, $Q);
+check($L2 !== null && $L2['id'] === $L['id'] && is_active($L2), 'same edge id, still an active physical_link');
+check(count_type($pdo, 'device_link') === 0, 'no device_link: a physical_link never becomes one');
+check(($L2['last_seen_port'] ?? 0) === $T - 20 * $day, 'last_seen_port did not advance (it only dates the "not confirmed since" flag)');
+check(max($L2['last_seen_src'] ?? 0, $L2['last_seen_dst'] ?? 0) === $T - $day, 'last_seen advanced to the device-level snapshot');
+$o = obs_full($pdo, 1002, $D);
+check($o['link_precision'] === 'device' && (int) $o['precision_lower'] === 1 && $o['outcome'] === 'applied',
+	'the observation is applied with precision_lower');
+check(!array_key_exists('links_downgraded', $r['summary']), 'the run no longer has a downgrade counter');
+// D:Q stays occupied by the link: a candidate for it is a conflict, not a free port.
+// Port identified again: precision_lower goes away, last_seen_port advances, same edge id.
 snapshot($pdo, 1002, 101, 2, $T - $day + 60, [nb($R, 1, $D, 'Gi0/1')]);
-snapshot($pdo, 5002, 105, 2, $T - $day + 60, []);
 run($dsn, $user, $password, $pdo, 'R names Q again');
 $back = link_between($pdo, $P, $Q);
-check($back !== null && $back['id'] === $L['id'] && !array_key_exists('far_port_reason', $back), 'refined back to a physical_link, same id');
+check($back !== null && $back['id'] === $L['id'] && ($back['last_seen_port'] ?? 0) === $T - $day + 60,
+	'same edge id; last_seen_port advanced');
+$o = obs_full($pdo, 1002, $D);
+check($o['link_precision'] === 'port' && (int) $o['precision_lower'] === 0, 'precision_lower is false again');
 
 // ============================================================================================================
-echo "\n=== 5.2c: no conversion without a device-level sighting; a manual physical_link never converts ===\n";
+echo "\n=== 5.2c: no device-level sighting — the link stays a physical_link (stale by the normal rule); a manual one stays too ===\n";
 reset_db($pdo);
 reporters($pdo, $R, $D);
 snapshot($pdo, 1001, 101, 1, $T - 20 * $day, ports_rows($R, [1 => 'Gi0/1']));
@@ -645,6 +645,32 @@ $pdo->prepare("UPDATE topo_edges SET attrs = JSON_SET(attrs, '\$.discovered_via'
 snapshot($pdo, 1002, 101, 2, $T - $day, [nb($R, 1, $D, '1')]);
 run($dsn, $user, $password, $pdo, 'a manual link, device-level sighting');
 check(link_between($pdo, $P, $Q) !== null && count_type($pdo, 'device_link') === 0, 'a manual physical_link never converts');
+
+// ============================================================================================================
+echo "\n=== 5.2d: the far port id becomes shared after a port-level link — the old link keeps its precision (§4 interaction) ===\n";
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1', 2 => 'Gi0/2']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'eth0')]);                       // D is not a reporter: port-level
+run($dsn, $user, $password, $pdo, 'one port-level link to a non-reporter');
+$ports = ports_by_name($pdo, $R);
+$Dd = device_id($pdo, $D);
+$before = $pdo->query("SELECT id FROM topo_edges WHERE type='physical_link'")->fetchAll(PDO::FETCH_COLUMN);
+check(count($before) === 1, 'one physical_link R:Gi0/1 <-> D');
+snapshot($pdo, 1002, 101, 2, CLOCK + 20, [nbt($R, 1, $D, $D, 'macAddress'), nbt($R, 2, $D, $D, 'macAddress')]);
+run($dsn, $user, $password, $pdo, 'both ports advertise the chassis MAC as the port id');
+$after = $pdo->query("SELECT id FROM topo_edges WHERE type='physical_link'")->fetchAll(PDO::FETCH_COLUMN);
+check($after === $before, 'the port-level link on Gi0/1 is the same edge, still a physical_link');
+check(device_link($pdo, $ports['Gi0/1'], $Dd) === null, 'no device_link on Gi0/1 (it has a port-level link to the same far Device)');
+$new = device_link($pdo, $ports['Gi0/2'], $Dd);
+check($new !== null && ($new['far_port_reason'] ?? null) === 'port_shared_id', 'Gi0/2 gets a device_link, reason port_shared_id');
+$lower = $pdo->query("SELECT local_port_id, link_precision, precision_lower FROM topo_observations WHERE itemid=1002 ORDER BY local_port_id")
+	->fetchAll(PDO::FETCH_ASSOC);
+check(count($lower) === 2 && (int) $lower[0]['precision_lower'] === 1 && (int) $lower[1]['precision_lower'] === 0,
+	'the Gi0/1 observation says precision_lower, the Gi0/2 one does not');
+$fp = state_lines($pdo);
+run($dsn, $user, $password, $pdo, 'again');
+check_unchanged($pdo, $fp, 'a second run changes nothing');
 
 // ============================================================================================================
 echo "\n=== 6.3: confirmation of a manual device_link ===\n";

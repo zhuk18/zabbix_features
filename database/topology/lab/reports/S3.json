@@ -22,11 +22,11 @@
    ],
    "errors": [],
    "waited_for": [
-    "AP1 core rule 62451",
-    "AP1 core rule 62453",
-    "AP1 core rule 62454",
-    "AP1 core rule 62455",
-    "AP1 fdb rule 62452",
+    "AP1 core rule 62479",
+    "AP1 core rule 62481",
+    "AP1 core rule 62482",
+    "AP1 core rule 62483",
+    "AP1 fdb rule 62480",
     "AccessSwitch1 core rule 62411",
     "AccessSwitch1 core rule 62412",
     "AccessSwitch1 core rule 62413",
@@ -55,11 +55,11 @@
    ],
    "ingest_status": {
     "status": "done",
-    "started_at": 1790966537,
-    "finished_at": 1790966537,
+    "started_at": 1790971260,
+    "finished_at": 1790971261,
     "summary": {
      "devices_created": 9,
-     "devices_updated": 7,
+     "devices_updated": 9,
      "ports_created": 23,
      "links_created": 9,
      "pseudo_ports_converted": 0,
@@ -87,47 +87,46 @@
      "rows_identity_invalid": [],
      "hosts_duplicate_transport": [],
      "links_refined": 0,
-     "links_downgraded": 0,
      "device_level_reasons": []
     },
     "error": null,
-    "run_id": "51ba3d4160fc"
+    "run_id": "a61d03130082"
    },
    "snapshot_clocks": {
-    "Router1/62383": 1790966535,
-    "Router1/62384": 1790966535,
-    "Router1/62385": 1790966535,
-    "Router1/62386": 1790966535,
-    "Router1/62388": 1790966535,
-    "Switch1/62390": 1790966536,
-    "Switch1/62391": 1790966535,
-    "Switch1/62392": 1790966535,
-    "Switch1/62393": 1790966536,
-    "Switch1/62395": 1790966535,
-    "Switch2/62397": 1790966536,
-    "Switch2/62398": 1790966536,
-    "Switch2/62399": 1790966536,
-    "Switch2/62400": 1790966536,
-    "Switch2/62402": 1790966535,
-    "UPS1/62404": 1790966535,
-    "UPS1/62405": 1790966535,
-    "UPS1/62406": 1790966535,
-    "UPS1/62407": 1790966535,
-    "UPS1/62409": 1790966535,
-    "AccessSwitch1/62411": 1790966535,
-    "AccessSwitch1/62412": 1790966535,
-    "AccessSwitch1/62413": 1790966535,
-    "AccessSwitch1/62414": 1790966535,
-    "AccessSwitch1/62416": 1790966535,
-    "AP1/62451": 1790966535,
-    "AP1/62452": 1790966535,
-    "AP1/62453": 1790966535,
-    "AP1/62454": 1790966535,
-    "AP1/62455": 1790966535
+    "Router1/62383": 1790971226,
+    "Router1/62384": 1790971226,
+    "Router1/62385": 1790971226,
+    "Router1/62386": 1790971226,
+    "Router1/62388": 1790971231,
+    "Switch1/62390": 1790971236,
+    "Switch1/62391": 1790971236,
+    "Switch1/62392": 1790971236,
+    "Switch1/62393": 1790971236,
+    "Switch1/62395": 1790971240,
+    "Switch2/62397": 1790971245,
+    "Switch2/62398": 1790971245,
+    "Switch2/62399": 1790971245,
+    "Switch2/62400": 1790971245,
+    "Switch2/62402": 1790971250,
+    "UPS1/62404": 1790971255,
+    "UPS1/62405": 1790971255,
+    "UPS1/62406": 1790971255,
+    "UPS1/62407": 1790971255,
+    "UPS1/62409": 1790971260,
+    "AccessSwitch1/62411": 1790971216,
+    "AccessSwitch1/62412": 1790971216,
+    "AccessSwitch1/62413": 1790971216,
+    "AccessSwitch1/62414": 1790971216,
+    "AccessSwitch1/62416": 1790971221,
+    "AP1/62479": 1790971206,
+    "AP1/62480": 1790971211,
+    "AP1/62481": 1790971206,
+    "AP1/62482": 1790971206,
+    "AP1/62483": 1790971206
    },
    "links": [
     {
-     "id": 413,
+     "id": 605,
      "type": "physical_link",
      "ends": [
       "AP1:eth0",
@@ -138,7 +137,7 @@
      "far_port_reason": null
     },
     {
-     "id": 417,
+     "id": 609,
      "type": "physical_link",
      "ends": [
       "AP1:wlan0",
@@ -149,7 +148,7 @@
      "far_port_reason": null
     },
     {
-     "id": 416,
+     "id": 608,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/1",
@@ -160,7 +159,7 @@
      "far_port_reason": null
     },
     {
-     "id": 418,
+     "id": 610,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/2",
@@ -171,7 +170,7 @@
      "far_port_reason": null
     },
     {
-     "id": 411,
+     "id": 603,
      "type": "physical_link",
      "ends": [
       "Printer1:GigabitEthernet0/1",
@@ -182,7 +181,7 @@
      "far_port_reason": null
     },
     {
-     "id": 410,
+     "id": 602,
      "type": "physical_link",
      "ends": [
       "Router1:Gi0/0",
@@ -193,7 +192,7 @@
      "far_port_reason": null
     },
     {
-     "id": 412,
+     "id": 604,
      "type": "physical_link",
      "ends": [
       "Switch1:Gi0/2",
@@ -204,7 +203,7 @@
      "far_port_reason": null
     },
     {
-     "id": 414,
+     "id": 606,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/1",
@@ -215,7 +214,7 @@
      "far_port_reason": null
     },
     {
-     "id": 415,
+     "id": 607,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/2",
@@ -228,138 +227,168 @@
    ],
    "observations": [
     {
-     "id": 300,
+     "id": 593,
      "reporter": "Router1",
      "port": "Gi0/0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 301,
+     "id": 594,
      "reporter": "Router1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:09",
      "outcome": "applied",
-     "edge_id": 411,
+     "edge_id": 603,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Printer1"
     },
     {
-     "id": 302,
+     "id": 595,
      "reporter": "Switch1",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:01",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Router1"
     },
     {
-     "id": 303,
+     "id": 596,
      "reporter": "Switch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 304,
+     "id": 597,
      "reporter": "Switch1",
      "port": "Gi0/6",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 305,
+     "id": 598,
      "reporter": "Switch2",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 306,
+     "id": 599,
      "reporter": "Switch2",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:05",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS1"
     },
     {
-     "id": 307,
+     "id": 600,
      "reporter": "Switch2",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:06",
      "outcome": "applied",
-     "edge_id": 415,
+     "edge_id": 607,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS2"
     },
     {
-     "id": 308,
+     "id": 601,
      "reporter": "Switch2",
      "port": "Gi0/3",
      "remote_key": "chassis:-:00:11:22:33:44:07",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch1"
     },
     {
-     "id": 309,
+     "id": 602,
      "reporter": "Switch2",
      "port": "Gi0/4",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 310,
+     "id": 603,
      "reporter": "UPS1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 311,
+     "id": 604,
      "reporter": "AccessSwitch1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 312,
+     "id": 605,
      "reporter": "AccessSwitch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:08",
      "outcome": "applied",
-     "edge_id": 418,
+     "edge_id": 610,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch2"
     },
     {
-     "id": 313,
+     "id": 606,
      "reporter": "AP1",
      "port": "wlan0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 314,
+     "id": 607,
      "reporter": "AP1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     }
    ]
@@ -395,13 +424,13 @@
    ],
    "errors": [],
    "failure_seen": {
-    "AP1": "interface errors_from=1790966558 available=1"
+    "AP1": "interface errors_from=1790971283 available=1"
    },
    "waited_for": [],
    "ingest_status": {
     "status": "done",
-    "started_at": 1790966563,
-    "finished_at": 1790966563,
+    "started_at": 1790971286,
+    "finished_at": 1790971286,
     "summary": {
      "devices_created": 0,
      "devices_updated": 0,
@@ -432,47 +461,46 @@
      "rows_identity_invalid": [],
      "hosts_duplicate_transport": [],
      "links_refined": 0,
-     "links_downgraded": 0,
      "device_level_reasons": []
     },
     "error": null,
-    "run_id": "7ca7d9319dc4"
+    "run_id": "20a87bc7164f"
    },
    "snapshot_clocks": {
-    "Router1/62383": 1790966535,
-    "Router1/62384": 1790966535,
-    "Router1/62385": 1790966535,
-    "Router1/62386": 1790966535,
-    "Router1/62388": 1790966535,
-    "Switch1/62390": 1790966536,
-    "Switch1/62391": 1790966535,
-    "Switch1/62392": 1790966535,
-    "Switch1/62393": 1790966536,
-    "Switch1/62395": 1790966535,
-    "Switch2/62397": 1790966536,
-    "Switch2/62398": 1790966536,
-    "Switch2/62399": 1790966536,
-    "Switch2/62400": 1790966536,
-    "Switch2/62402": 1790966535,
-    "UPS1/62404": 1790966535,
-    "UPS1/62405": 1790966535,
-    "UPS1/62406": 1790966535,
-    "UPS1/62407": 1790966535,
-    "UPS1/62409": 1790966535,
-    "AccessSwitch1/62411": 1790966535,
-    "AccessSwitch1/62412": 1790966535,
-    "AccessSwitch1/62413": 1790966535,
-    "AccessSwitch1/62414": 1790966535,
-    "AccessSwitch1/62416": 1790966535,
-    "AP1/62451": 1790966535,
-    "AP1/62452": 1790966535,
-    "AP1/62453": 1790966535,
-    "AP1/62454": 1790966535,
-    "AP1/62455": 1790966535
+    "Router1/62383": 1790971226,
+    "Router1/62384": 1790971226,
+    "Router1/62385": 1790971226,
+    "Router1/62386": 1790971226,
+    "Router1/62388": 1790971231,
+    "Switch1/62390": 1790971236,
+    "Switch1/62391": 1790971236,
+    "Switch1/62392": 1790971236,
+    "Switch1/62393": 1790971236,
+    "Switch1/62395": 1790971240,
+    "Switch2/62397": 1790971245,
+    "Switch2/62398": 1790971245,
+    "Switch2/62399": 1790971245,
+    "Switch2/62400": 1790971245,
+    "Switch2/62402": 1790971250,
+    "UPS1/62404": 1790971255,
+    "UPS1/62405": 1790971255,
+    "UPS1/62406": 1790971255,
+    "UPS1/62407": 1790971255,
+    "UPS1/62409": 1790971260,
+    "AccessSwitch1/62411": 1790971216,
+    "AccessSwitch1/62412": 1790971216,
+    "AccessSwitch1/62413": 1790971216,
+    "AccessSwitch1/62414": 1790971216,
+    "AccessSwitch1/62416": 1790971221,
+    "AP1/62479": 1790971206,
+    "AP1/62480": 1790971211,
+    "AP1/62481": 1790971206,
+    "AP1/62482": 1790971206,
+    "AP1/62483": 1790971206
    },
    "links": [
     {
-     "id": 413,
+     "id": 605,
      "type": "physical_link",
      "ends": [
       "AP1:eth0",
@@ -483,7 +511,7 @@
      "far_port_reason": null
     },
     {
-     "id": 417,
+     "id": 609,
      "type": "physical_link",
      "ends": [
       "AP1:wlan0",
@@ -494,7 +522,7 @@
      "far_port_reason": null
     },
     {
-     "id": 416,
+     "id": 608,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/1",
@@ -505,7 +533,7 @@
      "far_port_reason": null
     },
     {
-     "id": 418,
+     "id": 610,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/2",
@@ -516,7 +544,7 @@
      "far_port_reason": null
     },
     {
-     "id": 411,
+     "id": 603,
      "type": "physical_link",
      "ends": [
       "Printer1:GigabitEthernet0/1",
@@ -527,7 +555,7 @@
      "far_port_reason": null
     },
     {
-     "id": 410,
+     "id": 602,
      "type": "physical_link",
      "ends": [
       "Router1:Gi0/0",
@@ -538,7 +566,7 @@
      "far_port_reason": null
     },
     {
-     "id": 412,
+     "id": 604,
      "type": "physical_link",
      "ends": [
       "Switch1:Gi0/2",
@@ -549,7 +577,7 @@
      "far_port_reason": null
     },
     {
-     "id": 414,
+     "id": 606,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/1",
@@ -560,7 +588,7 @@
      "far_port_reason": null
     },
     {
-     "id": 415,
+     "id": 607,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/2",
@@ -573,470 +601,174 @@
    ],
    "observations": [
     {
-     "id": 300,
+     "id": 593,
      "reporter": "Router1",
      "port": "Gi0/0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 301,
+     "id": 594,
      "reporter": "Router1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:09",
      "outcome": "applied",
-     "edge_id": 411,
+     "edge_id": 603,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Printer1"
     },
     {
-     "id": 302,
+     "id": 595,
      "reporter": "Switch1",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:01",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Router1"
     },
     {
-     "id": 303,
+     "id": 596,
      "reporter": "Switch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 304,
+     "id": 597,
      "reporter": "Switch1",
      "port": "Gi0/6",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 305,
+     "id": 598,
      "reporter": "Switch2",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 306,
+     "id": 599,
      "reporter": "Switch2",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:05",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS1"
     },
     {
-     "id": 307,
+     "id": 600,
      "reporter": "Switch2",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:06",
      "outcome": "applied",
-     "edge_id": 415,
+     "edge_id": 607,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS2"
     },
     {
-     "id": 308,
+     "id": 601,
      "reporter": "Switch2",
      "port": "Gi0/3",
      "remote_key": "chassis:-:00:11:22:33:44:07",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch1"
     },
     {
-     "id": 309,
+     "id": 602,
      "reporter": "Switch2",
      "port": "Gi0/4",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 310,
+     "id": 603,
      "reporter": "UPS1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 311,
+     "id": 604,
      "reporter": "AccessSwitch1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 312,
+     "id": 605,
      "reporter": "AccessSwitch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:08",
      "outcome": "applied",
-     "edge_id": 418,
+     "edge_id": 610,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch2"
     },
     {
-     "id": 313,
+     "id": 606,
      "reporter": "AP1",
      "port": "wlan0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 314,
+     "id": 607,
      "reporter": "AP1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     }
    ]
   },
   {
    "step": 2,
-   "note": "freshness threshold passes, AP1 still seen on Gi0/6",
-   "assertions": [
-    {
-     "assert": "pending",
-     "spec": {
-      "pending": "the freshness threshold is the constant TOPO_LINK_FRESH_SECONDS = 7 days in ingest.php (and STALE_LINK_SECONDS in CTopologyPrototype); no setting, option or environment variable changes it. device-level spec \u00a75.2 (port_lost conversion) cannot be reached in a lab run without changing topology code."
-     },
-     "result": "pending",
-     "message": "the freshness threshold is the constant TOPO_LINK_FRESH_SECONDS = 7 days in ingest.php (and STALE_LINK_SECONDS in CTopologyPrototype); no setting, option or environment variable changes it. device-level spec \u00a75.2 (port_lost conversion) cannot be reached in a lab run without changing topology code."
-    }
-   ],
-   "errors": [],
-   "waited_for": [],
-   "ingest_status": {
-    "status": "done",
-    "started_at": 1790966563,
-    "finished_at": 1790966563,
-    "summary": {
-     "devices_created": 0,
-     "devices_updated": 0,
-     "ports_created": 0,
-     "links_created": 0,
-     "pseudo_ports_converted": 0,
-     "pseudo_ports_ambiguous": 0,
-     "pseudo_ports_move_failed": 0,
-     "pseudo_ports_kept_manual": 0,
-     "pseudo_ports_removed": 0,
-     "pseudo_ports": [],
-     "reporters_processed": 6,
-     "reporters_skipped": [],
-     "snapshots_ignored_role_mismatch": 0,
-     "observations": {
-      "applied": 15,
-      "device_only": 0,
-      "shadowed": 0,
-      "conflict": 0,
-      "ambiguous": 0
-     },
-     "links_superseded": 0,
-     "links_revived": 0,
-     "ports_ambiguous": 0,
-     "manual_links_contradicted": 0,
-     "observations_removed": 0,
-     "links_device_level": 0,
-     "rows_identity_invalid": [],
-     "hosts_duplicate_transport": [],
-     "links_refined": 0,
-     "links_downgraded": 0,
-     "device_level_reasons": []
-    },
-    "error": null,
-    "run_id": "6a83b3d82404"
-   },
-   "snapshot_clocks": {
-    "Router1/62383": 1790966535,
-    "Router1/62384": 1790966535,
-    "Router1/62385": 1790966535,
-    "Router1/62386": 1790966535,
-    "Router1/62388": 1790966535,
-    "Switch1/62390": 1790966536,
-    "Switch1/62391": 1790966535,
-    "Switch1/62392": 1790966535,
-    "Switch1/62393": 1790966536,
-    "Switch1/62395": 1790966535,
-    "Switch2/62397": 1790966536,
-    "Switch2/62398": 1790966536,
-    "Switch2/62399": 1790966536,
-    "Switch2/62400": 1790966536,
-    "Switch2/62402": 1790966535,
-    "UPS1/62404": 1790966535,
-    "UPS1/62405": 1790966535,
-    "UPS1/62406": 1790966535,
-    "UPS1/62407": 1790966535,
-    "UPS1/62409": 1790966535,
-    "AccessSwitch1/62411": 1790966535,
-    "AccessSwitch1/62412": 1790966535,
-    "AccessSwitch1/62413": 1790966535,
-    "AccessSwitch1/62414": 1790966535,
-    "AccessSwitch1/62416": 1790966535,
-    "AP1/62451": 1790966535,
-    "AP1/62452": 1790966535,
-    "AP1/62453": 1790966535,
-    "AP1/62454": 1790966535,
-    "AP1/62455": 1790966535
-   },
-   "links": [
-    {
-     "id": 413,
-     "type": "physical_link",
-     "ends": [
-      "AP1:eth0",
-      "Switch1:Gi0/6"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 417,
-     "type": "physical_link",
-     "ends": [
-      "AP1:wlan0",
-      "Switch2:Gi0/4"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 416,
-     "type": "physical_link",
-     "ends": [
-      "AccessSwitch1:Gi0/1",
-      "Switch2:Gi0/3"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 418,
-     "type": "physical_link",
-     "ends": [
-      "AccessSwitch1:Gi0/2",
-      "AccessSwitch2:GigabitEthernet0/1"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 411,
-     "type": "physical_link",
-     "ends": [
-      "Printer1:GigabitEthernet0/1",
-      "Router1:Gi0/1"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 410,
-     "type": "physical_link",
-     "ends": [
-      "Router1:Gi0/0",
-      "Switch1:Gi0/24"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 412,
-     "type": "physical_link",
-     "ends": [
-      "Switch1:Gi0/2",
-      "Switch2:Gi0/24"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 414,
-     "type": "physical_link",
-     "ends": [
-      "Switch2:Gi0/1",
-      "UPS1:eth0"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    },
-    {
-     "id": 415,
-     "type": "physical_link",
-     "ends": [
-      "Switch2:Gi0/2",
-      "UPS2:GigabitEthernet0/1"
-     ],
-     "via": "lldp",
-     "state": "active",
-     "far_port_reason": null
-    }
-   ],
-   "observations": [
-    {
-     "id": 300,
-     "reporter": "Router1",
-     "port": "Gi0/0",
-     "remote_key": "chassis:-:00:11:22:33:44:02",
-     "outcome": "applied",
-     "edge_id": 410,
-     "device": "Switch1"
-    },
-    {
-     "id": 301,
-     "reporter": "Router1",
-     "port": "Gi0/1",
-     "remote_key": "chassis:-:00:11:22:33:44:09",
-     "outcome": "applied",
-     "edge_id": 411,
-     "device": "Printer1"
-    },
-    {
-     "id": 302,
-     "reporter": "Switch1",
-     "port": "Gi0/24",
-     "remote_key": "chassis:-:00:11:22:33:44:01",
-     "outcome": "applied",
-     "edge_id": 410,
-     "device": "Router1"
-    },
-    {
-     "id": 303,
-     "reporter": "Switch1",
-     "port": "Gi0/2",
-     "remote_key": "chassis:-:00:11:22:33:44:12",
-     "outcome": "applied",
-     "edge_id": 412,
-     "device": "Switch2"
-    },
-    {
-     "id": 304,
-     "reporter": "Switch1",
-     "port": "Gi0/6",
-     "remote_key": "chassis:-:00:11:22:33:44:0a",
-     "outcome": "applied",
-     "edge_id": 413,
-     "device": "AP1"
-    },
-    {
-     "id": 305,
-     "reporter": "Switch2",
-     "port": "Gi0/24",
-     "remote_key": "chassis:-:00:11:22:33:44:02",
-     "outcome": "applied",
-     "edge_id": 412,
-     "device": "Switch1"
-    },
-    {
-     "id": 306,
-     "reporter": "Switch2",
-     "port": "Gi0/1",
-     "remote_key": "chassis:-:00:11:22:33:44:05",
-     "outcome": "applied",
-     "edge_id": 414,
-     "device": "UPS1"
-    },
-    {
-     "id": 307,
-     "reporter": "Switch2",
-     "port": "Gi0/2",
-     "remote_key": "chassis:-:00:11:22:33:44:06",
-     "outcome": "applied",
-     "edge_id": 415,
-     "device": "UPS2"
-    },
-    {
-     "id": 308,
-     "reporter": "Switch2",
-     "port": "Gi0/3",
-     "remote_key": "chassis:-:00:11:22:33:44:07",
-     "outcome": "applied",
-     "edge_id": 416,
-     "device": "AccessSwitch1"
-    },
-    {
-     "id": 309,
-     "reporter": "Switch2",
-     "port": "Gi0/4",
-     "remote_key": "chassis:-:00:11:22:33:44:0a",
-     "outcome": "applied",
-     "edge_id": 417,
-     "device": "AP1"
-    },
-    {
-     "id": 310,
-     "reporter": "UPS1",
-     "port": "eth0",
-     "remote_key": "chassis:-:00:11:22:33:44:12",
-     "outcome": "applied",
-     "edge_id": 414,
-     "device": "Switch2"
-    },
-    {
-     "id": 311,
-     "reporter": "AccessSwitch1",
-     "port": "Gi0/1",
-     "remote_key": "chassis:-:00:11:22:33:44:12",
-     "outcome": "applied",
-     "edge_id": 416,
-     "device": "Switch2"
-    },
-    {
-     "id": 312,
-     "reporter": "AccessSwitch1",
-     "port": "Gi0/2",
-     "remote_key": "chassis:-:00:11:22:33:44:08",
-     "outcome": "applied",
-     "edge_id": 418,
-     "device": "AccessSwitch2"
-    },
-    {
-     "id": 313,
-     "reporter": "AP1",
-     "port": "wlan0",
-     "remote_key": "chassis:-:00:11:22:33:44:12",
-     "outcome": "applied",
-     "edge_id": 417,
-     "device": "Switch2"
-    },
-    {
-     "id": 314,
-     "reporter": "AP1",
-     "port": "eth0",
-     "remote_key": "chassis:-:00:11:22:33:44:02",
-     "outcome": "applied",
-     "edge_id": 413,
-     "device": "Switch1"
-    }
-   ]
-  },
-  {
-   "step": 3,
    "note": "AP2 (not monitored) on Switch1:Gi0/7",
    "assertions": [
     {
@@ -1046,6 +778,7 @@
        "Switch1:Gi0/7",
        "AP2"
       ],
+      "type": "physical_link",
       "state": "active"
      },
      "result": "pass",
@@ -1061,8 +794,8 @@
    ],
    "ingest_status": {
     "status": "done",
-    "started_at": 1790966567,
-    "finished_at": 1790966568,
+    "started_at": 1790971291,
+    "finished_at": 1790971291,
     "summary": {
      "devices_created": 1,
      "devices_updated": 3,
@@ -1093,47 +826,46 @@
      "rows_identity_invalid": [],
      "hosts_duplicate_transport": [],
      "links_refined": 0,
-     "links_downgraded": 0,
      "device_level_reasons": []
     },
     "error": null,
-    "run_id": "9d34f4a913c0"
+    "run_id": "cdbc95a46bc0"
    },
    "snapshot_clocks": {
-    "Router1/62383": 1790966535,
-    "Router1/62384": 1790966535,
-    "Router1/62385": 1790966535,
-    "Router1/62386": 1790966535,
-    "Router1/62388": 1790966535,
-    "Switch1/62390": 1790966565,
-    "Switch1/62391": 1790966565,
-    "Switch1/62392": 1790966565,
-    "Switch1/62393": 1790966565,
-    "Switch1/62395": 1790966535,
-    "Switch2/62397": 1790966536,
-    "Switch2/62398": 1790966536,
-    "Switch2/62399": 1790966536,
-    "Switch2/62400": 1790966536,
-    "Switch2/62402": 1790966535,
-    "UPS1/62404": 1790966535,
-    "UPS1/62405": 1790966535,
-    "UPS1/62406": 1790966535,
-    "UPS1/62407": 1790966535,
-    "UPS1/62409": 1790966535,
-    "AccessSwitch1/62411": 1790966535,
-    "AccessSwitch1/62412": 1790966535,
-    "AccessSwitch1/62413": 1790966535,
-    "AccessSwitch1/62414": 1790966535,
-    "AccessSwitch1/62416": 1790966535,
-    "AP1/62451": 1790966535,
-    "AP1/62452": 1790966535,
-    "AP1/62453": 1790966535,
-    "AP1/62454": 1790966535,
-    "AP1/62455": 1790966535
+    "Router1/62383": 1790971226,
+    "Router1/62384": 1790971226,
+    "Router1/62385": 1790971226,
+    "Router1/62386": 1790971226,
+    "Router1/62388": 1790971231,
+    "Switch1/62390": 1790971290,
+    "Switch1/62391": 1790971290,
+    "Switch1/62392": 1790971290,
+    "Switch1/62393": 1790971290,
+    "Switch1/62395": 1790971240,
+    "Switch2/62397": 1790971245,
+    "Switch2/62398": 1790971245,
+    "Switch2/62399": 1790971245,
+    "Switch2/62400": 1790971245,
+    "Switch2/62402": 1790971250,
+    "UPS1/62404": 1790971255,
+    "UPS1/62405": 1790971255,
+    "UPS1/62406": 1790971255,
+    "UPS1/62407": 1790971255,
+    "UPS1/62409": 1790971260,
+    "AccessSwitch1/62411": 1790971216,
+    "AccessSwitch1/62412": 1790971216,
+    "AccessSwitch1/62413": 1790971216,
+    "AccessSwitch1/62414": 1790971216,
+    "AccessSwitch1/62416": 1790971221,
+    "AP1/62479": 1790971206,
+    "AP1/62480": 1790971211,
+    "AP1/62481": 1790971206,
+    "AP1/62482": 1790971206,
+    "AP1/62483": 1790971206
    },
    "links": [
     {
-     "id": 413,
+     "id": 605,
      "type": "physical_link",
      "ends": [
       "AP1:eth0",
@@ -1144,7 +876,7 @@
      "far_port_reason": null
     },
     {
-     "id": 417,
+     "id": 609,
      "type": "physical_link",
      "ends": [
       "AP1:wlan0",
@@ -1155,7 +887,7 @@
      "far_port_reason": null
     },
     {
-     "id": 419,
+     "id": 611,
      "type": "physical_link",
      "ends": [
       "AP2:eth0",
@@ -1166,7 +898,7 @@
      "far_port_reason": null
     },
     {
-     "id": 416,
+     "id": 608,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/1",
@@ -1177,7 +909,7 @@
      "far_port_reason": null
     },
     {
-     "id": 418,
+     "id": 610,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/2",
@@ -1188,7 +920,7 @@
      "far_port_reason": null
     },
     {
-     "id": 411,
+     "id": 603,
      "type": "physical_link",
      "ends": [
       "Printer1:GigabitEthernet0/1",
@@ -1199,7 +931,7 @@
      "far_port_reason": null
     },
     {
-     "id": 410,
+     "id": 602,
      "type": "physical_link",
      "ends": [
       "Router1:Gi0/0",
@@ -1210,7 +942,7 @@
      "far_port_reason": null
     },
     {
-     "id": 412,
+     "id": 604,
      "type": "physical_link",
      "ends": [
       "Switch1:Gi0/2",
@@ -1221,7 +953,7 @@
      "far_port_reason": null
     },
     {
-     "id": 414,
+     "id": 606,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/1",
@@ -1232,7 +964,7 @@
      "far_port_reason": null
     },
     {
-     "id": 415,
+     "id": 607,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/2",
@@ -1245,155 +977,244 @@
    ],
    "observations": [
     {
-     "id": 300,
+     "id": 593,
      "reporter": "Router1",
      "port": "Gi0/0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 301,
+     "id": 594,
      "reporter": "Router1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:09",
      "outcome": "applied",
-     "edge_id": 411,
+     "edge_id": 603,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Printer1"
     },
     {
-     "id": 302,
+     "id": 595,
      "reporter": "Switch1",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:01",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Router1"
     },
     {
-     "id": 303,
+     "id": 596,
      "reporter": "Switch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 304,
+     "id": 597,
      "reporter": "Switch1",
      "port": "Gi0/6",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 305,
+     "id": 598,
      "reporter": "Switch2",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 306,
+     "id": 599,
      "reporter": "Switch2",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:05",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS1"
     },
     {
-     "id": 307,
+     "id": 600,
      "reporter": "Switch2",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:06",
      "outcome": "applied",
-     "edge_id": 415,
+     "edge_id": 607,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS2"
     },
     {
-     "id": 308,
+     "id": 601,
      "reporter": "Switch2",
      "port": "Gi0/3",
      "remote_key": "chassis:-:00:11:22:33:44:07",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch1"
     },
     {
-     "id": 309,
+     "id": 602,
      "reporter": "Switch2",
      "port": "Gi0/4",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 310,
+     "id": 603,
      "reporter": "UPS1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 311,
+     "id": 604,
      "reporter": "AccessSwitch1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 312,
+     "id": 605,
      "reporter": "AccessSwitch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:08",
      "outcome": "applied",
-     "edge_id": 418,
+     "edge_id": 610,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch2"
     },
     {
-     "id": 313,
+     "id": 606,
      "reporter": "AP1",
      "port": "wlan0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 314,
+     "id": 607,
      "reporter": "AP1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 315,
+     "id": 608,
      "reporter": "Switch1",
      "port": "Gi0/7",
      "remote_key": "chassis:macAddress:00:11:22:33:44:0c",
      "outcome": "applied",
-     "edge_id": 419,
+     "edge_id": 611,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP2"
     }
    ]
   },
   {
-   "step": 4,
-   "note": "extension (not in the spec table): AP2 also on Switch1:Gi0/8, same MAC as port id on both ports",
+   "step": 3,
+   "note": "AP2 also on Switch1:Gi0/8; the same MAC is advertised as the port id on both ports",
    "assertions": [
+    {
+     "assert": "edge_id_same_as",
+     "spec": {
+      "edge_id_same_as": {
+       "step": 2,
+       "link": [
+        "Switch1:Gi0/7",
+        "AP2"
+       ]
+      }
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "link",
+     "spec": {
+      "link": [
+       "Switch1:Gi0/7",
+       "AP2"
+      ],
+      "type": "physical_link",
+      "state": "active"
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "observation",
+     "spec": {
+      "observation": {
+       "reporter": "Switch1",
+       "port": "Gi0/7",
+       "remote": "AP2"
+      },
+      "outcome": "applied",
+      "precision_lower": true
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "link_attr",
+     "spec": {
+      "link_attr": {
+       "link": [
+        "Switch1:Gi0/7",
+        "AP2"
+       ],
+       "attr": "last_seen_port",
+       "vs_step": 2,
+       "is": "eq"
+      }
+     },
+     "result": "pass",
+     "message": ""
+    },
     {
      "assert": "link",
      "spec": {
@@ -1407,14 +1228,6 @@
      },
      "result": "pass",
      "message": ""
-    },
-    {
-     "assert": "pending",
-     "spec": {
-      "pending": "Switch1:Gi0/7 - AP2 was already a port-level link when the second port started advertising the same id. No spec says whether it converts to device-level (device-level spec \u00a75.2 converts only after the freshness threshold; \u00a74.2 is written for links created in one run). Observed: it stays a physical_link."
-     },
-     "result": "pending",
-     "message": "Switch1:Gi0/7 - AP2 was already a port-level link when the second port started advertising the same id. No spec says whether it converts to device-level (device-level spec \u00a75.2 converts only after the freshness threshold; \u00a74.2 is written for links created in one run). Observed: it stays a physical_link."
     }
    ],
    "errors": [],
@@ -1426,8 +1239,8 @@
    ],
    "ingest_status": {
     "status": "done",
-    "started_at": 1790966572,
-    "finished_at": 1790966572,
+    "started_at": 1790971296,
+    "finished_at": 1790971296,
     "summary": {
      "devices_created": 0,
      "devices_updated": 4,
@@ -1458,49 +1271,48 @@
      "rows_identity_invalid": [],
      "hosts_duplicate_transport": [],
      "links_refined": 0,
-     "links_downgraded": 0,
      "device_level_reasons": {
       "port_shared_id": 1
      }
     },
     "error": null,
-    "run_id": "fecd21706e49"
+    "run_id": "7cdd9a14a6a6"
    },
    "snapshot_clocks": {
-    "Router1/62383": 1790966535,
-    "Router1/62384": 1790966535,
-    "Router1/62385": 1790966535,
-    "Router1/62386": 1790966535,
-    "Router1/62388": 1790966535,
-    "Switch1/62390": 1790966570,
-    "Switch1/62391": 1790966570,
-    "Switch1/62392": 1790966570,
-    "Switch1/62393": 1790966570,
-    "Switch1/62395": 1790966535,
-    "Switch2/62397": 1790966536,
-    "Switch2/62398": 1790966536,
-    "Switch2/62399": 1790966536,
-    "Switch2/62400": 1790966536,
-    "Switch2/62402": 1790966535,
-    "UPS1/62404": 1790966535,
-    "UPS1/62405": 1790966535,
-    "UPS1/62406": 1790966535,
-    "UPS1/62407": 1790966535,
-    "UPS1/62409": 1790966535,
-    "AccessSwitch1/62411": 1790966535,
-    "AccessSwitch1/62412": 1790966535,
-    "AccessSwitch1/62413": 1790966535,
-    "AccessSwitch1/62414": 1790966535,
-    "AccessSwitch1/62416": 1790966535,
-    "AP1/62451": 1790966535,
-    "AP1/62452": 1790966535,
-    "AP1/62453": 1790966535,
-    "AP1/62454": 1790966535,
-    "AP1/62455": 1790966535
+    "Router1/62383": 1790971226,
+    "Router1/62384": 1790971226,
+    "Router1/62385": 1790971226,
+    "Router1/62386": 1790971226,
+    "Router1/62388": 1790971231,
+    "Switch1/62390": 1790971295,
+    "Switch1/62391": 1790971295,
+    "Switch1/62392": 1790971295,
+    "Switch1/62393": 1790971295,
+    "Switch1/62395": 1790971240,
+    "Switch2/62397": 1790971245,
+    "Switch2/62398": 1790971245,
+    "Switch2/62399": 1790971245,
+    "Switch2/62400": 1790971245,
+    "Switch2/62402": 1790971250,
+    "UPS1/62404": 1790971255,
+    "UPS1/62405": 1790971255,
+    "UPS1/62406": 1790971255,
+    "UPS1/62407": 1790971255,
+    "UPS1/62409": 1790971260,
+    "AccessSwitch1/62411": 1790971216,
+    "AccessSwitch1/62412": 1790971216,
+    "AccessSwitch1/62413": 1790971216,
+    "AccessSwitch1/62414": 1790971216,
+    "AccessSwitch1/62416": 1790971221,
+    "AP1/62479": 1790971206,
+    "AP1/62480": 1790971211,
+    "AP1/62481": 1790971206,
+    "AP1/62482": 1790971206,
+    "AP1/62483": 1790971206
    },
    "links": [
     {
-     "id": 420,
+     "id": 612,
      "type": "device_link",
      "ends": [
       "Switch1:Gi0/8",
@@ -1511,7 +1323,7 @@
      "far_port_reason": "port_shared_id"
     },
     {
-     "id": 413,
+     "id": 605,
      "type": "physical_link",
      "ends": [
       "AP1:eth0",
@@ -1522,7 +1334,7 @@
      "far_port_reason": null
     },
     {
-     "id": 417,
+     "id": 609,
      "type": "physical_link",
      "ends": [
       "AP1:wlan0",
@@ -1533,7 +1345,7 @@
      "far_port_reason": null
     },
     {
-     "id": 419,
+     "id": 611,
      "type": "physical_link",
      "ends": [
       "AP2:eth0",
@@ -1544,7 +1356,7 @@
      "far_port_reason": null
     },
     {
-     "id": 416,
+     "id": 608,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/1",
@@ -1555,7 +1367,7 @@
      "far_port_reason": null
     },
     {
-     "id": 418,
+     "id": 610,
      "type": "physical_link",
      "ends": [
       "AccessSwitch1:Gi0/2",
@@ -1566,7 +1378,7 @@
      "far_port_reason": null
     },
     {
-     "id": 411,
+     "id": 603,
      "type": "physical_link",
      "ends": [
       "Printer1:GigabitEthernet0/1",
@@ -1577,7 +1389,7 @@
      "far_port_reason": null
     },
     {
-     "id": 410,
+     "id": 602,
      "type": "physical_link",
      "ends": [
       "Router1:Gi0/0",
@@ -1588,7 +1400,7 @@
      "far_port_reason": null
     },
     {
-     "id": 412,
+     "id": 604,
      "type": "physical_link",
      "ends": [
       "Switch1:Gi0/2",
@@ -1599,7 +1411,7 @@
      "far_port_reason": null
     },
     {
-     "id": 414,
+     "id": 606,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/1",
@@ -1610,7 +1422,7 @@
      "far_port_reason": null
     },
     {
-     "id": 415,
+     "id": 607,
      "type": "physical_link",
      "ends": [
       "Switch2:Gi0/2",
@@ -1623,159 +1435,638 @@
    ],
    "observations": [
     {
-     "id": 300,
+     "id": 593,
      "reporter": "Router1",
      "port": "Gi0/0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 301,
+     "id": 594,
      "reporter": "Router1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:09",
      "outcome": "applied",
-     "edge_id": 411,
+     "edge_id": 603,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Printer1"
     },
     {
-     "id": 302,
+     "id": 595,
      "reporter": "Switch1",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:01",
      "outcome": "applied",
-     "edge_id": 410,
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Router1"
     },
     {
-     "id": 303,
+     "id": 596,
      "reporter": "Switch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 304,
+     "id": 597,
      "reporter": "Switch1",
      "port": "Gi0/6",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 305,
+     "id": 598,
      "reporter": "Switch2",
      "port": "Gi0/24",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 412,
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 306,
+     "id": 599,
      "reporter": "Switch2",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:05",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS1"
     },
     {
-     "id": 307,
+     "id": 600,
      "reporter": "Switch2",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:06",
      "outcome": "applied",
-     "edge_id": 415,
+     "edge_id": 607,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "UPS2"
     },
     {
-     "id": 308,
+     "id": 601,
      "reporter": "Switch2",
      "port": "Gi0/3",
      "remote_key": "chassis:-:00:11:22:33:44:07",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch1"
     },
     {
-     "id": 309,
+     "id": 602,
      "reporter": "Switch2",
      "port": "Gi0/4",
      "remote_key": "chassis:-:00:11:22:33:44:0a",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP1"
     },
     {
-     "id": 310,
+     "id": 603,
      "reporter": "UPS1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 414,
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 311,
+     "id": 604,
      "reporter": "AccessSwitch1",
      "port": "Gi0/1",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 416,
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 312,
+     "id": 605,
      "reporter": "AccessSwitch1",
      "port": "Gi0/2",
      "remote_key": "chassis:-:00:11:22:33:44:08",
      "outcome": "applied",
-     "edge_id": 418,
+     "edge_id": 610,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AccessSwitch2"
     },
     {
-     "id": 313,
+     "id": 606,
      "reporter": "AP1",
      "port": "wlan0",
      "remote_key": "chassis:-:00:11:22:33:44:12",
      "outcome": "applied",
-     "edge_id": 417,
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch2"
     },
     {
-     "id": 314,
+     "id": 607,
      "reporter": "AP1",
      "port": "eth0",
      "remote_key": "chassis:-:00:11:22:33:44:02",
      "outcome": "applied",
-     "edge_id": 413,
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "Switch1"
     },
     {
-     "id": 315,
+     "id": 608,
      "reporter": "Switch1",
      "port": "Gi0/7",
      "remote_key": "chassis:macAddress:00:11:22:33:44:0c",
      "outcome": "applied",
-     "edge_id": 419,
+     "edge_id": 611,
+     "link_precision": "device",
+     "precision_lower": true,
      "device": "AP2"
     },
     {
-     "id": 316,
+     "id": 609,
      "reporter": "Switch1",
      "port": "Gi0/8",
      "remote_key": "chassis:macAddress:00:11:22:33:44:0c",
      "outcome": "applied",
-     "edge_id": 420,
+     "edge_id": 612,
+     "link_precision": "device",
+     "precision_lower": false,
+     "device": "AP2"
+    }
+   ]
+  },
+  {
+   "step": 4,
+   "note": "shared id removed (AP2 no longer on Switch1:Gi0/8)",
+   "assertions": [
+    {
+     "assert": "edge_id_same_as",
+     "spec": {
+      "edge_id_same_as": {
+       "step": 2,
+       "link": [
+        "Switch1:Gi0/7",
+        "AP2"
+       ]
+      }
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "link",
+     "spec": {
+      "link": [
+       "Switch1:Gi0/7",
+       "AP2"
+      ],
+      "type": "physical_link",
+      "state": "active"
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "observation",
+     "spec": {
+      "observation": {
+       "reporter": "Switch1",
+       "port": "Gi0/7",
+       "remote": "AP2"
+      },
+      "outcome": "applied",
+      "precision_lower": false
+     },
+     "result": "pass",
+     "message": ""
+    },
+    {
+     "assert": "link_attr",
+     "spec": {
+      "link_attr": {
+       "link": [
+        "Switch1:Gi0/7",
+        "AP2"
+       ],
+       "attr": "last_seen_port",
+       "vs_step": 3,
+       "is": "gt"
+      }
+     },
+     "result": "pass",
+     "message": ""
+    }
+   ],
+   "errors": [],
+   "waited_for": [
+    "Switch1 core rule 62390",
+    "Switch1 core rule 62391",
+    "Switch1 core rule 62392",
+    "Switch1 core rule 62393"
+   ],
+   "ingest_status": {
+    "status": "done",
+    "started_at": 1790971300,
+    "finished_at": 1790971300,
+    "summary": {
+     "devices_created": 0,
+     "devices_updated": 4,
+     "ports_created": 0,
+     "links_created": 0,
+     "pseudo_ports_converted": 0,
+     "pseudo_ports_ambiguous": 0,
+     "pseudo_ports_move_failed": 0,
+     "pseudo_ports_kept_manual": 0,
+     "pseudo_ports_removed": 0,
+     "pseudo_ports": [],
+     "reporters_processed": 6,
+     "reporters_skipped": [],
+     "snapshots_ignored_role_mismatch": 0,
+     "observations": {
+      "applied": 16,
+      "device_only": 0,
+      "shadowed": 0,
+      "conflict": 0,
+      "ambiguous": 0
+     },
+     "links_superseded": 0,
+     "links_revived": 0,
+     "ports_ambiguous": 0,
+     "manual_links_contradicted": 0,
+     "observations_removed": 0,
+     "links_device_level": 1,
+     "rows_identity_invalid": [],
+     "hosts_duplicate_transport": [],
+     "links_refined": 0,
+     "device_level_reasons": {
+      "port_shared_id": 1
+     }
+    },
+    "error": null,
+    "run_id": "235ad9fb4c54"
+   },
+   "snapshot_clocks": {
+    "Router1/62383": 1790971226,
+    "Router1/62384": 1790971226,
+    "Router1/62385": 1790971226,
+    "Router1/62386": 1790971226,
+    "Router1/62388": 1790971231,
+    "Switch1/62390": 1790971300,
+    "Switch1/62391": 1790971300,
+    "Switch1/62392": 1790971300,
+    "Switch1/62393": 1790971300,
+    "Switch1/62395": 1790971240,
+    "Switch2/62397": 1790971245,
+    "Switch2/62398": 1790971245,
+    "Switch2/62399": 1790971245,
+    "Switch2/62400": 1790971245,
+    "Switch2/62402": 1790971250,
+    "UPS1/62404": 1790971255,
+    "UPS1/62405": 1790971255,
+    "UPS1/62406": 1790971255,
+    "UPS1/62407": 1790971255,
+    "UPS1/62409": 1790971260,
+    "AccessSwitch1/62411": 1790971216,
+    "AccessSwitch1/62412": 1790971216,
+    "AccessSwitch1/62413": 1790971216,
+    "AccessSwitch1/62414": 1790971216,
+    "AccessSwitch1/62416": 1790971221,
+    "AP1/62479": 1790971206,
+    "AP1/62480": 1790971211,
+    "AP1/62481": 1790971206,
+    "AP1/62482": 1790971206,
+    "AP1/62483": 1790971206
+   },
+   "links": [
+    {
+     "id": 612,
+     "type": "device_link",
+     "ends": [
+      "Switch1:Gi0/8",
+      "AP2"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": "port_shared_id"
+    },
+    {
+     "id": 605,
+     "type": "physical_link",
+     "ends": [
+      "AP1:eth0",
+      "Switch1:Gi0/6"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 609,
+     "type": "physical_link",
+     "ends": [
+      "AP1:wlan0",
+      "Switch2:Gi0/4"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 611,
+     "type": "physical_link",
+     "ends": [
+      "AP2:eth0",
+      "Switch1:Gi0/7"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 608,
+     "type": "physical_link",
+     "ends": [
+      "AccessSwitch1:Gi0/1",
+      "Switch2:Gi0/3"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 610,
+     "type": "physical_link",
+     "ends": [
+      "AccessSwitch1:Gi0/2",
+      "AccessSwitch2:GigabitEthernet0/1"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 603,
+     "type": "physical_link",
+     "ends": [
+      "Printer1:GigabitEthernet0/1",
+      "Router1:Gi0/1"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 602,
+     "type": "physical_link",
+     "ends": [
+      "Router1:Gi0/0",
+      "Switch1:Gi0/24"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 604,
+     "type": "physical_link",
+     "ends": [
+      "Switch1:Gi0/2",
+      "Switch2:Gi0/24"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 606,
+     "type": "physical_link",
+     "ends": [
+      "Switch2:Gi0/1",
+      "UPS1:eth0"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    },
+    {
+     "id": 607,
+     "type": "physical_link",
+     "ends": [
+      "Switch2:Gi0/2",
+      "UPS2:GigabitEthernet0/1"
+     ],
+     "via": "lldp",
+     "state": "active",
+     "far_port_reason": null
+    }
+   ],
+   "observations": [
+    {
+     "id": 593,
+     "reporter": "Router1",
+     "port": "Gi0/0",
+     "remote_key": "chassis:-:00:11:22:33:44:02",
+     "outcome": "applied",
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch1"
+    },
+    {
+     "id": 594,
+     "reporter": "Router1",
+     "port": "Gi0/1",
+     "remote_key": "chassis:-:00:11:22:33:44:09",
+     "outcome": "applied",
+     "edge_id": 603,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Printer1"
+    },
+    {
+     "id": 595,
+     "reporter": "Switch1",
+     "port": "Gi0/24",
+     "remote_key": "chassis:-:00:11:22:33:44:01",
+     "outcome": "applied",
+     "edge_id": 602,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Router1"
+    },
+    {
+     "id": 596,
+     "reporter": "Switch1",
+     "port": "Gi0/2",
+     "remote_key": "chassis:-:00:11:22:33:44:12",
+     "outcome": "applied",
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch2"
+    },
+    {
+     "id": 597,
+     "reporter": "Switch1",
+     "port": "Gi0/6",
+     "remote_key": "chassis:-:00:11:22:33:44:0a",
+     "outcome": "applied",
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "AP1"
+    },
+    {
+     "id": 598,
+     "reporter": "Switch2",
+     "port": "Gi0/24",
+     "remote_key": "chassis:-:00:11:22:33:44:02",
+     "outcome": "applied",
+     "edge_id": 604,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch1"
+    },
+    {
+     "id": 599,
+     "reporter": "Switch2",
+     "port": "Gi0/1",
+     "remote_key": "chassis:-:00:11:22:33:44:05",
+     "outcome": "applied",
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "UPS1"
+    },
+    {
+     "id": 600,
+     "reporter": "Switch2",
+     "port": "Gi0/2",
+     "remote_key": "chassis:-:00:11:22:33:44:06",
+     "outcome": "applied",
+     "edge_id": 607,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "UPS2"
+    },
+    {
+     "id": 601,
+     "reporter": "Switch2",
+     "port": "Gi0/3",
+     "remote_key": "chassis:-:00:11:22:33:44:07",
+     "outcome": "applied",
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "AccessSwitch1"
+    },
+    {
+     "id": 602,
+     "reporter": "Switch2",
+     "port": "Gi0/4",
+     "remote_key": "chassis:-:00:11:22:33:44:0a",
+     "outcome": "applied",
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "AP1"
+    },
+    {
+     "id": 603,
+     "reporter": "UPS1",
+     "port": "eth0",
+     "remote_key": "chassis:-:00:11:22:33:44:12",
+     "outcome": "applied",
+     "edge_id": 606,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch2"
+    },
+    {
+     "id": 604,
+     "reporter": "AccessSwitch1",
+     "port": "Gi0/1",
+     "remote_key": "chassis:-:00:11:22:33:44:12",
+     "outcome": "applied",
+     "edge_id": 608,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch2"
+    },
+    {
+     "id": 605,
+     "reporter": "AccessSwitch1",
+     "port": "Gi0/2",
+     "remote_key": "chassis:-:00:11:22:33:44:08",
+     "outcome": "applied",
+     "edge_id": 610,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "AccessSwitch2"
+    },
+    {
+     "id": 606,
+     "reporter": "AP1",
+     "port": "wlan0",
+     "remote_key": "chassis:-:00:11:22:33:44:12",
+     "outcome": "applied",
+     "edge_id": 609,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch2"
+    },
+    {
+     "id": 607,
+     "reporter": "AP1",
+     "port": "eth0",
+     "remote_key": "chassis:-:00:11:22:33:44:02",
+     "outcome": "applied",
+     "edge_id": 605,
+     "link_precision": "port",
+     "precision_lower": false,
+     "device": "Switch1"
+    },
+    {
+     "id": 608,
+     "reporter": "Switch1",
+     "port": "Gi0/7",
+     "remote_key": "chassis:macAddress:00:11:22:33:44:0c",
+     "outcome": "applied",
+     "edge_id": 611,
+     "link_precision": "port",
+     "precision_lower": false,
      "device": "AP2"
     }
    ]
   }
- ]
+ ],
+ "schedule_suspended": true
 }

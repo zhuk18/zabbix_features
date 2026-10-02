@@ -85,11 +85,13 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use ($pdo, &$done) 
 	check($rejected(fn () => $validate_edge('some_other_link', $port, $port2)), 'an unknown edge type is rejected');
 
 	echo "\n=== reasons ===\n";
-	foreach (['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'port_lost', 'manual', 'fdb_mac_only'] as $reason) {
+	foreach (['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'] as $reason) {
 		check(!$rejected(fn () => $validate_edge('device_link', $port, $device2, ['far_port_reason' => $reason])),
 			"reason {$reason} is accepted");
 	}
 	check($rejected(fn () => $validate_edge('device_link', $port, $device2, ['far_port_reason' => 'because'])), 'an unknown reason is rejected');
+	check($rejected(fn () => $validate_edge('device_link', $port, $device2, ['far_port_reason' => 'port_lost'])),
+		'port_lost is rejected: it was removed in device-level spec v0.8 (a link\'s precision only goes up)');
 	check($rejected(fn () => $validate_edge('device_link', $port, $device2, [])), 'a missing reason is rejected');
 	check($rejected(fn () => $snap_device_link($port, $device2, 'lldp', 'because', [], 1)), 'the writer rejects an unknown reason too');
 	check($rejected(fn () => $snap_device_link($port, $port2, 'lldp', 'port_unmatched', [], 1)), 'and a Port as the far end');

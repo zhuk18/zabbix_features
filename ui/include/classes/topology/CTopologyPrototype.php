@@ -4,7 +4,7 @@ class CTopologyPrototype {
 
 	// topology-device-level-edge-spec.md §3.1: why a device_link ends at a Device and not at a Port. fdb_mac_only is
 	// reserved (accepted, never produced); manual is what an operator-made device_link carries.
-	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'port_lost', 'manual', 'fdb_mac_only'];
+	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
 	public const LINK_TYPES = ['physical_link', 'device_link'];
 
 
@@ -320,6 +320,18 @@ class CTopologyPrototype {
 		$rows = DBfetchArray(DBselect($link_sql));
 		$port_details = self::getPortDetails(array_merge(array_column($rows, 'port_a'), array_column($rows, 'port_b')));
 
+		// Lost precision (topology-device-level-edge-spec.md §5.2): a port-level link that some latest snapshot
+		// confirms only at device level. The reporting side is the observation's local port; the remote port is the
+		// link's other end.
+		$lower_from = [];
+		if ($rows) {
+			$cursor = DBselect('SELECT edge_id,local_port_id FROM topo_observations WHERE precision_lower=1 AND '.
+				dbConditionId('edge_id', array_column($rows, 'link_id')));
+			while ($observation = DBfetch($cursor, false)) {
+				$lower_from[$observation['edge_id']][$observation['local_port_id']] = true;
+			}
+		}
+
 		// A device pair can be reached by more than one physical_link (redundant cabling, or one
 		// manual + one LLDP-discovered link between the same two devices) — collapse to a single
 		// edge per pair rather than stacking duplicates, same "most-confirmed wins" precedent as
@@ -378,6 +390,16 @@ class CTopologyPrototype {
 					// collapse above, same precedent — not a separate merge policy of its own.
 					'stale' => self::isLinkStale($last_seen, $superseded_at),
 					'superseded_at' => $superseded_at, 'replaced_by_device' => $replaced_by,
+					// §5.2 flag: one entry per side that sees only the far Device ("The remote port <Q> hasn't been
+					// confirmed since <last_seen_port>; <D> is still seen on this port."). last_seen_port is for display
+					// only; a row without it counts as last_seen.
+					'lost_precision' => array_values(array_filter([
+						isset($lower_from[$row['link_id']][$row['port_a']]) ? ['remote_port' => $port_b['name'] ?? null,
+							'remote_device' => $row['device_b']] : null,
+						isset($lower_from[$row['link_id']][$row['port_b']]) ? ['remote_port' => $port_a['name'] ?? null,
+							'remote_device' => $row['device_a']] : null
+					])),
+					'last_seen_port' => isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port'] : $last_seen,
 					// The stored link, so the manual-contradiction panel (topology-manual-contradiction-spec.md)
 					// can tell which drawn line is which topo_edges row.
 					'edge_id' => $row['link_id']];
@@ -443,8 +465,6 @@ class CTopologyPrototype {
 				'discovered_via' => $discovery_source === 'manual' ? 'manual' : 'lldp',
 				'discovery_source' => $discovery_source,
 				'last_seen' => $last_seen,
-				// reason port_lost: when the far port was last confirmed ("not confirmed since ...")
-				'last_seen_port' => isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port'] : null,
 				'stale' => self::isLinkStale($last_seen, $superseded_at),
 				'superseded_at' => $superseded_at
 			];

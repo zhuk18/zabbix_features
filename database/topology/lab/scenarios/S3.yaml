@@ -40,10 +40,6 @@ steps:
         type: physical_link
         state: active
   - id: 2
-    note: freshness threshold passes, AP1 still seen on Gi0/6
-    assert:
-      - pending: "the freshness threshold is the constant TOPO_LINK_FRESH_SECONDS = 7 days in ingest.php (and STALE_LINK_SECONDS in CTopologyPrototype); no setting, option or environment variable changes it. device-level spec §5.2 (port_lost conversion) cannot be reached in a lab run without changing topology code."
-  - id: 3
     note: AP2 (not monitored) on Switch1:Gi0/7
     cables:
       add: [[Switch1:Gi0/7, AP2:eth0]]
@@ -51,15 +47,37 @@ steps:
     # device-level; the port is created from the advertisement and the link is port-level ("non-reporter far end")
     assert:
       - link: [Switch1:Gi0/7, AP2]
+        type: physical_link
         state: active
-  - id: 4
-    note: "extension (not in the spec table): AP2 also on Switch1:Gi0/8, same MAC as port id on both ports"
+  - id: 3
+    note: AP2 also on Switch1:Gi0/8; the same MAC is advertised as the port id on both ports
     cables:
       add: [[Switch1:Gi0/8, AP2:eth1]]
-    # device-level spec §4.2: the same far port id on two local ports of one reporter -> device-level, port_shared_id
+    # device-level spec §5.2 (v0.8) and the §4 interaction rule: Gi0/7 already has a port-level link to AP2, so it keeps
+    # it (lost precision: precision_lower, last_seen_port not advanced); Gi0/8 has none, so §4.2 gives it a device_link
     assert:
+      - edge_id_same_as: {step: 2, link: [Switch1:Gi0/7, AP2]}
+      - link: [Switch1:Gi0/7, AP2]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/7, remote: AP2}
+        outcome: applied
+        precision_lower: true
+      - link_attr: {link: [Switch1:Gi0/7, AP2], attr: last_seen_port, vs_step: 2, is: eq}
       - link: [Switch1:Gi0/8, AP2]
         type: device_link
         reason: port_shared_id
         state: active
-      - pending: "Switch1:Gi0/7 - AP2 was already a port-level link when the second port started advertising the same id. No spec says whether it converts to device-level (device-level spec §5.2 converts only after the freshness threshold; §4.2 is written for links created in one run). Observed: it stays a physical_link."
+  - id: 4
+    note: shared id removed (AP2 no longer on Switch1:Gi0/8)
+    cables:
+      remove: [[Switch1:Gi0/8, AP2:eth1]]
+    assert:
+      - edge_id_same_as: {step: 2, link: [Switch1:Gi0/7, AP2]}
+      - link: [Switch1:Gi0/7, AP2]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/7, remote: AP2}
+        outcome: applied
+        precision_lower: false
+      - link_attr: {link: [Switch1:Gi0/7, AP2], attr: last_seen_port, vs_step: 3, is: gt}

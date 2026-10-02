@@ -27,6 +27,7 @@ def main(argv=None):
     p = sub.add_parser('provision'); p.add_argument('scenario'); p.add_argument('--prune', action='store_true')
     p = sub.add_parser('run'); p.add_argument('scenario'); p.add_argument('--reset', action='store_true')
     p.add_argument('--timeout', type=int, default=120); p.add_argument('--report')
+    sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     a = ap.parse_args(argv)
     try:
@@ -48,6 +49,10 @@ def main(argv=None):
                 with open(path, 'w') as f:
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)
+        elif a.cmd == 'restore':
+            db.connect(settings).close()
+            if not zbx.restore_schedule(zbx.Api(settings['zabbix']['url']), runner.SCHEDULE_FILE):
+                print('nothing to restore')
         elif a.cmd == 'compare-reports':
             x, y = (runner.normalize_report(json.load(open(f))) for f in (a.a, a.b))
             print('reports are equal (clocks and ids ignored)' if x == y else 'reports DIFFER')

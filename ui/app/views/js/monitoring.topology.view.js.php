@@ -275,6 +275,8 @@ const view = new class {
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
 			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null,
+			// physical_link only (topology-device-level-edge-spec.md §5.2): sides that see only the far Device.
+			lost_precision: relation.lost_precision ?? null, last_seen_port: relation.last_seen_port ?? null,
 			// device_link only (topology-device-level-edge-spec.md §7): the bundled links between the two Devices.
 			discovery_source: relation.discovery_source, count: relation.count ?? null, links: relation.links ?? null
 		}));
@@ -584,6 +586,7 @@ const view = new class {
 			if (link.superseded_at) {
 				rows.push([<?= json_encode(_('Replaced')) ?>, this.replacedNote(link)]);
 			}
+			this.lostPrecisionNotes(link).forEach(note => rows.push([<?= json_encode(_('Not confirmed')) ?>, note]));
 		}
 		let device_link_actions = '';
 		if (link.type === 'device_link') {
@@ -648,7 +651,6 @@ const view = new class {
 	// Operator-facing explanation of why the far port is unknown. Plain text: callers escape it.
 	farPortReasonText(item, near_name, far_name, local_ports = '') {
 		const hint = this.hintText(item.far_port_hint);
-		const since = item.last_seen_port ? this.formatDate(item.last_seen_port) : '?';
 		switch (item.far_port_reason) {
 			case 'port_unmatched':
 				return `${far_name} ${<?= json_encode(_('reports its own ports, and none of them matches the port')) ?>} ` +
@@ -661,9 +663,6 @@ const view = new class {
 				return `${near_name} ${<?= json_encode(_('has several links to')) ?>} ${far_name}` +
 					`${local_ports ? ` (${local_ports})` : ''} ` +
 					<?= json_encode(_('whose remote ports can\'t be told apart, typically a link aggregation.')) ?>;
-			case 'port_lost':
-				return <?= json_encode(_('The remote port hasn\'t been confirmed since')) ?> + ` ${since}; ${far_name} ` +
-					<?= json_encode(_('is still seen on this port. The link was port-to-port until then.')) ?>;
 			case 'manual':
 				return <?= json_encode(_('Created manually without a remote port')) ?> +
 					`${item.created_by ? ' ' + <?= json_encode(_('by')) ?> + ' ' + item.created_by : ''}` +
@@ -767,6 +766,16 @@ const view = new class {
 				button.after(holder);
 			}));
 		});
+	}
+
+	// Lost precision (device-level spec §5.2): "The remote port <Q> hasn't been confirmed since <date>; <D> is still
+	// seen on this port." One note per side that sees only the far Device. Plain text: the caller escapes it.
+	lostPrecisionNotes(link) {
+		const since = link.last_seen_port ? this.formatDate(link.last_seen_port) : '?';
+
+		return (link.lost_precision ?? []).map(side => <?= json_encode(_('The remote port')) ?> +
+			` ${side.remote_port ?? '?'} ` + <?= json_encode(_('hasn\'t been confirmed since')) ?> + ` ${since}; ` +
+			`${this.nodeName(side.remote_device)} ` + <?= json_encode(_('is still seen on this port.')) ?>);
 	}
 
 	// "Replaced on <date>", and the neighbor that took the port when the payload says which one it is.
@@ -1288,9 +1297,10 @@ const view = new class {
 				if (link.target_status) {
 					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
 				}
-				const stale_note = link.superseded_at
+				const lost = this.lostPrecisionNotes(link).map(note => ` ${note}`).join('');
+				const stale_note = (link.superseded_at
 					? ` ${this.replacedNote(link)}`
-					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '');
+					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '')) + lost;
 				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
 			}
 			if (link.type === 'device_link') {

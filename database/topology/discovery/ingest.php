@@ -718,10 +718,7 @@ const TOPO_ROLE_LAG = 4;
 
 // topology-device-level-edge-spec.md: why a link ends at a Device instead of a Port (§3.1). fdb_mac_only is
 // reserved: validation accepts it, nothing in this script produces it.
-const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'port_lost', 'manual', 'fdb_mac_only'];
-// The freshness threshold of model spec §7 / FR Lifecycle 5a (the same 7 days CTopologyPrototype::STALE_LINK_SECONDS
-// uses to draw a link as stale): §5.2 downgrades a port-level link whose port was last confirmed longer ago.
-const TOPO_LINK_FRESH_SECONDS = 7 * 24 * 60 * 60;
+const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
 
 $summary += [
 	'reporters_processed' => 0,
@@ -745,7 +742,6 @@ $summary += [
 	'rows_identity_invalid' => [],
 	'hosts_duplicate_transport' => [],
 	'links_refined' => 0,
-	'links_downgraded' => 0,
 	'device_level_reasons' => [],
 ];
 
@@ -1024,7 +1020,7 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 // construction (no canonicalization). last_seen_src is the local reporter's side; last_seen_dst is set elsewhere,
 // when the far Device's own reporter names the local Device. A manual link that discovery confirms is upgraded like
 // a manual physical_link ($keep_manual says it must not be); far_port_reason / far_port_hint follow the latest
-// sighting, except that a downgraded link keeps `port_lost` while the same device-level sighting continues.
+// sighting.
 $snap_device_link = static function (int $port_id, int $device_id, string $source, string $reason, array $hint,
 		int $seen_at, bool $keep_manual = false) use ($pdo, $insert_edge, $now, $last_insert_id, $validate_edge, &$summary): int {
 	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'device_link' AND src_id = ? AND dst_id = ?");
@@ -1038,9 +1034,7 @@ $snap_device_link = static function (int $port_id, int $device_id, string $sourc
 				$attrs['discovered_via'] = $source;
 				unset($attrs['shadow_ack']); // confirmation turns it into a discovered link (device-level spec §6.3)
 			}
-			if (!(($attrs['far_port_reason'] ?? null) === 'port_lost' && $reason === 'port_unmatched')) {
-				$attrs['far_port_reason'] = $reason;
-			}
+			$attrs['far_port_reason'] = $reason;
 			if ($hint) {
 				$attrs['far_port_hint'] = $hint;
 			}
@@ -1065,9 +1059,9 @@ $snap_device_link = static function (int $port_id, int $device_id, string $sourc
 	return $last_insert_id();
 };
 
-// A device-level sighting that confirms an existing PORT-level link at lower precision (§5.2 "before the
-// threshold"): last_seen_* advances, last_seen_port does not. A row without last_seen_port is pinned to its last_seen
-// first, so a link that only ever gets device-level confirmations still ages towards the downgrade.
+// A device-level sighting that confirms an existing PORT-level link at lower precision (§5.2 "Lost precision", any
+// cause): the link stays a physical_link, last_seen_* advances, last_seen_port does not. A row without last_seen_port
+// is pinned to its last_seen first, so the "not confirmed since" flag has a date; no rule reads last_seen_port.
 $snap_link_confirm_lower = static function (int $edge_id, int $reporter_port_id, int $seen_at) use ($pdo): void {
 	$stmt = $pdo->prepare('SELECT src_id, dst_id, attrs FROM topo_edges WHERE id = ?');
 	$stmt->execute([$edge_id]);
@@ -1714,9 +1708,9 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 //
 // Device level (device-level-edge spec): two entities are the same cable seen at different precision when they share
 // a local port and the far Device. A device-level sighting of an existing port-level link only confirms it (§5.2, it
-// does not contradict: contradiction compares far Devices, §6.1); a port-level claim over an existing device_link
-// refines it in place (§5.1); a port-level link whose port stays unconfirmed past the freshness threshold while the
-// far Device is still seen on the port is downgraded in place (§5.2).
+// does not contradict: contradiction compares far Devices, §6.1), whatever the cause of the lost precision (§5.2); a
+// port-level claim over an existing device_link refines it in place (§5.1). A physical_link never becomes a
+// device_link here (the one exception, a pseudo port corrected when its Device becomes a reporter, is §4.4).
 //
 // Before that, pre-spec data with two active discovered links on one port is cleaned up once (legacy).
 // ============================================================================================================
@@ -1768,8 +1762,6 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			'occupies' => $device_level ? [$a] : [$a, $b],
 			'manual' => ($attrs['discovered_via'] ?? 'manual') === 'manual',
 			'seen' => (int) ($attrs['last_seen'] ?? 0),
-			// Clock of the latest snapshot that contained the link at port level; a row without it counts as last_seen.
-			'seen_port' => (int) ($attrs['last_seen_port'] ?? $attrs['last_seen'] ?? 0),
 			// The operator has decided something about this manual link (kept it for a hidden neighbor): from then
 			// on no ingest run changes its kind, whether or not a neighbor is hiding behind it right now.
 			'acknowledged' => !empty($attrs['shadow_ack']),
@@ -1838,9 +1830,8 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		return (bool) array_diff_key($rules_of[$entity_key] ?? [], $rules_of[$claim_key] ?? []);
 	};
 
-	// 2b. (device-level spec §5.2) A discovered port-level link nobody has confirmed at port level since the freshness
-	//     threshold, while a latest snapshot still resolves one of its ports to the far Device at device level, becomes
-	//     a device_link (same edge id). A full run only: a partial one cannot see every reporter.
+	// Helpers for rewriting a stored link's attrs (used by the refinement below). There is no port-level ->
+	// device-level conversion here: a link's precision only goes up (device-level spec §5.2).
 	$set_attrs = static function (int $id, array $attrs) use ($pdo): void {
 		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
 			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
@@ -1849,57 +1840,6 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		return json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(), true,
 			512, JSON_THROW_ON_ERROR) ?: [];
 	};
-	if ($replacement_enabled) {
-		foreach ($links as $id => $link) {
-			if ($link['type'] !== 'physical_link' || !$is_active_discovered($link) || !empty($rules_port[$link['key']])
-					|| $now - $link['seen_port'] <= TOPO_LINK_FRESH_SECONDS) {
-				continue;
-			}
-			$best = null; // [clock, -port, candidate index]: the side that still sees the far Device, newer clock first
-			foreach ([[$link['a'], $link['b']], [$link['b'], $link['a']]] as [$mine, $other]) {
-				foreach ($device_cands[$mine] ?? [] as $i) {
-					if ($candidates[$i]['remote_device_id'] !== $device_of($other)) {
-						continue;
-					}
-					$rank = [$candidates[$i]['clock'], -$mine];
-					if ($best === null || $rank > $best['rank']) {
-						$best = ['rank' => $rank, 'port' => $mine, 'other' => $other, 'index' => $i];
-					}
-				}
-			}
-			if ($best === null) {
-				continue; // nothing resolves it to the far Device: the link goes stale by the normal rule
-			}
-			$new_dst = $device_of($best['other']);
-			$new_key = $dev_key($best['port'], $new_dst);
-			if (isset($link_by_key[$new_key])) {
-				continue; // that device-level pair already has an edge: leave this one alone
-			}
-			$attrs = $load_attrs($id);
-			$side = static fn (int $port): int => (int) ($attrs[$port === $link['a'] ? 'last_seen_src' : 'last_seen_dst'] ?? 0);
-			// last_seen_port stays on the device_link: it is what "not confirmed since ..." says (reason port_lost).
-			$converted = ['discovered_via' => $attrs['discovered_via'] ?? 'lldp', 'far_port_reason' => 'port_lost',
-				'last_seen_src' => $side($best['port']), 'last_seen' => $attrs['last_seen'] ?? 0,
-				'last_seen_port' => $link['seen_port']];
-			if ($side($best['other']) > 0) {
-				$converted['last_seen_dst'] = $side($best['other']);
-			}
-			if ($candidates[$best['index']]['far_port_hint']) {
-				$converted['far_port_hint'] = $candidates[$best['index']]['far_port_hint'];
-			}
-			$validate_edge('device_link', $best['port'], $new_dst, $converted);
-			$pdo->prepare("UPDATE topo_edges SET type = 'device_link', src_id = ?, dst_id = ?, attrs = ? WHERE id = ?")
-				->execute([$best['port'], $new_dst, json_encode($converted, JSON_THROW_ON_ERROR), $id]);
-			unset($link_by_key[$link['key']]);
-			foreach ($link['occupies'] as $port) {
-				$by_port[$port] = array_values(array_diff($by_port[$port] ?? [], [$id]));
-			}
-			$register_link(['id' => $id, 'type' => 'device_link', 'src_id' => $best['port'], 'dst_id' => $new_dst,
-				'attrs' => json_encode($converted, JSON_THROW_ON_ERROR)]);
-			$summary['links_downgraded']++;
-		}
-	}
-
 	// 3. Legacy data: pre-spec ingest let a cable move leave two active discovered links on one port. Keep one per
 	//    port, once, whether or not a candidate arrives for that port. A partial run cannot see every reporter, so it
 	//    leaves the data alone (§6.3).
@@ -2256,7 +2196,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		if ($existing_id === null) {
 			$links[$converted['id']] = ['id' => $converted['id'], 'type' => 'physical_link', 'a' => $new_src, 'b' => $new_dst,
 				'key' => $key, 'occupies' => [$new_src, $new_dst], 'manual' => false, 'seen' => $new['last_seen'],
-				'seen_port' => $new['last_seen'], 'acknowledged' => false,
+				'acknowledged' => false,
 				'superseded_at' => $new['superseded_at'] ?? null];
 			$by_port[$new_src][] = $converted['id'];
 			$by_port[$new_dst][] = $converted['id'];
