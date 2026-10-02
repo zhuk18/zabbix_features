@@ -1,0 +1,65 @@
+zabbix_export:
+  version: '8.0'
+  template_groups:
+    - uuid: c25cff1785c94fb9a09676d7a26d993f
+      name: 'Templates/Network devices'
+  templates:
+    - uuid: a57b8f2d47d04f01a4819c299e966fa4
+      template: 'Topology by push'
+      name: 'Topology by push'
+      description: |
+        Receives the network topology from push.py (topology-push-transport-spec.md). push.py walks the device near
+        the segment and sends the rows of each topology role with zabbix_sender; every role is a Zabbix trapper
+        discovery rule with a topology_role, so the server stores the same topo_lld_snapshot rows as the "Topology by
+        SNMP" template and ingest.php reconciles both on one path.
+
+        One rule per role, LLDP and CDP separately, as in "Topology by SNMP": the rules are what "support from
+        another NEIGHBORS rule" counts. push.py sends a role only when it was collected: a failed walk sends nothing
+        and the last snapshot stays; "[]" means the table was read and has no rows.
+
+        Do not link this template together with "Topology by SNMP" for the same role and protocol (two rules would
+        report the same data; ingest reports such a host as hosts_duplicate_transport). Different protocols are fine:
+        LLDP by SNMP and CDP by push on one host. The legacy "Topology Discovery Reporter" may stay linked during a
+        transition: its heartbeat key is topology.discovery.heartbeat, this one's is topology.push.heartbeat.
+        Who may send is set by {$TOPOLOGY.PUSH.ALLOWED_HOSTS} ("Allowed hosts" of the rules; an empty value allows nobody).
+      groups:
+        - name: 'Templates/Network devices'
+      items:
+        - uuid: 641909cf96714cecb88c3c2f76830b6f
+          name: 'Topology push heartbeat'
+          type: TRAP
+          key: topology.push.heartbeat
+          allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
+          description: 'Sent by push.py on every run, even when every role failed: the trigger below tells a stalled collector from a quiet network.'
+          triggers:
+            - uuid: 9010b8413aeb491dbfb0314af3c71cec
+              expression: 'nodata(/Topology by push/topology.push.heartbeat,{$TOPOLOGY.PUSH.NODATA})'
+              name: 'Topology push heartbeat missing on {HOST.NAME} for {$TOPOLOGY.PUSH.NODATA}'
+              priority: AVERAGE
+              description: 'push.py has not reported for twice its interval ({$TOPOLOGY.PUSH.NODATA} by default for a 5m interval).'
+      discovery_rules:
+        - uuid: facc4888bf954f739eaa8fc66bc20d2d
+          name: 'Topology ports (push)'
+          type: TRAP
+          key: topology.push.ports
+          allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
+          topology_role: PORTS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'One row per interface, sent by push.py.'
+        - uuid: 5c1f8ded2d19430e8704a1c4a839a614
+          name: 'Topology neighbors (LLDP, push)'
+          type: TRAP
+          key: topology.push.lldp
+          allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
+          topology_role: NEIGHBORS
+          lifetime_type: DELETE_NEVER
+          enabled_lifetime_type: DISABLE_NEVER
+          description: 'LLDP neighbors, sent by push.py with {#SOURCE} = lldp.'
+      macros:
+        - macro: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
+          value: '127.0.0.1,::1'
+          description: 'Who may send to the trapper rules and the heartbeat ("Allowed hosts"). An empty value allows nobody: set the address(es) of the machine that runs push.py.'
+        - macro: '{$TOPOLOGY.PUSH.NODATA}'
+          value: 10m
+          description: 'Heartbeat silence that raises the trigger: twice the push interval.'
