@@ -990,36 +990,34 @@ $snap_link_reporter_self = static function (int $device_id, string $hostid, stri
 $snap_observation = static function (int $itemid, int $local_port_id, string $remote_key, array $remote_attrs,
 		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at, ?string $precision = null,
 		?string $far_port_reason = null, bool $precision_lower = false) use ($pdo): int {
-	// topology-device-level-edge-spec.md §8: how precisely the far end was identified rides in remote_attrs (no schema
-	// change): precision 'port' / 'device' (absent when no link was made), the reason when 'device', and
-	// precision_lower when the observation confirms a port-level link only at device level.
-	if ($precision !== null) {
-		$remote_attrs['precision'] = $precision;
-	}
-	if ($far_port_reason !== null) {
-		$remote_attrs['far_port_reason'] = $far_port_reason;
-	}
-	if ($precision_lower) {
-		$remote_attrs['precision_lower'] = true;
-	}
+	// remote_attrs holds only what the remote device advertised. How precisely the far end was identified is ours:
+	// link_precision ('port' / 'device', NULL when no link was made), far_port_reason (for 'device') and
+	// precision_lower (the observation confirms a port-level link only at device level).
 	$attrs_json = json_encode($remote_attrs, JSON_THROW_ON_ERROR);
-	$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, last_seen FROM topo_observations'.
-		' WHERE itemid = ? AND local_port_id = ? AND remote_key = ?');
+	$lower = $precision_lower ? 1 : 0;
+	$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, link_precision, far_port_reason,'.
+		' precision_lower, last_seen FROM topo_observations WHERE itemid = ? AND local_port_id = ? AND remote_key = ?');
 	$stmt->execute([$itemid, $local_port_id, $remote_key]);
 	if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 		$same = json_decode($row['remote_attrs'], true) === $remote_attrs && $row['outcome'] === $outcome
 			&& ($row['edge_id'] === null ? null : (int) $row['edge_id']) === $edge_id
 			&& ($row['device_id'] === null ? null : (int) $row['device_id']) === $device_id
+			&& $row['link_precision'] === $precision && $row['far_port_reason'] === $far_port_reason
+			&& (int) $row['precision_lower'] === $lower
 			&& (int) $row['last_seen'] === $seen_at;
 		if (!$same) {
 			$pdo->prepare('UPDATE topo_observations SET remote_attrs = ?, outcome = ?, edge_id = ?, device_id = ?,'.
-				' last_seen = ? WHERE id = ?')->execute([$attrs_json, $outcome, $edge_id, $device_id, $seen_at, $row['id']]);
+				' link_precision = ?, far_port_reason = ?, precision_lower = ?, last_seen = ? WHERE id = ?')
+				->execute([$attrs_json, $outcome, $edge_id, $device_id, $precision, $far_port_reason, $lower, $seen_at,
+					$row['id']]);
 		}
 		return (int) $row['id'];
 	}
 	$pdo->prepare('INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id,'.
-		' device_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-		->execute([$itemid, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $seen_at, $seen_at]);
+		' device_id, link_precision, far_port_reason, precision_lower, first_seen, last_seen)'.
+		' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		->execute([$itemid, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $precision,
+			$far_port_reason, $lower, $seen_at, $seen_at]);
 	return (int) $pdo->lastInsertId();
 };
 

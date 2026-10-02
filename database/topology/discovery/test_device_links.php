@@ -231,8 +231,8 @@ function state_lines(PDO $pdo): array {
 	foreach ($pdo->query('SELECT id, type, src_id, dst_id, attrs FROM topo_edges ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $r) {
 		$lines[] = 'edge '.implode(' | ', $r);
 	}
-	foreach ($pdo->query('SELECT id, itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen'.
-			' FROM topo_observations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $r) {
+	foreach ($pdo->query('SELECT id, itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, link_precision,'.
+			' far_port_reason, precision_lower, first_seen, last_seen FROM topo_observations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $r) {
 		$lines[] = 'obs '.implode(' | ', array_map(static fn ($v) => (string) $v, $r));
 	}
 	return $lines;
@@ -313,16 +313,12 @@ function nbt(string $loc, int $if, string $rem_chassis, string $rem_port, string
 }
 
 function obs_full(PDO $pdo, int $itemid, string $chassis): ?array {
-	$stmt = $pdo->prepare('SELECT outcome, edge_id, remote_attrs FROM topo_observations WHERE itemid=? AND remote_key LIKE ?');
+	$stmt = $pdo->prepare('SELECT outcome, edge_id, link_precision, far_port_reason, precision_lower FROM topo_observations'.
+		' WHERE itemid=? AND remote_key LIKE ?');
 	$stmt->execute([$itemid, '%'.$chassis]);
 	$row = $stmt->fetch(PDO::FETCH_ASSOC);
-	if (!$row) {
-		return null;
-	}
-	$attrs = json_decode($row['remote_attrs'], true);
 
-	return ['outcome' => $row['outcome'], 'edge_id' => $row['edge_id'], 'link_precision' => $attrs['precision'] ?? null,
-		'far_port_reason' => $attrs['far_port_reason'] ?? null, 'precision_lower' => (int) ($attrs['precision_lower'] ?? 0)];
+	return $row ? ['precision_lower' => (int) $row['precision_lower']] + $row : null;
 }
 
 function ports_by_name(PDO $pdo, string $chassis): array {

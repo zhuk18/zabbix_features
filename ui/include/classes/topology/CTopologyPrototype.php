@@ -1488,7 +1488,7 @@ class CTopologyPrototype {
 		}
 
 		$sql = 'SELECT o.id,o.itemid,o.local_port_id,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,'.
-				'o.first_seen,o.last_seen,i.name AS rule_name,h.hostid,h.name AS host_name,port.attrs AS port_attrs,'.
+				'o.link_precision,o.far_port_reason,o.precision_lower,o.first_seen,o.last_seen,i.name AS rule_name,h.hostid,h.name AS host_name,port.attrs AS port_attrs,'.
 				'remote.attrs AS device_attrs'.
 			' FROM topo_observations o'.
 			// Only observations of a rule that still has a usable snapshot: enabled rule on an enabled host, snapshot of its current role
@@ -1504,7 +1504,7 @@ class CTopologyPrototype {
 			$sql .= ' AND o.device_id='.zbx_dbstr($device_id);
 		}
 		if ($precision !== null) {
-			$sql .= ' AND JSON_UNQUOTE(JSON_EXTRACT(o.remote_attrs,'.zbx_dbstr('$.precision').'))='.zbx_dbstr($precision);
+			$sql .= ' AND o.link_precision='.zbx_dbstr($precision);
 		}
 		$sql .= ' ORDER BY o.last_seen DESC,o.id DESC';
 
@@ -1551,9 +1551,9 @@ class CTopologyPrototype {
 				// How precisely the far end was identified: 'port', or 'device' (the far Device is known, its port is not)
 				// with the reason why; null when the observation made no link. precision_lower: it confirms a
 				// port-level link only at device level.
-				'precision' => json_decode((string) $row['remote_attrs'], true)['precision'] ?? null,
-				'far_port_reason' => json_decode((string) $row['remote_attrs'], true)['far_port_reason'] ?? null,
-				'precision_lower' => (bool) (json_decode((string) $row['remote_attrs'], true)['precision_lower'] ?? false),
+				'precision' => $row['link_precision'],
+				'far_port_reason' => $row['far_port_reason'],
+				'precision_lower' => (bool) $row['precision_lower'],
 				'first_seen' => (int) $row['first_seen'],
 				'last_seen' => (int) $row['last_seen'],
 				// How long the observation has been continuously present: a `conflict` younger than the
