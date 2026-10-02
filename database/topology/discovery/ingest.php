@@ -297,7 +297,26 @@ $last_insert_id = static function () use ($pdo): int {
 // codebase records "how a Device was matched" outside rule 4's own sysname-weak-signal requirement).
 // $summary tallies create-vs-update counts for the §6 /topo/ingest/status endpoint. Just counting,
 // no change to the matching/upsert rules themselves.
-$summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0];
+$summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0,
+	// Ports made from neighbor advertisements on a Device that has since become a reporter (its own walk returned real
+	// ports): converted (their links became device_links, the port was deleted), ambiguous (several pseudo ports match
+	// one real port, so none was merged), move_failed (the real port already had another link), kept_manual (a manual
+	// link sits on it, so the port stays), removed (no link at all). `pseudo_ports` lists them with the details.
+	'pseudo_ports_converted' => 0, 'pseudo_ports_ambiguous' => 0, 'pseudo_ports_move_failed' => 0,
+	'pseudo_ports_kept_manual' => 0, 'pseudo_ports_removed' => 0, 'pseudo_ports' => []];
+$pseudo_note = static function (string $outcome, int $device_id, int $port_id, string $name, array $extra = [])
+		use (&$summary): void {
+	static $counted = [];
+	if (isset($counted[$outcome][$port_id])) {
+		return; // one count per port and outcome, however many real ports or edges led to it
+	}
+	$counted[$outcome][$port_id] = true;
+	$summary['pseudo_ports_'.$outcome]++;
+	if (count($summary['pseudo_ports']) < 200) {
+		$summary['pseudo_ports'][] = ['outcome' => $outcome, 'device_id' => $device_id, 'port_id' => $port_id,
+			'name' => $name] + $extra;
+	}
+};
 
 $device = static function (array $attrs, ?int $local_port_id = null) use ($pdo, $insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {
 	$match = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null, $local_port_id, $attrs['sysname'] ?? null);
@@ -525,7 +544,7 @@ $normalize_port_name = static function (string $name): string {
 // this Device ever pushed its own data — re-point its physical_link edge(s) onto the real Port and delete
 // it. Zero or more-than-one match: do nothing (never guess — §3 rule 4's explicit instruction), just log it
 // so it isn't silently missed either way.
-$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name): void {
+$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note): void {
 	$normalized_real = $normalize_port_name($real_port_name);
 
 	$stmt = $pdo->prepare(
@@ -539,13 +558,13 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized_real));
 
 	if (count($matches) !== 1) {
-		if (count($matches) > 1) {
-			$ids = implode(', ', array_map(static fn (array $p): string => '#'.$p['id'], $matches));
-			echo "PSEUDO-MERGE SKIP: device #{$reporter_device_id} has ".count($matches)." pseudo-Port(s) ".
-				"({$ids}) whose name normalizes to match real Port #{$real_port_id} ('{$real_port_name}') — ".
-				"ambiguous, leaving all of them in place (spec §3 rule 4: never guess).\n";
+		// Several pseudo-Ports match one real Port: never guess (spec §3 rule 4), none is merged. They are reported, and
+		// left to $convert_leftover_pseudo_ports().
+		foreach (count($matches) > 1 ? $matches : [] as $match) {
+			$pseudo_note('ambiguous', $reporter_device_id, (int) $match['id'], (string) $match['name'],
+				['real_port_id' => $real_port_id, 'real_port' => $real_port_name]);
 		}
-		return; // zero matches: nothing to merge, not worth logging (the ordinary/common case).
+		return; // zero matches: nothing to merge (the ordinary/common case).
 	}
 
 	$pseudo_port_id = (int) $matches[0]['id'];
@@ -597,19 +616,32 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 			continue;
 		}
 
+		// §2.3: a Port can have at most one active link. The real Port already carrying some OTHER active link means
+		// the move would give it two: the link stays on the pseudo-Port (reported as move_failed) and
+		// $convert_leftover_pseudo_ports() decides what becomes of it.
+		$busy = $pdo->prepare(
+			"SELECT id, attrs FROM topo_edges WHERE id != ? AND ((type = 'physical_link' AND (src_id = ? OR dst_id = ?))".
+			" OR (type = 'device_link' AND src_id = ?))");
+		$busy->execute([$edge['id'], $real_port_id, $real_port_id, $real_port_id]);
+		$occupied = false;
+		foreach ($busy->fetchAll(PDO::FETCH_ASSOC) as $other_link) {
+			$occupied = $occupied || !isset((json_decode($other_link['attrs'], true) ?: [])['superseded_at']);
+		}
+		if ($occupied) {
+			$pseudo_note('move_failed', $reporter_device_id, $pseudo_port_id, (string) $matches[0]['name'],
+				['edge_id' => (int) $edge['id'], 'real_port_id' => $real_port_id, 'real_port' => $real_port_name]);
+			$all_repointed = false;
+			continue;
+		}
+
 		try {
 			$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ?, attrs = ? WHERE id = ?')
 				->execute([$new_src, $new_dst, json_encode($attrs, JSON_THROW_ON_ERROR), $edge['id']]);
 		}
 		catch (PDOException $exception) {
-			// §2.3: a Port can have at most one active physical_link. This is the genuinely pathological
-			// case left after the duplicate-pair check above: the real Port already has some OTHER active
-			// physical_link. Log and leave this pseudo-Port alone rather than letting a constraint
-			// violation escape and abort the whole reporter's ingest transaction (caught locally here, not
-			// left to the outer per-reporter catch).
-			echo "PSEUDO-MERGE SKIP: could not re-point physical_link edge #{$edge['id']} from pseudo-Port ".
-				"#{$pseudo_port_id} onto real Port #{$real_port_id} ({$exception->getMessage()}) — leaving ".
-				"the pseudo-Port in place.\n";
+			// Not expected after the checks above (a unique-key violation); reported instead of aborting the reporter.
+			$pseudo_note('move_failed', $reporter_device_id, $pseudo_port_id, (string) $matches[0]['name'],
+				['edge_id' => (int) $edge['id'], 'error' => $exception->getMessage()]);
 			$all_repointed = false;
 		}
 	}
@@ -733,6 +765,100 @@ $validate_edge = static function (string $type, int $src_id, int $dst_id, ?array
 			&& !in_array($attrs['far_port_reason'] ?? null, TOPO_FAR_PORT_REASONS, true)) {
 		throw new InvalidArgumentException('a device_link needs a known far_port_reason, got '.
 			json_encode($attrs['far_port_reason'] ?? null));
+	}
+};
+
+// A Device whose own walk returned real ports must have no pseudo-Ports left. Run after the PORTS merge
+// ($merge_pseudo_port): a pseudo-Port that is still there stands for a port the Device does not have by that name (the
+// neighbor advertised `1`, the Device calls it `Gi0/1`). Each discovered link on it becomes a device_link in place
+// (same edge id): src = the other side's Port, dst = this Device, reason port_unmatched, the hint from the
+// advertisement (the observation of that port, the pseudo-Port's own name as a fallback); then the pseudo-Port is
+// deleted. A manual link is never converted: the pseudo-Port stays and is reported (pseudo_ports_kept_manual). A link
+// that cannot be converted (the device_link pair already exists) keeps the port too (pseudo_ports_move_failed). A
+// pseudo-Port with no link at all is simply removed.
+$convert_leftover_pseudo_ports = static function (int $device_id) use ($pdo, $validate_edge, $pseudo_note): void {
+	$real = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+		" AND JSON_EXTRACT(attrs, '\$.pseudo') = false LIMIT 1");
+	$real->execute([$device_id]);
+	if (!$real->fetchColumn()) {
+		return;
+	}
+	$pseudo = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+		" AND JSON_EXTRACT(attrs, '\$.pseudo') = true ORDER BY id");
+	$pseudo->execute([$device_id]);
+	$ports = $pseudo->fetchAll(PDO::FETCH_ASSOC);
+
+	foreach ($ports as $port_row) {
+		$port_id = (int) $port_row['id'];
+		$name = (string) (json_decode($port_row['attrs'], true)['name'] ?? '');
+		$edges = $pdo->prepare("SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link'".
+			" AND (src_id = ? OR dst_id = ?) ORDER BY id");
+		$edges->execute([$port_id, $port_id]);
+		$converted = 0;
+		$kept_manual = [];
+		$failed = [];
+		$links = 0;
+		foreach ($edges->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+			$links++;
+			$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+			if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
+				$kept_manual[] = (int) $edge['id'];
+				continue;
+			}
+			$pseudo_is_src = (int) $edge['src_id'] === $port_id;
+			$other = $pseudo_is_src ? (int) $edge['dst_id'] : (int) $edge['src_id'];
+			$taken = $pdo->prepare("SELECT 1 FROM topo_edges WHERE type = 'device_link' AND src_id = ? AND dst_id = ?");
+			$taken->execute([$other, $device_id]);
+			if ($taken->fetchColumn()) {
+				$failed[] = (int) $edge['id'];
+				continue;
+			}
+
+			$hint = [];
+			$observation = $pdo->prepare('SELECT remote_attrs FROM topo_observations WHERE local_port_id = ? AND device_id = ?'.
+				' ORDER BY last_seen DESC, id DESC LIMIT 1');
+			$observation->execute([$other, $device_id]);
+			if (($raw = $observation->fetchColumn()) !== false) {
+				$advertised = json_decode((string) $raw, true) ?: [];
+				$hint = array_filter(array_intersect_key($advertised, array_flip(['rem_port', 'rem_port_desc', 'rem_port_type'])),
+					static fn ($value): bool => $value !== '' && $value !== null);
+			}
+			if (!$hint) {
+				$hint = ['rem_port_desc' => $name];
+			}
+
+			// last_seen_src / last_seen_dst follow the canonical position of the physical_link; a device_link's src is the
+			// other side's port, its dst the Device (the pseudo-Port's side).
+			$other_side = (int) ($attrs[$pseudo_is_src ? 'last_seen_dst' : 'last_seen_src'] ?? 0);
+			$pseudo_side = (int) ($attrs[$pseudo_is_src ? 'last_seen_src' : 'last_seen_dst'] ?? 0);
+			$new = ['discovered_via' => $attrs['discovered_via'], 'far_port_reason' => 'port_unmatched', 'far_port_hint' => $hint];
+			if ($other_side > 0) {
+				$new['last_seen_src'] = $other_side;
+			}
+			if ($pseudo_side > 0) {
+				$new['last_seen_dst'] = $pseudo_side;
+			}
+			$new['last_seen'] = max($other_side, $pseudo_side, (int) ($attrs['last_seen'] ?? 0));
+			if (isset($attrs['superseded_at'])) {
+				$new['superseded_at'] = $attrs['superseded_at'];
+			}
+			$validate_edge('device_link', $other, $device_id, $new);
+			$pdo->prepare("UPDATE topo_edges SET type = 'device_link', src_id = ?, dst_id = ?, attrs = ? WHERE id = ?")
+				->execute([$other, $device_id, json_encode($new, JSON_THROW_ON_ERROR), $edge['id']]);
+			$converted++;
+		}
+
+		if ($kept_manual) {
+			$pseudo_note('kept_manual', $device_id, $port_id, $name, ['edge_ids' => $kept_manual]);
+		}
+		if ($failed) {
+			$pseudo_note('move_failed', $device_id, $port_id, $name, ['edge_ids' => $failed]);
+		}
+		if ($kept_manual || $failed) {
+			continue; // the port stays: something is still attached to it
+		}
+		$pdo->prepare("DELETE FROM topo_nodes WHERE id = ? AND type = 'port'")->execute([$port_id]);
+		$pseudo_note($links > 0 ? 'converted' : 'removed', $device_id, $port_id, $name, ['links' => $converted]);
 	}
 };
 
@@ -1081,7 +1207,7 @@ $snap_ingest_reporter = static function (array $reporter) use (
 	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$find_matching_real_port, $resolve_port_label, $pseudo_if_index, $reconcile_device, $update_node, $now, &$summary,
-	&$link_candidates, &$neighbor_snapshots
+	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
 	$label = $reporter['host'];
@@ -1179,6 +1305,11 @@ $snap_ingest_reporter = static function (array $reporter) use (
 				$merge_pseudo_port($device_id, $port_id, $port_name);
 			}
 		}
+	}
+
+	// A Device with real ports keeps no pseudo-Port made from an advertisement (see $convert_leftover_pseudo_ports).
+	if (!empty($snapshots[TOPO_ROLE_PORTS])) {
+		$convert_leftover_pseudo_ports($device_id);
 	}
 
 	// ---- LAG (only when the reporter has a LAG snapshot; otherwise no lag_id is ever touched) ----

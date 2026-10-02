@@ -772,6 +772,131 @@ check($l !== null && $l['id'] === $id && $l['discovered_via'] === 'manual' && li
 	'the manual device_link is not converted to a physical_link');
 
 // ============================================================================================================
+echo "\n=== pseudo ports of a Device that becomes a reporter ===\n";
+
+function pp_node(PDO $pdo, string $type, array $attrs, ?int $device_id = null): int {
+	$pdo->prepare('INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES (?, ?, ?, 0, 0)')
+		->execute([$type, $device_id, json_encode($attrs)]);
+
+	return (int) $pdo->lastInsertId();
+}
+
+function pp_edge(PDO $pdo, int $a, int $b, array $attrs): int {
+	$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 0)")
+		->execute([min($a, $b), max($a, $b), json_encode($attrs)]);
+
+	return (int) $pdo->lastInsertId();
+}
+
+function pseudo_ports(PDO $pdo, int $device_id): array {
+	$out = [];
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type='port' AND device_id={$device_id}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$attrs = json_decode($row['attrs'], true);
+		if (!empty($attrs['pseudo'])) {
+			$out[(int) $row['id']] = $attrs['name'];
+		}
+	}
+
+	return $out;
+}
+
+/** D (not yet a reporter) with a real port, plus the pieces a scenario needs; D's reporter snapshot is written by the caller. */
+function pp_setup(PDO $pdo, string $R, string $D, string $E): array {
+	reset_db($pdo);
+	add_host($pdo, 104, 'SwD', 'Switch D', '10.0.0.4');
+	$d = pp_node($pdo, 'device', ['mac' => $D, 'chassis_id' => $D, 'mgmt_ip' => '10.0.0.4', 'sysname' => 'Switch D', 'vendor' => 'unknown', 'last_seen' => CLOCK]);
+	$r = pp_node($pdo, 'device', ['chassis_id' => $R, 'sysname' => 'Switch R', 'last_seen' => CLOCK]);
+	$e = pp_node($pdo, 'device', ['chassis_id' => $E, 'sysname' => 'Switch E', 'last_seen' => CLOCK]);
+	$rp = pp_node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false], $r);
+	$rp2 = pp_node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false], $r);
+	$ep = pp_node($pdo, 'port', ['if_index' => 9, 'name' => 'Gi0/9', 'pseudo' => false], $e);
+
+	return [$d, $r, $e, $rp, $rp2, $ep];
+}
+
+$discovered = static fn (): array => ['discovered_via' => 'lldp', 'last_seen' => CLOCK, 'last_seen_src' => CLOCK];
+
+// -- an unmatched pseudo port with a discovered link: the link becomes a device_link, the port is deleted
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'eth0')]);
+run($dsn, $user, $password, $pdo, 'D known only from an advertisement');
+$Dd = device_id($pdo, $D);
+$P = ports_by_name($pdo, $R)['Gi0/1'];
+check(array_values(pseudo_ports($pdo, $Dd)) === ['eth0'], 'before: D has one port, made from the advertisement');
+$pseudo_id = array_key_first(pseudo_ports($pdo, $Dd));
+$physical = link_between($pdo, $P, $pseudo_id);
+check(is_active($physical), 'before: R:P <-> D:eth0 is a physical_link');
+add_host($pdo, 104, 'SwD', 'Switch D', '10.0.0.4');
+snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
+$r = run($dsn, $user, $password, $pdo, 'D becomes a reporter, its port does not match the advertisement');
+$l = device_link($pdo, $P, $Dd);
+check($l !== null && $l['id'] === $physical['id'], 'the link is a device_link R:P -> D with the same edge id');
+check($l['far_port_reason'] === 'port_unmatched' && ($l['far_port_hint']['rem_port'] ?? null) === 'eth0', 'reason port_unmatched, hint from the advertisement');
+check(pseudo_ports($pdo, $Dd) === [], 'the pseudo port is gone; D has only its real port');
+check(count_type($pdo, 'physical_link') === 0, 'no physical_link is left');
+check(($r['summary']['pseudo_ports_converted'] ?? -1) === 1 && ($r['summary']['pseudo_ports_ambiguous'] ?? -1) === 0
+	&& ($r['summary']['pseudo_ports_move_failed'] ?? -1) === 0 && ($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 0,
+	'status: pseudo_ports_converted = 1, the others 0');
+check(($r['summary']['pseudo_ports'][0]['outcome'] ?? null) === 'converted' && ($r['summary']['pseudo_ports'][0]['name'] ?? null) === 'eth0',
+	'status: the details name the port');
+$state = state_lines($pdo);
+$r = run($dsn, $user, $password, $pdo, 'a second ingest');
+check_unchanged($pdo, $state, 'a second ingest changes nothing');
+check(($r['summary']['pseudo_ports_converted'] ?? -1) === 0, 'and converts nothing');
+
+// -- ambiguous: two pseudo ports match one real port by name; none is merged, both links become device_links
+[$d, $rd, $e, $rp, $rp2, $ep] = pp_setup($pdo, $R, $D, $E);
+$x1 = pp_node($pdo, 'port', ['if_index' => 701, 'name' => 'Gi0/1', 'pseudo' => true], $d);
+$x2 = pp_node($pdo, 'port', ['if_index' => 702, 'name' => 'GigabitEthernet0/1', 'pseudo' => true], $d);
+$l1 = pp_edge($pdo, $rp, $x1, $discovered());
+$l2 = pp_edge($pdo, $rp2, $x2, $discovered());
+snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
+$r = run($dsn, $user, $password, $pdo, 'ambiguous pseudo ports');
+check(($r['summary']['pseudo_ports_ambiguous'] ?? -1) === 2, 'status: pseudo_ports_ambiguous = 2');
+check(pseudo_ports($pdo, $d) === [], 'no pseudo port is left on D');
+check(device_link($pdo, $rp, $d)['id'] === $l1 && device_link($pdo, $rp2, $d)['id'] === $l2, 'both links are device_links with their own edge ids');
+check(($r['summary']['pseudo_ports_converted'] ?? -1) === 2, 'and both ports counted as converted');
+$state = state_lines($pdo);
+run($dsn, $user, $password, $pdo, 'a second ingest');
+check_unchanged($pdo, $state, 'a second ingest changes nothing');
+
+// -- failed move: the real port already has another active link, so the link cannot move onto it
+[$d, $rd, $e, $rp, $rp2, $ep] = pp_setup($pdo, $R, $D, $E);
+$real = pp_node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false], $d);
+$m = pp_edge($pdo, $ep, $real, $discovered());                                           // M = E:9 <-> D:Gi0/1
+$x = pp_node($pdo, 'port', ['if_index' => 703, 'name' => 'GigabitEthernet0/1', 'pseudo' => true], $d);
+$l = pp_edge($pdo, $rp, $x, $discovered());                                              // L = R:1 <-> D:pseudo
+snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
+$r = run($dsn, $user, $password, $pdo, 'the real port already has a link');
+check(($r['summary']['pseudo_ports_move_failed'] ?? -1) === 1, 'status: pseudo_ports_move_failed = 1');
+check(is_active(link_between($pdo, $ep, $real)), 'the existing link on the real port is untouched');
+check(device_link($pdo, $rp, $d)['id'] === $l && pseudo_ports($pdo, $d) === [], 'the link became a device_link (same id) and the pseudo port is gone');
+$state = state_lines($pdo);
+run($dsn, $user, $password, $pdo, 'a second ingest');
+check_unchanged($pdo, $state, 'a second ingest changes nothing');
+
+// -- a manual link on a pseudo port: not converted, the port stays and is reported
+[$d, $rd, $e, $rp, $rp2, $ep] = pp_setup($pdo, $R, $D, $E);
+$x = pp_node($pdo, 'port', ['if_index' => 704, 'name' => 'eth0', 'pseudo' => true], $d);
+$man = pp_edge($pdo, $rp, $x, ['discovered_via' => 'manual', 'last_seen' => CLOCK]);
+$x2 = pp_node($pdo, 'port', ['if_index' => 705, 'name' => 'eth1', 'pseudo' => true], $d);
+$auto = pp_edge($pdo, $rp2, $x2, $discovered());
+snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
+$r = run($dsn, $user, $password, $pdo, 'a manual link on a pseudo port');
+check(($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 1, 'status: pseudo_ports_kept_manual = 1');
+$kept = array_values(array_filter($r['summary']['pseudo_ports'] ?? [], static fn (array $n): bool => $n['outcome'] === 'kept_manual'));
+check(($kept[0]['edge_ids'] ?? null) === [$man] && ($kept[0]['name'] ?? null) === 'eth0', 'the details name the port and the manual edge');
+check(isset(pseudo_ports($pdo, $d)[$x]) && is_active(link_between($pdo, $rp, $x)) && link_between($pdo, $rp, $x)['discovered_via'] === 'manual',
+	'the manual link and its pseudo port stay');
+check(device_link($pdo, $rp2, $d)['id'] === $auto && !isset(pseudo_ports($pdo, $d)[$x2]), 'the discovered link on the other pseudo port is converted');
+$state = state_lines($pdo);
+$r = run($dsn, $user, $password, $pdo, 'a second ingest');
+check_unchanged($pdo, $state, 'a second ingest changes nothing');
+check(($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 1, 'the manual one is reported again');
+
+// ============================================================================================================
 echo "\n=== order independence: the same snapshots, reporters walked in either order ===\n";
 $picture = [];
 foreach (['101,104', '104,101'] as $order) {
