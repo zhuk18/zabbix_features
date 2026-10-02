@@ -299,23 +299,45 @@ $last_insert_id = static function () use ($pdo): int {
 // no change to the matching/upsert rules themselves.
 $summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0,
 	// Ports made from neighbor advertisements on a Device that has since become a reporter (its own walk returned real
-	// ports): converted (their links became device_links, the port was deleted), ambiguous (several pseudo ports match
-	// one real port, so none was merged), move_failed (the real port already had another link), kept_manual (a manual
-	// link sits on it, so the port stays), removed (no link at all). `pseudo_ports` lists them with the details.
+	// ports), each counted once: ambiguous (several pseudo ports match one real port, so none was merged), move_failed (the
+	// real port already had another link), kept_manual (a manual link sits on it, so the port stays), converted (its links
+	// became device_links, the port was deleted), removed (no link at all). `pseudo_ports` lists them with the details.
 	'pseudo_ports_converted' => 0, 'pseudo_ports_ambiguous' => 0, 'pseudo_ports_move_failed' => 0,
 	'pseudo_ports_kept_manual' => 0, 'pseudo_ports_removed' => 0, 'pseudo_ports' => []];
+// Each pseudo port is counted once, under the first reason that applies: ambiguous, then move_failed, then kept_manual,
+// then converted / removed. The counters add up to the number of pseudo ports handled. A later, lower-priority fact about
+// the same port is kept in its details entry under `also`; a higher-priority one takes the port over.
 $pseudo_note = static function (string $outcome, int $device_id, int $port_id, string $name, array $extra = [])
 		use (&$summary): void {
-	static $counted = [];
-	if (isset($counted[$outcome][$port_id])) {
-		return; // one count per port and outcome, however many real ports or edges led to it
+	static $seen = [];
+	static $priority = ['ambiguous' => 1, 'move_failed' => 2, 'kept_manual' => 3, 'converted' => 4, 'removed' => 5];
+	if (isset($seen[$port_id])) {
+		$index = $seen[$port_id]['index'];
+		if ($priority[$outcome] < $priority[$seen[$port_id]['outcome']]) {
+			$summary['pseudo_ports_'.$seen[$port_id]['outcome']]--;
+			$summary['pseudo_ports_'.$outcome]++;
+			if ($index !== null) {
+				$before = $summary['pseudo_ports'][$index];
+				$also = $before['also'] ?? [];
+				$also[$before['outcome']] = array_diff_key($before, array_flip(['outcome', 'device_id', 'port_id', 'name', 'also']));
+				$summary['pseudo_ports'][$index] = ['outcome' => $outcome, 'device_id' => $device_id, 'port_id' => $port_id,
+					'name' => $name] + $extra + ['also' => $also];
+			}
+			$seen[$port_id]['outcome'] = $outcome;
+		}
+		elseif ($index !== null) {
+			$summary['pseudo_ports'][$index]['also'][$outcome] = $extra;
+		}
+		return;
 	}
-	$counted[$outcome][$port_id] = true;
 	$summary['pseudo_ports_'.$outcome]++;
+	$index = null;
 	if (count($summary['pseudo_ports']) < 200) {
 		$summary['pseudo_ports'][] = ['outcome' => $outcome, 'device_id' => $device_id, 'port_id' => $port_id,
 			'name' => $name] + $extra;
+		$index = count($summary['pseudo_ports']) - 1;
 	}
+	$seen[$port_id] = ['outcome' => $outcome, 'index' => $index];
 };
 
 $device = static function (array $attrs, ?int $local_port_id = null) use ($pdo, $insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {

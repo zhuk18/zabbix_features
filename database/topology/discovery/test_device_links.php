@@ -788,6 +788,12 @@ function pp_edge(PDO $pdo, int $a, int $b, array $attrs): int {
 	return (int) $pdo->lastInsertId();
 }
 
+/** The pseudo port counters of an ingest status; each port is counted once, so they add up to the ports handled. */
+function pseudo_total(array $summary): int {
+	return array_sum(array_map(static fn (string $key): int => (int) ($summary['pseudo_ports_'.$key] ?? 0),
+		['converted', 'ambiguous', 'move_failed', 'kept_manual', 'removed']));
+}
+
 function pseudo_ports(PDO $pdo, int $device_id): array {
 	$out = [];
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type='port' AND device_id={$device_id}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -841,6 +847,7 @@ check(($r['summary']['pseudo_ports_converted'] ?? -1) === 1 && ($r['summary']['p
 	'status: pseudo_ports_converted = 1, the others 0');
 check(($r['summary']['pseudo_ports'][0]['outcome'] ?? null) === 'converted' && ($r['summary']['pseudo_ports'][0]['name'] ?? null) === 'eth0',
 	'status: the details name the port');
+check(pseudo_total($r['summary']) === 1, 'the counters add up to the one pseudo port handled');
 $state = state_lines($pdo);
 $r = run($dsn, $user, $password, $pdo, 'a second ingest');
 check_unchanged($pdo, $state, 'a second ingest changes nothing');
@@ -855,9 +862,12 @@ $l2 = pp_edge($pdo, $rp2, $x2, $discovered());
 snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
 $r = run($dsn, $user, $password, $pdo, 'ambiguous pseudo ports');
 check(($r['summary']['pseudo_ports_ambiguous'] ?? -1) === 2, 'status: pseudo_ports_ambiguous = 2');
+check(pseudo_total($r['summary']) === 2 && ($r['summary']['pseudo_ports_converted'] ?? -1) === 0,
+	'each is counted once, as ambiguous (not again as converted): the counters add up to 2');
+check(count(array_filter($r['summary']['pseudo_ports'] ?? [], static fn (array $n): bool => $n['outcome'] === 'ambiguous'
+	&& isset($n['also']['converted']))) === 2, 'the details keep that they were converted afterwards');
 check(pseudo_ports($pdo, $d) === [], 'no pseudo port is left on D');
 check(device_link($pdo, $rp, $d)['id'] === $l1 && device_link($pdo, $rp2, $d)['id'] === $l2, 'both links are device_links with their own edge ids');
-check(($r['summary']['pseudo_ports_converted'] ?? -1) === 2, 'and both ports counted as converted');
 $state = state_lines($pdo);
 run($dsn, $user, $password, $pdo, 'a second ingest');
 check_unchanged($pdo, $state, 'a second ingest changes nothing');
@@ -871,6 +881,8 @@ $l = pp_edge($pdo, $rp, $x, $discovered());                                     
 snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
 $r = run($dsn, $user, $password, $pdo, 'the real port already has a link');
 check(($r['summary']['pseudo_ports_move_failed'] ?? -1) === 1, 'status: pseudo_ports_move_failed = 1');
+check(pseudo_total($r['summary']) === 1 && ($r['summary']['pseudo_ports_converted'] ?? -1) === 0,
+	'counted once, as move_failed (not again as converted): the counters add up to 1');
 check(is_active(link_between($pdo, $ep, $real)), 'the existing link on the real port is untouched');
 check(device_link($pdo, $rp, $d)['id'] === $l && pseudo_ports($pdo, $d) === [], 'the link became a device_link (same id) and the pseudo port is gone');
 $state = state_lines($pdo);
@@ -885,7 +897,9 @@ $x2 = pp_node($pdo, 'port', ['if_index' => 705, 'name' => 'eth1', 'pseudo' => tr
 $auto = pp_edge($pdo, $rp2, $x2, $discovered());
 snapshot($pdo, 4001, 104, 1, CLOCK + 20, ports_rows($D, [1 => 'Gi0/1']));
 $r = run($dsn, $user, $password, $pdo, 'a manual link on a pseudo port');
-check(($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 1, 'status: pseudo_ports_kept_manual = 1');
+check(($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 1 && ($r['summary']['pseudo_ports_converted'] ?? -1) === 1,
+	'status: pseudo_ports_kept_manual = 1 and the other pseudo port converted');
+check(pseudo_total($r['summary']) === 2, 'the counters add up to the 2 pseudo ports handled');
 $kept = array_values(array_filter($r['summary']['pseudo_ports'] ?? [], static fn (array $n): bool => $n['outcome'] === 'kept_manual'));
 check(($kept[0]['edge_ids'] ?? null) === [$man] && ($kept[0]['name'] ?? null) === 'eth0', 'the details name the port and the manual edge');
 check(isset(pseudo_ports($pdo, $d)[$x]) && is_active(link_between($pdo, $rp, $x)) && link_between($pdo, $rp, $x)['discovered_via'] === 'manual',
