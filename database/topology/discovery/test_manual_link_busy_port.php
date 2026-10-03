@@ -6,7 +6,8 @@ declare(strict_types=1);
 /**
  * test_manual_link_busy_port.php — topology-1-model.md "Manual links" (creation and "Manual wins"): linkPorts() and
  * linkPortToDevice() reject a port that already has an active MANUAL link; an active discovered link on the port is
- * superseded at once (superseded_at = now), and "Accept discovery" later revives it with the same edge id.
+ * superseded at once (superseded_at = now), and "Accept discovery" later revives it with the same edge id. A request
+ * with the same ends as the active discovered link (or less precise than it) changes nothing and returns that link.
  *
  * The calls go through CTopologyPrototype, the code the UI endpoints use, loaded on the database layer against the
  * throwaway database; ingest.php runs against the same database.
@@ -371,5 +372,75 @@ $now = link_between($pdo, $b['P'], $b['printer_port']);
 check(is_active($now) && $now['id'] === $b['discovered'], 'the SAME edge id is active again (revived)');
 check(link_between($pdo, $b['P'], $b['ups']['port']) === null && contradicted($r) === 0, 'the manual link is gone, nothing is contradicted');
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='physical_link'") === 1, 'exactly one link');
+
+// ============================================================================================================
+echo "\n=== 5: same ends already discovered — nothing is written, the discovered link is returned ===\n";
+$D = 'd0:00:00:00:00:04';
+
+/** Router1:Gi0/1 discovered against D's Gi0/1 (physical_link) or against D with an unmatched port (device_link). */
+function same_ends(PDO $pdo, string $dsn, string $user, string $password, string $R, string $D, bool $device_level): array {
+	reset_db($pdo);
+	add_host($pdo, 101, 'Router1', 'Router1', '10.0.0.1');
+	add_host($pdo, 104, 'SwD', 'Switch D', '10.0.0.4');
+	snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+	snapshot($pdo, 4001, 104, 1, CLOCK, ports_rows($D, [1 => 'Gi0/1', 2 => 'Gi0/2']));
+	snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nbr($R, 1, $D, $device_level ? '99' : 'Gi0/1')]);
+	ingest($dsn, $user, $password, $pdo, 'with the discovered link');
+	$device = device_id($pdo, $D);
+	$ports = ports_of($pdo, $D);
+	$P = ports_of($pdo, $R)['Gi0/1'];
+	$link = $device_level
+		? $pdo->query("SELECT id, attrs FROM topo_edges WHERE type='device_link' AND src_id={$P} AND dst_id={$device}")->fetch(PDO::FETCH_ASSOC)
+		: $pdo->query("SELECT id, attrs FROM topo_edges WHERE type='physical_link'")->fetch(PDO::FETCH_ASSOC);
+	return ['P' => $P, 'device' => $device, 'far' => $ports['Gi0/1'], 'far2' => $ports['Gi0/2'], 'edge' => (int) $link['id'],
+		'type' => $device_level ? 'device_link' : 'physical_link'];
+}
+
+/** The id, type and discovered_via of every link: what "the link did not change type" compares. */
+function link_kinds(PDO $pdo): array {
+	$out = [];
+	foreach ($pdo->query("SELECT id, type, attrs FROM topo_edges WHERE type IN ('physical_link','device_link') ORDER BY id") as $row) {
+		$a = json_decode($row['attrs'], true);
+		$out[] = $row['id'].':'.$row['type'].':'.$a['discovered_via'].':'.(isset($a['superseded_at']) ? 'superseded' : 'active');
+	}
+	return $out;
+}
+
+echo "  -- physical_link request, discovered physical_link on the same two ports --\n";
+$b = same_ends($pdo, $dsn, $user, $password, $R, $D, false);
+$before = fingerprint($pdo);
+check((int) CTopologyPrototype::linkPorts((string) $b['P'], (string) $b['far']) === $b['edge'], 'linkPorts returns the discovered edge id');
+check((int) CTopologyPrototype::linkPorts((string) $b['far'], (string) $b['P']) === $b['edge'], 'the reversed pair returns it as well');
+check(fingerprint($pdo) === $before, 'nothing was written');
+check(link_between($pdo, $b['P'], $b['far'])['discovered_via'] === 'lldp', 'discovered_via is still lldp');
+ingest($dsn, $user, $password, $pdo, 'after the same-ends requests');
+check(link_kinds($pdo) === [$b['edge'].':physical_link:lldp:active'], 'after an ingest the link is the same discovered physical_link');
+
+echo "  -- device_link request, discovered physical_link to a port of that Device --\n";
+$before = fingerprint($pdo);
+check((int) CTopologyPrototype::linkPortToDevice((string) $b['P'], (string) $b['device'], 'Admin') === $b['edge'],
+	'linkPortToDevice returns the discovered physical_link');
+check(fingerprint($pdo) === $before, 'nothing was written, no device_link was created');
+ingest($dsn, $user, $password, $pdo, 'after the device_link request');
+check(link_kinds($pdo) === [$b['edge'].':physical_link:lldp:active'], 'after an ingest the link did not change type');
+
+echo "  -- device_link request, discovered device_link to the same Device --\n";
+$b = same_ends($pdo, $dsn, $user, $password, $R, $D, true);
+check($b['type'] === 'device_link', 'setup: the discovered link is a device_link (port unmatched)');
+$before = fingerprint($pdo);
+check((int) CTopologyPrototype::linkPortToDevice((string) $b['P'], (string) $b['device'], 'Admin') === $b['edge'],
+	'linkPortToDevice returns the discovered device_link');
+check(fingerprint($pdo) === $before, 'nothing was written');
+ingest($dsn, $user, $password, $pdo, 'after the same-device request');
+check(link_kinds($pdo) === [$b['edge'].':device_link:lldp:active'], 'after an ingest the link is still the discovered device_link');
+
+echo "  -- physical_link request, more precise than the discovered device_link --\n";
+$before = link_kinds($pdo);
+$id = (int) CTopologyPrototype::linkPorts((string) $b['P'], (string) $b['far2']);
+check($id !== $b['edge'], 'a new edge is created');
+$kinds = link_kinds($pdo);
+check($kinds === [$b['edge'].':device_link:lldp:superseded', $id.':physical_link:manual:active'],
+	'the discovered device_link is superseded, the manual physical_link is active');
+assert_port_uniqueness($pdo, 'after the more precise link');
 
 echo "\nAll checks passed.\n";

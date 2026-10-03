@@ -1011,15 +1011,44 @@ class CTopologyPrototype {
 		return $groups;
 	}
 
-	public static function linkPorts(string $src_port_id, string $dst_port_id): void {
+	/**
+	 * A manual physical_link between two ports. When the active discovered link on the port already joins these two
+	 * ports, nothing changes and that link is returned (topology-1-model.md "Manual links": creation, "Same ends already
+	 * discovered").
+	 *
+	 * @return string  the edge id
+	 */
+	public static function linkPorts(string $src_port_id, string $dst_port_id): string {
 		if ($src_port_id === $dst_port_id) {
 			throw new Exception('A port cannot be linked to itself.');
 		}
 
 		self::assertPortOnDevice($src_port_id);
 		self::assertPortOnDevice($dst_port_id);
+
+		foreach (self::getActiveLinksOnPort($src_port_id) as $link) {
+			if ($link['type'] === 'physical_link' && self::isDiscovered($link)
+					&& self::farPortOf($link, $src_port_id) === $dst_port_id) {
+				return (string) $link['id'];
+			}
+		}
+
 		self::claimPortsForManualLink([$src_port_id, $dst_port_id]);
 		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual');
+
+		[$low, $high] = (int) $src_port_id < (int) $dst_port_id ? [$src_port_id, $dst_port_id] : [$dst_port_id, $src_port_id];
+
+		return (string) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('physical_link').
+			' AND src_id='.zbx_dbstr($low).' AND dst_id='.zbx_dbstr($high), 1))['id'];
+	}
+
+	private static function isDiscovered(array $link): bool {
+		return (self::attrs($link)['discovered_via'] ?? null) !== 'manual';
+	}
+
+	/** The port at the other end of a physical_link row (src_id, dst_id) from $port_id. */
+	private static function farPortOf(array $link, string $port_id): string {
+		return (string) $link['src_id'] === $port_id ? (string) $link['dst_id'] : (string) $link['src_id'];
 	}
 
 	// ---- Manual device-level links (topology-1-model.md "Manual links": creation) ----
@@ -1031,7 +1060,7 @@ class CTopologyPrototype {
 	 */
 	private static function getActiveLinksOnPort(string $port_id, ?string $except_edge_id = null): array {
 		$links = [];
-		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE ('.
+		$result = DBselect('SELECT id,type,src_id,dst_id,attrs FROM topo_edges WHERE ('.
 			'(type='.zbx_dbstr('physical_link').' AND (src_id='.zbx_dbstr($port_id).' OR dst_id='.zbx_dbstr($port_id).'))'.
 			' OR (type='.zbx_dbstr('device_link').' AND src_id='.zbx_dbstr($port_id).'))');
 		while ($row = DBfetch($result, false)) {
@@ -1095,6 +1124,22 @@ class CTopologyPrototype {
 			' AND device_id='.zbx_dbstr($device_id), 1));
 		if ($own) {
 			throw new Exception('A port cannot be linked to its own device.');
+		}
+
+		// The active discovered link on the port already reaches this Device (a device_link to it, or a physical_link
+		// to one of its ports): nothing changes, that link is returned ("Same ends already discovered"). A manual one
+		// falls through to the rejection below.
+		foreach (self::getActiveLinksOnPort($port_id) as $link) {
+			if (!self::isDiscovered($link)) {
+				continue;
+			}
+			if ($link['type'] === 'device_link' && (string) $link['dst_id'] === $device_id) {
+				return (string) $link['id'];
+			}
+			if ($link['type'] === 'physical_link' && DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.
+					zbx_dbstr(self::farPortOf($link, $port_id)).' AND device_id='.zbx_dbstr($device_id), 1))) {
+				return (string) $link['id'];
+			}
 		}
 
 		// At most one active link per port (topology-1-model.md "Port uniqueness"), both types counted: an active manual
