@@ -29,6 +29,8 @@ python -m labsim fault AP1 unreachable  # unreachable | none
 ZBX_TOKEN=... python -m labsim provision S3 [--prune]
 ZBX_TOKEN=... python -m labsim run S1 --reset [--timeout 120] [--report path]
 python -m labsim compare-reports a.json b.json    # equal except clocks and ids
+ZBX_TOKEN=... python -m labsim provision S1 --transport push   # every monitored host on one transport (or settings.transport in the scenario)
+ZBX_TOKEN=... python -m labsim run S1 --reset --transport push --roles ports,lldp   # only these roles on LLD hosts (the other rules are off for the run)
 python3 -m unittest discover -s tests             # generator, validation, DB guard
 python3 -m unittest tests/test_labmultiplex.py    # the snmpsim variation module (needs snmpsim + net-snmp)
 ```

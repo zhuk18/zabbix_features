@@ -50,9 +50,11 @@ class FakeApi:
                 [{'itemid': '11', 'key_': 'topology.push.heartbeat'}]
         if method == 'discoveryrule.get':
             if params['hostids'] == '2':
-                return [{'itemid': '20', 'key_': 'topology.ports', 'master_itemid': '10'}]
-            return [{'itemid': '21', 'key_': 'topology.push.ports', 'master_itemid': '0'},
-                    {'itemid': '22', 'key_': 'topology.push.lldp', 'master_itemid': '0'}]
+                return [{'itemid': '20', 'key_': 'topology.ports', 'master_itemid': '10', 'status': '0'},
+                        {'itemid': '23', 'key_': 'topology.cdp', 'master_itemid': '10', 'status': '0'},
+                        {'itemid': '24', 'key_': 'topology.lag', 'master_itemid': '10', 'status': '1'}]
+            return [{'itemid': '21', 'key_': 'topology.push.ports', 'master_itemid': '0', 'status': '0'},
+                    {'itemid': '22', 'key_': 'topology.push.lldp', 'master_itemid': '0', 'status': '0'}]
         raise AssertionError(method)
 
 
@@ -63,7 +65,42 @@ class Masters(unittest.TestCase):
         self.assertEqual(ms['Switch1']['push'], {'topology.push.ports': '21', 'topology.push.lldp': '22'})
         self.assertEqual(sorted(runner.left_ids(ms['Switch1'], 'push')), ['21', '22'])
         self.assertEqual(ms['Router1']['push'], {})
-        self.assertEqual(runner.left_ids(ms['Router1'], 'core'), ['20'])
+        self.assertEqual(runner.left_ids(ms['Router1'], 'core'), ['20', '23'])      # the disabled rule is not waited for
+
+
+class UpdateApi:
+    def __init__(self):
+        self.updates = []
+
+    def call(self, method, params):
+        assert method == 'discoveryrule.update'
+        self.updates.append(params)
+
+
+class Roles(unittest.TestCase):
+    def test_other_rules_are_disabled_and_enabled_again(self):
+        import tempfile
+        ms = zbx.masters(FakeApi(), ['Switch1', 'Router1'])
+        api, path = UpdateApi(), os.path.join(tempfile.mkdtemp(), 'roles.json')
+        zbx.set_roles(api, ms, ['ports'], path, lambda *_: None)
+        self.assertEqual(api.updates, [{'itemid': '23', 'status': 1}])          # cdp; lag was already off; push rules are not touched
+        self.assertEqual(ms['Router1']['rules']['core'], ['20'])
+        self.assertTrue(zbx.restore_roles(api, path, lambda *_: None))
+        self.assertEqual(api.updates[-1], {'itemid': '23', 'status': 0})
+        self.assertFalse(os.path.exists(path))
+
+
+class Overrides(unittest.TestCase):
+    def test_transport_and_roles(self):
+        from labsim import model
+        s = model.load_scenario('S1')
+        self.assertTrue(all(d['zabbix']['transport'] == 'lld' for d in s.states[0].monitored().values()))
+        s = model.load_scenario('S1', transport='push', roles=['ports', 'lldp'])
+        self.assertTrue(s.states[0].monitored() and all(d['zabbix']['transport'] == 'push' for d in s.states[-1].monitored().values()))
+        self.assertTrue(all(d['zabbix']['transport'] == 'lld' for d in model.load_scenario('S1').states[0].monitored().values()))
+        for bad in ({'transport': 'snmp'}, {'roles': ['bgp']}):
+            with self.assertRaises(model.LabError):
+                model.load_scenario('S1', **bad)
 
 
 if __name__ == '__main__':

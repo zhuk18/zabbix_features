@@ -10,6 +10,7 @@ from .model import HERE, LabError
 INGEST = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'ingest.php'))
 SCHEDULE_FILE = os.path.join(ctl.RUN_DIR, 'schedule.json')
 FRESH_FILE = os.path.join(ctl.RUN_DIR, 'freshness.json')
+ROLES_FILE = os.path.join(ctl.RUN_DIR, 'roles.json')
 DERIVED = os.path.join(HERE, 'php', 'derived.php')
 STATUS_FILE = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'topology-ingest-status.json')
 
@@ -301,6 +302,10 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             elif not ms.get(dev) or not ms[dev]['core']:
                 raise LabError('host %s has no topology.walk.core item (run "provision" first)' % dev)
         zbx.restore_fresh_macro(api, FRESH_FILE, log)          # what a killed earlier run left
+        if scenario.roles is not None:
+            zbx.set_roles(api, ms, scenario.roles, ROLES_FILE, log)
+            report['roles'] = scenario.roles
+        report['transport'] = scenario.transport or 'per lab.yaml'
         zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
         report['schedule_suspended'] = True
         if scenario.freshness_seconds is not None:
@@ -441,6 +446,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
     finally:
         ctl.down(log)
         zbx.restore_schedule(api, SCHEDULE_FILE, log)
+        zbx.restore_roles(api, ROLES_FILE, log)
         after = zbx.restore_fresh_macro(api, FRESH_FILE, log)
         if after is not None and 'freshness_macro' in report:
             report['freshness_macro']['after'] = after

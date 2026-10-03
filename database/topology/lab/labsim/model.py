@@ -248,8 +248,12 @@ def load_lab(path=None):
     return Lab(load_yaml(path or os.path.join(HERE, 'lab.yaml')))
 
 
+TRANSPORTS = ('lld', 'push')
+RULE_ROLES = ('ports', 'lldp', 'cdp', 'fdb', 'lag')       # the discovery rules of "Topology by SNMP": topology.<role>
+
+
 class Scenario:
-    def __init__(self, data, base_lab):
+    def __init__(self, data, base_lab, transport=None, roles=None):
         self.id = data['id']
         self.title = data.get('title', '')
         self.steps = data['steps']
@@ -262,8 +266,20 @@ class Scenario:
             validate_wait(self.id, i, step.get('wait'))
             for a in step.get('assert') or []:
                 validate_assertion(self.id, i, a)
+        settings = data.get('settings') or {}
+        # Scenario-level overrides (the CLI options --transport and --roles replace the settings): every monitored device on one
+        # transport, and only some roles collected. The equivalence runs of topology-3-push-delivery.md "Acceptance criteria" use them.
+        self.transport = transport or settings.get('transport')
+        if self.transport is not None and self.transport not in TRANSPORTS:
+            raise LabError('scenario %s: settings.transport must be one of %s or null, got %r' % (self.id, list(TRANSPORTS), self.transport))
+        self.roles = roles if roles is not None else settings.get('roles')
+        if self.roles is not None and (not isinstance(self.roles, list) or set(self.roles) - set(RULE_ROLES)):
+            raise LabError('scenario %s: settings.roles must be a list of %s or null, got %r' % (self.id, list(RULE_ROLES), self.roles))
         self.base = base_lab.copy()
         self.base.apply_patch(data.get('patch'))
+        if self.transport:
+            for d in self.base.monitored().values():
+                d['zabbix']['transport'] = self.transport
         self.states = []             # Lab state per step (index = step number)
         lab = self.base.copy()
         for i, step in enumerate(self.steps):
@@ -276,9 +292,9 @@ class Scenario:
             lab.validate()
 
 
-def load_scenario(sid, lab=None, directory=None):
+def load_scenario(sid, lab=None, directory=None, transport=None, roles=None):
     directory = directory or os.path.join(HERE, 'scenarios')
     path = os.path.join(directory, '%s.yaml' % sid)
     if not os.path.exists(path):
         raise LabError('no scenario %s (%s)' % (sid, path))
-    return Scenario(load_yaml(path), lab or load_lab())
+    return Scenario(load_yaml(path), lab or load_lab(), transport, roles)
