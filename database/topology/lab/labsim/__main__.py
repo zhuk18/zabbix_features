@@ -32,6 +32,8 @@ def main(argv=None):
     p.add_argument('--roles', help='comma-separated roles to collect on LLD hosts (%s); the other rules are disabled for the run' % ','.join(model.RULE_ROLES))
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
+    p = sub.add_parser('compare-transports', help='compare the reports of one scenario run on lld and on push (equivalence, identity bytes)')
+    p.add_argument('lld'); p.add_argument('push')
     a = ap.parse_args(argv)
     try:
         lab = model.load_lab(a.lab)
@@ -60,6 +62,10 @@ def main(argv=None):
             roles = zbx.restore_roles(api, runner.ROLES_FILE)
             if not schedule and macro is None and not roles:
                 print('nothing to restore')
+        elif a.cmd == 'compare-transports':
+            diffs = runner.compare_transports(json.load(open(a.lld)), json.load(open(a.push)))
+            print('\n'.join(diffs) if diffs else 'equivalent: devices, ports, links, represented_by, observation outcomes and identity bytes')
+            return 1 if diffs else 0
         elif a.cmd == 'compare-reports':
             x, y = (runner.normalize_report(json.load(open(f))) for f in (a.a, a.b))
             print('reports are equal (clocks and ids ignored)' if x == y else 'reports DIFFER')

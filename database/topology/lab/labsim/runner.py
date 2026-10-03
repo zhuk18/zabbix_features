@@ -284,9 +284,6 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
     if not server_running():
         raise LabError('zabbix_server is not running; the runner polls through it')
     report = {'scenario': scenario.id, 'title': scenario.title, 'steps': []}
-    if reset:
-        db.reset_topo(conn)
-        log('reset: topo_* cleared')
     ctl.up(scenario, settings, log)
     manifest = json.load(open(os.path.join(ctl.DATA_DIR, scenario.id, 'manifest.json')))
     mon = sorted(manifest['devices'])
@@ -311,6 +308,11 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
         if scenario.freshness_seconds is not None:
             before, during = zbx.set_fresh_macro(api, scenario.freshness_seconds, FRESH_FILE, log)
             report['freshness_macro'] = {'before': before, 'during': during, 'after': None}
+        if reset:
+            # after the schedule is suspended and the rules are set: a poll Zabbix made on its own before that, with the old
+            # rules, would otherwise leave a snapshot behind (an empty one for a rule that is now off)
+            db.reset_topo(conn)
+            log('reset: topo_* cleared')
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
@@ -426,6 +428,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             sr['snapshot_clocks'] = {'%s/%s' % k: v[0] for k, v in clocks_hist[i].items()}
             sr['links'] = [{k: l[k] for k in ('id', 'type', 'ends', 'discovered_via', 'state', 'far_port_reason')} for l in state['links']]
             sr['observations'] = state['observations']
+            sr['natural_state'] = db.comparable(state)
+            sr['neighbor_outcomes'] = sorted([o['reporter'], o['port'], o['device'], o['outcome']] for o in state['observations'])
+            sr['snapshot_rows'] = db.snapshot_rows(conn)
             derived_cache = {}
 
             def derived():
@@ -461,6 +466,38 @@ def exit_code(report):
         if any(a['result'] == 'fail' for a in s['assertions']):
             bad = True
     return 1 if bad else 0
+
+
+def _identity(rows):
+    """The identity bytes of a snapshot: {#LOC_CHASSIS} and {#REM_CHASSIS} of every row, in order."""
+    return [[r.get('loc_chassis'), r.get('rem_chassis')] for r in rows]
+
+
+def compare_transports(a, b):
+    """Differences between two reports of one scenario, one run per transport (topology-3-push-delivery.md "Acceptance criteria":
+    Equivalence and Identity bytes). Compared by natural keys, per step: Devices, Ports, links of both types with their state,
+    represented_by targets, the outcome of every observation, and the identity fields of every snapshot both runs have.
+    Returns a list of strings, empty when the runs are equivalent."""
+    out = []
+    if a['scenario'] != b['scenario'] or len(a['steps']) != len(b['steps']):
+        return ['reports are not of the same scenario and step count']
+    for x, y in zip(a['steps'], b['steps']):
+        at = 'step %d' % x['step']
+        for key in ('devices', 'ports', 'represented_by', 'links'):
+            if x['natural_state'][key] != y['natural_state'][key]:
+                out.append('%s: %s differ: %s: %s, %s: %s' % (at, key, a.get('transport'), json.dumps(x['natural_state'][key], sort_keys=True),
+                                                           b.get('transport'), json.dumps(y['natural_state'][key], sort_keys=True)))
+        if x['neighbor_outcomes'] != y['neighbor_outcomes']:
+            out.append('%s: observation outcomes differ: only in %s: %s; only in %s: %s' % (
+                at, a.get('transport'), [o for o in x['neighbor_outcomes'] if o not in y['neighbor_outcomes']],
+                b.get('transport'), [o for o in y['neighbor_outcomes'] if o not in x['neighbor_outcomes']]))
+        for key in sorted(set(x['snapshot_rows']) | set(y['snapshot_rows'])):
+            if key not in x['snapshot_rows'] or key not in y['snapshot_rows']:
+                out.append('%s: snapshot %s only in %s' % (at, key, a.get('transport') if key in x['snapshot_rows'] else b.get('transport')))
+            elif _identity(x['snapshot_rows'][key]) != _identity(y['snapshot_rows'][key]):
+                out.append('%s: identity bytes of snapshot %s differ: %s: %s, %s: %s' % (
+                    at, key, a.get('transport'), _identity(x['snapshot_rows'][key]), b.get('transport'), _identity(y['snapshot_rows'][key])))
+    return out
 
 
 _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_id', 'snapshot_clocks', 'waited_for', 'last_seen', 'itemids',

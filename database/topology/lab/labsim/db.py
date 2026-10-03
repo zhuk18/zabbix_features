@@ -113,6 +113,17 @@ def snapshot_clocks(conn):
     return {r['itemid']: r['clock'] for r in rows(conn, 'SELECT itemid, clock FROM topo_lld_snapshot')}
 
 
+def snapshot_rows(conn):
+    """'<host>/<rule>' -> the rows of the topology snapshot (normalized fields, as the server stored them): what ingest reads.
+    <rule> is the discovery rule's key without its prefix (topology.lldp and topology.push.lldp are both 'lldp')."""
+    out = {}
+    for r in rows(conn, 'SELECT s.rows_json, i.key_, h.host FROM topo_lld_snapshot s JOIN items i ON i.itemid=s.itemid '
+                        'JOIN hosts h ON h.hostid=i.hostid ORDER BY h.host, i.key_'):
+        rule = r['key_'].replace('topology.push.', '').replace('topology.', '')
+        out['%s/%s' % (r['host'], rule)] = _j(r['rows_json'])
+    return out
+
+
 def counts(conn):
     out = {}
     for t in ('topo_lld_snapshot', 'topo_nodes', 'topo_edges', 'topo_observations'):

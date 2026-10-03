@@ -103,5 +103,34 @@ class Overrides(unittest.TestCase):
                 model.load_scenario('S1', **bad)
 
 
+def report(transport, **over):
+    step = {'step': 0, 'natural_state': {'devices': ['A', 'B'], 'ports': {'A': ['p1']}, 'represented_by': {'A': 'A'},
+                                         'links': [{'type': 'physical_link', 'ends': ['A:p1', 'B:p1'], 'discovered_via': 'lldp', 'state': 'active'}]},
+            'neighbor_outcomes': [['A', 'p1', 'B', 'applied']],
+            'snapshot_rows': {'A/lldp': [{'loc_chassis': 'aa', 'rem_chassis': 'bb', 'source': 'lldp'}]}}
+    step.update(over)
+    return {'scenario': 'S9', 'transport': transport, 'steps': [step]}
+
+
+class CompareTransports(unittest.TestCase):
+    def test_equal(self):
+        self.assertEqual(runner.compare_transports(report('lld'), report('push')), [])
+
+    def test_every_difference_is_reported(self):
+        other = report('push', neighbor_outcomes=[['A', 'p1', 'B', 'shadowed']],
+                       snapshot_rows={'A/lldp': [{'loc_chassis': 'aa', 'rem_chassis': 'BB'}], 'A/ports': []})
+        other['steps'][0]['natural_state'] = dict(other['steps'][0]['natural_state'], devices=['A'])
+        diffs = runner.compare_transports(report('lld'), other)
+        self.assertEqual(len(diffs), 4)
+        self.assertTrue(any('devices differ' in d for d in diffs))
+        self.assertTrue(any('observation outcomes differ' in d for d in diffs))
+        self.assertTrue(any('identity bytes of snapshot A/lldp' in d for d in diffs))
+        self.assertTrue(any('snapshot A/ports only in push' in d for d in diffs))
+
+    def test_fields_that_only_one_transport_has_are_not_identity(self):
+        a = report('lld', snapshot_rows={'A/lldp': [{'loc_chassis': 'aa', 'rem_chassis': 'bb', 'source': 'lldp', 'if_name': 'x'}]})
+        self.assertEqual(runner.compare_transports(a, report('push')), [])
+
+
 if __name__ == '__main__':
     unittest.main()
