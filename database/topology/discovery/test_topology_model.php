@@ -455,4 +455,58 @@ $observe->execute([1002, $Rp, 'chassis:-:UPS1', '{"rem_port":"eth0"}', $M, $Ud])
 $shadows = CTopologyPrototype::getContradictions()[0]['shadows'] ?? [];
 check($shadows === [], 'no shadow for it');
 
+// ============================================================================================================
+echo "\n=== step 7: /neighbors carries the per-link fields (topology-1-model.md \"API\") ===\n";
+reset_topology($pdo);
+$pdo->exec('DELETE FROM topo_lld_snapshot');
+$pdo->exec('DELETE FROM items');
+$pdo->exec('DELETE FROM hosts');
+$Rd = device($pdo, 'Router1');
+$Ud = device($pdo, 'UPS1');
+$Pd = device($pdo, 'Printer1');
+$Ad = device($pdo, 'AP1');
+$Rp1 = port($pdo, $Rd, 1, 'Gi0/1');
+$Rp2 = port($pdo, $Rd, 2, 'Gi0/2');
+$Rp3 = port($pdo, $Rd, 3, 'Gi0/3');
+$Up = port($pdo, $Ud, 1, 'eth0');
+$Pp = port($pdo, $Pd, 1, 'Gi0/1');
+$Ap = port($pdo, $Ad, 1, 'eth0');
+$pdo->prepare('INSERT INTO hosts (hostid, host, name, status) VALUES (101, ?, ?, 0)')->execute(['Router1', 'Router1']);
+$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role, type) VALUES (1002, 101, 0, 2, 0)')->execute();
+$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json) VALUES (1002, 101, 2, 1, 'h', '[]')")->execute();
+API::$visible = [101];
+$now = time();
+// M: manual Gi0/1 <-> UPS1:eth0, shadowed by Printer1; Gi0/2 <-> Printer1 discovered, seen at device level only by one
+// observation; Gi0/3 -> AP1 a device_link with a reason and a hint.
+$M = edge($pdo, 'physical_link', min($Rp1, $Up), max($Rp1, $Up), ['discovered_via' => 'manual', 'last_seen' => $now]);
+$L = edge($pdo, 'physical_link', min($Rp2, $Pp), max($Rp2, $Pp), ['discovered_via' => 'lldp', 'last_seen' => $now - 10,
+	'last_seen_port' => $now - 500]);
+$D = edge($pdo, 'device_link', $Rp3, $Ad, ['discovered_via' => 'lldp', 'far_port_reason' => 'port_unmatched',
+	'far_port_hint' => ['kind' => 'port_id', 'value' => 'eth0'], 'last_seen' => $now - 20]);
+$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen, precision_lower)".
+	" VALUES (1002, ?, ?, '{}', ?, ?, ?, 1, 1, ?)");
+$observe->execute([$Rp1, 'chassis:-:Printer1', 'shadowed', $M, $Pd, 0]);
+$observe->execute([$Rp2, 'chassis:-:Printer1b', 'applied', $L, $Pd, 1]);
+
+$n = CTopologyPrototype::getNeighbors((string) $Rd);
+$u = neighbor($n, $Ud);
+$p = neighbor($n, $Pd);
+$a = neighbor($n, $Ad);
+check(count($n) === 3 && $u !== null && $p !== null && $a !== null, 'Router1 has three neighbors');
+check((int) $u['edge_id'] === $M && $u['contradiction'] === 'contradicted', 'the manual link to UPS1 is contradicted');
+check($p['contradiction'] === null && $a['contradiction'] === null, 'a discovered link has no contradiction state');
+check($u['precision_lower'] === false && $p['precision_lower'] === true, 'precision_lower comes from the observations of the shown link');
+check($p['last_seen'] === $now - 10 && $p['last_seen_port'] === $now - 500, 'last_seen and last_seen_port are the link\'s own');
+check($u['last_seen_port'] === $now && $u['far_port_reason'] === null && $u['far_port_hint'] === null,
+	'last_seen_port falls back to last_seen; a physical_link has no far_port_reason or hint');
+check($a['link_type'] === 'device_link' && $a['far_port_reason'] === 'port_unmatched' && $a['far_port_hint'] === ['kind' => 'port_id', 'value' => 'eth0'],
+	'a device_link neighbor carries far_port_reason and the hint');
+check(array_key_exists('superseded_at', $u) && $u['superseded_at'] === null, 'superseded_at is present (null while active)');
+CTopologyPrototype::keepManual((string) $M, (string) $Pd, 'Admin');
+$u = neighbor(CTopologyPrototype::getNeighbors((string) $Rd), $Ud);
+check($u['contradiction'] === 'acknowledged', 'after Keep manual the state is acknowledged');
+CTopologyPrototype::revokeAcknowledgment((string) $M, (string) $Pd);
+$u = neighbor(CTopologyPrototype::getNeighbors((string) $Rd), $Ud);
+check($u['contradiction'] === 'contradicted', 'after Revoke it is contradicted again');
+
 echo "\nAll topology model tests passed.\n";

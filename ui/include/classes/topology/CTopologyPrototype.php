@@ -643,7 +643,8 @@ class CTopologyPrototype {
 		// physical_link (e.g. redundant cabling) needs every one of those links' port pairs collected so the
 		// severity aggregation below sees every relevant port, not just whichever row happened to come first.
 		// Superseded edges under an unacknowledged ghost line are not drawn (topology-1-model.md "Contradicted manual links").
-		$hidden_edges = self::getEdgesHiddenByGhosts(self::getContradictions());
+		$contradictions = self::getContradictions();
+		$hidden_edges = self::getEdgesHiddenByGhosts($contradictions);
 		$result = DBselect(
 			'SELECT device.id,device.type,device.attrs,link.attrs AS link_attrs,link.id AS link_id,local_port.id AS local_port_id,'.
 				'remote_port.id AS remote_port_id'.
@@ -676,6 +677,9 @@ class CTopologyPrototype {
 		// one pair, upgraded to an LLDP-confirmed pair the same moment $discovered_via upgrades
 		// (below), rather than tracking it completely independently.
 		$link_ports = [];
+		// The stored link that $link_ports labels, with its attrs: the per-link fields of the answer (topology-1-model.md "API")
+		// are read from it, so they describe the same link as the port pair does.
+		$shown = [];
 		while ($row = DBfetch($result)) {
 			if (isset($hidden_edges[$row['link_id']])) {
 				continue;
@@ -687,6 +691,7 @@ class CTopologyPrototype {
 				$discovered_via[$row['id']] = 'manual';
 				$discovery_source[$row['id']] = 'manual';
 				$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+				$shown[$row['id']] = ['edge_id' => $row['link_id'], 'attrs' => self::attrs(['attrs' => $row['link_attrs']])];
 			}
 
 			// A neighbor can be reached by more than one physical_link (e.g. one manually declared, one
@@ -703,12 +708,14 @@ class CTopologyPrototype {
 				// the first row seen was a superseded link: this active one replaces it as "the" link
 				$discovered_via[$row['id']] = 'manual';
 				$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+				$shown[$row['id']] = ['edge_id' => $row['link_id'], 'attrs' => $link_attrs];
 				unset($last_seen[$row['id']]);
 			}
 			$superseded_at[$row['id']] = $row_superseded;
 			if (($link_attrs['discovered_via'] ?? 'lldp') !== 'manual') {
 				if ($discovered_via[$row['id']] !== 'lldp') {
 					$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+					$shown[$row['id']] = ['edge_id' => $row['link_id'], 'attrs' => $link_attrs];
 					$last_seen[$row['id']] = $row_last_seen;
 					$discovery_source[$row['id']] = (string) ($link_attrs['discovered_via'] ?? 'lldp');
 				}
@@ -761,11 +768,23 @@ class CTopologyPrototype {
 				$link_types[$row['id']] = 'device_link';
 			}
 			$link_ports[$row['id']] = ['local' => $row['local_port_id'], 'remote' => $row['remote_port_id']];
+			$shown[$row['id']] = ['edge_id' => $row['link_id'], 'attrs' => $link_attrs];
 			$discovered_via[$row['id']] = $source === 'manual' ? 'manual' : 'lldp';
 			$discovery_source[$row['id']] = $source;
 			$last_seen[$row['id']] = $row_last_seen;
 			$superseded_at[$row['id']] = $row_superseded;
 		}
+
+		// Lost precision (topology-1-model.md "Lost precision"): some latest snapshot confirms the shown link only at device level.
+		$precision_lower = [];
+		if ($shown) {
+			$cursor = DBselect('SELECT DISTINCT edge_id FROM topo_observations WHERE precision_lower=1 AND '.
+				dbConditionId('edge_id', array_column($shown, 'edge_id')));
+			while ($observation = DBfetch($cursor, false)) {
+				$precision_lower[$observation['edge_id']] = true;
+			}
+		}
+		$contradiction_by_edge = array_column($contradictions, null, 'edge_id');
 
 		$represented_ids = self::getRepresentedIds(array_keys($neighbors));
 		$visible_hostids = self::getVisibleHostIds();
@@ -784,6 +803,22 @@ class CTopologyPrototype {
 			$neighbor['discovery_source'] = $discovery_source[$id];
 			$neighbor['stale'] = self::isLinkStale($last_seen[$id] ?? null, $superseded_at[$id] ?? null);
 			$neighbor['superseded_at'] = $superseded_at[$id] ?? null;
+			// The rest of the per-link fields (topology-1-model.md "API"), all from the stored link that is shown.
+			$link = $shown[$id];
+			$link_attrs = $link['attrs'];
+			$neighbor['edge_id'] = $link['edge_id'];
+			$neighbor['last_seen'] = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
+			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
+				: $neighbor['last_seen'];
+			$neighbor['precision_lower'] = isset($precision_lower[$link['edge_id']]);
+			// far_port_reason and the hint exist on device_links only; the hint is untrusted text, escaped on render.
+			$neighbor['far_port_reason'] = $neighbor['link_type'] === 'device_link'
+				? (string) ($link_attrs['far_port_reason'] ?? '') : null;
+			$neighbor['far_port_hint'] = $neighbor['link_type'] === 'device_link' && is_array($link_attrs['far_port_hint'] ?? null)
+				? $link_attrs['far_port_hint'] : null;
+			// Only a manual link has one: 'contradicted' (an unacknowledged hidden neighbor), 'acknowledged' (all of them are), or null.
+			$entry = $contradiction_by_edge[$link['edge_id']] ?? null;
+			$neighbor['contradiction'] = $entry === null ? null : ($entry['contradicted'] ? 'contradicted' : 'acknowledged');
 			// 'local'/'remote' from $deviceid's own point of view — local_port belongs to the
 			// clicked device, remote_port to this neighbor. Matches the naming already used for
 			// local_port_id/remote_port_id above. Ids ride along too (not just the display
