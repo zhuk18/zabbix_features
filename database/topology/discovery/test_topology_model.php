@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_topology_model.php — tests of the PHP side of topology-device-level-edge-spec.md: neighbor expansion
+ * test_topology_model.php — tests of the PHP side of topology-1-model.md (device-level links): neighbor expansion
  * (CTopologyPrototype::getNeighbors / getLinkedDeviceName) and the three endpoints that create, remove and convert a
  * link by hand (topology.devicelink.create, topology.link.remove, topology.link.convert), run through the real
  * controller classes.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_snapshot_clock.py — the snapshot clock never goes back (topology-push-transport-spec.md §6.1), against a live server.
+"""test_snapshot_clock.py — the snapshot clock never goes back (topology-3-push-delivery.md "Server checks"), against a live server.
 
 Lab test, not a unit test: needs a running zabbix_server, the "Topology by push" template linked to HOST, and
 zabbix_sender. It writes only the snapshot of HOST's topology.push.ports rule. Usage:

@@ -8,12 +8,12 @@ zabbix_export:
       template: 'Topology by SNMP temporary JS'
       name: 'Topology by SNMP (temporary JS)'
       description: |
-        TEMPORARY lab template (topology-lld-part2-spec.md §9): collects topology through Zabbix low-level discovery
+        TEMPORARY lab template (topology-2-lld-delivery.md "Template Topology by SNMP"): collects topology through Zabbix low-level discovery
         with no external scripts. Two SNMP walk[] master items feed four dependent discovery rules, one per
         topology role; each rule's JavaScript emits the rows of that role's macro contract. The master items store
         no history.
 
-        Replaced by a preset preprocessing step in Part 3 — the JavaScript is the reference implementation of it.
+        Replaced by the preset preprocessing step — the JavaScript is the reference implementation of it.
       groups:
         - name: 'Templates/Network devices'
       items:

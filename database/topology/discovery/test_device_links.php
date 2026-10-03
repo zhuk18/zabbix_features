@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_device_links.php — acceptance tests of topology-device-level-edge-spec.md §9.
+ * test_device_links.php — acceptance tests of the device-level links (topology-1-model.md "Acceptance criteria", device-level).
  *
  * Snapshots are written straight into topo_lld_snapshot with fixed clocks, and the REAL ingest.php runs as a
  * subprocess after every change. After every run the port uniqueness invariant is checked over all ports, counting
@@ -151,7 +151,7 @@ function active_link_count(PDO $pdo, int $port_id): int {
 		" AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL", [$port_id, $port_id]);
 }
 
-/** Spec §8: at most one non-superseded link per port, over ALL ports. */
+/** topology-1-model.md "Port uniqueness": at most one non-superseded link per port, over ALL ports. */
 function assert_port_uniqueness(PDO $pdo, string $when): void {
 	$bad = $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type='port' AND (SELECT COUNT(*) FROM topo_edges e".
 		" WHERE e.type='physical_link' AND (e.src_id=p.id OR e.dst_id=p.id) AND JSON_EXTRACT(e.attrs,'\$.superseded_at') IS NULL) > 1")
@@ -274,7 +274,7 @@ function port_count(PDO $pdo, int $device_id): int {
 	return (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='port' AND device_id=?", [$device_id]);
 }
 
-/** Spec §3 "Port uniqueness": at most one non-superseded link per local port, both types counted. */
+/** topology-1-model.md "Port uniqueness": at most one non-superseded link per local port, both types counted. */
 function assert_unique_both(PDO $pdo, string $when): void {
 	$bad = $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type='port' AND (".
 		"(SELECT COUNT(*) FROM topo_edges e WHERE e.type='physical_link' AND (e.src_id=p.id OR e.dst_id=p.id) AND JSON_EXTRACT(e.attrs,'\$.superseded_at') IS NULL)".
@@ -647,7 +647,7 @@ run($dsn, $user, $password, $pdo, 'a manual link, device-level sighting');
 check(link_between($pdo, $P, $Q) !== null && count_type($pdo, 'device_link') === 0, 'a manual physical_link never converts');
 
 // ============================================================================================================
-echo "\n=== 5.2d: the far port id becomes shared after a port-level link — the old link keeps its precision (§4 interaction) ===\n";
+echo "\n=== 5.2d: the far port id becomes shared after a port-level link — the old link keeps its precision (topology-1-model.md, Port-level or device-level: the interaction rule) ===\n";
 reset_db($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1', 2 => 'Gi0/2']));
@@ -937,7 +937,7 @@ check_unchanged($pdo, $state, 'a second ingest changes nothing');
 check(($r['summary']['pseudo_ports_kept_manual'] ?? -1) === 1, 'the manual one is reported again');
 
 // ============================================================================================================
-echo "\n=== push transport (topology-push-transport-spec.md §5, §7) ===\n";
+echo "\n=== push transport (topology-3-push-delivery.md, topology-1-model.md: Identity normalization) ===\n";
 const TRAPPER = 2;
 
 // -- a row whose identity cannot be normalized is skipped and counted; the others are processed
@@ -993,7 +993,7 @@ check(($r['summary']['hosts_duplicate_transport'] ?? []) === [], 'two rules of t
 $dup_summary = static fn(array $r): array => array_map(static fn(array $d): string => $d['host'].':'.$d['role'].':'.$d['source'],
 	$r['summary']['hosts_duplicate_transport'] ?? []);
 
-// -- the same protocol over both transports is reported, with its source (spec §5.2)
+// -- the same protocol over both transports is reported, with its source (topology-1-model.md "Duplicate transports")
 reset_db($pdo);
 reporters($pdo, $R, $D);
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']), null, 0, 18);
@@ -1018,7 +1018,7 @@ snapshot($pdo, 1502, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1')], null, 0, TRAP
 $r = run($dsn, $user, $password, $pdo, 'different roles over different transports');
 check($dup_summary($r) === [], 'PORTS by SNMP + NEIGHBORS by push is not reported: the roles differ');
 
-// -- normalization runs before the reporter identity (spec §5.1): one Device, not identity_ambiguous
+// -- normalization runs before the reporter identity (topology-1-model.md "Identity normalization"): one Device, not identity_ambiguous
 reset_db($pdo);
 reporters($pdo, $R, $D);
 $upper = strtoupper(str_replace(':', '-', $R));                                                    // A0-00-00-00-00-01

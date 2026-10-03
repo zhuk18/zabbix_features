@@ -1,9 +1,9 @@
-# Lab description (topology-lab-simulator-spec.md §4). Describes the current lab (snmpdata/*) one-to-one:
+# Lab description (topology-4-lab-simulator.md "Lab description"). Describes the current lab (snmpdata/*) one-to-one:
 # S0 compares a fresh ingest of the data generated from this file with reference-s0.json.
 settings:
-  database: zabbix            # the only allowed value (spec §2); the tool refuses to start otherwise
+  database: zabbix            # the only allowed value (topology-4-lab-simulator.md "Constraints"); the tool refuses to start otherwise
   network: 127.0.0.0/24       # lab address range; 127/8 is local, no IP aliases are needed
-  snmp_port: 1611             # the existing lab hosts use 1611 (spec §7 says 161, which needs root)
+  snmp_port: 1611             # the existing lab hosts use 1611 (161 needs root)
   community: zbxlab
   emit_subtypes: false        # the current fixtures carry no lldp*IdSubtype columns
   emit_mgmt_addr: false       # ... and no lldpRemManAddrTable
@@ -92,11 +92,11 @@ cables:
 # baseline does not have (e.g. unmanaged-switch-sw1-gi05) is defined by the scenario that adds them (patch:).
 deviations:
   - id: router1-gi01-manual-vs-lldp
-    reason: "manual-contradiction spec §8, lab case: manual Router1 Gi0/1 - UPS1, LLDP shows Printer1 on Gi0/1"
+    reason: "topology-1-model.md (Acceptance criteria), manual-link lab case: manual Router1 Gi0/1 - UPS1, LLDP shows Printer1 on Gi0/1"
     type: zabbix_manual_link
     link: [Router1:Gi0/1, UPS1:eth0]
   - id: printer1-hex-sysname
-    reason: "Part 3 §6.2: non-UTF-8 bytes in lldpRemSysName"
+    reason: "topology-2-lld-delivery.md (Edge cases (synthetic walks)): non-UTF-8 bytes in lldpRemSysName"
     type: override_oid
     device: Router1
     oid: lldpRemSysName

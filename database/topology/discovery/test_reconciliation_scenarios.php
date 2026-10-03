@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_reconciliation_scenarios.php — regression tests for the §3 rule 4 upsert/merge logic in
+ * test_reconciliation_scenarios.php — regression tests for the upsert and pseudo-port merge logic (topology-1-model.md "Far Device", "Pseudo-port merge") in
  * ingest.php, added per the review round that flagged three specific risks:
  *
  *   D. reporter_self must reuse a pre-existing Device (seen earlier as someone else's LLDP
@@ -14,7 +14,7 @@ declare(strict_types=1);
  *      chassis_id in place, rather than leaving a stale value or creating a second Device.
  *   F. last_seen_src/last_seen_dst must track the physical_link's *canonicalized* side, not the
  *      identity of whichever reporter's push confirmed it — easy to get backwards and have every
- *      other test still pass on a symmetric fixture (§3 rule 4, §8).
+ *      other test still pass on a symmetric fixture (topology-1-model.md "Far Device", "Pseudo-port merge"; topology-1-model.md "Acceptance criteria").
  *
  * Does NOT reimplement ingest.php's upsert/merge logic separately — that would test this file's
  * own understanding of the algorithm, not the actual code. Instead it `include`s ingest.php

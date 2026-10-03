@@ -1,6 +1,6 @@
-"""Read-only access to topo_* state, by natural keys (spec §8.3).
+"""Read-only access to topo_* state, by natural keys (topology-4-lab-simulator.md "Assertions").
 
-The only writes in this module are the ones the spec names: `reset_topo()` (§8.2) and
+The only writes in this module are the ones the spec names: `reset_topo()` (topology-4-lab-simulator.md "Reset") and
 `insert_manual_link()` (the `zabbix_manual_link` deviation, created the way the existing test suites
 create it: a raw topo_edges row, because the UI action needs a browser session).
 Everything refuses to run unless the connected database is the configured one and that is `zabbix`.
@@ -122,7 +122,7 @@ def counts(conn):
 
 
 def reset_topo(conn):
-    """§8.2: clear topo_* state (same as 'clean topo_* state' of Part 2 §10)."""
+    """topology-4-lab-simulator.md "Reset": clear topo_* state (the same as the 'clean topo_* state' of the equivalence tests)."""
     cur = conn.cursor()
     cur.execute('SET FOREIGN_KEY_CHECKS = 0')
     for t in ('topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot'):

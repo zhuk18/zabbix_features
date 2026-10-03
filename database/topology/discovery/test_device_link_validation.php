@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_device_link_validation.php — topology-device-level-edge-spec.md §3 / §9 "Type validation" and "Reasons".
+ * test_device_link_validation.php — topology-1-model.md "Relationships" (type validation, reasons) and its acceptance criteria.
  *
  * Runs ingest.php in-process through TOPOLOGY_INGEST_TEST_HOOK (like test_reconciliation_scenarios.php) to reach the
  * closure that validates every edge write: a physical_link with a Device end, a device_link with a Port dst, and an
@@ -91,7 +91,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use ($pdo, &$done) 
 	}
 	check($rejected(fn () => $validate_edge('device_link', $port, $device2, ['far_port_reason' => 'because'])), 'an unknown reason is rejected');
 	check($rejected(fn () => $validate_edge('device_link', $port, $device2, ['far_port_reason' => 'port_lost'])),
-		'port_lost is rejected: it was removed in device-level spec v0.8 (a link\'s precision only goes up)');
+		'port_lost is rejected: it was removed with the lost-precision rule (topology-1-model.md "Lost precision") (a link\'s precision only goes up)');
 	check($rejected(fn () => $validate_edge('device_link', $port, $device2, [])), 'a missing reason is rejected');
 	check($rejected(fn () => $snap_device_link($port, $device2, 'lldp', 'because', [], 1)), 'the writer rejects an unknown reason too');
 	check($rejected(fn () => $snap_device_link($port, $port2, 'lldp', 'port_unmatched', [], 1)), 'and a Port as the far end');

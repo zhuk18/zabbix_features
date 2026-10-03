@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 /**
  * test_snapshot_ingest.php — acceptance tests for ingest.php's LLD snapshot path
- * (topology-lld-part2-spec.md §5-§8, §10 "Ingest" and "Observations").
+ * (topology-1-model.md "Ingest", "Observations", topology-1-model.md "Acceptance criteria").
  *
  * Writes rows straight into topo_lld_snapshot (what the server's LLD worker would store) and runs the REAL
  * ingest.php as a subprocess after every change, so the actual CLI path is exercised end to end — no test-only
@@ -269,7 +269,7 @@ snapshot($pdo, 1001, 101, 2, CLOCK + 400, [['if_index' => 1, 'rem_chassis' => $C
 	'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $A]]);
 run_ingest($dsn, $user, $password);
 $obs = $pdo->query("SELECT outcome, edge_id FROM topo_observations WHERE itemid=1001")->fetchAll(PDO::FETCH_ASSOC);
-// topology-link-replacement-spec.md v2: B's latest snapshot (2002, a different rule) still contains the old
+// topology-1-model.md "Replacement of discovered links": B's latest snapshot (2002, a different rule) still contains the old
 // link, so it keeps its port and the new neighbor is a conflict — however old that snapshot is.
 check(count($obs) === 1 && $obs[0]['outcome'] === 'conflict' && (int) $obs[0]['edge_id'] === $b_edge,
 	'cable move: the new neighbor is a conflict pointing at the old link while B still reports it');

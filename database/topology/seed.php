@@ -41,7 +41,7 @@ try {
 		return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
 	};
 
-	// §3 rule 4 upsert keys: Device by chassis_id, else mgmt_ip; Port by (device_id, if_index).
+	// upsert keys (topology-1-model.md "Far Device"): Device by chassis_id, else mgmt_ip; Port by (device_id, if_index).
 	$find_device = static function(string $chassis_id, string $mgmt_ip) use ($pdo): ?int {
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?");
 		$stmt->execute([$chassis_id]);
@@ -141,7 +141,7 @@ try {
 		$uplink = $port($access_device, ['if_index' => 1, 'name' => 'GigabitEthernet0/1', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:01', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
 		$ensure_edge('physical_link', $parent_downlink, $uplink, ['discovered_via' => 'lldp', 'last_seen' => $now], true);
 
-		// one MAC-only port (no LLDP neighbor — most ports terminate in non-LLDP endpoints, §3.1) and one
+		// one MAC-only port (no LLDP neighbor — most ports terminate in non-LLDP endpoints, topology-1-model.md "PORTS, LAG, LEARNED_MACS") and one
 		// disconnected port per access switch, for interface-table variety matching the core switch's mix
 		$port($access_device, ['if_index' => 2, 'name' => 'GigabitEthernet0/2', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:02', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [sprintf('02:00:00:cc:%02x:%02x', intdiv($i, 256) % 256, $i % 256)], 'zabbix_itemids' => []]);
 		$port($access_device, ['if_index' => 3, 'name' => 'GigabitEthernet0/3', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:03', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'down', 'learned_macs' => [], 'zabbix_itemids' => []]);

@@ -17,7 +17,7 @@
 require_once __DIR__.'/../include/CAPITest.php';
 
 /**
- * The "SNMP walk to topology rows" preprocessing step (topology-lld-part3-spec.md §3, §5): API validation, where it is
+ * The "SNMP walk to topology rows" preprocessing step (topology-2-lld-delivery.md "Preprocessing step SNMP walk to topology rows", "API, frontend, export, Test, audit"): API validation, where it is
  * allowed, defaults, export/import and audit.
  *
  * @onBefore prepareTestData

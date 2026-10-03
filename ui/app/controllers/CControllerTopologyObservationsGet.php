@@ -1,13 +1,13 @@
 <?php
 
 /**
- * GET topology.observations.get (topology-lld-part2-spec.md §8) — NEIGHBORS evidence recorded by ingest.
+ * GET topology.observations.get (topology-1-model.md "API") — NEIGHBORS evidence recorded by ingest.
  *
  * Optional: outcome (one or more of applied|device_only|shadowed|conflict|ambiguous; default: everything except
  * applied), device_id (only observations resolved to that remote Device), precision (port|device: how precisely the far
- * end was identified, topology-device-level-edge-spec.md §8), limit.
+ * end was identified, topology-1-model.md "API"), limit.
  *
- * JSON only. Strings in the response originate from LLDP/CDP (model spec §9) and are data: whoever renders them
+ * JSON only. Strings in the response originate from LLDP/CDP (topology-1-model.md "Security: untrusted strings") and are data: whoever renders them
  * must escape. The JSON hex flags below only guarantee the payload is inert if it is ever embedded in HTML; they
  * are not a substitute for escaping at render time.
  */

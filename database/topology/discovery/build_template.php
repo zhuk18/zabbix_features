@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * Builds template_topology_by_snmp.yaml ("Topology by SNMP") — topology-lld-part3-spec.md §7.
+ * Builds template_topology_by_snmp.yaml ("Topology by SNMP") — topology-2-lld-delivery.md "Template Topology by SNMP".
  *
  * Two SNMP walk[] master items (interfaces + LLDP + CDP + LAG every 30m, bridge/FDB tables every 10m, no history,
  * no discard steps) and five DEPENDENT discovery rules, each with exactly one preprocessing step
@@ -71,7 +71,7 @@ zabbix_export:
       template: 'Topology by SNMP'
       name: 'Topology by SNMP'
       description: |
-        Collects the network topology through Zabbix low-level discovery (topology-lld-part3-spec.md). Two SNMP
+        Collects the network topology through Zabbix low-level discovery (topology-2-lld-delivery.md). Two SNMP
         walk[] master items feed five dependent discovery rules, one per data set; each rule has one preprocessing
         step "SNMP walk to topology rows" that turns the walk into the rows of its topology role. The master items
         store no history and have no discard steps: every value is a confirmation that the links are alive.

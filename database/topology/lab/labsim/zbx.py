@@ -1,4 +1,4 @@
-"""Zabbix API client and host provisioning (spec §7). The token comes only from the ZBX_TOKEN environment variable."""
+"""Zabbix API client and host provisioning (topology-4-lab-simulator.md "Zabbix provisioning"). The token comes only from the ZBX_TOKEN environment variable."""
 import json
 import os
 import time

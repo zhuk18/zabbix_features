@@ -2,7 +2,7 @@
 
 /**
  * POST topology.manual.keep — "keep manual" for one hidden neighbor of a manual link
- * (topology-manual-contradiction-spec.md §5.2): appends {device_id, remote_key, at, by} to the link's shadow_ack.
+ * (topology-1-model.md "Operator actions": keep manual): appends {device_id, remote_key, at, by} to the link's shadow_ack.
  * Idempotent: the same device twice is one entry.
  */
 class CControllerTopologyManualKeep extends CController {

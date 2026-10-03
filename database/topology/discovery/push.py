@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-push.py — topology discovery "push" component (spec §4.1, Trapper delivery mechanism).
+push.py — topology discovery "push" component (topology-3-push-delivery.md "Legacy blob path", Trapper delivery mechanism).
 
 Runs near a reporter/segment: SNMP-walks a device's sysName/ifTable/ifXTable/lldpRemTable,
-assembles one JSON blob per reporter matching spec §4.1's exact shape, and sends it via
+assembles one JSON blob per reporter matching the blob shape of topology-3-push-delivery.md "Legacy blob path", and sends it via
 `zabbix_sender` to a Trapper item (`topology.discovery.raw`) on that reporter's Zabbix Host,
 plus a heartbeat value (`topology.discovery.heartbeat`) on the same run.
 
@@ -13,11 +13,11 @@ no auth token, no API client, nothing. The two Trapper items it sends to
 (topology.discovery.raw, topology.discovery.heartbeat) must already exist on the reporter's
 Host, put there by attaching the `Topology Discovery Reporter` template (see
 database/topology/discovery/template_topology_discovery_reporter.yaml) as part of onboarding
-that Host — folded into the same manual "reporter must already exist as a Host" step §1/§4
+that Host — folded into the same manual "reporter must already exist as a Host" step (topology-1-model.md "Scope")
 already require, not a separate step. An earlier iteration had this script bootstrap its own
 items via item.create against the Zabbix API; that traded the template-attachment step for
 an API credential this component otherwise has no reason to hold, so it was dropped in favor
-of the template (spec §4.1).
+of the template (topology-3-push-delivery.md "Legacy blob path").
 
 Does NOT reimplement the trapper wire protocol — shells out to the zabbix_sender binary.
 Does NOT reimplement SNMP from scratch — shells out to net-snmp's snmpwalk/snmpget, which
@@ -32,7 +32,7 @@ anti-pattern this deliberately avoids). SNMP community strings live in the --con
 file, which is expected to be gitignored if it holds anything sensitive (see
 database/topology/discovery/reporters.example.json for the shape).
 
-Two outputs (topology-push-transport-spec.md):
+Two outputs (topology-3-push-delivery.md):
 
   default       contract rows per role, sent to Zabbix trapper DISCOVERY rules with a topology_role
                 (template "Topology by push": topology.push.ports, topology.push.lldp), each with the
@@ -40,7 +40,7 @@ Two outputs (topology-push-transport-spec.md):
                 topo_lld_snapshot rows, the same table the SNMP-walk LLD template fills, so ingest.php
                 reconciles both transports on one path. A role whose collection failed is left out of the
                 call (failed != empty, FR 5.d): the last snapshot then stays. The rows are the output of
-                lld_js/ (the Part 2 JavaScript) and of the native step "SNMP walk to topology rows"
+                lld_js/ (the temporary JavaScript) and of the native step "SNMP walk to topology rows"
                 (src/libs/zbxpreproc/preproc_topology.c) for the same walk: this file ports lld_js/, and
                 step_golden/ is its test (test_push.py).
   --legacy-blob the old single blob to topology.discovery.raw. Kept until the equivalence check of the spec
@@ -286,7 +286,7 @@ def resolve_port_label(remote_port_desc: str | None, remote_port_id: str | None,
     """Shared label-resolution rule (brief's push-component bullet): prefer lldpRemPortDesc;
     only when it's empty, branch on lldpRemPortIdSubtype to decide how to read remote_port_id.
     The raw fields (remote_port_id / remote_port_id_subtype / remote_port_desc) are what
-    actually travels in the blob per spec §4.1's JSON shape — this function is the shared
+    actually travels in the blob (topology-3-push-delivery.md "Legacy blob path") — this function is the shared
     resolution rule applied on the reading side (mirrored byte-for-byte in ingest.php's
     neighbor Port-name assignment, since that's where a Port node's `name` attr is actually
     written); it lives here too so the rule has one documented, testable definition and push
@@ -358,10 +358,10 @@ def collect_neighbors(target: str, port: int, community: str, version: str) -> t
                 "remote_port_id_subtype": port_id_subtype,
                 "remote_port_desc": port_desc,
             }
-            # rule 1 (spec §3): "resolves" means chassis id or sysname is present — an entry
+            # the evidence rule (topology-1-model.md "Far Device"): "resolves" means chassis id or sysname is present — an entry
             # with neither is topologically useless (nothing to key a Device on) but is still
             # forwarded as-is; the ingest side is the one that actually declines to create a
-            # Device for it, this counter just tracks it up front per §4.1's stats contract.
+            # Device for it, this counter just tracks it up front per the stats of the blob (topology-3-push-delivery.md "Legacy blob path").
             if chassis_id or sys_name:
                 resolved += 1
             neighbors.append(entry)
@@ -411,7 +411,7 @@ def build_blob(cfg: ReporterConfig) -> dict:
     }
 
 
-# ---- contract rows (topology-push-transport-spec.md §3) ----
+# ---- contract rows (topology-3-push-delivery.md "`push.py`") ----
 #
 # A port of lld_js/common.js, ports.js and neighbors.js, the reference of the native step. It works on the same
 # text the walk[] item returns, one variable per line: ".1.3.6... = TYPE: value". Identity strings (chassis ids, MACs,
@@ -420,7 +420,7 @@ def build_blob(cfg: ReporterConfig) -> dict:
 ROLE_PORTS_KEY = "topology.push.ports"
 ROLE_LLDP_KEY = "topology.push.lldp"
 # The legacy template defines topology.discovery.heartbeat; a host in transition has both templates linked, so the push
-# template uses its own key (topology-push-transport-spec.md §4). --legacy-blob keeps sending the old one.
+# template uses its own key (topology-3-push-delivery.md "Template Topology by push"). --legacy-blob keeps sending the old one.
 HEARTBEAT_KEY = "topology.push.heartbeat"
 
 # The OIDs ports + LLDP need (a subset of lld_js/walk_oids.txt). CDP, FDB and LAG are not collected by push.py.
@@ -679,7 +679,7 @@ def _oid_tuple(oid: str) -> tuple[int, ...]:
 
 
 def check_walk_output(root: str, lines: list[str]) -> None:
-    """A walk that ended early is a failure, not the end of the table (topology-push-transport-spec.md §2 rule 3):
+    """A walk that ended early is a failure, not the end of the table (topology-3-push-delivery.md "Design rules": failed is not empty):
     the OIDs must strictly increase, and a subtree that returned variables must not end with endOfMibView. An empty
     subtree at the very end of the MIB view answers endOfMibView for the root itself: that is an empty table."""
     previous: tuple[int, ...] | None = None
@@ -819,7 +819,7 @@ def send_via_zabbix_sender(zabbix_host: str, raw_blob: dict, server: str, port: 
         # zabbix_sender exits non-zero both when it can't reach the server at all AND when the
         # server accepted the connection but rejected one or more values (e.g. "processed: 0;
         # failed: 2; total: 2" for a Host missing the target item — the shape you get when the
-        # 'Topology Discovery Reporter' template hasn't been attached yet, spec §4.1). Its own
+        # 'Topology Discovery Reporter' template hasn't been attached yet, topology-3-push-delivery.md "Legacy blob path"). Its own
         # per-run summary already says this clearly; the bug in the old message was that it only
         # quoted stderr, which zabbix_sender leaves empty for this case — so the summary (on
         # stdout, already printed above) got silently dropped from the exception text. Quote

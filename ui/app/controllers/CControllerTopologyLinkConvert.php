@@ -1,7 +1,7 @@
 <?php
 
 /**
- * POST topology.link.convert — convert a MANUAL link in place (same edge id), topology-device-level-edge-spec.md §3.2:
+ * POST topology.link.convert — convert a MANUAL link in place (same edge id), topology-1-model.md "Manual links" (creation):
  * far_port_id turns a device_link into a physical_link, keep_port_id turns a physical_link into a device_link.
  */
 class CControllerTopologyLinkConvert extends CController {

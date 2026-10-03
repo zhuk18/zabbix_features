@@ -4,8 +4,8 @@
 declare(strict_types=1);
 
 /**
- * Golden test of the "SNMP walk to topology rows" step (topology-lld-part3-spec.md §6.1): the C step must produce
- * exactly what the reference JavaScript of Part 2 produces on the same walk.
+ * Golden test of the "SNMP walk to topology rows" step (topology-2-lld-delivery.md "Golden fixtures"): the C step must produce
+ * exactly what the reference JavaScript of the temporary JS template (../lld_js) produces on the same walk.
  *
  *   compare.php [--generate] [--topo-step=PATH] [--zabbix-js=PATH]
  *
@@ -14,7 +14,7 @@ declare(strict_types=1);
  * the JS is the reference, the diff of that rewrite is the review.
  *
  * Rows are compared as sets: the JS and the C step order rows differently, and ingest sorts them again before
- * hashing (Part 2). Every fixture is also compared live against the JS when zabbix_js is available.
+ * hashing (topology-1-model.md "Snapshot rules"). Every fixture is also compared live against the JS when zabbix_js is available.
  */
 
 $root = dirname(__DIR__, 4);

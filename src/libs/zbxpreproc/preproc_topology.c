@@ -13,7 +13,7 @@
 **/
 
 /*
- * "SNMP walk to topology rows" preprocessing step (topology-lld-part3-spec.md).
+ * "SNMP walk to topology rows" preprocessing step (topology-2-lld-delivery.md).
  *
  * Turns the text of an SNMP walk[] item into the rows of a topology role's macro contract (see CTopologyRole.php):
  * a JSON array of objects whose keys are LLD macros. The reference implementation is the temporary JavaScript of

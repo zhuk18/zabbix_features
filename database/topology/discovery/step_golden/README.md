@@ -1,13 +1,13 @@
 # "SNMP walk to topology rows" — golden tests
 
-Tests of the native preprocessing step of `topology-lld-part3-spec.md` (`src/libs/zbxpreproc/preproc_topology.c`).
-The reference is the temporary JavaScript of Part 2 (`../lld_js`): on the same walk the step must give the same rows.
+Tests of the native preprocessing step of `topology-2-lld-delivery.md` (`src/libs/zbxpreproc/preproc_topology.c`).
+The reference is the temporary JavaScript (`../lld_js`): on the same walk the step must give the same rows.
 
 | File | What |
 |---|---|
 | `driver.c`, `build.sh` | a standalone driver of the step, linked against the built tree (`make` the server first) |
 | `compare.php` | the golden test: the step on every walk of `../lld_js/fixtures` and `fixtures/` against `expected/` |
-| `edge_cases.php` | spec §6.2: anchors and `missing_mib`, garbage, MAC limit, escaping, parameters |
+| `edge_cases.php` | topology-2-lld-delivery.md "Edge cases (synthetic walks)": anchors and `missing_mib`, garbage, MAC limit, escaping, parameters |
 | `make_synthetic.php` | writes `fixtures/synthetic-*.walk` (what the lab walks lack: subtypes, FDB, LAG, CDP, Hex-STRING ids) |
 | `expected/*.json` | the JS output for each walk and source; `*.cdp.json` are written by hand (the JS has no CDP) |
 
@@ -17,28 +17,28 @@ The reference is the temporary JavaScript of Part 2 (`../lld_js`): on the same w
     php edge_cases.php
 
 Rows are compared as sets. The step orders rows by ifIndex, the JS by ifIndex or by the index string; ingest sorts
-again before hashing (Part 2), so the order carries no meaning.
+again before hashing (topology-1-model.md "Snapshot rules"), so the order carries no meaning.
 
 The step's own unit cases (YAML, run by `zbx_item_preproc`) are in `tests/libs/zbxpreproc/zbx_item_preproc.yaml`.
 That framework needs cmocka and libyaml; on a machine without them the same walks and parameters are covered here.
 
 ## Where the step follows the JS instead of the spec
 
-Spec §2 says that where it and the JS disagree, the JS wins until someone decides otherwise. Decisions taken while
+topology-2-lld-delivery.md "Design rules" says that where it and the JS disagree, the JS wins until someone decides otherwise. Decisions taken while
 implementing (the first two by the maintainer, the rest are consequences); each is one place in the C file:
 
 | Point | Spec | JS = step |
 |---|---|---|
-| LLDP neighbor whose local port cannot be resolved | dropped and counted (§3.3) | emitted **without** `{#IFINDEX}`, so the contract check of Part 2 reports it in the rule's info text. This also answers the "dropped rows" open question of §9 for LLDP. |
-| `{#LOC_CHASSIS}` | added to every row of every source (§3.3) | rows of PORTS and NEIGHBORS only, not FDB and LAG |
+| LLDP neighbor whose local port cannot be resolved | dropped and counted (topology-2-lld-delivery.md "Sources") | emitted **without** `{#IFINDEX}`, so the contract check (topology-2-lld-delivery.md "Contract problems") reports it in the rule's info text. This also answers the "dropped rows" open question (topology-2-lld-delivery.md "Open questions") for LLDP. |
+| `{#LOC_CHASSIS}` | added to every row of every source (topology-2-lld-delivery.md "Sources") | rows of PORTS and NEIGHBORS only, not FDB and LAG |
 | local chassis id | `lldpLocChassisId` | `lldpLocChassisId`, else the MAC of the lowest-ifIndex port that has one |
 | management address | "IPv6 only if no IPv4 (as the JS does)" | IPv4 only; the JS does not read IPv6 |
 | `{#IFSPEED}` | falls back to `ifSpeed`, converted | `ifHighSpeed` only; nothing when it is absent |
-| ids, MACs | one normalization: lowercase, colon, 6 octets (§4.2) | Hex-STRING → lowercase colon hex; a text MAC (`STRING: 0:11:..`) is kept as received; a networkAddress chassis id is decoded only when it is a Hex-STRING IPv4 |
+| ids, MACs | one normalization: lowercase, colon, 6 octets (topology-1-model.md "Identity normalization") | Hex-STRING → lowercase colon hex; a text MAC (`STRING: 0:11:..`) is kept as received; a networkAddress chassis id is decoded only when it is a Hex-STRING IPv4 |
 | quoted strings | trailing spaces trimmed | leading and trailing white space is trimmed (the JS trims before removing quotes) |
 
 Changing any of these changes the identities or rows that existing `topo_*` data was built from: it needs a decision
-and, for identities, a migration or a one-time re-ingest (spec §9 "Normalization vs existing data").
+and, for identities, a migration or a one-time re-ingest (topology-1-model.md "Open questions and backlog", normalization).
 
 Additions that do not change any JS output:
 
@@ -76,7 +76,7 @@ identities safe on one, decide before this leaves the prototype:
 2. ~~One normalizer for MAC-like text~~ — done in the step and the JS (`normMac`), see the table.
 3. IPv6 network addresses in dotted/compressed form for both chassis ids and CDP management addresses.
 
-Points 1 and 3 change existing `topo_nodes.chassis_id` values, so they need a one-time re-ingest or a migration (spec §9). Point 2 is done for text MACs and moved nothing (see the table). The IPv4-only decoding of a networkAddress chassis id stays as it is: that subtype is rare; it is an open question.
+Points 1 and 3 change existing `topo_nodes.chassis_id` values, so they need a one-time re-ingest or a migration (topology-1-model.md "Open questions and backlog", normalization). Point 2 is done for text MACs and moved nothing (see the table). The IPv4-only decoding of a networkAddress chassis id stays as it is: that subtype is rare; it is an open question.
 
 ## `CHECK_NOT_SUPPORTED` on the bridge master (checked live)
 
@@ -102,7 +102,7 @@ Run on the snmpsim lab (5 hosts, 127.0.0.2-6:1611) with the rebuilt server (the 
 `sbin/zabbix_server.old-20260930`). Clones of the lab hosts on the native template ("Topology by SNMP") were
 compared with the originals on the temporary JS template, so neither side was unlinked.
 
-| Criterion (spec §8) | Result |
+| Criterion (topology-2-lld-delivery.md "Acceptance criteria") | Result |
 |---|---|
 | golden fixture × source = JS output | 126 checks (`compare.php`), edge cases 56 (`edge_cases.php`) |
 | snapshots JS vs native, per host and role | `rows_hash` identical for all 5 hosts × ports / LLDP / FDB / LAG |

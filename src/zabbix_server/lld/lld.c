@@ -1197,8 +1197,8 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 	{
 		char	*topology_info = NULL;
 
-		/* the snapshot is dated by when the value was observed, not when it was processed (topology LLD Part 2 */
-		/* §2 rule 3): a value sent with an old timestamp must not look fresh; no timestamp falls back to now */
+		/* the snapshot is dated by when the value was observed, not when it was processed (topology-1-model.md "Snapshot rules", */
+		/* rule 3): a value sent with an old timestamp must not look fresh; no timestamp falls back to now */
 		lld_topology_snapshot_update(item->itemid, hostid, topology_role, &lld_rows,
 				0 < ts->sec ? (int)ts->sec : (int)now, &topology_info);
 

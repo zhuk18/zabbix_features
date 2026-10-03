@@ -9,7 +9,7 @@ steps:
   - id: 1
     note: manual Router1:Gi0/1 - UPS1:eth0 added while LLDP still shows Printer1 on Router1:Gi0/1
     deviations: {enable: [router1-gi01-manual-vs-lldp]}
-    # manual-contradiction spec §8 "Lab case": manual link stays, Printer1 observation shadowed, M contradicted
+    # topology-1-model.md "Acceptance criteria", manual-link lab case: manual link stays, Printer1 observation shadowed, M contradicted
     assert:
       - link: [Router1:Gi0/1, UPS1:eth0]
         via: manual

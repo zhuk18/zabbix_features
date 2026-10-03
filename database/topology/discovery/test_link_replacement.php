@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_link_replacement.php — acceptance tests of topology-link-replacement-spec.md v2 §8.
+ * test_link_replacement.php — acceptance tests of topology-1-model.md "Replacement of discovered links" (acceptance criteria).
  *
  * Snapshots are written straight into topo_lld_snapshot with fixed clocks, and the REAL ingest.php runs as a
  * subprocess after every change. Every scenario starts from an empty topology, and after every run the port
@@ -151,7 +151,7 @@ function active_link_count(PDO $pdo, int $port_id): int {
 		" AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL", [$port_id, $port_id]);
 }
 
-/** Spec §8: at most one non-superseded link per port, over ALL ports. */
+/** topology-1-model.md "Port uniqueness": at most one non-superseded link per port, over ALL ports. */
 function assert_port_uniqueness(PDO $pdo, string $when): void {
 	$bad = $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type='port' AND (SELECT COUNT(*) FROM topo_edges e".
 		" WHERE e.type='physical_link' AND (e.src_id=p.id OR e.dst_id=p.id) AND JSON_EXTRACT(e.attrs,'\$.superseded_at') IS NULL) > 1")

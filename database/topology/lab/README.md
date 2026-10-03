@@ -1,6 +1,6 @@
 # Topology lab simulator
 
-Build spec: `topology-lab-simulator-spec.md` (repository root).
+Build spec: `topology-4-lab-simulator.md` (the topology specs).
 
 ```
 lab.yaml + scenarios/*.yaml ──► labsim gen ──► data/<scenario>/<device>/<community>.snmprec (+ <subtree>/NNNNN.snmprec)
@@ -42,7 +42,7 @@ environment variable; it is never written to a file. Exit code 0 only if every n
 - Zabbix configuration changes go through the API. Hosts get the tag `lab.managed=1`. A host without the tag is only touched
   when it is listed in `settings.adopt`, and its configuration is exported (`configuration.export`) to
   `settings.export_dir` (default `~/work/lab-backup`) first. `provision --prune` deletes only tagged hosts.
-- Writes to `topo_*`: `run --reset` (clear, spec §8.2) and the `zabbix_manual_link` deviation (one `topo_edges` row, the way
+- Writes to `topo_*`: `run --reset` (clear; "Reset" in the spec) and the `zabbix_manual_link` deviation (one `topo_edges` row, the way
   `test_manual_contradiction.php` creates a manual link; the UI action needs a browser session).
 - No topology code is changed.
 
@@ -55,7 +55,7 @@ for OIDs under the record's subtree, and the control OID is not in the step file
 
 ## Faults
 
-`unreachable` stops the process (SIGSTOP; SIGCONT clears it). Spec §6.3 describes `delay` records, which cannot sit inside a
+`unreachable` stops the process (SIGSTOP; SIGCONT clears it). The spec ("Faults") describes `delay` records, which cannot sit inside a
 `labmultiplex` subtree. `slow`, `wrong_community`, `lldp_error` are not implemented (no v1 scenario uses them).
 
 ## Files

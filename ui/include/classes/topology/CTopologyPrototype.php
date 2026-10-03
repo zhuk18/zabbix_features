@@ -2,7 +2,7 @@
 
 class CTopologyPrototype {
 
-	// topology-device-level-edge-spec.md §3.1: why a device_link ends at a Device and not at a Port. fdb_mac_only is
+	// topology-1-model.md "`device_link` (Port → Device)": why a device_link ends at a Device and not at a Port. fdb_mac_only is
 	// reserved (accepted, never produced); manual is what an operator-made device_link carries.
 	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
 	public const LINK_TYPES = ['physical_link', 'device_link'];
@@ -12,13 +12,13 @@ class CTopologyPrototype {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
 
-	// §7's physical_link staleness indicator: a starting-point threshold, not tuned against real
-	// data yet (spec §7's own note on this). Computed server-side (both here and by every caller)
+	// the physical_link staleness indicator (topology-1-model.md "Disappearance and staleness"): a starting-point threshold, not tuned against real
+	// data yet (the spec's own note on this: topology-1-model.md "Freshness threshold"). Computed server-side (both here and by every caller)
 	// so the raw threshold never needs to ship to the client — the client only ever sees the
 	// already-derived boolean.
 	private const STALE_LINK_SECONDS = 7 * 24 * 60 * 60;
 
-	// A superseded link (topology-link-replacement-spec.md §4) lost its port to a newer one: it is stale
+	// A superseded link (topology-1-model.md "Replacement of discovered links", superseded state) lost its port to a newer one: it is stale
 	// whatever its last_seen says.
 	private static function isLinkStale(?int $last_seen, ?int $superseded_at = null): bool {
 		return $superseded_at !== null || $last_seen === null || (time() - $last_seen) > self::STALE_LINK_SECONDS;
@@ -90,7 +90,7 @@ class CTopologyPrototype {
 					break;
 
 				case 'host':
-					// §7: a disabled host isn't polled, so it gets neutral/muted styling, never a severity
+					// topology-1-model.md "Node styles": a disabled host isn't polled, so it gets neutral/muted styling, never a severity
 					// color (not even "ok") — skip the severity lookup entirely rather than compute one that
 					// would be shown. Maintenance is a *different* state: still monitored, keeps its real
 					// severity color, just adds a badge — the two must not be conflated.
@@ -100,13 +100,13 @@ class CTopologyPrototype {
 					$node['disabled'] = ((int) $row['host_status']) === HOST_STATUS_NOT_MONITORED;
 					$node['maintenance'] = ((int) $row['host_maintenance_status']) === HOST_MAINTENANCE_STATUS_ON;
 					$node += self::describeSeverity($node['disabled'] ? null : self::getMaxActiveSeverityForHost($row['host_ref']));
-					// §2.3/§6: monitoring assignment is resolved live below (batched), never from a stored
+					// topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": monitoring assignment is resolved live below (batched), never from a stored
 					// edge — 'blind_spot'/'monitored_by'/etc. are patched onto this node after the loop.
 					$host_rows[$row['id']] = $row['host_ref'];
 					break;
 
 				case 'proxy':
-					// §7: Proxy shares Host's "monitored, has severity" styling — resolved via the
+					// topology-1-model.md "Node styles": Proxy shares Host's "monitored, has severity" styling — resolved via the
 					// zabbix.proxy.*[name] internal item convention, see getProxyHealthItemIds().
 					$node['name'] = $row['proxy_name'];
 					$node['proxyid'] = $row['proxy_ref'];
@@ -121,8 +121,8 @@ class CTopologyPrototype {
 
 		$represented_ids = self::getRepresentedIds($device_ids);
 		$representing_hostids = self::getRepresentingHostIds($device_ids, $visible_hostids);
-		// §2.3/§6: one batched host.get call for every Host node's live monitoring assignment —
-		// never one call per host (§10 point 3). $host_rows maps topo_nodes.id => hostid.
+		// topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": one batched host.get call for every Host node's live monitoring assignment —
+		// never one call per host (topology-1-model.md "Scaling notes (not required now)"). $host_rows maps topo_nodes.id => hostid.
 		$assignments = self::getMonitoringAssignments(array_values($host_rows));
 		foreach ($nodes as &$node) {
 			if ($node['type'] === 'device') {
@@ -141,7 +141,7 @@ class CTopologyPrototype {
 				$node['assigned_proxyid'] = $assignment['assigned_proxyid'] ?? null;
 				// Resolved topo_nodes.id of whichever proxy actually applies (proxyid or
 				// assigned_proxyid, depending on monitored_by) — spares the frontend from
-				// replicating that branching itself (§6). Null when server-monitored, or when the
+				// replicating that branching itself (topology-1-model.md "API"). Null when server-monitored, or when the
 				// target proxy has no topo_nodes row yet (never pulled).
 				$node['target_node_id'] = $assignment['target_node_id'] ?? null;
 				$node['blind_spot'] = $assignment['blind_spot'] ?? false;
@@ -153,9 +153,9 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * Live-resolved Host->Proxy/ProxyGroup monitoring assignment (§2.3/§6) — replaces the old stored
+	 * Live-resolved Host->Proxy/ProxyGroup monitoring assignment (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored") — replaces the old stored
 	 * `monitored_by` edge entirely. One batched host.get() call for every hostid given, never one per
-	 * host (§10 point 3).
+	 * host (topology-1-model.md "Scaling notes (not required now)").
 	 *
 	 * @param array $hostids  Zabbix hostids (not topo_nodes.id) to resolve.
 	 *
@@ -181,7 +181,7 @@ class CTopologyPrototype {
 		}
 		$target_proxyids = array_keys($target_proxyids);
 
-		// topo_nodes.id for each target proxy — only exists once that Proxy has been pulled (§5); a
+		// topo_nodes.id for each target proxy — only exists once that Proxy has been pulled (topology-1-model.md "Host and Proxy association"); a
 		// target proxy that was never pulled simply has no graph node to point the line/badge at yet.
 		$node_by_proxyid = [];
 		// Live proxy_rtdata state for each target proxy — independent of whether it has a topo_nodes
@@ -217,7 +217,7 @@ class CTopologyPrototype {
 		return $assignments;
 	}
 
-	// §2.3: proxy_groupid alone doesn't say which proxy is actually serving a proxy-group-monitored
+	// topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": proxy_groupid alone doesn't say which proxy is actually serving a proxy-group-monitored
 	// host — assigned_proxyid (host.get's server-computed answer) is the one that matters there.
 	private static function resolveTargetProxyId(array $host): ?string {
 		return match ((int) $host['monitored_by']) {
@@ -228,7 +228,7 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * §6: GET /topo/hosts/search?q= — the only host picker for /promote under §5's lazy-creation
+	 * topology-1-model.md "API": GET /topo/hosts/search?q= — the only host picker for /promote under the lazy-creation
 	 * policy: most Zabbix hosts have no `topo_nodes` row at all, so there's no local list to search
 	 * against. Thin wrapper over `host.get`, filtered by name/IP; writes nothing to `topo_nodes`.
 	 */
@@ -250,7 +250,7 @@ class CTopologyPrototype {
 		], $hosts);
 	}
 
-	// §6: GET /topo/proxies/search?q= — same role as searchHosts() above, for /promote's Proxy side.
+	// topology-1-model.md "API": GET /topo/proxies/search?q= — same role as searchHosts() above, for /promote's Proxy side.
 	public static function searchProxies(string $q): array {
 		if ($q === '') {
 			return [];
@@ -282,9 +282,9 @@ class CTopologyPrototype {
 	public static function getRelations(?array $node_ids = null): array {
 		$relations = [];
 		// Permission floor, always applied: represented_by (device->host, resolved below straight off
-		// the Device row — §2.1/§2.3, no topo_edges row for this anymore) is the only relationship here
+		// the Device row — topology-1-model.md "Nodes: Storage", no topo_edges row for this anymore) is the only relationship here
 		// that ever touches a 'host' topo_node (monitoring assignment is resolved live from
-		// /topo/devices instead — §2.3/§6), so excluding any row whose target is a host the caller
+		// /topo/devices instead — topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored"), so excluding any row whose target is a host the caller
 		// can't see is enough — physical_link rows (added below) are device-to-device only and never
 		// need this. Only the target (dst) side needs the floor: the source is always a 'device' node,
 		// which is never itself subject to this per-host visibility check. dbConditionId(..., true)
@@ -320,7 +320,7 @@ class CTopologyPrototype {
 		$rows = DBfetchArray(DBselect($link_sql));
 		$port_details = self::getPortDetails(array_merge(array_column($rows, 'port_a'), array_column($rows, 'port_b')));
 
-		// Lost precision (topology-device-level-edge-spec.md §5.2): a port-level link that some latest snapshot
+		// Lost precision (topology-1-model.md "Lost precision"): a port-level link that some latest snapshot
 		// confirms only at device level. The reporting side is the observation's local port; the remote port is the
 		// link's other end.
 		$lower_from = [];
@@ -386,11 +386,11 @@ class CTopologyPrototype {
 					'source_port_id' => $row['port_a'], 'target_port_id' => $row['port_b'],
 					'source_status' => self::portStatus($port_a), 'target_status' => self::portStatus($port_b),
 					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null,
-					// §7 staleness indicator: rides along with whichever row won the discovered_via
+					// staleness indicator (topology-1-model.md "Disappearance and staleness"): rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
 					'stale' => self::isLinkStale($last_seen, $superseded_at),
 					'superseded_at' => $superseded_at, 'replaced_by_device' => $replaced_by,
-					// §5.2 flag: one entry per side that sees only the far Device ("The remote port <Q> hasn't been
+					// topology-1-model.md "Lost precision" flag: one entry per side that sees only the far Device ("The remote port <Q> hasn't been
 					// confirmed since <last_seen_port>; <D> is still seen on this port."). last_seen_port is for display
 					// only; a row without it counts as last_seen.
 					'lost_precision' => array_values(array_filter([
@@ -400,7 +400,7 @@ class CTopologyPrototype {
 							'remote_device' => $row['device_a']] : null
 					])),
 					'last_seen_port' => isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port'] : $last_seen,
-					// The stored link, so the manual-contradiction panel (topology-manual-contradiction-spec.md)
+					// The stored link, so the manual-contradiction panel (topology-1-model.md "Contradiction")
 					// can tell which drawn line is which topo_edges row.
 					'edge_id' => $row['link_id']];
 			}
@@ -416,11 +416,11 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * Device-level links (topology-device-level-edge-spec.md §7) as relations: a line from a Device to the far Device's
+	 * Device-level links (topology-1-model.md "Link channels") as relations: a line from a Device to the far Device's
 	 * border (the graph draws Devices, so there is no far port to end at). Links between the same two Devices, in
 	 * either direction, are bundled into one relation that carries every link: storage stays per local port.
 	 *
-	 * far_port_hint is the far end's advertisement as received: untrusted text, to be escaped on render (model spec §9).
+	 * far_port_hint is the far end's advertisement as received: untrusted text, to be escaped on render (topology-1-model.md "Security: untrusted strings").
 	 *
 	 * @param array|null $node_ids  restrict to relations where BOTH Devices are in this set; null = unrestricted
 	 * @param array      $own_line  edge ids that keep a line of their own (contradicted / acknowledged manual links)
@@ -513,7 +513,7 @@ class CTopologyPrototype {
 	 * implied by a physical_link — the same port.device_id -> physical_link -> port.device_id
 	 * join chain getNeighbors() runs per-device below, but for every physical_link at once
 	 * instead of one device's ports — plus every live-resolved Host->Proxy monitoring pair
-	 * (§2.3/§6: no stored edge for this one, so it's resolved the same way getDevices() does).
+	 * (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": no stored edge for this one, so it's resolved the same way getDevices() does).
 	 *
 	 * @return array list of [id_a, id_b] pairs.
 	 */
@@ -651,10 +651,10 @@ class CTopologyPrototype {
 		$neighbors = [];
 		$discovered_via = [];
 		$discovery_source = [];
-		// §7 staleness indicator: last_seen of whichever physical_link row is currently "the" one
+		// staleness indicator (topology-1-model.md "Disappearance and staleness"): last_seen of whichever physical_link row is currently "the" one
 		// shown for this neighbor — updated in lockstep with $link_ports below (same row wins both).
 		$last_seen = [];
-		// topology-link-replacement-spec.md §7: a superseded link is stale; an active link to the same neighbor
+		// topology-1-model.md "Replacement of discovered links": a superseded link is stale; an active link to the same neighbor
 		// takes precedence over it, the same way an LLDP-confirmed one does over a manual one.
 		$superseded_at = [];
 		// Which specific port pair to LABEL the link with, for the "Link details" panel — a
@@ -702,7 +702,7 @@ class CTopologyPrototype {
 			}
 		}
 
-		// Device-level links (topology-device-level-edge-spec.md): a Device reached only through a link that ends at a
+		// Device-level links (topology-1-model.md "`device_link` (Port → Device)"): a Device reached only through a link that ends at a
 		// Device is a neighbor too. Both directions: a link from one of this Device's ports to the neighbor, and a link
 		// from one of the neighbor's ports to this Device. A neighbor that is also reached by a physical_link keeps
 		// that one (port-level precision wins), as it does for several physical links.
@@ -787,10 +787,10 @@ class CTopologyPrototype {
 		return array_values($neighbors);
 	}
 
-	// §6: /topo/nodes/{id}/problems — id is a Host node id (never a Device or Proxy id). Zabbix has no
+	// topology-1-model.md "API": /topo/nodes/{id}/problems — id is a Host node id (never a Device or Proxy id). Zabbix has no
 	// clean "this problem belongs to this proxy" semantics (problems attach to triggers, which attach
 	// to hosts/items, not to the Proxy config object itself) — don't invent a heuristic for it; a
-	// Proxy node simply has no Problems section in the UI (§7).
+	// Proxy node simply has no Problems section in the UI (topology-1-model.md "Side panels").
 	public static function getProblems(string $nodeid): array {
 		// DBfetch(..., false) — see GOTCHAS.md #1: with the default $convertNulls=true, a Device/Proxy
 		// node's NULL host_ref would come back as the string '0' instead of null, defeating this check.
@@ -846,7 +846,7 @@ class CTopologyPrototype {
 		$connected_port_ids = [];
 		$seen_ports = [];
 		while ($row = DBfetch($result, false)) {
-			// A superseded link (topology-link-replacement-spec.md §4) is not active: it neither connects the
+			// A superseded link (topology-1-model.md "Replacement of discovered links", superseded state) is not active: it neither connects the
 			// port nor gives it a second row next to the link that replaced it.
 			if ($row['linkid'] !== null
 					&& self::supersededAt(json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR)) !== null) {
@@ -939,11 +939,11 @@ class CTopologyPrototype {
 		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual');
 	}
 
-	// ---- Manual device-level links (topology-device-level-edge-spec.md §3.2) ----
+	// ---- Manual device-level links (topology-1-model.md "Manual links": creation) ----
 
 	/**
 	 * The active (not superseded) link on a port, either type and either end of a physical_link, or null. A device_link
-	 * occupies only its local port (topology-device-level-edge-spec.md §3), so it is looked up by src_id.
+	 * occupies only its local port (topology-1-model.md "Port uniqueness"), so it is looked up by src_id.
 	 */
 	private static function getActiveLinkOnPort(string $port_id, ?string $except_edge_id = null): ?array {
 		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE ('.
@@ -981,7 +981,7 @@ class CTopologyPrototype {
 			throw new Exception('A port cannot be linked to its own device.');
 		}
 
-		// At most one active link per port (model spec §2.3), both types counted.
+		// At most one active link per port (topology-1-model.md "Port uniqueness"), both types counted.
 		$active = self::getActiveLinkOnPort($port_id);
 		if ($active !== null) {
 			throw new Exception('Port '.$port_id.' already has a link.');
@@ -1086,16 +1086,16 @@ class CTopologyPrototype {
 			') OR (src_id='.zbx_dbstr($dst_port_id).' AND dst_id='.zbx_dbstr($src_port_id).'))');
 	}
 
-	// §2.1/§2.3: represented_by is 1:1 on both ends, stored as three columns on the Device's own row
+	// topology-1-model.md "`represented_by` (Device → Host or Proxy)": represented_by is 1:1 on both ends, stored as three columns on the Device's own row
 	// (represented_by_node_id/represented_by_matched_by/represented_by_at) — not a topo_edges row.
 	// $matched_by defaults to 'manual' for the user-triggered /promote endpoint (no MAC validation
-	// happens here, or ever — promotion is a deliberate user action per §3.2/§6, independent of the
+	// happens here, or ever — promotion is a deliberate user action per topology-1-model.md "Manual `/promote` and `/depromote`", independent of the
 	// automatic reconciliation in reconcileHost()); reconcileHost() passes 'mac' explicitly, and
 	// ingest.php's mirror passes 'reporter_self'. matched_mac is deliberately NOT accepted/stored here
 	// — it has no consumer in the API/UI/acceptance criteria and would be a potentially stale snapshot
-	// (§2.3's addendum). chassis_id is not a valid $matched_by value here — Device<->Host/Proxy
-	// matching is MAC-only per §3 rule 2; chassis_id remains valid only for the unrelated
-	// Device-to-itself upsert match in rule 4.
+	// (topology-1-model.md "`represented_by` (Device → Host or Proxy)", matched_by). chassis_id is not a valid $matched_by value here — Device<->Host/Proxy
+	// matching is MAC-only per topology-1-model.md "Automatic MAC match (Host only)"; chassis_id remains valid only for the unrelated
+	// Device-to-itself upsert match (topology-1-model.md "Far Device").
 	public static function promote(string $deviceid, string $target_type, string $target_id,
 			string $matched_by = 'manual'): void {
 		if (!in_array($target_type, ['host', 'proxy'], true)) {
@@ -1123,15 +1123,15 @@ class CTopologyPrototype {
 			' WHERE id='.zbx_dbstr($deviceid).' AND type='.zbx_dbstr('device'));
 	}
 
-	// §2.3's provenance invariant: all three represented_by_* columns clear together, never just
+	// topology-1-model.md "Nodes: Storage", invariant 3: all three represented_by_* columns clear together, never just
 	// represented_by_node_id — a partial clear would leave stale matched_by/at values behind.
-	// §5/§6's lazy-creation policy makes this asymmetric with Device (rule 3, §3): a Host/Proxy
-	// node has no independent existence the way a Device does (§2.2 — it's a thin pointer, trivially
+	// the lazy-creation policy (topology-1-model.md "Lazy Host/Proxy nodes") makes this asymmetric with Device (Devices are never deleted by ingest): a Host/Proxy
+	// node has no independent existence the way a Device does (topology-1-model.md "Nodes: Attributes by type" — it's a thin pointer, trivially
 	// recreated from host_ref/proxy_ref on the next promote or reconciliation pass), so after
 	// clearing this Device's own link, delete the target node too unless some other Device still
 	// represents it (isRepresentedTarget() — covers both an automatic mac/reporter_self match and a
 	// manual promotion by someone else). Leaving an orphaned node behind would silently reintroduce
-	// the exact "node with nothing to show" clutter §5 exists to avoid.
+	// the exact "node with nothing to show" clutter the lazy-creation policy exists to avoid.
 	public static function depromote(string $deviceid): void {
 		$device = DBfetch(DBselect('SELECT represented_by_node_id FROM topo_nodes WHERE id='.zbx_dbstr($deviceid)), false);
 		$target_nodeid = $device['represented_by_node_id'] ?? null;
@@ -1145,11 +1145,11 @@ class CTopologyPrototype {
 		}
 	}
 
-	// §5: proxy.get is not called by this pull at all — Proxy has no automatic matching path (no MAC
-	// source, reporter_self doesn't apply, §5's rationale), so there's nothing here to reconcile it
+	// topology-1-model.md "Automatic MAC match (Host only)": proxy.get is not called by this pull at all — Proxy has no automatic matching path (no MAC
+	// source, reporter_self doesn't apply, topology-1-model.md "Lazy Host/Proxy nodes"), so there's nothing here to reconcile it
 	// against; a Proxy node is only ever created via manual /promote.
 	public static function pullHosts(): int {
-		// §5: only on a match does a Host get a topo_nodes row at all — reconcileHost() (via
+		// topology-1-model.md "Automatic MAC match (Host only)": only on a match does a Host get a topo_nodes row at all — reconcileHost() (via
 		// promote()) upserts the node and sets the representation together, in the same step. No
 		// match → nothing written for that host. This does not reduce Zabbix API traffic versus the
 		// old eager-upsert design — inventory still has to be pulled for every host to know whether
@@ -1181,16 +1181,16 @@ class CTopologyPrototype {
 	// Shared by the manual /link endpoint (discovered_via='manual') and by discovery/seed reconciliation
 	// (discovered_via='lldp') so the same two ports never end up with two physical_link edges between them.
 	// A 'manual' call on an existing edge never downgrades it — only 'lldp' is allowed to upgrade a prior
-	// 'manual' edge, and discovery must never delete a manual link on its own (§3.5); the DELETE endpoint
+	// 'manual' edge, and discovery must never delete a manual link on its own (topology-1-model.md "Manual wins"); the DELETE endpoint
 	// (unlinkPorts) is the only thing that removes a link, of either provenance.
 	//
 	// This method is only ever called with discovered_via='manual' (the manual /link endpoint above) —
 	// discovery's own lldp-confirmed path lives in ingest.php's $ensure_physical_link(), which additionally
-	// tracks attrs.last_seen_src/last_seen_dst per reporter side (§2.3). There's no reporter to attribute a
+	// tracks attrs.last_seen_src/last_seen_dst per reporter side (topology-1-model.md "`physical_link` (Port ↔ Port)"). There's no reporter to attribute a
 	// side to here, so per spec those two fields are deliberately left unset for manual links, never
-	// zero-initialized or defaulted — only attrs.last_seen (kept for §7's staleness indicator) is stamped.
+	// zero-initialized or defaulted — only attrs.last_seen (kept for the staleness indicator, topology-1-model.md "Disappearance and staleness") is stamped.
 	private static function upsertPhysicalLink(string $port_a, string $port_b, string $discovered_via): void {
-		// §5: canonicalize direction (numerically smaller port id always src_id) so A→B and B→A collapse to
+		// topology-1-model.md "`physical_link` (Port ↔ Port)": canonicalize direction (numerically smaller port id always src_id) so A→B and B→A collapse to
 		// the same row — both for the lookup below and for the DB-level unique index on (src_id, dst_id)
 		// WHERE type='physical_link' (mysql_migrate_uniqueness.sql), which only catches duplicates that agree
 		// on direction.
@@ -1243,7 +1243,7 @@ class CTopologyPrototype {
 	}
 
 
-	// ---- Manual links contradicted by discovery (topology-manual-contradiction-spec.md) ----
+	// ---- Manual links contradicted by discovery (topology-1-model.md "Contradiction") ----
 	//
 	// Nothing here is stored by ingest: a manual link M is *contradicted* while a shadowing observation (outcome
 	// `shadowed`, edge_id = M) has a hidden neighbor Device that M's attrs.shadow_ack does not list. Observations
@@ -1252,7 +1252,7 @@ class CTopologyPrototype {
 
 	/**
 	 * Every manual link that is hidden-behind by discovery or has acknowledgments, with what the reader needs.
-	 * remote_attrs strings come from the network (model spec §9): data, to be escaped by whoever renders them.
+	 * remote_attrs strings come from the network (topology-1-model.md "Security: untrusted strings"): data, to be escaped by whoever renders them.
 	 *
 	 * @return array list of ['edge_id', 'port_a', 'port_b', 'device_a', 'device_b', 'port_a_name', 'port_b_name',
 	 *               'device_a_name', 'device_b_name', 'created_at', 'acks' => [...], 'shadows' => [...],
@@ -1295,7 +1295,7 @@ class CTopologyPrototype {
 		$port_ids = [];
 		$device_ids = [];
 		foreach ($manual as $id => $link) {
-			// A device_link ends at a Device (device-level-edge spec §3): dst_id is a node of type device, not a port.
+			// A device_link ends at a Device (topology-1-model.md "`device_link` (Port → Device)"): dst_id is a node of type device, not a port.
 			$port_ids[] = $link['row']['src_id'];
 			if ($link['row']['type'] === 'physical_link') {
 				$port_ids[] = $link['row']['dst_id'];
@@ -1341,7 +1341,7 @@ class CTopologyPrototype {
 			}
 
 			// The Devices the manual link itself joins. A neighbor that is one of them is this link's own far end seen at
-			// another precision (device-level-edge spec §6.3): not a hidden neighbor, so not a contradiction.
+			// another precision (topology-1-model.md "Confirmation by discovery"): not a hidden neighbor, so not a contradiction.
 			$own_devices = [];
 			$device_level = $link['row']['type'] === 'device_link';
 			$own_devices[(string) ($ports[$link['row']['src_id']]['device_id'] ?? '')] = true;
@@ -1483,23 +1483,23 @@ class CTopologyPrototype {
 	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];
 
 	/**
-	 * NEIGHBORS evidence recorded by ingest (topology-lld-part2-spec.md §7/§8): one row per neighbor a
+	 * NEIGHBORS evidence recorded by ingest (topology-1-model.md "Observations", "API"): one row per neighbor a
 	 * discovery rule reported, with what ingest made of it. Only observations of rules on hosts the current
 	 * user can see are returned.
 	 *
-	 * Every string in `remote_attrs` and the port/host names comes from LLDP/CDP or the network (model spec §9):
+	 * Every string in `remote_attrs` and the port/host names comes from LLDP/CDP or the network (topology-1-model.md "Security: untrusted strings"):
 	 * they are returned as data and must be escaped by whoever renders them — never inserted as HTML.
 	 *
 	 * @param array|null $outcomes   restrict to these outcomes; null = everything except 'applied'
 	 * @param string|null $device_id  restrict to observations resolved to this remote Device
-	 * @param string|null $precision  'port' or 'device' (topology-device-level-edge-spec.md §8): only observations whose
+	 * @param string|null $precision  'port' or 'device' (topology-1-model.md "API"): only observations whose
 	 *                                far end was identified that precisely
 	 */
 	public static function getObservations(?array $outcomes = null, ?string $device_id = null,
 			int $limit = 500, bool $contradicted_only = false, ?string $precision = null): array {
 		$outcomes ??= array_values(array_diff(self::OBSERVATION_OUTCOMES, ['applied']));
 		if ($contradicted_only) {
-			// topology-manual-contradiction-spec.md §7: shadowed and not acknowledged.
+			// topology-1-model.md "API" (contradicted filter): shadowed and not acknowledged.
 			$outcomes = ['shadowed'];
 		}
 		$visible_hostids = self::getVisibleHostIds();
@@ -1578,7 +1578,7 @@ class CTopologyPrototype {
 				'last_seen' => (int) $row['last_seen'],
 				// How long the observation has been continuously present: a `conflict` younger than the
 				// reporter's NEIGHBORS interval is the expected transient after a recable
-				// (topology-link-replacement-spec.md §3, §7), so a UI can filter on it.
+				// (topology-1-model.md "Replacement of discovered links", "Observations"), so a UI can filter on it.
 				'age' => max(0, time() - (int) $row['first_seen']),
 				// Only meaningful for `shadowed`: the operator chose "keep manual" for this hidden neighbor.
 				'acknowledged' => $row['outcome'] === 'shadowed' ? $acknowledged : null
@@ -1590,8 +1590,8 @@ class CTopologyPrototype {
 
 	// Resolves the highest-severity *active* trigger (value=TRIGGER_VALUE_TRUE, i.e. currently in problem
 	// state) attached to any of zabbix_itemids across the given ports — oper_status and trigger severity are
-	// deliberately kept apart (§5): a port can be oper_status=up and still carry an active trigger.
-	// Node-level severity for a Host on the graph itself (spec §7: "Host: solid fill, colored by Zabbix
+	// deliberately kept apart (topology-1-model.md "Link severity (derived)"): a port can be oper_status=up and still carry an active trigger.
+	// Node-level severity for a Host on the graph itself (topology-1-model.md "Node styles": "Host: solid fill, colored by Zabbix
 	// severity/status") — the worst of its own active problems, same source as getProblems() but only the max.
 	private static function getMaxActiveSeverityForHost(string $hostid): ?int {
 		$max_severity = null;
@@ -1605,9 +1605,9 @@ class CTopologyPrototype {
 		return $max_severity;
 	}
 
-	// §7: Proxy shares Host's severity-colored fill, but Zabbix has no proxyid linkage on problem/trigger/item
+	// topology-1-model.md "Node styles": Proxy shares Host's severity-colored fill, but Zabbix has no proxyid linkage on problem/trigger/item
 	// to resolve it from — see getProxyHealthItemIds() for how this is actually found. (Note: this is
-	// the Proxy node's own graph fill color, unrelated to §6's Problems side-panel section, which is
+	// the Proxy node's own graph fill color, unrelated to the Problems side-panel section (topology-1-model.md "Side panels"), which is
 	// Host-only and has no Proxy equivalent at all — see getProblems().)
 	private static function getMaxActiveSeverityForProxy(string $proxy_name): ?int {
 		return self::getMaxActiveSeverityForItemIds(self::getProxyHealthItemIds($proxy_name));
@@ -1734,7 +1734,7 @@ class CTopologyPrototype {
 			return self::attrs($row)['sysname'];
 		}
 
-		// A device-level link (topology-device-level-edge-spec.md) ends at the Device itself: no Port hop.
+		// A device-level link (topology-1-model.md "`device_link` (Port → Device)") ends at the Device itself: no Port hop.
 		$row = DBfetch(DBselect('SELECT device.attrs FROM topo_edges link'.
 			' JOIN topo_nodes device ON device.id=link.dst_id AND device.type='.zbx_dbstr('device').
 			' WHERE link.type='.zbx_dbstr('device_link').' AND link.src_id='.zbx_dbstr($portid), 1));
@@ -1811,11 +1811,11 @@ class CTopologyPrototype {
 	// MAC source is host_inventory.macaddress_a/macaddress_b (host.get selectInventory), populated only when
 	// the host uses Automatic inventory mode with a system.hw.macaddr item — most hosts on a real instance
 	// won't have it set, and an empty/missing value is a normal non-match, not an error, same as any other
-	// unmatched host. Device<->Host/Proxy matching is MAC-only (§3 rule 2, corrected) — there is no generic
+	// unmatched host. Device<->Host/Proxy matching is MAC-only (topology-1-model.md "Automatic MAC match (Host only)") — there is no generic
 	// Zabbix host field carrying an LLDP chassis ID; host_inventory.chassis is an unrelated free-text
 	// inventory field, not a valid match key here (chassis_id remains valid only for the separate
-	// Device-to-itself upsert match in rule 4, which this method has nothing to do with). The same MAC gap
-	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so §5's "run Device
+	// Device-to-itself upsert match (topology-1-model.md "Far Device"), which this method has nothing to do with). The same MAC gap
+	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so the "run Device
 	// reconciliation for each Proxy" is not implemented, and pullHosts() never calls proxy.get at
 	// all — a Proxy node is only ever created via manual /promote.
 	private static function reconcileHost(string $hostid, array $inventory): void {
@@ -1832,7 +1832,7 @@ class CTopologyPrototype {
 					self::promote($device['device_id'], 'host', $hostid, 'mac');
 				}
 				catch (Exception $exception) {
-					// §2.1's 1:1 constraint applies here too, not just to the manual endpoint: the device or
+					// the 1:1 constraint (topology-1-model.md "`represented_by` (Device → Host or Proxy)") applies here too, not just to the manual endpoint: the device or
 					// this host is already represented elsewhere. Skip this candidate — it's a normal "no
 					// match" outcome for automatic reconciliation, not a failure worth aborting the pull over.
 					continue;

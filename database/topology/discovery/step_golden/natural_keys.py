@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dumps topo_nodes / topo_edges / topo_observations by natural keys (chassis id, ifIndex, endpoints) to a JSON file,
 so two clean ingest runs (JS template vs native template) can be compared: ids and last_seen differ, natural keys must
-not (topology-lld-part3-spec.md §8, Part 2 §10 "compare by natural keys").
+not (topology-2-lld-delivery.md "Acceptance criteria"; topology-1-model.md "Acceptance criteria", "compare by natural keys").
 
     natural_keys.py out.json      # reads the database through `mysql -uzabbix zabbix`; a leading "E2E native " is
                                   # stripped from Zabbix host names so cloned reporters compare equal

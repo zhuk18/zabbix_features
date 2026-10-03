@@ -18,7 +18,7 @@ const view = new class {
 	}
 
 	// Every mutating action (promote, link, ...) can now be legitimately rejected by the backend (e.g. the
-	// §2.1 1:1 represented_by constraint) — without this, request()'s thrown Error was an unhandled promise
+	// 1:1 represented_by constraint of topology-1-model.md "`represented_by` (Device → Host or Proxy)") — without this, request()'s thrown Error was an unhandled promise
 	// rejection: the click did nothing visible and the failure only showed up in the browser console.
 	async guard(action) {
 		try {
@@ -76,7 +76,7 @@ const view = new class {
 			});
 			await this.loadDevices();
 		}));
-		// Manual links contradicted by discovery (topology-manual-contradiction-spec.md): the buttons live in
+		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
 			const button = event.target.closest('[data-topology-manual]');
@@ -118,7 +118,7 @@ const view = new class {
 		await this.loadDevices();
 	}
 
-	// "Run discovery ingest" (spec §7): starts POST topology.ingest.run, then polls
+	// "Run discovery ingest" (topology-1-model.md "UI", graph controls): starts POST topology.ingest.run, then polls
 	// topology.ingest.status until it's no longer "running". Deliberately not blocking anything else —
 	// no await on the poll loop from the caller, and every other control/handler stays untouched while
 	// this runs. this.ingest_polling guards against a second poll loop starting (e.g. a second click,
@@ -275,14 +275,14 @@ const view = new class {
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
 			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null,
-			// physical_link only (topology-device-level-edge-spec.md §5.2): sides that see only the far Device.
+			// physical_link only (topology-1-model.md "Lost precision"): sides that see only the far Device.
 			lost_precision: relation.lost_precision ?? null, last_seen_port: relation.last_seen_port ?? null,
-			// device_link only (topology-device-level-edge-spec.md §7): the bundled links between the two Devices.
+			// device_link only (topology-1-model.md "Link channels"): the bundled links between the two Devices.
 			discovery_source: relation.discovery_source, count: relation.count ?? null, links: relation.links ?? null
 		}));
-		// §2.3/§6: monitoring assignment is no longer a stored edge — relations never carries a
+		// topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": monitoring assignment is no longer a stored edge — relations never carries a
 		// 'monitored_by' entry. Synthesize the line here from each Host's own live-resolved
-		// target_node_id (topology.devices.get, §6) instead; target_node_id is null when
+		// target_node_id (topology.devices.get, topology-1-model.md "API") instead; target_node_id is null when
 		// server-monitored, or when the target proxy has no graph node yet (never pulled) — in the
 		// latter case there's simply nothing to draw to yet, same as any other not-yet-loaded node
 		// (GOTCHAS.md #5: render() already filters simulation_links to nodes that currently exist).
@@ -311,7 +311,7 @@ const view = new class {
 			target: this.nodes.get(String(link.target)) ?? {name: String(link.target)}};
 	}
 
-	// ---- Manual links contradicted by discovery (topology-manual-contradiction-spec.md) ----
+	// ---- Manual links contradicted by discovery (topology-1-model.md "Contradiction") ----
 
 	contradictionOf(edge_id) {
 		return (this.contradictions ?? []).find(entry => String(entry.edge_id) === String(edge_id)) ?? null;
@@ -437,9 +437,9 @@ const view = new class {
 		// Host/Proxy: one combined panel, plus a Device section when this node has an active
 		// represented_by (node.device, set in render() from the same represented_by edges that used
 		// to drive the old split-node merge — see render()'s device_of_target map). A represented
-		// Device has no on-screen position of its own (§7), so its /neighbors + /ports are fetched here,
+		// Device has no on-screen position of its own (topology-1-model.md "Side panels"), so its /neighbors + /ports are fetched here,
 		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
-		// Problems section is Host-only (§6 /problems, §7) — Zabbix has no clean "this problem
+		// Problems section is Host-only (topology-1-model.md "API" /problems, topology-1-model.md "Side panels") — Zabbix has no clean "this problem
 		// belongs to this proxy" semantics, so a Proxy panel never fetches or shows one.
 		if (node.type === 'host' || node.type === 'proxy') {
 			const problems = node.type === 'host'
@@ -600,7 +600,7 @@ const view = new class {
 			(['physical_link', 'device_link'].includes(link.type) && link.discovered_via === 'manual' && link.edge_id !== null && link.edge_id !== undefined
 				? this.manualLinkFragment(link.edge_id) : '');
 		// Only physical_link is a real, user/LLDP-declared topo_edges row a person can remove —
-		// monitored_by is a synthesized line, not a stored row at all (§2.3/§6): it's resolved live
+		// monitored_by is a synthesized line, not a stored row at all (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored"): it's resolved live
 		// from Zabbix host config on every load, so there's nothing to "delete" there — reassigning
 		// the host to a different proxy in Zabbix is what changes it, not this UI.
 		const delete_button = link.type === 'physical_link' && link.source_port_id && link.target_port_id
@@ -638,7 +638,7 @@ const view = new class {
 		}
 	}
 
-	// ---- Device-level links (topology-device-level-edge-spec.md §3.1, §7) ----
+	// ---- Device-level links (topology-1-model.md "`device_link` (Port → Device)", "Link channels") ----
 
 	// The far end's advertisement as received (untrusted text: callers escape it).
 	hintText(hint) {
@@ -768,7 +768,7 @@ const view = new class {
 		});
 	}
 
-	// Lost precision (device-level spec §5.2): "The remote port <Q> hasn't been confirmed since <date>; <D> is still
+	// Lost precision (topology-1-model.md "Lost precision"): "The remote port <Q> hasn't been confirmed since <date>; <D> is still
 	// seen on this port." One note per side that sees only the far Device. Plain text: the caller escapes it.
 	lostPrecisionNotes(link) {
 		const since = link.last_seen_port ? this.formatDate(link.last_seen_port) : '?';
@@ -874,7 +874,7 @@ const view = new class {
 	}
 
 	// Problems section fragment only — no title, no this.details assignment. Called from showPanel()
-	// only for a Host (never a Proxy, §6/§7 — showPanel() guards on `problems !== null`); kept as its
+	// only for a Host (never a Proxy, topology-1-model.md "Side panels" — showPanel() guards on `problems !== null`); kept as its
 	// own method rather than inlined there so the table markup stays next to formatAge()/cssColor().
 	buildProblemsFragment(problems) {
 		return `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Problems')) ?>)}</h3>${problems.length
@@ -888,12 +888,12 @@ const view = new class {
 			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`}</section>`;
 	}
 
-	// Host/Proxy side panel (§7): a Problems section for a Host (never for a Proxy — `problems` is
-	// null there, §6), plus a Device section when `node.device` is set (this Host/Proxy has an
+	// Host/Proxy side panel (topology-1-model.md "Side panels"): a Problems section for a Host (never for a Proxy — `problems` is
+	// null there, topology-1-model.md "API"), plus a Device section when `node.device` is set (this Host/Proxy has an
 	// active represented_by — see render()'s device_of_target map, which populates node.device).
 	// `groups` is the represented Device's /ports response, or null when there's no represented
 	// Device at all — in which case the Device section is simply omitted, not rendered empty. A
-	// Proxy with no represented Device gets an entirely empty panel — expected, not a bug (§7).
+	// Proxy with no represented Device gets an entirely empty panel — expected, not a bug (topology-1-model.md "Side panels").
 	showPanel(node, problems, groups) {
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
 		const problems_section = problems !== null ? this.buildProblemsFragment(problems) : '';
@@ -922,12 +922,12 @@ const view = new class {
 
 	// Device section fragment (grouped /ports table + Promote-or-Depromote button) — no title, no
 	// this.details assignment. Shared by showPorts() (standalone Device panel, unchanged behavior) and
-	// showPanel() (Device section inside a Host/Proxy's combined panel, §7) — `device` is always the
+	// showPanel() (Device section inside a Host/Proxy's combined panel, topology-1-model.md "Side panels") — `device` is always the
 	// actual Device node either way, never the Host/Proxy that might be showing it.
 	buildPortsFragment(device, groups) {
 		const hidden_by = this.hiddenByFragment(device.id);
-		// §6/§7: "Partial connectivity evidence" (not "connected MAC-only") — a MAC-only port has no
-		// physical_link (§3 rule 1), so labeling it "connected" the same way as an LLDP-confirmed one
+		// topology-1-model.md "API", "Side panels": "Partial connectivity evidence" (not "connected MAC-only") — a MAC-only port has no
+		// physical_link (topology-1-model.md "Observations": outcome device_only), so labeling it "connected" the same way as an LLDP-confirmed one
 		// invites the reasonable but wrong question "where's the physical link for this port?".
 		const labels = {
 			connected_lldp: 'Connected (LLDP)', connected_mac_only: 'Partial connectivity evidence',
@@ -952,7 +952,7 @@ const view = new class {
 				<td>${port_action(port)}</td>
 			</tr>`).join('')}
 			</tbody></table></section>`).join('');
-		// §5/§6: under lazy-creation, most Zabbix hosts/proxies have no local topo_nodes row (and
+		// topology-1-model.md "Lazy Host/Proxy nodes": under lazy-creation, most Zabbix hosts/proxies have no local topo_nodes row (and
 		// therefore no `this.nodes` entry) to build a candidate list from — the search-as-you-type
 		// picker below (wirePromoteSearch()) queries Zabbix directly via /topo/hosts/search and
 		// /topo/proxies/search instead of a pre-fetched candidate list.
@@ -966,7 +966,7 @@ const view = new class {
 				<button type="button" class="btn-alt topology-create-host-button">${this.escape(<?= json_encode(_('+ Create host')) ?>)}</button>
 			</div>`;
 		// A pick started on another Device's port can also end at this Device as a whole (a manual device-level link,
-		// topology-device-level-edge-spec.md §3.2): the far port is not chosen.
+		// topology-1-model.md "Manual links" (creation)): the far port is not chosen.
 		const link_to_device = this.link_pick && String(this.link_pick.device_id) !== String(device.id)
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-link-device-button">` +
 				`${this.escape(<?= json_encode(_('Link to this device (port unknown)')) ?>)}</button></div>`
@@ -974,9 +974,9 @@ const view = new class {
 		return `${hidden_by}${sections}${link_to_device}${promotion}`;
 	}
 
-	// Search-as-you-type picker for the "Promote to host" panel (§6/§7): debounced, queries
+	// Search-as-you-type picker for the "Promote to host" panel (topology-1-model.md "API", "Side panels"): debounced, queries
 	// /topo/hosts/search and /topo/proxies/search in parallel (both are thin Zabbix API wrappers,
-	// §5 — neither reads nor writes topo_nodes), renders the merged results, and tracks the current
+	// the Zabbix pull — neither reads nor writes topo_nodes), renders the merged results, and tracks the current
 	// selection on `this.promote_selection` so wirePortsFragment()'s Promote button can read it
 	// without re-querying. Re-created fresh on every buildPortsFragment() render, same lifecycle as
 	// the other per-panel wiring in wirePortsFragment().
@@ -1107,7 +1107,7 @@ const view = new class {
 		});
 	}
 
-	// Side panel — standalone Device (no represented_by): unchanged by §7's rewrite, since this only
+	// Side panel — standalone Device (no represented_by): unchanged by the topology-1-model.md "UI" rewrite, since this only
 	// ever applies to a Device with no on-screen Host/Proxy counterpart to begin with.
 	showPorts(node, groups) {
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
@@ -1118,7 +1118,7 @@ const view = new class {
 	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
 	// device's LLDP name, then tries to promote the result automatically. The create response carries no
 	// hostid (see CControllerHostCreate), so the only way back to it is a name lookup — which only works if
-	// the name wasn't changed in the popup. §6's /topo/hosts/search queries Zabbix directly (host.get), so
+	// the name wasn't changed in the popup. The /topo/hosts/search endpoint (topology-1-model.md "API") queries Zabbix directly (host.get), so
 	// this needs no pull first, unlike the old tray-backed flow. If the name doesn't match exactly, we
 	// don't guess: the new host is still promotable manually via the search picker above.
 	async createHostForDevice(node) {
@@ -1151,13 +1151,13 @@ const view = new class {
 		const height = bounds.height || 500;
 		const padding = 70;
 
-		// §7: a Device with an active represented_by has no on-screen position of its own at all — only its
+		// topology-1-model.md "UI" (graph): a Device with an active represented_by has no on-screen position of its own at all — only its
 		// Host/Proxy shows, styled exactly as any other Host/Proxy would be. This still needs to know, for
 		// any given Host/Proxy node, whether it has an associated Device (and which one, for showPanel()'s
 		// Device section — see selectNode()) and needs to keep the Device itself out of the simulation
 		// graph, same as the earlier split-node design did — only the "draw two halves" part is dropped, not
 		// the "the Device gets no simulation node of its own" part. Only counts when both sides are actually
-		// loaded — under §5's lazy-creation policy a Device and its representation's Host/Proxy always
+		// loaded — under the lazy-creation policy (topology-1-model.md "Lazy Host/Proxy nodes") a Device and its representation's Host/Proxy always
 		// arrive together in the same /topo/devices response, so this is normally satisfied by construction;
 		// still guarded defensively, same "both endpoints must be on the canvas" rule used for every other
 		// link type here.
@@ -1276,7 +1276,7 @@ const view = new class {
 				}
 				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
 			})
-			// §7 staleness indicator: a THIRD independent channel, deliberately on neither the dash
+			// staleness indicator (topology-1-model.md "Link channels"): a THIRD independent channel, deliberately on neither the dash
 			// pattern (provenance) nor the stroke color/width (connectivity) above — a stale manual
 			// link is still dashed, just faded; a stale link with a down/red endpoint is still red,
 			// just faded. Never collapse this into either of the other two.
@@ -1314,7 +1314,7 @@ const view = new class {
 		const bundle_labels = this.canvas.append('g').selectAll('text').data(bundle_data).join('text')
 			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#475569')
 			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
-		// Manual links contradicted by discovery (topology-manual-contradiction-spec.md §6). Ghost link: where
+		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where
 		// discovery says the cable actually goes — a dashed orange line from the reporting Device to the hidden
 		// neighbor, not a stored link (not selectable as one; a click opens the manual link's details). One per
 		// Device pair however many observations (LLDP + CDP, both ends) say it. Acknowledged → none. The
@@ -1354,11 +1354,11 @@ const view = new class {
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
 			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
 		link_badges.append('title').text(link => this.contradictionSummary(this.contradictionOf(link.edge_id)));
-		// §7: disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
+		// topology-1-model.md "Node styles": disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
 		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
 		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
 		// A node with an associated Device (node.device set) is styled exactly the same as one without —
-		// nothing here reads .device at all, per §7's "completely unchanged by whether it happens to have an
+		// nothing here reads .device at all, per the topology-1-model.md "UI" rule "completely unchanged by whether it happens to have an
 		// associated Device."
 		const fill_for = subject => {
 			if (subject.type === 'host') {
@@ -1430,7 +1430,7 @@ const view = new class {
 		// Every node — Host, Proxy, or a standalone (unrepresented) Device — renders through this one
 		// single-box path, styled purely by its own actual type. A Host/Proxy that happens to have an
 		// associated Device (node.device set, see above) is not treated any differently here: no on-screen
-		// trace of the represented_by relationship beyond what selectNode()'s panel does with it (§7 — the
+		// trace of the represented_by relationship beyond what selectNode()'s panel does with it (topology-1-model.md "UI" — the
 		// earlier split-square "merged node" design that used to fork rendering here has been dropped).
 		node_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
 			.style('fill', fill_for)

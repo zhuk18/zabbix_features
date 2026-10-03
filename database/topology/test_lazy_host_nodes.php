@@ -4,17 +4,17 @@
 declare(strict_types=1);
 
 /**
- * test_lazy_host_nodes.php — regression tests for §5/§6's lazy Host/Proxy `topo_nodes` creation
+ * test_lazy_host_nodes.php — regression tests for topology-1-model.md "Lazy Host/Proxy nodes": lazy Host/Proxy `topo_nodes` creation
  * policy (a Host/Proxy row now exists only when something actually justifies it — a MAC match,
  * `reporter_self`, or manual `/promote` — and is deleted again once that reason goes away):
  *
  *   1. A host with no MAC match and never promoted never gets a `topo_nodes` row.
  *   2. `/promote` against a host with no prior `topo_nodes` row creates the node and the
  *      representation in the same call; a second `/promote` onto the same already-materialized
- *      host is rejected by the existing 1:1 constraint (§2.3), not a new rule — and does not
+ *      host is rejected by the existing 1:1 constraint (topology-1-model.md "`represented_by` (Device → Host or Proxy)"), not a new rule — and does not
  *      duplicate the node.
  *   3. `/depromote` deletes the Host node when nothing else justifies it (the only case reachable
- *      under §2.3's 1:1 constraint: once the one Device that could represent a Host does, nothing
+ *      under the 1:1 constraint of topology-1-model.md "`represented_by` (Device → Host or Proxy)": once the one Device that could represent a Host does, nothing
  *      else can simultaneously be representing it — see the comment at the relevant check below for
  *      why "leave it in place when the host is a reporter" has no separate code path to exercise).
  *
@@ -89,7 +89,7 @@ $before = (int) DBfetch(DBselect(
 ))['c'];
 check($before === 0, 'no topo_nodes row exists for this host yet');
 
-echo "\n=== §6 search endpoints write nothing ===\n";
+echo "\n=== search endpoints write nothing ===\n";
 $search_results = CTopologyPrototype::searchHosts($candidate['name']);
 check(in_array($candidate['hostid'], array_column($search_results, 'hostid'), true),
 	'searchHosts() finds the host via host.get directly');
@@ -120,19 +120,19 @@ if ($device2) {
 		check(false, 'a second promote onto an already-represented host must be rejected');
 	}
 	catch (Exception $exception) {
-		check(true, 'a second promote onto an already-represented host is rejected (existing 1:1 rule, §2.3, unaffected by this change)');
+		check(true, 'a second promote onto an already-represented host is rejected (existing 1:1 rule, topology-1-model.md "`represented_by` (Device → Host or Proxy)", unaffected by this change)');
 	}
 	$node_count = (int) DBfetch(DBselect(
 		"SELECT COUNT(*) AS c FROM topo_nodes WHERE type='host' AND host_ref=".zbx_dbstr($candidate['hostid'])
 	))['c'];
-	check($node_count === 1, 'still exactly one topo_nodes row for this host — upsert, not duplicate (§6 item 3)');
+	check($node_count === 1, 'still exactly one topo_nodes row for this host — upsert, not duplicate (topology-1-model.md "Manual `/promote` and `/depromote`")');
 }
 else {
 	echo "  (skipped: no second unrepresented Device available to exercise the 1:1 rejection)\n";
 }
 
 echo "\n=== 3: /depromote deletes the Host node once nothing else justifies it ===\n";
-// §2.3's 1:1 constraint (unaffected by this change) means at most one Device can ever represent a
+// the 1:1 constraint of topology-1-model.md "`represented_by` (Device → Host or Proxy)" (unaffected by this change) means at most one Device can ever represent a
 // given Host at a time. So the "leave it in place, something else still justifies it" branch in
 // depromote()'s isRepresentedTarget() check has no reachable scenario to construct here: the one
 // Device that could have represented this Host is exactly the one being depromoted. This still
@@ -149,7 +149,7 @@ $dev_row_after = DBfetch(DBselect(
 check($dev_row_after['represented_by_node_id'] === null
 		&& $dev_row_after['represented_by_matched_by'] === null
 		&& $dev_row_after['represented_by_at'] === null,
-	'all three represented_by_* columns cleared on the device (§2.3 provenance invariant)');
+	'all three represented_by_* columns cleared on the device (topology-1-model.md "Nodes: Storage", invariant 3)');
 
 echo $fail ? "\nSome checks FAILED.\n" : "\nAll checks passed — DB left in its original state.\n";
 exit($fail ? 1 : 0);

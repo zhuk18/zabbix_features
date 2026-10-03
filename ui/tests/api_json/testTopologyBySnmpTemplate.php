@@ -17,7 +17,7 @@
 require_once __DIR__.'/../include/CAPITest.php';
 
 /**
- * The "Topology by SNMP" template (topology-lld-part3-spec.md §7): its shape, and that it is the file the builder
+ * The "Topology by SNMP" template (topology-2-lld-delivery.md "Template Topology by SNMP"): its shape, and that it is the file the builder
  * writes. The template is imported under another name and uuids, so a lab template of the same name is not touched.
  *
  * @onBefore prepareTestData

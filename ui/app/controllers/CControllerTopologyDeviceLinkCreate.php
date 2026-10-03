@@ -2,7 +2,7 @@
 
 /**
  * POST topology.devicelink.create — a manual device-level link from a local Port to a Device whose port is not chosen
- * (topology-device-level-edge-spec.md §3.2). Same permission as a manual port-to-port link.
+ * (topology-1-model.md "Manual links": creation). Same permission as a manual port-to-port link.
  */
 class CControllerTopologyDeviceLinkCreate extends CController {
 	protected function init(): void {

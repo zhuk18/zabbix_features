@@ -2,7 +2,7 @@
 
 /**
  * POST topology.manual.revoke — removes one acknowledgment from a manual link's shadow_ack by Device
- * (topology-manual-contradiction-spec.md §5.3). If that neighbor still shadows the link it is contradicted again.
+ * (topology-1-model.md "Operator actions": revoke). If that neighbor still shadows the link it is contradicted again.
  */
 class CControllerTopologyManualRevoke extends CController {
 	protected function init(): void {

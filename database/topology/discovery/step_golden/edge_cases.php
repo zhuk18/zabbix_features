@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * Edge cases of the "SNMP walk to topology rows" step (topology-lld-part3-spec.md §6.2) on synthetic walks: anchors
+ * Edge cases of the "SNMP walk to topology rows" step (topology-2-lld-delivery.md "Edge cases (synthetic walks)") on synthetic walks: anchors
  * and missing_mib, garbage input, the MAC limit, escaping of untrusted LLDP strings, parameter errors.
  *
  *   edge_cases.php [--topo-step=PATH]

@@ -8,7 +8,7 @@ zabbix_export:
       template: 'Topology by push'
       name: 'Topology by push'
       description: |
-        Receives the network topology from push.py (topology-push-transport-spec.md). push.py walks the device near
+        Receives the network topology from push.py (topology-3-push-delivery.md). push.py walks the device near
         the segment and sends the rows of each topology role with zabbix_sender; every role is a Zabbix trapper
         discovery rule with a topology_role, so the server stores the same topo_lld_snapshot rows as the "Topology by
         SNMP" template and ingest.php reconciles both on one path.

@@ -6,8 +6,8 @@ declare(strict_types=1);
 /**
  * Builds template_topology_by_snmp_js.yaml ("Topology by SNMP (temporary JS)") from lld_js/*.js.
  *
- * TEMPORARY: Part 3 replaces the JavaScript with a preset preprocessing step. Until then this JS is the reference
- * implementation of the contract rows (topology-lld-part2-spec.md §9) — keep it readable.
+ * TEMPORARY: the preset preprocessing step (topology-2-lld-delivery.md) replaces the JavaScript. Until then this JS is the reference
+ * implementation of the contract rows (topology-2-lld-delivery.md "Template Topology by SNMP") — keep it readable.
  *
  * Layout: two SNMP walk[] master items (interfaces + LLDP + LAG every 30m, bridge/FDB tables every 10m, no history)
  * and four DEPENDENT discovery rules, one per role, each with one JavaScript step made of common.js + <role>.js.
@@ -70,12 +70,12 @@ zabbix_export:
       template: 'Topology by SNMP temporary JS'
       name: 'Topology by SNMP (temporary JS)'
       description: |
-        TEMPORARY lab template (topology-lld-part2-spec.md §9): collects topology through Zabbix low-level discovery
+        TEMPORARY lab template (topology-2-lld-delivery.md "Template Topology by SNMP"): collects topology through Zabbix low-level discovery
         with no external scripts. Two SNMP walk[] master items feed four dependent discovery rules, one per
         topology role; each rule's JavaScript emits the rows of that role's macro contract. The master items store
         no history.
 
-        Replaced by a preset preprocessing step in Part 3 — the JavaScript is the reference implementation of it.
+        Replaced by the preset preprocessing step — the JavaScript is the reference implementation of it.
       groups:
         - name: 'Templates/Network devices'
       items:

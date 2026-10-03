@@ -1,18 +1,18 @@
 <?php
 
 /**
- * POST /topo/ingest/run (spec §6) — starts database/topology/discovery/ingest.php (the same CLI script,
- * §4.1) as a detached background OS process and returns immediately. This is deliberately *not* a
+ * POST /topo/ingest/run (topology-1-model.md "API") — starts database/topology/discovery/ingest.php (the same CLI script,
+ * see topology-1-model.md "Runs") as a detached background OS process and returns immediately. This is deliberately *not* a
  * reimplementation of ingest.php's logic in PHP-in-process: spawning the literal same script file is
  * what satisfies the spec's "must call the exact same ingest logic the CLI already uses" requirement
- * without a second, parallel implementation of §3's rules.
+ * without a second, parallel implementation of the reconciliation rules (topology-1-model.md "Link rules").
  *
- * The concurrency lock (§6 — "must go through the same run-lock as the CLI") lives inside ingest.php
+ * The concurrency lock (topology-1-model.md "Runs": the UI run goes through the same lock as the CLI) lives inside ingest.php
  * itself (flock() on .ingest.lock next to the script), so both a CLI-triggered run and a button-triggered
  * one always go through the same lock regardless of which process gets there first — nothing extra is
  * needed here beyond spawning the script.
  *
- * Arg sourcing (flagged rather than hardcoded silently, per spec §1's "flag rather than expand scope"):
+ * Arg sourcing (flagged rather than hardcoded silently, per the coding-agent rule of topology-1-model.md ("flag rather than expand scope")):
  *  - --api-url / --api-token: this controller runs inside an authenticated Zabbix web session, so rather
  *    than minting a new API token it reuses the current session id (CWebUser::$data['sessionid']) as the
  *    bearer credential against this same frontend's api_jsonrpc.php — the JSON-RPC layer
@@ -21,7 +21,7 @@
  *  - --pdo-dsn/--pdo-user/--pdo-password: read from the frontend's own $DB global (populated from
  *    ui/conf/zabbix.conf.php), which is the same database ingest.php needs to reach directly via PDO.
  *  - No reporters argument is passed: ingest.php discovers its reporters itself, dynamically, via
- *    item.get on the topology.discovery.raw key (spec §4.1, "Reporter discovery must be dynamic") —
+ *    item.get on the topology.discovery.raw key (topology-1-model.md "Reporters and usable snapshots") —
  *    every host onboarded with the template is automatically picked up. Reporter selection is not this
  *    controller's concern at all; there is nothing here to source or flag.
  */

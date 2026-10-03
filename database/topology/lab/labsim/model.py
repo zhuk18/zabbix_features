@@ -1,4 +1,4 @@
-"""Lab description, scenarios and per-step state (spec §4)."""
+"""Lab description, scenarios and per-step state (topology-4-lab-simulator.md "Lab description")."""
 import copy
 import os
 
@@ -13,7 +13,7 @@ FAULTS = ('unreachable', 'slow', 'wrong_community', 'lldp_error')
 
 
 class LabError(Exception):
-    """Invalid lab or scenario input (spec §5.4): the generator stops and writes nothing."""
+    """Invalid lab or scenario input (topology-4-lab-simulator.md "Checks"): the generator stops and writes nothing."""
 
 
 def split_port(ref):
@@ -31,7 +31,7 @@ class Lab:
     def __init__(self, data):
         self.settings = dict(data.get('settings', {}))
         if data.get('fdb_extra'):
-            self.settings['fdb_extra'] = data['fdb_extra']     # spec §4.3: top-level key in lab.yaml
+            self.settings['fdb_extra'] = data['fdb_extra']     # topology-4-lab-simulator.md "Extra MACs": top-level key in lab.yaml
         self.devices = {}
         for name, d in (data.get('devices') or {}).items():
             self.devices[name] = self._device(name, d)
@@ -141,7 +141,7 @@ class Lab:
         return {n: d for n, d in self.devices.items() if d['zabbix']['monitored']}
 
     def validate(self):
-        """§5.4: reject invalid inputs, writing nothing."""
+        """topology-4-lab-simulator.md "Checks": reject invalid inputs, writing nothing."""
         for name, d in self.devices.items():
             seen_idx, seen_name = set(), set()
             for p in d['ports']:

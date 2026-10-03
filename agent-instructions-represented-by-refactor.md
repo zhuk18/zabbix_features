@@ -1,3 +1,6 @@
+> Historical task prompt (finished work). The section numbers (§N) in this file refer to the old
+> `topology-prototype-spec.md`, which is now merged into `topology-1-model.md`.
+
 # Change instructions: move `represented_by` off `topo_edges`
 
 ## 0. What this changes and why

@@ -2,7 +2,7 @@
 
 /**
  * POST topology.manual.accept — "accept discovery" for a manual link contradicted by discovery
- * (topology-manual-contradiction-spec.md §5.1): the manual link is deleted. The discovered link is then decided by a
+ * (topology-1-model.md "Operator actions": accept discovery): the manual link is deleted. The discovered link is then decided by a
  * full ingest from the stored snapshots (a superseded one is revived, keeping its id), which the page starts with
  * topology.ingest.run — after any run that is already in progress, because a second run started meanwhile loses the
  * run lock and exits, and the running one may have read the manual link before it was deleted.

@@ -137,7 +137,7 @@ Two traps along the way:
 
 **This minimal chain is enough for DB-only code (`DBselect`/`DBexecute`), but breaks the
 moment the code under test calls `API::Host()->get()` or anything else through Zabbix's
-own API layer** — `promote()`'s new target-existence check (§5/§6, lazy Host/Proxy node
+own API layer** — `promote()`'s new target-existence check (topology-1-model.md "Lazy Host/Proxy nodes", lazy Host/Proxy node
 creation) is exactly this case. The failure mode is a `getObject() on null` fatal from
 deep inside `API::getApiService()`: the minimal chain above never calls
 `API::setApiServiceFactory()`, which only real HTTP bootstrap (or the recipe below) sets

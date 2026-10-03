@@ -33,7 +33,7 @@ steps:
   - id: 1
     note: AP1 unreachable; Switch1 still sees AP1 on Gi0/6
     faults: {AP1: unreachable}
-    # Part 2 §2 rule 2 / observation-cleanup rule 6: an unsupported rule keeps its last good snapshot
+    # topology-1-model.md "Reporters and usable snapshots": an unsupported rule keeps its last good snapshot
     assert:
       - snapshot_unchanged: {host: AP1, since_step: 0}
       - link: [Switch1:Gi0/6, AP1:eth0]
@@ -43,7 +43,7 @@ steps:
     note: AP2 (not monitored) on Switch1:Gi0/7
     cables:
       add: [[Switch1:Gi0/7, AP2:eth0]]
-    # device-level spec §4: AP2 is not a reporter and only one local port names it, so nothing makes the link
+    # topology-1-model.md "Port-level or device-level": AP2 is not a reporter and only one local port names it, so nothing makes the link
     # device-level; the port is created from the advertisement and the link is port-level ("non-reporter far end")
     assert:
       - link: [Switch1:Gi0/7, AP2]
@@ -53,8 +53,8 @@ steps:
     note: AP2 also on Switch1:Gi0/8; the same MAC is advertised as the port id on both ports
     cables:
       add: [[Switch1:Gi0/8, AP2:eth1]]
-    # device-level spec §5.2 (v0.8) and the §4 interaction rule: Gi0/7 already has a port-level link to AP2, so it keeps
-    # it (lost precision: precision_lower, last_seen_port not advanced); Gi0/8 has none, so §4.2 gives it a device_link
+    # topology-1-model.md "Lost precision" and the interaction rule of topology-1-model.md "Port-level or device-level": Gi0/7 already has a port-level link to AP2, so it keeps
+    # it (lost precision: precision_lower, last_seen_port not advanced); Gi0/8 has none, so port_shared_id gives it a device_link
     assert:
       - edge_id_same_as: {step: 2, link: [Switch1:Gi0/7, AP2]}
       - link: [Switch1:Gi0/7, AP2]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_push.py — tests of push.py's contract rows (topology-push-transport-spec.md §3, §7).
+test_push.py — tests of push.py's contract rows (topology-3-push-delivery.md "`push.py`", "Acceptance criteria").
 
   python3 test_push.py
 
@@ -160,7 +160,7 @@ check(push.HEARTBEAT_KEY == "topology.push.heartbeat" and push.HEARTBEAT_KEY != 
       "push sends topology.push.heartbeat; the legacy blob keeps topology.discovery.heartbeat")
 
 
-print("\n=== a truncated walk is a failure (spec §2 rule 3) ===")
+print("\n=== a truncated walk is a failure (topology-3-push-delivery.md, Design rules: failed is not empty) ===")
 REAL_COLLECT_WALK = push.collect_walk
 lab_lines = lab.splitlines()
 walk_by_root = {}

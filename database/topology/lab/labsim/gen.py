@@ -1,4 +1,4 @@
-"""Generator: lab state -> snmpsim data (spec §5)."""
+"""Generator: lab state -> snmpsim data (topology-4-lab-simulator.md "Generator")."""
 import hashlib
 import json
 import os
@@ -372,7 +372,7 @@ def generate(scenario, out_dir, variation_dir=None):
 
 
 def hosts_json(scenario):
-    """Provisioning input: one entry per monitored device (spec §3)."""
+    """Provisioning input: one entry per monitored device (topology-4-lab-simulator.md "Architecture")."""
     lab = scenario.states[0]
     out = []
     for name, d in sorted(lab.monitored().items()):
@@ -382,7 +382,7 @@ def hosts_json(scenario):
 
 
 def export_walk(lab, name):
-    """Walk text of a device (net-snmp style, for fixtures: Part 3 §6.1 format), sorted by OID."""
+    """Walk text of a device (net-snmp style, for fixtures: topology-2-lld-delivery.md "Golden fixtures" format), sorted by OID."""
     out = []
     for oid, (tag, v) in sorted(device_records(lab, name).items()):
         if tag == '4x':

@@ -1,4 +1,4 @@
-"""labctl: one snmpsim process per device (spec §6)."""
+"""labctl: one snmpsim process per device (topology-4-lab-simulator.md "snmpsim control (`labctl`)")."""
 import ipaddress
 import json
 import os
@@ -196,7 +196,7 @@ def fault(device, name, settings=None, log=print):
             raise LabError('wrong_community is cleared by restarting the lab')
         d['fault'] = None
     elif name == 'unreachable':
-        # SIGSTOP: the process keeps its socket and its step, and answers nothing until SIGCONT. Spec §6.3 says
+        # SIGSTOP: the process keeps its socket and its step, and answers nothing until SIGCONT. topology-4-lab-simulator.md "Faults" says
         # "delay" records; those cannot sit inside a labmultiplex subtree, so the lab uses a stopped process.
         os.kill(d['pid'], signal.SIGSTOP)
         d['fault'] = name

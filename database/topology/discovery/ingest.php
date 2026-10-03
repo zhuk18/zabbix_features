@@ -4,12 +4,12 @@
 declare(strict_types=1);
 
 /**
- * ingest.php — topology discovery "ingest" component (spec §4.1, Trapper delivery mechanism).
+ * ingest.php — topology discovery "ingest" component (topology-1-model.md "Ingest").
  *
  * Reads the latest `topology.discovery.raw` value per reporter (via the Zabbix API's
- * item.get/history.get), applies spec §3 exactly (evidence threshold / rule 1, MAC-only Device<->
- * Host/Proxy reconciliation / rule 2, never-delete-on-unlink / rule 3, upsert-by-natural-key / rule 4,
- * manual-link-never-downgraded / rule 5), and writes to topo_nodes/topo_edges.
+ * item.get/history.get), applies the reconciliation rules (topology-1-model.md "Far Device": evidence threshold and upsert by natural key; MAC-only Device<->
+ * Host/Proxy reconciliation (topology-1-model.md "Automatic MAC match (Host only)"), never-delete-on-unlink,
+ * manual-link-never-downgraded (topology-1-model.md "Manual wins")), and writes to topo_nodes/topo_edges.
  *
  * Runs standalone against the topology tables with plain PDO — the same approach as
  * database/topology/seed.php — rather than bootstrapping Zabbix's full DB/API layer
@@ -23,10 +23,10 @@ declare(strict_types=1);
  * host_inventory (macaddress_a/macaddress_b) is read with a direct SQL join against
  * topo_nodes.host_ref, since ingest already holds a PDO connection to the very same Zabbix
  * database that host_inventory lives in — no second round trip through the Zabbix API is
- * needed for that part (§3.2's gotcha about host.get()'s selectInterfaces having no MAC field
+ * needed for that part (the gotcha of topology-1-model.md "Automatic MAC match (Host only)" about host.get()'s selectInterfaces having no MAC field
  * doesn't apply here, since this never goes through selectInterfaces at all).
  *
- * Reporter discovery is dynamic (spec §4.1, "Reporter discovery must be dynamic"): by default
+ * Reporter discovery is dynamic (topology-1-model.md "Reporters and usable snapshots"): by default
  * this script finds every reporter itself via a single item.get filtered on key
  * 'topology.discovery.raw' across all hosts — no config file enumerating reporters by hand.
  * --zabbix-host remains as an optional operator override to scope a run to specific host(s)
@@ -54,7 +54,7 @@ if (isset($options['help'])) {
 	exit(0);
 }
 
-// ---- Run exclusion + status file (spec §6/§7). The run lock is a DATABASE advisory lock (MySQL GET_LOCK /
+// ---- Run exclusion + status file (topology-1-model.md "Runs", "Run summary"). The run lock is a DATABASE advisory lock (MySQL GET_LOCK /
 // PostgreSQL pg_try_advisory_lock), taken below once the connection exists: a file lock cannot do this job because
 // the CLI and the web server's PHP-FPM do not share a temporary directory (FPM runs with a private /tmp), so they
 // took different lock files and never excluded each other. The database is the one thing every caller shares. The
@@ -90,7 +90,7 @@ if (!$pdo_dsn || !$pdo_user) {
 		"Credentials may also come from ZABBIX_API_URL / ZABBIX_API_TOKEN / TOPOLOGY_PDO_DSN / ".
 		"TOPOLOGY_PDO_USER / TOPOLOGY_PDO_PASSWORD env vars — never hardcode them in a script ".
 		"(see topo-change-sender.sh at the repo root for the anti-pattern this avoids).\n\n".
-		"Reporters are discovered dynamically via item.get (spec §4.1) — no reporter list needed. ".
+		"Reporters are discovered dynamically via item.get (topology-1-model.md, Reporters and usable snapshots) — no reporter list needed. ".
 		"--zabbix-host optionally scopes a run to specific host(s) for ad-hoc testing.");
 }
 
@@ -186,7 +186,7 @@ final class ZabbixApi {
 		return $decoded['result'];
 	}
 
-	/** Spec §4.1 "Reporter discovery must be dynamic": finds every reporter by querying item.get for the
+	/** topology-1-model.md "Reporters and usable snapshots": finds every reporter by querying item.get for the
 	 * topology.discovery.raw key across ALL hosts — no hostids filter, no config file. Every host carrying
 	 * that item (i.e. every host onboarded with the Topology Discovery Reporter template) is automatically
 	 * a reporter for this run. Returns one row per matching item: ['host' => ..., 'hostid' => ..., 'itemid' => ...]. */
@@ -224,7 +224,7 @@ final class ZabbixApi {
 
 $now = time();
 
-// Rule 4's third Device-match key (chassis_id -> mgmt_ip -> sysname). The sysname key is deliberately NOT a
+// The third Device-match key of topology-1-model.md "Far Device" (chassis_id -> mgmt_ip -> sysname). The sysname key is deliberately NOT a
 // global "WHERE sysname = ?" scan (that would risk merging two unrelated devices that happen to share a
 // sysname): it only matches a Device that was previously created/matched as the neighbor discovered on this
 // exact (reporter, local_if_index) pair — i.e. a Device already reachable by walking the physical_link edge
@@ -259,7 +259,7 @@ $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $loc
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 			return [(int) $row['id'], 'sysname'];
 		}
-		// A device-level link (topology-device-level-edge-spec.md) ends at the Device itself: same scoping, no Port hop.
+		// A device-level link (topology-1-model.md "`device_link` (Port → Device)") ends at the Device itself: same scoping, no Port hop.
 		$stmt = $pdo->prepare(
 			"SELECT dev.id FROM topo_edges link JOIN topo_nodes dev ON dev.id = link.dst_id".
 			" WHERE link.type = 'device_link' AND link.src_id = ? AND dev.type = 'device'".
@@ -289,13 +289,13 @@ $last_insert_id = static function () use ($pdo): int {
 	return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
 };
 
-// Rule 4: upsert Device by chassis_id, else mgmt_ip, else (neighbor Devices only, via $local_port_id) sysname
+// topology-1-model.md "Far Device": upsert Device by chassis_id, else mgmt_ip, else (neighbor Devices only, via $local_port_id) sysname
 // scoped to (reporter, local_if_index) — see $find_device's comment. Mirrors seed.php's $device(), plus the
 // third key seed.php doesn't have (seed.php's fixture data always carries chassis_id, so it never needs it).
-// When the sysname key is what resolved the match, attrs.matched_by is stamped 'sysname' per rule 4 — the
+// When the sysname key is what resolved the match, attrs.matched_by is stamped 'sysname' per topology-1-model.md "Far Device" — the
 // chassis_id/mgmt_ip matches don't get a matched_by (no existing convention for one; nothing else in this
-// codebase records "how a Device was matched" outside rule 4's own sysname-weak-signal requirement).
-// $summary tallies create-vs-update counts for the §6 /topo/ingest/status endpoint. Just counting,
+// codebase records "how a Device was matched" outside the sysname weak-signal rule of topology-1-model.md "Far Device").
+// $summary tallies create-vs-update counts for the /topo/ingest/status endpoint (topology-1-model.md "Run summary"). Just counting,
 // no change to the matching/upsert rules themselves.
 $summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0,
 	// Ports made from neighbor advertisements on a Device that has since become a reporter (its own walk returned real
@@ -368,7 +368,7 @@ $device = static function (array $attrs, ?int $local_port_id = null) use ($pdo, 
 	return $last_insert_id();
 };
 
-// Rule 4: upsert Port by (device_id, if_index), setting device_id directly on insert. Mirrors seed.php's $port().
+// topology-1-model.md "PORTS, LAG, LEARNED_MACS": upsert Port by (device_id, if_index), setting device_id directly on insert. Mirrors seed.php's $port().
 $port = static function (int $device_id, array $attrs) use ($insert_port_node, $update_node, $now, $last_insert_id, $find_port, &$summary): int {
 	$existing_id = $find_port($device_id, $attrs['if_index']);
 	if ($existing_id !== null) {
@@ -385,15 +385,15 @@ $port = static function (int $device_id, array $attrs) use ($insert_port_node, $
 // CTopologyPrototype.php ~line 680): canonicalize direction (smaller Port id -> src_id), never let a
 // repeated 'lldp' call downgrade a 'manual' edge (only lldp->lldp or manual->lldp upgrade is written), and
 // never let a repeated 'manual' call overwrite an existing edge at all. Discovery must never delete a
-// manually-created link (rule 5) — this function has no delete path, only upsert, satisfying that by
+// manually-created link (topology-1-model.md "Manual wins") — this function has no delete path, only upsert, satisfying that by
 // construction.
 //
-// $reporter_port_id (spec §2.3): the port belonging to the reporter whose blob is being processed right
+// $reporter_port_id (topology-1-model.md "`physical_link` (Port ↔ Port)"): the port belonging to the reporter whose blob is being processed right
 // now — always $local_port_id at the one call site below, never the neighbor's (possibly pseudo-) port.
 // Once direction is canonicalized, that tells us which of last_seen_src/last_seen_dst is "this reporter's
 // side" of the edge, so a reporter whose push pipeline goes stale only stops advancing its own side —
 // the other reporter (if any) keeps confirming its side independently, and the aggregate last_seen (used
-// by §7's staleness indicator, unchanged) stays max(last_seen_src, last_seen_dst). Only ever 'lldp' here;
+// by the staleness indicator (topology-1-model.md "Disappearance and staleness"), unchanged) stays max(last_seen_src, last_seen_dst). Only ever 'lldp' here;
 // CTopologyPrototype::upsertPhysicalLink()'s 'manual' path has no reporter and leaves both fields unset.
 $ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via, int $reporter_port_id) use ($pdo, $insert_edge, $now, &$summary): void {
 	$reporter_is_a = $reporter_port_id === $port_a;
@@ -430,7 +430,7 @@ $ensure_physical_link = static function (int $port_a, int $port_b, string $disco
 	}
 	else {
 		// 'manual': no reporter confirmation cycle — last_seen/last_seen_src/last_seen_dst all stay
-		// unset rather than being zero-initialized or defaulted to "now" (spec §2.3).
+		// unset rather than being zero-initialized or defaulted to "now" (topology-1-model.md "`physical_link` (Port ↔ Port)").
 		$attrs['last_seen'] = $now;
 	}
 	$insert_edge->execute(['physical_link', $port_a, $port_b, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
@@ -439,15 +439,15 @@ $ensure_physical_link = static function (int $port_a, int $port_b, string $disco
 
 // Byte-for-byte mirror of CTopologyPrototype::promote()'s 1:1-guard + write, called only from
 // $reconcile_device() below with matched_by='mac' (never 'manual' — manual promotion is the separate
-// /promote endpoint's job, §2.3, not ingest's) and from the reporter_self call in the main loop below
-// with matched_by='reporter_self'. §2.1/§2.3: represented_by is stored as three columns directly on
+// /promote endpoint's job (topology-1-model.md "`represented_by` (Device → Host or Proxy)"), not ingest's) and from the reporter_self call in the main loop below
+// with matched_by='reporter_self'. topology-1-model.md "`represented_by` (Device → Host or Proxy)": represented_by is stored as three columns directly on
 // the Device's own topo_nodes row, not a topo_edges row — matched_mac is deliberately not accepted or
 // stored here (no consumer in the new column-based model, per the spec addendum).
 $promote = static function (int $device_id, int $target_nodeid, string $matched_by) use ($pdo, $now): bool {
 	$represented = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_node_id IS NOT NULL");
 	$represented->execute([$device_id]);
 	if ($represented->fetch()) {
-		return false; // this Device is already represented — not an error, just no match (§2.3 1:1).
+		return false; // this Device is already represented — not an error, just no match (1:1, topology-1-model.md "`represented_by` (Device → Host or Proxy)").
 	}
 	$represented_target = $pdo->prepare(
 		"SELECT 1 FROM topo_nodes WHERE type = 'device' AND represented_by_node_id = ?");
@@ -462,15 +462,15 @@ $promote = static function (int $device_id, int $target_nodeid, string $matched_
 	return true;
 };
 
-// Spec §2.3/§4.1: find-or-create the Host pointer node for a reporter's own hostid, scoped to the new
+// topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": find-or-create the Host pointer node for a reporter's own hostid, scoped to the new
 // deterministic reporter-self-link path only (see the $promote() call in the main loop below) — NOT used
 // by $reconcile_device()'s neighbor-MAC path, which must keep only ever SELECTing an existing host node
 // (a neighbor reconciling against a Host that was never pulled via the "Pull Zabbix hosts" button is
-// correctly a non-match, per §3.2's "opportunistic" framing; that stays unchanged). Mirrors
+// correctly a non-match, per the "opportunistic" framing of topology-1-model.md "Automatic MAC match (Host only)"; that stays unchanged). Mirrors
 // CTopologyPrototype::upsertPointerNode() (ui/include/classes/topology/CTopologyPrototype.php ~line 709):
 // look up topo_nodes by (type='host', host_ref=hostid), insert {type:'host', host_ref:hostid, attrs:'{}'}
 // if missing. This is the whole point of the reporter-self-link change: ingest already knows the exact
-// hostid with certainty (from the item.get call that located this reporter, §4.1), so linking the
+// hostid with certainty (from the item.get call that located this reporter, topology-1-model.md "Reporters and usable snapshots"), so linking the
 // reporter's Device to its own Host must not depend on "Pull Zabbix hosts" having been run first.
 $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $last_insert_id): int {
 	$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'host' AND host_ref = ?");
@@ -485,10 +485,10 @@ $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $l
 
 // Byte-for-byte mirror of CTopologyPrototype::reconcileHost()'s MAC lookup (Port.attrs.mac via
 // host_inventory.macaddress_a/b) — run per Device instead of per Host, since ingest discovers/touches
-// Devices, not Hosts (§5's Host/Proxy pull is a separate, already-existing pull path this script doesn't
+// Devices, not Hosts (the Host/Proxy pull (topology-1-model.md "Host and Proxy association") is a separate, already-existing pull path this script doesn't
 // duplicate). Only Host is reconciled against, not Proxy — proxy.get/CProxy::get exposes no MAC/inventory
 // concept at all, so there is nothing to reconcile a Proxy against here either (a Proxy node is only ever
-// created via manual /promote, §5/§6). Rule 2 (spec §3): matching is MAC-only — there is no generic Zabbix host
+// created via manual /promote, topology-1-model.md "Manual `/promote` and `/depromote`"). topology-1-model.md "Automatic MAC match (Host only)": matching is MAC-only — there is no generic Zabbix host
 // field carrying an LLDP chassis ID (host_inventory.chassis is an unrelated free-text field), so
 // $device_attrs is unused here now; it stays a parameter only because callers pass it (see the neighbor
 // Device call below), not because this function reads it.
@@ -522,9 +522,9 @@ $resolve_port_label = static function (?string $remote_port_desc, ?string $remot
 
 // LLDP's remote_port_id is a string (interface name, MAC, locally-assigned number — depending on
 // remote_port_id_subtype), not a numeric SNMP ifIndex, except when the subtype is literally 'local' and
-// the value happens to be numeric. Rule 4's Port upsert key needs *a* stable if_index-shaped number for
+// the value happens to be numeric. The Port upsert key (topology-1-model.md "PORTS, LAG, LEARNED_MACS") needs *a* stable if_index-shaped number for
 // the neighbor's port, so this derives one deterministically from remote_port_id when a real numeric
-// ifIndex isn't available — same value every run (crc32 is stable), so upsert idempotency (rule 4) still
+// ifIndex isn't available — same value every run (crc32 is stable), so upsert idempotency still
 // holds even though it is NOT a genuine SNMP ifIndex. Flagged as a known gap: the real ifIndex of a
 // neighbor's port is never actually discoverable from lldpRemTable alone (see the delivery report).
 $pseudo_if_index = static function (?string $remote_port_id, ?string $remote_port_id_subtype): int {
@@ -534,7 +534,7 @@ $pseudo_if_index = static function (?string $remote_port_id, ?string $remote_por
 	return (int) (crc32((string) $remote_port_id) % 1000000);
 };
 
-// Spec §3 rule 4 "pseudo-port merge" / §2.3's "canonicalization alone does not prevent a same-cable
+// topology-1-model.md "Pseudo-port merge" / topology-1-model.md "`physical_link` (Port ↔ Port)": "canonicalization alone does not prevent a same-cable
 // duplicate" paragraph. Normalizes an SNMP ifDescr/ifName-style port name to a vendor-abbreviation-
 // independent, case-insensitive canonical form so e.g. "GigabitEthernet0/24" (lldpRemPortDesc's long form,
 // see the lab's *.snmprec ifDescr/lldpRemPortDesc rows) and "Gi0/24" (ifName's short form) compare equal.
@@ -559,12 +559,12 @@ $normalize_port_name = static function (string $name): string {
 	return $lower;
 };
 
-// Spec §3 rule 4: run ONLY right after upserting a reporter's own real Port (never from the neighbor
+// topology-1-model.md "Pseudo-port merge": run ONLY right after upserting a reporter's own real Port (never from the neighbor
 // pseudo-Port creation path below — that path is unaffected, per scope). Looks for an existing pseudo-Port
-// (attrs.pseudo = true, §2.2) on the same Device whose name normalizes to the same thing as the real Port
+// (attrs.pseudo = true, topology-1-model.md "Nodes: Attributes by type") on the same Device whose name normalizes to the same thing as the real Port
 // just upserted. Exactly one match: the pseudo-Port was standing in for this exact physical port before
 // this Device ever pushed its own data — re-point its physical_link edge(s) onto the real Port and delete
-// it. Zero or more-than-one match: do nothing (never guess — §3 rule 4's explicit instruction), just log it
+// it. Zero or more-than-one match: do nothing (never guess — the explicit instruction of topology-1-model.md "Pseudo-port merge"), just log it
 // so it isn't silently missed either way.
 $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note): void {
 	$normalized_real = $normalize_port_name($real_port_name);
@@ -580,7 +580,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized_real));
 
 	if (count($matches) !== 1) {
-		// Several pseudo-Ports match one real Port: never guess (spec §3 rule 4), none is merged. They are reported, and
+		// Several pseudo-Ports match one real Port: never guess (topology-1-model.md "Pseudo-port merge"), none is merged. They are reported, and
 		// left to $convert_leftover_pseudo_ports().
 		foreach (count($matches) > 1 ? $matches : [] as $match) {
 			$pseudo_note('ambiguous', $reporter_device_id, (int) $match['id'], (string) $match['name'],
@@ -605,12 +605,12 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);
 			continue;
 		}
-		// §2.3: src_id is always the numerically smaller Port id — re-canonicalize for the new endpoint.
+		// topology-1-model.md "`physical_link` (Port ↔ Port)": src_id is always the numerically smaller Port id — re-canonicalize for the new endpoint.
 		$pseudo_was_src = (int) $edge['src_id'] === $pseudo_port_id;
 		[$new_src, $new_dst] = $other_id < $real_port_id ? [$other_id, $real_port_id] : [$real_port_id, $other_id];
 		$real_is_src = $new_src === $real_port_id;
 
-		// last_seen_src/last_seen_dst (§2.3) are keyed to canonical src/dst position, not to a stable
+		// last_seen_src/last_seen_dst (topology-1-model.md "`physical_link` (Port ↔ Port)") are keyed to canonical src/dst position, not to a stable
 		// port identity — if replacing the pseudo-Port with the real one flips which of {other_id,
 		// real_port_id} is numerically smaller, the side that used to be "src" is now "dst" and vice
 		// versa. Swap the two fields along with src_id/dst_id so a reporter's already-recorded
@@ -623,7 +623,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 				[$attrs['last_seen_dst'] ?? null, $attrs['last_seen_src'] ?? null];
 		}
 
-		// Order-independence (§8): the OTHER side of this same cable may have already run its own merge
+		// Order-independence (topology-1-model.md "Two phases"): the OTHER side of this same cable may have already run its own merge
 		// first (e.g. real-real edge 167<->171 already exists because Switch1's pass merged its pseudo-Port
 		// into Router1's real Port before Router1's own pass got a chance to merge the mirror-image
 		// pseudo-Port pointing back). That leaves this pseudo-Port's edge fully redundant, not ambiguous —
@@ -638,7 +638,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 			continue;
 		}
 
-		// §2.3: a Port can have at most one active link. The real Port already carrying some OTHER active link means
+		// topology-1-model.md "Port uniqueness": a Port can have at most one active link. The real Port already carrying some OTHER active link means
 		// the move would give it two: the link stays on the pseudo-Port (reported as move_failed) and
 		// $convert_leftover_pseudo_ports() decides what becomes of it.
 		$busy = $pdo->prepare(
@@ -679,7 +679,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 
 // The symmetric half $merge_pseudo_port() alone doesn't cover: that function only runs while upserting a
 // reporter's OWN real ports, so it only cleans up a pseudo-Port that already existed *before* this pass.
-// It does nothing to stop the neighbor-port-creation code below (unconditional, per rule 1) from
+// It does nothing to stop the neighbor-port-creation code below (unconditional, see topology-1-model.md "Far port") from
 // fabricating a *fresh* pseudo-Port on a neighbor that already has a matching real port from some earlier
 // pass — e.g. Router1 processed first in this run (its own merge already ran and found nothing to do
 // yet), then Switch1 processed later in the same run mentions Router1 as a neighbor and would otherwise
@@ -704,11 +704,11 @@ $find_matching_real_port = static function (int $device_id, string $name, ?bool 
 };
 
 // ============================================================================================================
-// LLD snapshot path (topology-lld-part2-spec.md). A host with rows in topo_lld_snapshot is a reporter whose
+// LLD snapshot path (topology-1-model.md "Ingest"). A host with rows in topo_lld_snapshot is a reporter whose
 // data comes from discovery rules with a topology_role instead of the Trapper blob above. Everything below
 // reuses the closures defined earlier (device/port matching, pseudo-port merge, promote, reconcile) — only the
 // input shape and the per-role handling are new. Every last_seen written here comes from the snapshot's own
-// clock, never from $now (spec §2 rule 3): running ingest twice over unchanged snapshots changes nothing.
+// clock, never from $now (topology-1-model.md "Snapshot rules", rule 3): running ingest twice over unchanged snapshots changes nothing.
 // ============================================================================================================
 
 const TOPO_ROLE_PORTS = 1;
@@ -716,7 +716,7 @@ const TOPO_ROLE_NEIGHBORS = 2;
 const TOPO_ROLE_LEARNED_MACS = 3;
 const TOPO_ROLE_LAG = 4;
 
-// topology-device-level-edge-spec.md: why a link ends at a Device instead of a Port (§3.1). fdb_mac_only is
+// topology-1-model.md "`device_link` (Port → Device)": why a link ends at a Device instead of a Port. fdb_mac_only is
 // reserved: validation accepts it, nothing in this script produces it.
 const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
 
@@ -725,19 +725,19 @@ $summary += [
 	'reporters_skipped' => [],
 	'snapshots_ignored_role_mismatch' => 0,
 	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
-	// topology-link-replacement-spec.md §7: per-run counts of the discovered-vs-discovered replacement rule.
+	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
 	'links_superseded' => 0,
 	'links_revived' => 0,
 	'ports_ambiguous' => 0,
-	// topology-manual-contradiction-spec.md §7: manual links that discovery contradicts and nobody acknowledged.
+	// topology-1-model.md "Run summary": manual links that discovery contradicts and nobody acknowledged.
 	'manual_links_contradicted' => 0,
 	// Observations of rules that have no usable snapshot any more (rule or host disabled, role changed, reporter skipped,
 	// snapshot gone): removed by a full run, see $clean_stale_observations.
 	'observations_removed' => 0,
-	// topology-device-level-edge-spec.md §8: active device-level links at the end of the run, links converted to
-	// port level (§5.1) or down to device level (§5.2) in this run, and the device-level links per reason.
+	// topology-1-model.md "Run summary": active device-level links at the end of the run, links converted to
+	// port level (topology-1-model.md "Refinement: device-level → port-level") in this run, and the device-level links per reason.
 	'links_device_level' => 0,
-	// topology-push-transport-spec.md §5: snapshot rows skipped because an identity field could not be normalized (per
+	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
 	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
 	'hosts_duplicate_transport' => [],
@@ -765,7 +765,7 @@ $snap_write_attrs = static function (int $node_id, array $attrs, array $before) 
 	return true;
 };
 
-// topology-device-level-edge-spec.md §3: an edge's ends are checked on write. A physical_link joins two Ports, a
+// topology-1-model.md "Relationships" (type validation): an edge's ends are checked on write. A physical_link joins two Ports, a
 // device_link goes from a Port to a Device; any other combination (and an unknown far_port_reason) is rejected, so
 // code that assumes "a physical link joins two ports" can never receive a device row.
 $validate_edge = static function (string $type, int $src_id, int $dst_id, ?array $attrs = null) use ($pdo): void {
@@ -972,7 +972,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 };
 
 // physical_link upsert. Same canonicalization and per-side last_seen as $ensure_physical_link(), with three
-// deliberate changes (spec §6.6): the time is the snapshot clock and only ever moves forward (so an older
+// deliberate changes (topology-1-model.md "`last_seen` sources"): the time is the snapshot clock and only ever moves forward (so an older
 // snapshot processed later cannot pull it back, and two rules confirming one side keep the newer clock);
 // discovered_via is the row's source; any non-manual source upgrades a manual link. Returns the edge id.
 $snap_link = static function (int $port_a, int $port_b, string $source, int $reporter_port_id, int $seen_at,
@@ -993,16 +993,16 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 		$before = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		$attrs = $before;
 		// A discovery source upgrades a manual link it confirms, except while discovery also shows a different
-		// neighbor on one of its ports or the operator acknowledged one (topology-manual-contradiction-spec.md: the
+		// neighbor on one of its ports or the operator acknowledged one (topology-1-model.md "Contradiction": the
 		// operator decides that, not ingest): then the link stays manual. Revoking every acknowledgment hands the
 		// link back to the upgrade. Every other attr, shadow_ack included, is carried over untouched.
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual' && !$keep_manual) {
 			$attrs['discovered_via'] = $source;
-			unset($attrs['shadow_ack']); // acknowledgments only make sense on a manual link (device-level spec §6.3)
+			unset($attrs['shadow_ack']); // acknowledgments only make sense on a manual link (topology-1-model.md "Confirmation by discovery")
 		}
 		$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
 		$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
-		// device-level spec §3: the clock of the latest snapshot that contained this link at PORT level.
+		// topology-1-model.md "`physical_link` (Port ↔ Port)" (last_seen_port): the clock of the latest snapshot that contained this link at PORT level.
 		$attrs['last_seen_port'] = max((int) ($attrs['last_seen_port'] ?? 0), $seen_at);
 		if ($attrs !== $before) {
 			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
@@ -1016,7 +1016,7 @@ $snap_link = static function (int $port_a, int $port_b, string $source, int $rep
 	return $last_insert_id();
 };
 
-// device_link upsert (topology-device-level-edge-spec.md §3): src = the local Port, dst = the far Device, directed by
+// device_link upsert (topology-1-model.md "`device_link` (Port → Device)"): src = the local Port, dst = the far Device, directed by
 // construction (no canonicalization). last_seen_src is the local reporter's side; last_seen_dst is set elsewhere,
 // when the far Device's own reporter names the local Device. A manual link that discovery confirms is upgraded like
 // a manual physical_link ($keep_manual says it must not be); far_port_reason / far_port_hint follow the latest
@@ -1032,7 +1032,7 @@ $snap_device_link = static function (int $port_id, int $device_id, string $sourc
 		if (!$manual || !$keep_manual) {
 			if ($manual) {
 				$attrs['discovered_via'] = $source;
-				unset($attrs['shadow_ack']); // confirmation turns it into a discovered link (device-level spec §6.3)
+				unset($attrs['shadow_ack']); // confirmation turns it into a discovered link (topology-1-model.md "Confirmation by discovery")
 			}
 			$attrs['far_port_reason'] = $reason;
 			if ($hint) {
@@ -1059,7 +1059,7 @@ $snap_device_link = static function (int $port_id, int $device_id, string $sourc
 	return $last_insert_id();
 };
 
-// A device-level sighting that confirms an existing PORT-level link at lower precision (§5.2 "Lost precision", any
+// A device-level sighting that confirms an existing PORT-level link at lower precision (topology-1-model.md "Lost precision", any
 // cause): the link stays a physical_link, last_seen_* advances, last_seen_port does not. A row without last_seen_port
 // is pinned to its last_seen first, so the "not confirmed since" flag has a date; no rule reads last_seen_port.
 $snap_link_confirm_lower = static function (int $edge_id, int $reporter_port_id, int $seen_at) use ($pdo): void {
@@ -1083,8 +1083,8 @@ $snap_link_confirm_lower = static function (int $edge_id, int $reporter_port_id,
 };
 
 // Physical links touching either port, other than the (a,b) pair itself, split by provenance. A manual link
-// on either port shadows the discovered observation (model spec §3 rule 5: manual wins, discovery never
-// deletes it); a different discovered link on the local port is the cable-move case (§6.7).
+// on either port shadows the discovered observation (topology-1-model.md "Manual wins": manual wins, discovery never
+// deletes it); a different discovered link on the local port is the cable-move case (topology-1-model.md "Replacement of discovered links").
 $snap_other_links = static function (int $port_a, int $port_b) use ($pdo): array {
 	$stmt = $pdo->prepare(
 		"SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link'".
@@ -1111,7 +1111,7 @@ $snap_other_links = static function (int $port_a, int $port_b) use ($pdo): array
 	return ['manual' => $manual, 'discovered' => $discovered];
 };
 
-// The reporter's own Device is represented by its own Host (model spec §4.1). Same code path and log lines
+// The reporter's own Device is represented by its own Host (topology-1-model.md "Reporter identity (`reporter_self`)"). Same code path and log lines
 // as the blob path; $promote() itself is untouched.
 $snap_link_reporter_self = static function (int $device_id, string $hostid, string $host_label) use (
 	$pdo, $find_or_create_host_node, $promote
@@ -1127,7 +1127,7 @@ $snap_link_reporter_self = static function (int $device_id, string $hostid, stri
 	$already_correct->execute([$device_id, $host_node_id]);
 	if (!$already_correct->fetch()) {
 		echo "CONFLICT: reporter '{$host_label}' device #{$device_id} or its host node #{$host_node_id} ".
-			"already has a represented_by link to something else — leaving it in place (§2.3 1:1 constraint)\n";
+			"already has a represented_by link to something else — leaving it in place (1:1 constraint)\n";
 	}
 };
 
@@ -1181,8 +1181,8 @@ $snap_remote_key = static function (array $row): string {
 
 // Reporters = hosts with at least one usable snapshot. Snapshots of disabled rules are skipped; a snapshot
 // written under a role the rule no longer has is ignored (the API also deletes it on a role change — this is
-// the defense in depth from spec §4.6). Returns [hostid => reporter].
-// Identity normalization of a snapshot row (topology-lld-part3-spec.md §4.2, topology-push-transport-spec.md §5.1): the
+// the defense in depth from topology-2-lld-delivery.md "Role change"). Returns [hostid => reporter].
+// Identity normalization of a snapshot row (topology-1-model.md "Identity normalization"): the
 // one place that decides how identity strings are spelled, whatever transport produced the snapshot. On the output of
 // the native step it is a no-op (that output is already in the normal form: test_push.php runs every golden output
 // through it). A MAC (chassis id of type macAddress or without a type, port id of type macAddress, ifPhysAddress, FDB
@@ -1268,7 +1268,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 			continue;
 		}
 		// A usable snapshot belongs to an enabled rule on an enabled (monitored) host
-		// (topology-observation-cleanup-spec.md, rule 1).
+		// (topology-1-model.md "Reporters and usable snapshots").
 		if ((int) $row['rule_status'] !== 0 || (int) $row['host_status'] !== 0) {
 			continue;
 		}
@@ -1283,7 +1283,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 			echo "SKIP: snapshot of rule #{$row['itemid']} holds invalid JSON\n";
 			continue;
 		}
-		// One normalization for every transport (push-transport spec §5.1); a row that cannot be normalized is skipped.
+		// One normalization for every transport (topology-1-model.md "Identity normalization"); a row that cannot be normalized is skipped.
 		$normalized = [];
 		foreach ($decoded as $snapshot_row) {
 			[$snapshot_row, $problem] = is_array($snapshot_row) ? $snap_normalize_row($snapshot_row) : [null, 'not an object'];
@@ -1315,7 +1315,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 		}
 	}
 	// One host, one role (and protocol), rules of both transports: both are processed, the host is reported
-	// (push-transport spec §5.2).
+	// (topology-1-model.md "Duplicate transports").
 	foreach ($transports as $hostid => $by_role) {
 		foreach ($by_role as $role => $by_source) {
 			foreach ($by_source as $source => $by_transport) {
@@ -1329,7 +1329,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 	return $reporters;
 };
 
-// Ingests one reporter from its snapshots. Order (spec §5.3): self Device -> PORTS -> LAG -> NEIGHBORS ->
+// Ingests one reporter from its snapshots. Order (topology-1-model.md "Processing order inside one reporter"): self Device -> PORTS -> LAG -> NEIGHBORS ->
 // LEARNED_MACS. Returns ['status' => 'ok'] or ['status' => 'skipped', 'reason' => ...]; the caller owns the
 // transaction. Nothing is written for a skipped reporter.
 $link_candidates = [];
@@ -1346,7 +1346,7 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		array_values($snapshots)));
 	$reporter_seen = max($clocks);
 
-	// ---- identity (spec §5.2) ----
+	// ---- identity (topology-1-model.md "Reporter identity (`reporter_self`)") ----
 	$chassis_values = [];
 	foreach ($snapshots as $list) {
 		foreach ($list as $snapshot) {
@@ -1472,7 +1472,7 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		$pdo->prepare($sql)->execute($params);
 	}
 
-	// ---- NEIGHBORS: phase 1 "collect" (topology-link-replacement-spec.md §6) ----
+	// ---- NEIGHBORS: phase 1 "collect" (topology-1-model.md "Two phases") ----
 	// Devices and remote ports are resolved and created exactly as before, but no link and no observation is
 	// written here: whether a candidate link may take its port depends on what EVERY reporter's latest snapshot
 	// says, so the decision is made once, after all reporters, by $snap_resolve_links().
@@ -1503,11 +1503,11 @@ $snap_ingest_reporter = static function (array $reporter) use (
 
 			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
 			// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
-			// whether the advertisement names a real port, a pseudo one, or none (topology-device-level-edge-spec.md §4).
+			// whether the advertisement names a real port, a pseudo one, or none (topology-1-model.md "Port-level or device-level").
 			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
 				'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
 				'remote_key' => $snap_remote_key($row), 'remote_attrs' => $remote_attrs,
-				'pre_outcome' => $has_remote_port ? null : 'device_only', // model spec §3 rule 1: no port advertised, no link
+				'pre_outcome' => $has_remote_port ? null : 'device_only', // topology-1-model.md "Observations": device_only, no port advertised, no link
 				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
 				'port_label' => $has_remote_port ? $resolve_port_label($row['rem_port_desc'] ?? null,
 					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null) : null,
@@ -1567,15 +1567,15 @@ $snap_ingest_reporter = static function (array $reporter) use (
 };
 
 // ============================================================================================================
-// NEIGHBORS phase 2a "classify" (topology-device-level-edge-spec.md §4)
+// NEIGHBORS phase 2a "classify" (topology-1-model.md "Port-level or device-level")
 //
 // For every candidate that advertises a far port, decides at which precision the far end is known. level 'port':
 // the far Port is a real one that matches the advertisement, or (far Device is not a reporter) a pseudo-Port made
 // from it, as before. level 'device': the far Device is identified but its port is not, with a far_port_reason:
-//   port_shared_id  (§4.2) several real ports match the advertisement, the far Device's authoritative ports share
+//   port_shared_id  several real ports match the advertisement, the far Device's authoritative ports share
 //                   the advertised MAC, or several local ports advertise the same far port id
-//   lag_ambiguous   (§4.3) several local ports of one reporter reach the same far Device and none is told apart
-//   port_unmatched  (§4.1) the far Device is a reporter (its ports are authoritative) and no port matches
+//   lag_ambiguous   several local ports of one reporter reach the same far Device and none is told apart
+//   port_unmatched  the far Device is a reporter (its ports are authoritative) and no port matches
 // A candidate that is both unmatched and in a shared / LAG group takes the group's reason (shared id wins over LAG).
 // No port is created on a Device that has authoritative ports: that would be a phantom.
 // ============================================================================================================
@@ -1625,7 +1625,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 	}
 	unset($candidate);
 
-	// §4.2: the same far port id advertised on two or more local ports of one reporter names the device, not a port.
+	// topology-1-model.md "Port-level or device-level" (port_shared_id): the same far port id advertised on two or more local ports of one reporter names the device, not a port.
 	$by_id = [];
 	foreach ($candidates as $i => $candidate) {
 		if (!in_array($candidate['level'], ['device', 'pending'], true)
@@ -1633,7 +1633,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 			continue;
 		}
 		// One reporter's several local ports: a single far port cannot be cabled to two of them. The same id coming
-		// from two different reporters is the far-end occupancy contest of the replacement spec, not a shared id.
+		// from two different reporters is the far-end occupancy contest of topology-1-model.md "Replacement of discovered links", not a shared id.
 		$id_key = $candidate['hostid'].'|'.$candidate['remote_device_id'].'|'.$candidate['rem_port_type'].'|'
 			.strtolower($candidate['rem_port']);
 		$by_id[$id_key][$candidate['local_port_id']][] = $i;
@@ -1650,7 +1650,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 		}
 	}
 
-	// §4.3: several local ports of one reporter, one far Device, no port told apart.
+	// topology-1-model.md "Port-level or device-level" (lag_ambiguous): several local ports of one reporter, one far Device, no port told apart.
 	$by_device = [];
 	foreach ($candidates as $i => $candidate) {
 		if ($candidate['level'] === 'device' && $candidate['far_port_reason'] === 'port_unmatched') {
@@ -1689,7 +1689,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 };
 
 // ============================================================================================================
-// NEIGHBORS phase 2b "resolve" (topology-link-replacement-spec.md v2, §3-§6; topology-device-level-edge-spec.md §5, §6)
+// NEIGHBORS phase 2b "resolve" (topology-1-model.md "Replacement of discovered links", "Several neighbors or claims on one port", "Legacy cleanup"; topology-1-model.md "Refinement: device-level → port-level", "Lost precision")
 //
 // One decision for the whole run, from the candidates of EVERY reporter's latest NEIGHBORS snapshots, so the
 // result cannot depend on the order the reporters were walked in.
@@ -1697,7 +1697,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 // An *entity* is a link or a candidate and has an identity (key): a pair of ports {P,X} for a port-level one, or
 // "P>dD" (local port, far Device) for a device-level one. A device-level entity occupies only its local port; it
 // occupies no port on the far Device. rules(entity) is the set of NEIGHBORS rules whose latest snapshot contains it,
-// from either end. A candidate that is not in a §5 group and not behind a manual link *claims* its entity. Every other
+// from either end. A candidate that is not in a several-neighbors group (topology-1-model.md "Several neighbors or claims on one port") and not behind a manual link *claims* its entity. Every other
 // entity touching a port of the claim (active discovered links, and the other claims) is HELD against it when some
 // rule outside rules(claim) contains it: a snapshot other than the contradicting one still says it. Clocks are
 // never compared: a reporter's latest snapshot is its current claim however long ago it was polled (the clock only
@@ -1707,10 +1707,10 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 // the link that holds the port.
 //
 // Device level (device-level-edge spec): two entities are the same cable seen at different precision when they share
-// a local port and the far Device. A device-level sighting of an existing port-level link only confirms it (§5.2, it
-// does not contradict: contradiction compares far Devices, §6.1), whatever the cause of the lost precision (§5.2); a
-// port-level claim over an existing device_link refines it in place (§5.1). A physical_link never becomes a
-// device_link here (the one exception, a pseudo port corrected when its Device becomes a reporter, is §4.4).
+// a local port and the far Device. A device-level sighting of an existing port-level link only confirms it (topology-1-model.md "Lost precision", it
+// does not contradict: contradiction compares far Devices: topology-1-model.md "Replacement of discovered links"), whatever the cause of the lost precision; a
+// port-level claim over an existing device_link refines it in place (topology-1-model.md "Refinement: device-level → port-level"). A physical_link never becomes a
+// device_link here (the one exception, a pseudo port corrected when its Device becomes a reporter, is topology-1-model.md "Pseudo-port merge").
 //
 // Before that, pre-spec data with two active discovered links on one port is cleaned up once (legacy).
 // ============================================================================================================
@@ -1831,7 +1831,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	};
 
 	// Helpers for rewriting a stored link's attrs (used by the refinement below). There is no port-level ->
-	// device-level conversion here: a link's precision only goes up (device-level spec §5.2).
+	// device-level conversion here: a link's precision only goes up (topology-1-model.md "Lost precision").
 	$set_attrs = static function (int $id, array $attrs) use ($pdo): void {
 		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
 			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
@@ -1842,7 +1842,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	};
 	// 3. Legacy data: pre-spec ingest let a cable move leave two active discovered links on one port. Keep one per
 	//    port, once, whether or not a candidate arrives for that port. A partial run cannot see every reporter, so it
-	//    leaves the data alone (§6.3).
+	//    leaves the data alone (topology-1-model.md "Runs": partial runs).
 	if ($replacement_enabled) {
 		$active_on = static function (int $port) use (&$links, &$by_port, $is_active_discovered): array {
 			$out = [];
@@ -1864,7 +1864,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		};
 		$ports = array_keys($by_port);
 		sort($ports);
-		// (v2.1 §6.5) An active discovered link that shares a port with a manual link: manual wins.
+		// topology-1-model.md "Legacy cleanup": an active discovered link that shares a port with a manual link: manual wins.
 		foreach ($ports as $port) {
 			$has_manual = false;
 			foreach ($by_port[$port] as $lid) {
@@ -1895,7 +1895,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 	}
 
-	// A MANUAL device_link is refined too (device-level spec §6.3: discovery that identifies its far port turns it into a
+	// A MANUAL device_link is refined too (topology-1-model.md "Confirmation by discovery": discovery that identifies its far port turns it into a
 	// discovered physical_link, same edge id), unless the operator acknowledged a neighbor on it: then it stays manual.
 	$refinable = static function (array $claim, array $link) use ($device_of): bool {
 		if ($claim['dev'] !== null || $link['type'] !== 'device_link' || $link['acknowledged']) {
@@ -1905,10 +1905,10 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			|| ($link['a'] === $claim['b'] && $link['b'] === $device_of($claim['a']));
 	};
 
-	// 4. Classify every candidate: fixed outcome, shadowed by a manual link, part of a §5 group, or a claim.
+	// 4. Classify every candidate: fixed outcome, shadowed by a manual link, part of a several-neighbors group, or a claim.
 	$result = [];      // index => ['outcome' => ..., 'edge_id' => ..., 'key' => key|null, 'lower' => bool]
 	$claims = [];      // key => ['a' =>, 'b' => port|null, 'dev' => device|null, 'occupies' => [], 'T' =>, 'indexes' => []]
-	$confirming = [];  // key => [indexes] of §5 candidates that confirm an existing active link
+	$confirming = [];  // key => [indexes] of several-neighbors candidates that confirm an existing active link
 	$counted_groups = [];
 	foreach ($candidates as $i => $candidate) {
 		if ($candidate['pre_outcome'] !== null) {
@@ -1922,7 +1922,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 		$port = $candidate['local_port_id'];
 
-		// Manual wins (model spec §3 rule 5): unchanged, untouched by the replacement rule. Except that a manual
+		// Manual wins (topology-1-model.md "Manual wins"): unchanged, untouched by the replacement rule. Except that a manual
 		// device_link is the same cable as a port-level candidate that identifies its far port: that is a confirmation.
 		$as_claim = ['dev' => $candidate['level'] === 'device' ? $candidate['remote_device_id'] : null,
 			'a' => $port, 'b' => $candidate['level'] === 'device' ? null : $candidate['remote_port_id']];
@@ -1939,7 +1939,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			continue;
 		}
 
-		// §5: several neighbors on one port in one snapshot are not a sequence. None replaces another; the
+		// topology-1-model.md "Several neighbors or claims on one port": several neighbors on one port in one snapshot are not a sequence. None replaces another; the
 		// existing active link on the port, if it is one of them, stays.
 		$group_key = $candidate['itemid'].'|'.$port;
 		if (count($groups[$group_key]) >= 2) {
@@ -1974,7 +1974,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	}
 	ksort($claims);
 
-	// 4a. Same cable at two precisions (device-level spec §6.2): a device-level claim whose local port and far Device
+	// 4a. Same cable at two precisions (topology-1-model.md "Several neighbors or claims on one port", same Device at several precisions): a device-level claim whose local port and far Device
 	//     are implied by a port-level claim or by an active port-level link is not a claim of its own. It confirms
 	//     that entity at lower precision and takes its outcome.
 	$lower_of = []; // device-level claim key => ['claim' => port-level claim key] | ['link' => link id]
@@ -2016,7 +2016,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		unset($claims[$key]);
 	}
 
-	// 4b. (v2.1 §5.2) Competing new claims: a port without an active link that several different entities claim
+	// 4b. topology-1-model.md "Several neighbors or claims on one port": competing new claims: a port without an active link that several different entities claim
 	//     (X and Y both report R:P; R's LLDP shows X on P while its CDP shows Y). Nothing blocks any of them, the
 	//     port simply has several claimants: no link, all ambiguous. Decided on the claims as they are, once.
 	$claimants_of = [];
@@ -2033,7 +2033,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 		foreach ($by_port[$port] ?? [] as $lid) {
 			if ($links[$lid]['manual'] || $is_active_discovered($links[$lid])) {
-				continue 2; // the port has an active link: §3 decides, as usual
+				continue 2; // the port has an active link: topology-1-model.md "Replacement of discovered links" decides, as usual
 			}
 		}
 		foreach ($keys as $key => $unused) {
@@ -2049,7 +2049,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	}
 
 	// 5. Which claims win, and which existing links they supersede. A device_link that is the same cable as a
-	//    port-level claim (forward half R:P -> D, or reverse half D:Q -> R) is refined by that claim (§5.1), not
+	//    port-level claim (forward half R:P -> D, or reverse half D:Q -> R) is refined by that claim (topology-1-model.md "Refinement: device-level → port-level"), not
 	//    contradicted by it.
 	$claims_by_port = [];
 	foreach ($claims as $key => $claim) {
@@ -2112,7 +2112,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			$shadowing_manual[$r['edge_id']] = true;
 		}
 	}
-	// (§5.1) The port-level claim X = R:P <-> D:Q takes over an existing device_link of the same cable: the forward
+	// topology-1-model.md "Refinement: device-level → port-level": the port-level claim X = R:P <-> D:Q takes over an existing device_link of the same cable: the forward
 	// half R:P -> D is converted in place (edge id kept), the reverse half D:Q -> R is absorbed (deleted, its clock
 	// folded into the side for Q). Without a forward half, a reverse half is converted instead.
 	$refine = static function (string $key, array $claim) use ($pdo, $pair_key, $device_of, $refinable, $candidates, &$links,
@@ -2149,7 +2149,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$other_port = $src_port === $claim['a'] ? $claim['b'] : $claim['a'];
 		$new_src = min($src_port, $other_port);
 		$new_dst = max($src_port, $other_port);
-		// A manual link that discovery confirms becomes a discovered one (device-level spec §6.3).
+		// A manual link that discovery confirms becomes a discovered one (topology-1-model.md "Confirmation by discovery").
 		$new = ['discovered_via' => $converted['manual'] ? $candidates[$claim['indexes'][0]]['source']
 			: ($attrs['discovered_via'] ?? 'lldp')];
 		$sides = [$src_port => $side_of_local, $other_port => $other_side];
@@ -2351,7 +2351,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		}
 	}
 
-	// 9. Diagnostics (device-level spec §8): active device-level links at the end of the run, per reason.
+	// 9. Diagnostics (topology-1-model.md "Run summary"): active device-level links at the end of the run, per reason.
 	$summary['links_device_level'] = 0;
 	$summary['device_level_reasons'] = [];
 	foreach ($pdo->query("SELECT attrs FROM topo_edges WHERE type = 'device_link'")->fetchAll(PDO::FETCH_COLUMN) as $raw) {
@@ -2384,10 +2384,10 @@ $api = ($api_url && $api_token) ? new ZabbixApi($api_url, $api_token) : null;
 $processed = 0;
 $skipped = 0;
 
-// ---- LLD snapshot reporters (topology-lld-part2-spec.md) ----
+// ---- LLD snapshot reporters (topology-1-model.md "Reporters and usable snapshots") ----
 $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 
-// Manual links contradicted by discovery at the end of a run (topology-manual-contradiction-spec.md §3): a
+// Manual links contradicted by discovery at the end of a run (topology-1-model.md "Contradiction"): a
 // `shadowed` observation of the link whose hidden neighbor Device is not in its attrs.shadow_ack (a shadow without
 // a Device cannot be acknowledged). Ingest only reads shadow_ack here to count; it never writes it.
 $count_contradicted_manual_links = static function () use ($pdo): int {
@@ -2398,7 +2398,7 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
 			// The Devices the manual link itself joins: a neighbor that is one of them is the link's own far end seen at
-			// another precision (device-level spec §6.3), not a hidden neighbor.
+			// another precision (topology-1-model.md "Confirmation by discovery"), not a hidden neighbor.
 			$own = [];
 			foreach ($edge['type'] === 'device_link' ? [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'device']]
 					: [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'port']] as [$node, $kind]) {
@@ -2432,7 +2432,7 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 	return count($contradicted);
 };
 
-// An observation mirrors the latest snapshot of its rule (Part 2 §7). When the rule has no usable snapshot any more —
+// An observation mirrors the latest snapshot of its rule (topology-1-model.md "Observations"). When the rule has no usable snapshot any more —
 // disabled (the rule or its host), its role changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
 // rows and they would keep saying what the rule said last: a stale shadow would keep a manual link contradicted, a
 // stale conflict would keep blocking an operator's eye. A FULL run therefore removes the observations of every rule
@@ -2500,7 +2500,7 @@ foreach ($snapshot_reporters as $reporter) {
 	}
 }
 
-// Phase 2: links and observations, decided once for all reporters (topology-link-replacement-spec.md §6).
+// Phase 2: links and observations, decided once for all reporters (topology-1-model.md "Two phases").
 $phase_2_done = true;
 if ($link_candidates || $neighbor_snapshots) {
 	try {
@@ -2548,7 +2548,7 @@ foreach ($reporter_items as $key => $row) {
 $reporter_items = array_values($reporter_items);
 
 if (!$reporter_items && !$snapshot_reporters) {
-	// Zero reporters is a normal "nothing onboarded yet" state (spec §4.1), not an error — succeed with
+	// Zero reporters is a normal "nothing onboarded yet" state (topology-1-model.md "Reporters and usable snapshots"), not an error — succeed with
 	// nothing to do rather than failing the run.
 	echo "No reporters found (no host has LLD snapshots or carries the topology.discovery.raw item yet — nothing ".
 		"onboarded, or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
@@ -2578,7 +2578,7 @@ foreach ($reporter_items as $reporter_item) {
 
 		$pdo->beginTransaction();
 
-		// Reporter Device + its Ports (rule 4 upsert).
+		// Reporter Device + its Ports (upsert, topology-1-model.md "PORTS, LAG, LEARNED_MACS").
 		$reporter_attrs = [
 			'mac' => null,
 			'chassis_id' => $blob['reporter']['chassis_id'] ?? null,
@@ -2597,24 +2597,24 @@ foreach ($reporter_items as $reporter_item) {
 				'name' => $port_blob['name'] ?? '',
 				'if_type' => $port_blob['if_type'] ?? 'physical',
 				'mac' => $port_blob['mac'] ?? null,
-				'speed' => $port_blob['speed'] ?? null, // not carried by the §4.1 blob shape — see report
+				'speed' => $port_blob['speed'] ?? null, // not carried by the blob shape (topology-3-push-delivery.md "Legacy blob path") — see report
 				'admin_status' => $port_blob['admin_status'] ?? 'down',
 				'oper_status' => $port_blob['oper_status'] ?? 'down',
-				'learned_macs' => [], // CAM-table walk is out of scope for this iteration (spec §1)
+				'learned_macs' => [], // CAM-table walk is out of scope for this iteration (topology-1-model.md "Scope")
 				'zabbix_itemids' => [],
-				'pseudo' => false, // §2.2: real port, from this Device's own push.
+				'pseudo' => false, // topology-1-model.md "Nodes: Attributes by type": real port, from this Device's own push.
 			];
 			$local_ports[$attrs['if_index']] = $port($reporter_device_id, $attrs);
 			if ($attrs['mac']) {
 				$reporter_macs[] = $attrs['mac'];
 			}
 
-			// §3 rule 4 pseudo-port merge — real ports only, right after upserting one (see the closure's
+			// topology-1-model.md "Pseudo-port merge" — real ports only, right after upserting one (see the closure's
 			// own comment for why it must not run anywhere else, e.g. the neighbor pseudo-port path below).
 			$merge_pseudo_port($reporter_device_id, $local_ports[$attrs['if_index']], $attrs['name']);
 		}
 
-		// Rule 1: only an LLDP-resolved neighbor becomes a Device — the push component already computed
+		// topology-1-model.md "Far Device": only an LLDP-resolved neighbor becomes a Device — the push component already computed
 		// stats.resolved on this same "chassis_id or sysname present" test; re-derive per-entry here since
 		// that's the actual gate for whether *this* entry creates a Device, not just a count.
 		foreach ($blob['neighbors'] as $neighbor) {
@@ -2634,7 +2634,7 @@ foreach ($reporter_items as $reporter_item) {
 				'vendor' => 'unknown',
 				'last_seen' => $now,
 			];
-			// Rule 4's third match key needs the local reporter Port at this neighbor's local_if_index up
+			// The third match key of topology-1-model.md "Far Device" needs the local reporter Port at this neighbor's local_if_index up
 			// front (it scopes the sysname lookup to "already linked off this exact port") — compute it
 			// before the Device upsert rather than after, unlike the physical_link wiring below which only
 			// needs it once the neighbor Port also exists.
@@ -2644,7 +2644,7 @@ foreach ($reporter_items as $reporter_item) {
 
 			$neighbor_port_label = $resolve_port_label($neighbor['remote_port_desc'] ?? null, $neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
 
-			// Spec §3 rule 4: before fabricating a pseudo-Port for this neighbor, check whether it already
+			// topology-1-model.md "Pseudo-port merge": before fabricating a pseudo-Port for this neighbor, check whether it already
 			// has a real one (from its own push, in this run or an earlier one) that's plainly the same
 			// physical port — see $find_matching_real_port()'s comment for why this proactive check is
 			// needed in addition to (not instead of) $merge_pseudo_port() below.
@@ -2661,7 +2661,7 @@ foreach ($reporter_items as $reporter_item) {
 					'oper_status' => 'up',
 					'learned_macs' => [],
 					'zabbix_itemids' => [],
-					'pseudo' => true, // §2.2: fabricated only from a neighbor's LLDP sighting, not this Device's own push.
+					'pseudo' => true, // topology-1-model.md "Nodes: Attributes by type": fabricated only from a neighbor's LLDP sighting, not this Device's own push.
 				];
 				$neighbor_port_id = $port($neighbor_device_id, $neighbor_port_attrs);
 			}
@@ -2670,13 +2670,13 @@ foreach ($reporter_items as $reporter_item) {
 				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp', $local_port_id);
 			}
 
-			// Rule 2: reconcile the neighbor Device too, not just the reporter — a neighbor discovered by
+			// topology-1-model.md "Automatic MAC match (Host only)": reconcile the neighbor Device too, not just the reporter — a neighbor discovered by
 			// LLDP might itself be an already-onboarded Zabbix Host with inventory MAC data.
 			$reconcile_device($neighbor_device_id, $neighbor_attrs, array_filter([$neighbor_attrs['mac']]));
 		}
 
-		// §2.3/§4.1: the reporter's own Device is represented_by its own Host deterministically — this
-		// is a separate path from §3.2's opportunistic MAC reconciliation, not a variant of it.
+		// topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": the reporter's own Device is represented_by its own Host deterministically — this
+		// is a separate path from the opportunistic MAC reconciliation (topology-1-model.md "Automatic MAC match (Host only)"), not a variant of it.
 		// $reconcile_device() is never called for the reporter itself (only for neighbors, above): ingest
 		// already knows the reporter's exact hostid for certain (from $reporter_item, the very item.get
 		// row that located this reporter in the first place), so there's no ambiguity to resolve via MAC
@@ -2701,7 +2701,7 @@ foreach ($reporter_items as $reporter_item) {
 			else {
 				echo "CONFLICT: reporter '{$zabbix_host}' device #{$reporter_device_id} or its host node ".
 					"#{$reporter_host_nodeid} already has a represented_by edge to something else — leaving ".
-					"the existing edge in place, not overriding it (§2.3 1:1 constraint)\n";
+					"the existing edge in place, not overriding it (1:1 constraint)\n";
 			}
 		}
 
@@ -2716,7 +2716,7 @@ foreach ($reporter_items as $reporter_item) {
 			$pdo->rollBack();
 		}
 		// One reporter's bad/unparseable blob must never abort the whole ingest run — same
-		// partial-failure principle as the push component's per-neighbor handling (§4.1).
+		// partial-failure principle as the push component's per-neighbor handling (topology-3-push-delivery.md "Legacy blob path").
 		fwrite(STDERR, "ERROR: failed to ingest '{$zabbix_host}': {$exception->getMessage()}\n");
 		$skipped++;
 	}

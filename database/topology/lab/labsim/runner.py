@@ -1,4 +1,4 @@
-"""Scenario runner (spec §8): per step switch data -> poll -> wait -> ingest -> assert -> report."""
+"""Scenario runner (topology-4-lab-simulator.md "Scenario runner"): per step switch data -> poll -> wait -> ingest -> assert -> report."""
 import json
 import os
 import subprocess
@@ -57,7 +57,7 @@ def find_links(state, a, b, type_=None):
 
 
 def evaluate(a, state, ingest, history, clocks_hist, step):
-    """One assertion. Returns Result. Forms: spec §8.3 plus link_absent / snapshot_unchanged (extensions)."""
+    """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus link_absent / snapshot_unchanged (extensions)."""
     if 'pending' in a:
         return Result('pending', a, 'pending', a['pending'])
     if 'link' in a:
@@ -322,7 +322,7 @@ _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_
 
 
 def normalize_report(obj):
-    """A report without clocks and ids, for comparing two runs (spec §10)."""
+    """A report without clocks and ids, for comparing two runs (topology-4-lab-simulator.md "Acceptance criteria")."""
     if isinstance(obj, dict):
         return {k: normalize_report(v) for k, v in obj.items() if k not in _VOLATILE}
     if isinstance(obj, list):

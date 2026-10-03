@@ -1,4 +1,4 @@
-"""Generator input validation (spec §5.4), DB-name guard (§2/§10) and determinism.
+"""Generator input validation (topology-4-lab-simulator.md "Checks"), DB-name guard (topology-4-lab-simulator.md "Constraints") and determinism.
 
 Run from database/topology/lab/:  python3 -m unittest discover -s tests
 """

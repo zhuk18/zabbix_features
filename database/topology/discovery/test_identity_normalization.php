@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 /**
- * test_identity_normalization.php — the identity normalization of ingest.php (topology-push-transport-spec.md §5.1).
+ * test_identity_normalization.php — the identity normalization of ingest.php (topology-1-model.md "Identity normalization").
  *
  * Reaches $snap_normalize_row through TOPOLOGY_INGEST_TEST_HOOK. (1) It is a no-op on the native step's output: every
  * golden output (step_golden/expected, the reference JavaScript's rows) goes through it unchanged. (2) It normalizes the

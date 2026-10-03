@@ -34,7 +34,7 @@ def main(argv=None):
         lab = model.load_lab(a.lab)
         settings = lab.settings
         if a.cmd in ('provision', 'run'):
-            db.connect(settings).close()          # refuses unless the database is `zabbix` (spec §2)
+            db.connect(settings).close()          # refuses unless the database is `zabbix` (topology-4-lab-simulator.md "Constraints")
         if a.cmd == 'gen':
             sc = model.load_scenario(a.scenario, lab)
             m = gen.generate(sc, a.out or os.path.join(ctl.DATA_DIR, sc.id))

@@ -3,7 +3,7 @@
 /**
  * Starts database/topology/discovery/ingest.php as a detached background OS process — the one place that knows how,
  * shared by POST topology.ingest.run and by the manual-contradiction "accept discovery" action, so both go through
- * the same script and the same run lock (spec §6). See CControllerTopologyIngestRun's header for why the script is
+ * the same script and the same run lock (topology-1-model.md "Runs"). See CControllerTopologyIngestRun's header for why the script is
  * spawned rather than reimplemented and how its credentials are sourced.
  */
 class CTopologyIngest {
@@ -33,7 +33,7 @@ class CTopologyIngest {
 		$log_file = sys_get_temp_dir().'/topology-ingest-run.log';
 
 		// Deliberately always spawns rather than peeking at the status file first to decide "already
-		// running, don't bother": ingest.php's own flock() (§6) is the actual source of truth on whether
+		// running, don't bother": ingest.php's own database advisory lock (topology-1-model.md "Runs") is the actual source of truth on whether
 		// a run is in progress, and it's cheap for a second spawn to lose that race and exit immediately.
 		// Pre-checking the status file instead would risk a permanently-stuck "running" state if a prior
 		// run ever died without reaching its own shutdown-triggered status write (e.g. `kill -9` on the

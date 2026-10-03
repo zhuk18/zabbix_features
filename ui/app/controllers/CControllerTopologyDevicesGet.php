@@ -27,7 +27,7 @@ class CControllerTopologyDevicesGet extends CController {
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode([
 			'devices' => CTopologyPrototype::getDevices($node_ids),
 			'relations' => CTopologyPrototype::getRelations($node_ids),
-			// Manual links hidden-behind by discovery (topology-manual-contradiction-spec.md): badges, ghost links
+			// Manual links hidden-behind by discovery (topology-1-model.md "Contradiction"): badges, ghost links
 			// and details. Strings inside come from the network and are escaped where they are rendered.
 			'contradictions' => CTopologyPrototype::getContradictions()
 		], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE)]));
