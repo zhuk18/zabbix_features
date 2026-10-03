@@ -134,10 +134,6 @@ can't read another row):
 (`represented_by_node_id` → `SET NULL`; then invariant 3 is restored by
 the application or by the next ingest).
 
-Status (represented_by columns): **not confirmed in code.** Earlier code
-stored `represented_by` as a `topo_edges` row. Check and report before
-any change.
-
 ### 3.2 Attributes by type
 
 - **device** — an observed network participant. It can exist without a
@@ -413,8 +409,8 @@ topo_lld_snapshot
 3. **`clock` is the observation time** — the timestamp of the value, not
    the processing time.
 4. **`clock` never goes back.** A value with a timestamp older than the
-   stored `clock` does not change the snapshot.
-   Status: not implemented (see `topology-3-push-delivery.md` §6).
+   stored `clock` does not change the snapshot (all rule types; see
+   `topology-3-push-delivery.md` §6).
 5. **Same data:** same `rows_hash` and role → update `clock`,
    `rows_total`, `rows_valid` only.
 6. **Role change** of a rule (any value to any other value, including
@@ -445,7 +441,7 @@ Three implementations exist: the C preprocessing step, `push.py` and PHP
 ingest. **PHP ingest is the final authority**; the other two must agree
 with it. One shared fixture set tests all three.
 
-**Ingest normalization.** Status: not implemented.
+**Ingest normalization.**
 - One PHP function normalizes identity fields of every snapshot row,
   from both transports.
 - It runs **first**, before reporter identity (§6.4). Otherwise two
@@ -476,8 +472,10 @@ with it. One shared fixture set tests all three.
 
 - Ingest is PHP. It writes `topo_*` directly.
 - Start: CLI, or the UI button through `POST /topo/ingest/run`. Both use
-  the **same code path**. A file lock prevents two runs at the same time.
-  The HTTP request returns at once; status is read by polling.
+  the **same code path**. A **database advisory lock** (MySQL `GET_LOCK`,
+  PostgreSQL `pg_try_advisory_lock`) prevents two runs at the same time. A
+  file lock does not work: the CLI and PHP-FPM have different temporary
+  directories. The HTTP request returns at once; status is read by polling.
 - **Full run:** all reporters. **Partial run** (`--zabbix-host`): some
   reporters. A partial run can't know that nothing supports a link, so it
   never supersedes (§8.4), never runs legacy cleanup (§8.6) and never
@@ -498,7 +496,7 @@ with it. One shared fixture set tests all three.
 
 ### 6.3 Normalization
 
-§5.6. Status: not implemented.
+§5.6.
 
 ### 6.4 Reporter identity (`reporter_self`)
 
@@ -634,8 +632,6 @@ types (SNMP and trapper) — for NEIGHBORS, with the same `source` — →
 report in `hosts_duplicate_transport` (host, role, source). Process both.
 LLDP by SNMP + CDP by push is not a duplicate.
 
-Status: not implemented.
-
 ### 6.10 Convergence check method
 
 Equal row **counts** across repeated runs do not prove convergence. A
@@ -654,7 +650,7 @@ per-run counts:
 - `manual_links_contradicted`;
 - `links_device_level`, `links_refined`, counts per `far_port_reason`;
 - `pseudo_ports_*` (§6.7.3) and a detail list;
-- `hosts_duplicate_transport`, `rows_identity_invalid` (not implemented).
+- `hosts_duplicate_transport`, `rows_identity_invalid`.
 
 ## 7. Observations
 
@@ -755,10 +751,6 @@ port Q of D for the same observation.
 
 ### 8.3 Lost precision
 
-Status: not implemented. The code still has the old downgrade
-(`physical_link` → `device_link` after the freshness threshold, reason
-`port_lost`).
-
 **A link's precision only goes up.** A `physical_link` never becomes a
 `device_link`. The one exception is the pseudo-port correction (§6.7.3):
 a link to a pseudo port never had port-level precision.
@@ -776,10 +768,9 @@ a link to a pseudo port never had port-level precision.
   `last_seen_port` advances.
 - The far Device no longer seen either → the link goes stale by §8.7.
 
-**Before implementation:** count `device_link` rows with
-`far_port_reason = port_lost` in the `zabbix` DB. Count ≠ 0 → stop and
-report. Do not convert or delete them. Then remove `port_lost` from the
-enum; no code path writes it.
+`port_lost` is not in the reason enum and no code path writes it. Checked
+2026-10-02, before it was removed: 0 `device_link` rows with
+`far_port_reason = port_lost` in the `zabbix` database.
 
 ### 8.4 Replacement of discovered links
 
@@ -882,9 +873,9 @@ A second run over the same data changes nothing.
 ### 8.8 Freshness threshold
 
 Status: not implemented. Today the value 7 days is a literal in
-`ingest.php` (`TOPO_LINK_FRESH_SECONDS`, used only by the old downgrade of
-§8.3) and in `CTopologyPrototype.php` (`STALE_LINK_SECONDS`, used by
-`isLinkStale()`).
+`CTopologyPrototype.php` (`STALE_LINK_SECONDS`, used by `isLinkStale()`).
+The ingest constant `TOPO_LINK_FRESH_SECONDS` was removed with the old
+downgrade (§8.3).
 
 - **Setting:** global macro `{$TOPOLOGY.LINK.FRESH.SECONDS}` (table
   `globalmacro`). No new table, no file, no restart. The lab can change it
@@ -898,8 +889,9 @@ Status: not implemented. Today the value 7 days is a literal in
   text, or a value below 60 → default, and a warning that names the macro
   and the rejected text (escaped). Missing macro → default, no warning.
 - **Read** once per ingest run and once per UI request, not per link.
-- After §8.3 is implemented, ingest no longer needs the threshold; the UI
-  is the only reader.
+- Ingest does not need the threshold (§8.3); the UI is the only reader.
+  If ingest ever reads it again, it reads the same macro through the same
+  definition.
 - Only the derived `stale` boolean goes to the browser.
 
 ### 8.9 `last_seen` sources
@@ -1217,11 +1209,11 @@ keys, check convergence by ids (§6.10).
   `last_seen*` = the newer clock. A CDP link renders as discovered.
 - Host with snapshots and the blob item → snapshots only, one log line.
   Host with only the blob → legacy loop, unchanged.
-- Ingest normalization (not implemented): a push PORTS row with
+- Ingest normalization: a push PORTS row with
   `loc_chassis` in upper case with dashes and an LLD row with the normal
   form on one host → one reporter Device; a 5-octet MAC row → skipped,
   `rows_identity_invalid`; native output unchanged.
-- Duplicate transport (not implemented): LLDP by SNMP + LLDP by push →
+- Duplicate transport: LLDP by SNMP + LLDP by push →
   both processed, reported; LLDP by SNMP + CDP by push → not reported.
 - Leftover pseudo ports: each row of the §6.7.3 table, with its counter.
 
@@ -1278,7 +1270,7 @@ keys, check convergence by ids (§6.10).
     superseded, R:P↔E created;
   - type validation rejects wrong endpoints; unknown reasons rejected;
     `fdb_mac_only` accepted, never produced.
-- **Lost precision (not implemented):** port-level R:P↔D:Q; later
+- **Lost precision:** port-level R:P↔D:Q; later
   snapshots no longer identify Q while D is still seen on P → same edge,
   still `physical_link`, `applied` with `precision_lower: true`,
   `last_seen` advances, `last_seen_port` does not, flag shown; Q
@@ -1371,6 +1363,7 @@ keys, check convergence by ids (§6.10).
 | 2026-10-02 | Precision only goes up; lost precision is a flag, not a type change. |
 | 2026-10-02 | One configurable freshness threshold (global macro); not blocking. |
 | 2026-10 | `represented_by` stored on the Device node, not as an edge. |
+| 2026-10-03 | The lab reads derived state (`stale`, contradiction, badges) with a read-only PHP helper that runs `CTopologyPrototype` (simulator spec §11). |
 
 ### 17.2 Review answers
 
@@ -1398,13 +1391,6 @@ Tags are only shown in the UI (backlog), never used to store the graph.
 - Legacy blob loop: remove after push equivalence passes (push spec §7).
 - FR 4.h: an identifier (e.g. MAC) that matches more than one Device
   identifies none; the neighbor is not linked. Needs a small spec.
-- Attr name: the device-level work used `auto`; this spec uses
-  `discovered_via`. Check the code; use one name.
-- `represented_by` storage: confirm the code matches §3.1.
-- Freshness in the lab: how the runner reads `stale` (it is derived in
-  `CTopologyPrototype` behind a browser session). Options: a read-only
-  script that runs the same class, a lab session, or the runner computes
-  the rule (tests a copy).
 - Periodic ingest: still manual.
 - Surfacing rows dropped by the native step (LLD spec §9).
 - Normalization: if the C step and the JS reference differ, fixing it

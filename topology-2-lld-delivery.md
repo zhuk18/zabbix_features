@@ -190,9 +190,8 @@ valid snapshot; same hash and role → update `clock`, `rows_total`,
 `rows_valid` only; otherwise replace the row.
 
 `clock` = the value timestamp. A value older than the stored `clock` does
-not change the snapshot. Status: not implemented — see
-`topology-3-push-delivery.md` §6 (the check and the change cover all rule
-types).
+not change the snapshot (the check covers all rule types; see
+`topology-3-push-delivery.md` §6).
 
 ### 3.5 Contract problems
 

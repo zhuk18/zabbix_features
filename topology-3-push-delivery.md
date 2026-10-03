@@ -4,8 +4,10 @@ Version 1.0 (2026-10-03). This spec replaces
 `topology-push-transport-spec.md` (v0.2) and the push component of
 `topology-prototype-spec.md` §4.1.
 
-Status: **draft for review. Not implemented**, except the legacy blob
-path (§8).
+Status: implemented: `push.py`, the template "Topology by push" and
+`test_push.py`. Not done: the server checks 2 and 3 of §6 (value size,
+proxy path), the equivalence run of §7 (the lab runner does not run
+`push.py`, simulator spec §8.1) and the open questions (§9).
 
 The input contract is in `topology-1-model.md` §5. The configuration of
 discovery rules with a role is in `topology-2-lld-delivery.md` §2.
@@ -158,7 +160,8 @@ No push-specific ingest code. The rules that push depends on:
 Check and report with file:line. Change code only where marked
 **required**.
 
-1. **Snapshot clock.** For a trapper discovery rule, does
+1. **Snapshot clock** (done: the value timestamp, never back; lab test
+   `test_snapshot_clock.py`). For a trapper discovery rule, does
    `topo_lld_snapshot.clock` come from the value timestamp sent with
    `-T`, or from processing time?
    - **Required:** it is the value timestamp (model §5.5 rule 3). If it is
