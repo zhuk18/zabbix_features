@@ -129,8 +129,12 @@ def provision(api, scenario, prune=False, log=print):
                 log('  pruned host %s' % h['host'])
 
 
+PUSH_RULE_PREFIX = 'topology.push.'
+
+
 def masters(api, hostnames):
-    """host -> {'core': itemid, 'fdb': itemid} (the walk[] master items), and the rule items depending on them."""
+    """host -> {'core': item, 'fdb': item} (the walk[] master items), the rule items depending on them, and for a push host
+    {'push': {rule key: itemid}} (the trapper discovery rules; such a host has no master items)."""
     out = {}
     hosts = api.call('host.get', {'filter': {'host': list(hostnames)}, 'output': ['hostid', 'host']})
     for h in hosts:
@@ -138,7 +142,9 @@ def masters(api, hostnames):
         rules = api.call('discoveryrule.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'master_itemid']})
         core = next((i for i in items if i['key_'] == 'topology.walk.core'), None)
         fdb = next((i for i in items if i['key_'] == 'topology.walk.fdb'), None)
-        out[h['host']] = {'hostid': h['hostid'], 'core': core, 'fdb': fdb,
+        # "Topology by push": the trapper discovery rules (topology.push.ports, topology.push.lldp, ...), by key
+        push = {i['key_']: i['itemid'] for i in rules if i['key_'].startswith(PUSH_RULE_PREFIX)}
+        out[h['host']] = {'hostid': h['hostid'], 'core': core, 'fdb': fdb, 'push': push,
                           'rules': {'core': [i['itemid'] for i in rules if core and i['master_itemid'] == core['itemid']],
                                     'fdb': [i['itemid'] for i in rules if fdb and i['master_itemid'] == fdb['itemid']]}}
     return out

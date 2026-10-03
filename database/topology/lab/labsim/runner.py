@@ -233,6 +233,33 @@ def create_manual_links(conn, scenario, i, log):
     return out
 
 
+PUSH = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'push.py'))
+PUSH_TIMEOUT = 300
+
+
+def push_command(dev, name, settings):
+    """The push.py call for one lab device (topology-3-push-delivery.md): it walks the device itself and sends the role values
+    to the trapper rules of host `name`, each with the time the walk finished (-T is push.py's own call to zabbix_sender)."""
+    cmd = ['python3', PUSH, '--name', name, '--zabbix-host', name, '--mgmt-ip', dev['ip'], '--snmp-target', dev['ip'],
+           '--snmp-port', str(settings.get('snmp_port', 161)), '--snmp-community', dev['community']]
+    if settings.get('sender_server'):
+        cmd += ['--sender-server', settings['sender_server']]
+    if settings.get('sender_port'):
+        cmd += ['--sender-port', str(settings['sender_port'])]
+    if settings.get('sender_bin'):
+        cmd += ['--sender-bin', settings['sender_bin']]
+    return cmd
+
+
+def run_push(name, dev, settings, log=print):
+    """Run push.py for a host with transport: push. Returns (ok, detail): ok is push.py's exit status (0 = every role was
+    collected and sent); a failed collection sends nothing for the role (the last snapshot stays), exactly what a failed SNMP
+    poll does on the LLD side."""
+    p = subprocess.run(push_command(dev, name, settings), capture_output=True, text=True, timeout=PUSH_TIMEOUT)
+    detail = (p.stderr.strip() or p.stdout.strip()).splitlines()
+    return p.returncode == 0, (detail[-1] if detail else 'exit code %d' % p.returncode)
+
+
 def snapshot_ids(conn):
     """(host, role-key itemid) -> (clock, rows_hash), for the snapshot_unchanged assertion."""
     out = {}
@@ -240,6 +267,16 @@ def snapshot_ids(conn):
                            'JOIN items i ON i.itemid=s.itemid JOIN hosts h ON h.hostid=i.hostid'):
         out[(r['host'], r['itemid'])] = (r['clock'], r['rows_hash'])
     return out
+
+
+PUSH_ROLE_KEYS = ('topology.push.ports', 'topology.push.lldp')      # the roles the template collects today
+
+
+def left_ids(host, kind):
+    """The rule itemids whose snapshot clock a poll of this kind must advance."""
+    if kind == 'push':
+        return [r for k, r in host['push'].items() if k in PUSH_ROLE_KEYS]
+    return host['rules'][kind]
 
 
 def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
@@ -255,8 +292,13 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
     history, clocks_hist = {}, {}
     try:
         ms = zbx.masters(api, mon)
+        transport = {d: scenario.states[0].devices[d]['zabbix']['transport'] for d in mon}
         for dev in mon:
-            if not ms.get(dev) or not ms[dev]['core']:
+            if transport[dev] == 'push':
+                missing = [k for k in PUSH_ROLE_KEYS if k not in (ms.get(dev) or {}).get('push', {})]
+                if missing:
+                    raise LabError('host %s has no trapper rule %s (run "provision" first, with the push template)' % (dev, ', '.join(missing)))
+            elif not ms.get(dev) or not ms[dev]['core']:
                 raise LabError('host %s has no topology.walk.core item (run "provision" first)' % dev)
         zbx.restore_fresh_macro(api, FRESH_FILE, log)          # what a killed earlier run left
         zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
@@ -296,17 +338,24 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             for dev in sorted(polled):
                 if dev in want_unsupported:
                     continue
-                if scenario.states[i].devices[dev]['zabbix']['transport'] != 'lld':
-                    sr['errors'].append('push transport is not supported by the runner in v1 (%s)' % dev)
-                    continue
-                for m in sorted(polled[dev]):
-                    if not ms[dev][m]:
+                # A push host has one "poll": push.py walks the device and sends every role. A LLD host has a master item per
+                # kind (core, fdb) that "check now" runs.
+                kinds = ['push'] if transport[dev] == 'push' else sorted(polled[dev])
+                for m in kinds:
+                    if m != 'push' and not ms[dev][m]:
                         continue
                     while time.time() < last_clock + 1.05:
                         time.sleep(0.1)
                     before = db.snapshot_clocks(conn)
-                    zbx.check_now(api, [ms[dev][m]['itemid']])
-                    left = {r: '%s %s rule %s' % (dev, m, r) for r in ms[dev]['rules'][m]}
+                    if m == 'push':
+                        ok, detail = run_push(dev, scenario.states[i].devices[dev], settings, log)
+                        if not ok:
+                            sr['errors'].append('push.py failed for %s: %s' % (dev, detail))
+                            continue
+                        left = {r: '%s push rule %s' % (dev, r) for r in left_ids(ms[dev], m)}
+                    else:
+                        zbx.check_now(api, [ms[dev][m]['itemid']])
+                        left = {r: '%s %s rule %s' % (dev, m, r) for r in ms[dev]['rules'][m]}
                     waited_for += sorted(left.values())
                     while left and time.time() < deadline:
                         now = db.snapshot_clocks(conn)
@@ -317,15 +366,23 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                             time.sleep(0.3)
                     pending.update(left)
                     done = db.snapshot_clocks(conn)
-                    last_clock = max([last_clock] + [done.get(int(r), 0) for r in ms[dev]['rules'][m]])
+                    last_clock = max([last_clock] + [done.get(int(r), 0) for r in left_ids(ms[dev], m)])
+            unsupported_seen = set()
             for dev in sorted(want_unsupported):
-                if dev in polled:
+                if dev not in polled:
+                    continue
+                if transport[dev] == 'push':
+                    # push.py fails the collection (nothing is sent for the role, the snapshots stay): that is "the poll failed"
+                    ok, detail = run_push(dev, scenario.states[i].devices[dev], settings, log)
+                    if not ok:
+                        unsupported_seen.add(dev)
+                        sr.setdefault('failure_seen', {})[dev] = detail
+                else:
                     zbx.check_now(api, [ms[dev]['core']['itemid']])
             waited_for = sorted(waited_for)
-            unsupported_seen = set()
             while time.time() < deadline and len(unsupported_seen) < len(want_unsupported):
                 for dev in want_unsupported:
-                    if dev in unsupported_seen:
+                    if dev in unsupported_seen or transport[dev] == 'push':
                         continue
                     hs = api.call('host.get', {'filter': {'host': [dev]}, 'output': ['hostid'],
                                                'selectInterfaces': ['error', 'available', 'errors_from', 'disable_until']})
