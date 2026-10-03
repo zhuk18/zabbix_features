@@ -1,5 +1,5 @@
 > Historical task prompt (finished work). The section numbers (§N) in this file refer to the old
-> `topology-prototype-spec.md`, which is now merged into `topology-1-model.md`.
+> `topology-prototype-spec.md`, which is now merged into `topology-1-model.md` in `/media/sf_topology-specs`.
 
 # Task: switch Host/Proxy topo_nodes creation from eager to lazy
 
