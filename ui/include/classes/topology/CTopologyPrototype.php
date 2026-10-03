@@ -953,16 +953,19 @@ class CTopologyPrototype {
 
 		self::assertPortOnDevice($src_port_id);
 		self::assertPortOnDevice($dst_port_id);
+		self::claimPortsForManualLink([$src_port_id, $dst_port_id]);
 		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual');
 	}
 
 	// ---- Manual device-level links (topology-1-model.md "Manual links": creation) ----
 
 	/**
-	 * The active (not superseded) link on a port, either type and either end of a physical_link, or null. A device_link
-	 * occupies only its local port (topology-1-model.md "Port uniqueness"), so it is looked up by src_id.
+	 * The active (not superseded) links on a port, either type and either end of a physical_link. A device_link
+	 * occupies only its local port (topology-1-model.md "Port uniqueness"), so it is looked up by src_id. Normally at
+	 * most one; older data can hold more (topology-1-model.md "Legacy cleanup").
 	 */
-	private static function getActiveLinkOnPort(string $port_id, ?string $except_edge_id = null): ?array {
+	private static function getActiveLinksOnPort(string $port_id, ?string $except_edge_id = null): array {
+		$links = [];
 		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE ('.
 			'(type='.zbx_dbstr('physical_link').' AND (src_id='.zbx_dbstr($port_id).' OR dst_id='.zbx_dbstr($port_id).'))'.
 			' OR (type='.zbx_dbstr('device_link').' AND src_id='.zbx_dbstr($port_id).'))');
@@ -971,11 +974,42 @@ class CTopologyPrototype {
 				continue;
 			}
 			if (self::supersededAt(self::attrs($row)) === null) {
-				return $row;
+				$links[] = $row;
 			}
 		}
 
-		return null;
+		return $links;
+	}
+
+	private static function getActiveLinkOnPort(string $port_id, ?string $except_edge_id = null): ?array {
+		return self::getActiveLinksOnPort($port_id, $except_edge_id)[0] ?? null;
+	}
+
+	/**
+	 * Make the ports free for a new manual link (topology-1-model.md "Manual links": creation and "Manual wins"): reject
+	 * if any of them already has an active MANUAL link, otherwise supersede the active discovered links on them at
+	 * once (superseded_at = now; "Accept discovery" or a later ingest can revive them with the same edge id). Nothing is
+	 * written when it rejects.
+	 *
+	 * @param string[] $port_ids
+	 */
+	private static function claimPortsForManualLink(array $port_ids): void {
+		$discovered = [];
+		foreach ($port_ids as $port_id) {
+			foreach (self::getActiveLinksOnPort($port_id) as $link) {
+				if ((self::attrs($link)['discovered_via'] ?? null) === 'manual') {
+					throw new Exception('Port '.$port_id.' already has a manual link.');
+				}
+				$discovered[(string) $link['id']] = $link;
+			}
+		}
+
+		$now = time();
+		foreach ($discovered as $id => $link) {
+			$attrs = self::attrs($link);
+			$attrs['superseded_at'] = $now;
+			DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($id));
+		}
 	}
 
 	/**
@@ -998,11 +1032,9 @@ class CTopologyPrototype {
 			throw new Exception('A port cannot be linked to its own device.');
 		}
 
-		// At most one active link per port (topology-1-model.md "Port uniqueness"), both types counted.
-		$active = self::getActiveLinkOnPort($port_id);
-		if ($active !== null) {
-			throw new Exception('Port '.$port_id.' already has a link.');
-		}
+		// At most one active link per port (topology-1-model.md "Port uniqueness"), both types counted: an active manual
+		// link rejects, an active discovered one is superseded.
+		self::claimPortsForManualLink([$port_id]);
 
 		$existing = DBfetch(DBselect('SELECT id,attrs FROM topo_edges WHERE type='.zbx_dbstr('device_link').
 			' AND src_id='.zbx_dbstr($port_id).' AND dst_id='.zbx_dbstr($device_id), 1));
@@ -1197,8 +1229,9 @@ class CTopologyPrototype {
 
 	// Shared by the manual /link endpoint (discovered_via='manual') and by discovery/seed reconciliation
 	// (discovered_via='lldp') so the same two ports never end up with two physical_link edges between them.
-	// A 'manual' call on an existing edge never downgrades it — only 'lldp' is allowed to upgrade a prior
-	// 'manual' edge, and discovery must never delete a manual link on its own (topology-1-model.md "Manual wins"); the DELETE endpoint
+	// linkPorts() has already rejected an active manual link on either port and superseded the active discovered
+	// ones, so a 'manual' call finds only a superseded edge for the pair (it revives it as manual); only 'lldp' is allowed
+	// to upgrade a prior 'manual' edge, and discovery must never delete a manual link on its own (topology-1-model.md "Manual wins"); the DELETE endpoint
 	// (unlinkPorts) is the only thing that removes a link, of either provenance.
 	//
 	// This method is only ever called with discovered_via='manual' (the manual /link endpoint above) —

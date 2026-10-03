@@ -57,14 +57,14 @@ def find_links(state, a, b, type_=None):
 
 
 def evaluate(a, state, ingest, history, clocks_hist, step):
-    """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus link_absent / snapshot_unchanged (extensions)."""
+    """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus snapshot_unchanged (an extension)."""
     if 'pending' in a:
         return Result('pending', a, 'pending', a['pending'])
     if 'link' in a:
         x, y = a['link']
         ls = find_links(state, x, y, a.get('type'))
         if a.get('discovered_via'):
-            ls = [l for l in ls if l['via'] == a['discovered_via']]
+            ls = [l for l in ls if l['discovered_via'] == a['discovered_via']]
         if a.get('far_port_reason'):
             ls = [l for l in ls if l['far_port_reason'] == a['far_port_reason']]
         want = a.get('state', 'active')
@@ -73,10 +73,10 @@ def evaluate(a, state, ingest, history, clocks_hist, step):
         if want == 'absent':
             active = [l for l in ls if l['state'] == 'active']
             return Result('link', a, 'fail' if active else 'pass',
-                          'unexpected active link: %s' % [(l['ends'], l['type'], l['via']) for l in active] if active else '')
+                          'unexpected active link: %s' % [(l['ends'], l['type'], l['discovered_via']) for l in active] if active else '')
         ok = any(l['state'] == want for l in ls)
         return Result('link', a, 'pass' if ok else 'fail',
-                      '' if ok else 'no %s link %s - %s (found: %s)' % (want, x, y, [(l['ends'], l['type'], l['via'], l['state']) for l in ls]))
+                      '' if ok else 'no %s link %s - %s (found: %s)' % (want, x, y, [(l['ends'], l['type'], l['discovered_via'], l['state']) for l in ls]))
     if 'observation_count' in a:
         r = a['observation_count']
         ls = find_links(state, r['edge'][0], r['edge'][1])
@@ -313,7 +313,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             clocks_hist[i] = snapshot_ids(conn)
             sr['ingest_status'] = ingest
             sr['snapshot_clocks'] = {'%s/%s' % k: v[0] for k, v in clocks_hist[i].items()}
-            sr['links'] = [{k: l[k] for k in ('id', 'type', 'ends', 'via', 'state', 'far_port_reason')} for l in state['links']]
+            sr['links'] = [{k: l[k] for k in ('id', 'type', 'ends', 'discovered_via', 'state', 'far_port_reason')} for l in state['links']]
             sr['observations'] = state['observations']
             for a in step.get('assert') or []:
                 res = evaluate(a, state, ingest, history, clocks_hist, i)

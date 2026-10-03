@@ -121,7 +121,7 @@
       "AP1:wlan0",
       "Switch2:Gi0/4"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -132,7 +132,7 @@
       "AccessSwitch1:Gi0/1",
       "Switch2:Gi0/3"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -143,7 +143,7 @@
       "AccessSwitch1:Gi0/2",
       "AccessSwitch2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -154,7 +154,7 @@
       "Printer1:GigabitEthernet0/1",
       "Router1:Gi0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -165,7 +165,7 @@
       "Router1:Gi0/0",
       "Switch1:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -176,7 +176,7 @@
       "Switch1:Gi0/2",
       "Switch2:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -187,7 +187,7 @@
       "Switch2:Gi0/1",
       "UPS1:eth0"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -198,7 +198,7 @@
       "Switch2:Gi0/2",
       "UPS2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     }
@@ -460,7 +460,7 @@
       "AP1:wlan0",
       "Switch2:Gi0/4"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -471,7 +471,7 @@
       "AccessSwitch1:Gi0/1",
       "Switch2:Gi0/3"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -482,7 +482,7 @@
       "AccessSwitch1:Gi0/2",
       "AccessSwitch2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -493,7 +493,7 @@
       "Printer1:GigabitEthernet0/1",
       "Router1:Gi0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -504,7 +504,7 @@
       "Router1:Gi0/0",
       "Switch1:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -515,7 +515,7 @@
       "Switch1:Gi0/2",
       "Switch2:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -526,7 +526,7 @@
       "Switch2:Gi0/1",
       "UPS1:eth0"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -537,7 +537,7 @@
       "Switch2:Gi0/2",
       "UPS2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     }
@@ -805,7 +805,7 @@
       "AP1:wlan0",
       "Switch2:Gi0/4"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -816,7 +816,7 @@
       "AccessSwitch1:Gi0/1",
       "Switch2:Gi0/3"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -827,7 +827,7 @@
       "AccessSwitch1:Gi0/2",
       "AccessSwitch2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -838,7 +838,7 @@
       "PC1:eth0",
       "Switch1:Gi0/5"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -849,7 +849,7 @@
       "Printer1:GigabitEthernet0/1",
       "Router1:Gi0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -860,7 +860,7 @@
       "Router1:Gi0/0",
       "Switch1:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -871,7 +871,7 @@
       "Switch1:Gi0/2",
       "Switch2:Gi0/24"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -882,7 +882,7 @@
       "Switch2:Gi0/1",
       "UPS1:eth0"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     },
@@ -893,7 +893,7 @@
       "Switch2:Gi0/2",
       "UPS2:GigabitEthernet0/1"
      ],
-     "via": "lldp",
+     "discovered_via": "lldp",
      "state": "active",
      "far_port_reason": null
     }

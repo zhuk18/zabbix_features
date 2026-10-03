@@ -84,7 +84,7 @@ def natural_state(conn):
         a = _j(e['attrs'])
         ends = sorted([end_label(e['src_id']), end_label(e['dst_id'])]) if e['type'] == 'physical_link' \
             else [end_label(e['src_id']), end_label(e['dst_id'])]
-        links.append({'id': e['id'], 'type': e['type'], 'ends': ends, 'via': a.get('discovered_via'),
+        links.append({'id': e['id'], 'type': e['type'], 'ends': ends, 'discovered_via': a.get('discovered_via'),
                       'state': 'superseded' if a.get('superseded_at') else 'active',
                       'far_port_reason': a.get('far_port_reason'), 'attrs': a})
     links.sort(key=lambda l: (l['type'], l['ends']))
@@ -105,7 +105,7 @@ def comparable(state):
         'devices': state['devices'],
         'ports': state['ports'],
         'represented_by': state['represented_by'],
-        'links': [{'type': l['type'], 'ends': l['ends'], 'via': l['via'], 'state': l['state']} for l in state['links']],
+        'links': [{'type': l['type'], 'ends': l['ends'], 'discovered_via': l['discovered_via'], 'state': l['state']} for l in state['links']],
     }
 
 

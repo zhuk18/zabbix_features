@@ -258,12 +258,18 @@ check(failed(call($class, ['port_id' => (string) $Ap2, 'device_id' => '999999'])
 check(failed(call($class, ['port_id' => '999999', 'device_id' => (string) $B])), 'a port that does not exist');
 check(failed(call($class, ['port_id' => (string) $Ap2, 'device_id' => (string) $A])), 'a port cannot be linked to its own device');
 
-edge($pdo, 'physical_link', min($Ap2, $Bp1), max($Ap2, $Bp1), ['discovered_via' => 'lldp', 'last_seen' => time()]);
-check(failed(call($class, ['port_id' => (string) $Ap2, 'device_id' => (string) $B])), 'the port has an active physical_link: rejected');
-check(failed(call($class, ['port_id' => (string) $Bp1, 'device_id' => (string) $A])), 'the far end of an active physical_link counts too');
-$pdo->prepare("UPDATE topo_edges SET attrs = ? WHERE type = 'physical_link'")->execute([json_encode(['discovered_via' => 'lldp',
-	'last_seen' => time(), 'superseded_at' => time()])]);
+// topology-1-model.md "Manual links": a port with an active DISCOVERED link takes the manual link and the discovered
+// one is superseded at once; only an active MANUAL link rejects (test_manual_link_busy_port.php covers this in depth).
+$disc = edge($pdo, 'physical_link', min($Ap2, $Bp1), max($Ap2, $Bp1), ['discovered_via' => 'lldp', 'last_seen' => time()]);
+$r = call($class, ['port_id' => (string) $Ap2, 'device_id' => (string) $B]);
+check(!failed($r) && isset($r['edge_id']), 'the port has an active discovered physical_link: the call succeeds');
+check(isset(edge_row($pdo, $disc)['superseded_at']), 'and the discovered link is superseded');
+check(failed(call($class, ['port_id' => (string) $Ap2, 'device_id' => (string) $B])), 'the port now has an active manual link: rejected');
+$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([(int) $r['edge_id']]);
 check(!failed(call($class, ['port_id' => (string) $Ap2, 'device_id' => (string) $B])), 'a superseded link does not occupy the port');
+$disc3 = edge($pdo, 'physical_link', min($Ap3, $Bp1), max($Ap3, $Bp1), ['discovered_via' => 'lldp', 'last_seen' => time()]);
+$r = call($class, ['port_id' => (string) $Bp1, 'device_id' => (string) $A]);
+check(!failed($r) && isset(edge_row($pdo, $disc3)['superseded_at']), 'the far end of an active discovered physical_link counts too: superseded');
 
 login(true);
 $before = edge_count($pdo);
