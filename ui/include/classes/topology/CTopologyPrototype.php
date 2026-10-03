@@ -813,6 +813,14 @@ class CTopologyPrototype {
 		$port_details = self::getPortDetails(array_merge(
 			array_column($link_ports, 'local'), array_column($link_ports, 'remote')
 		));
+		// Link severity (topology-1-model.md "Link severity (derived)"): one trigger lookup for the items of every end port of every
+		// shown link, not one per neighbor.
+		$link_itemids = [];
+		foreach ($link_ports as $id => $ends) {
+			$link_itemids[$id] = array_merge($port_details[$ends['local']]['zabbix_itemids'] ?? [],
+				$port_details[$ends['remote']]['zabbix_itemids'] ?? []);
+		}
+		$link_severity = self::getMaxActiveSeverityByItemIds($link_itemids);
 
 		foreach ($neighbors as $id => &$neighbor) {
 			// 'physical_link', or 'device_link' for a neighbor reached only through a link that ends at a Device (its
@@ -828,6 +836,7 @@ class CTopologyPrototype {
 			$link = $shown[$id];
 			$link_attrs = $link['attrs'];
 			$neighbor['edge_id'] = $link['edge_id'];
+			$neighbor['severity'] = $link_severity[$id] ?? null;
 			$neighbor['last_seen'] = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
 				: $neighbor['last_seen'];
@@ -1833,6 +1842,44 @@ class CTopologyPrototype {
 		return $max_severity;
 	}
 
+	/**
+	 * The highest active trigger severity per key, for several item sets in ONE trigger lookup (no query per key). Keys
+	 * with no active trigger (or no items) are absent from the result.
+	 *
+	 * @param array $itemids_by_key  key => list of item ids
+	 *
+	 * @return array  key => severity (0..5)
+	 */
+	private static function getMaxActiveSeverityByItemIds(array $itemids_by_key): array {
+		$all = array_values(array_unique(array_merge(...array_values($itemids_by_key ?: [[]]))));
+		if (!$all) {
+			return [];
+		}
+
+		$by_item = [];
+		foreach (API::Trigger()->get([
+			'output' => ['priority'],
+			'itemids' => $all,
+			'selectItems' => ['itemid'],
+			'filter' => ['value' => TRIGGER_VALUE_TRUE]
+		]) as $trigger) {
+			foreach ($trigger['items'] as $item) {
+				$by_item[$item['itemid']] = max($by_item[$item['itemid']] ?? 0, (int) $trigger['priority']);
+			}
+		}
+
+		$result = [];
+		foreach ($itemids_by_key as $key => $itemids) {
+			foreach ($itemids as $itemid) {
+				if (isset($by_item[$itemid])) {
+					$result[$key] = max($result[$key] ?? 0, $by_item[$itemid]);
+				}
+			}
+		}
+
+		return $result;
+	}
+
 	// Zabbix has no proxyid column on problem/trigger/item — a Proxy's own health problems are only reachable
 	// via the well-known internal item key convention 'zabbix.proxy.<metric>[<proxy name>]' (e.g.
 	// zabbix.proxy.last_seen[Riga proxy]), the same keys the stock "Zabbix proxy health" template uses,
@@ -1999,7 +2046,8 @@ class CTopologyPrototype {
 				'name' => $attrs['name'] ?? null,
 				'oper_status' => $attrs['oper_status'] ?? null,
 				'admin_status' => $attrs['admin_status'] ?? null,
-				'speed' => $attrs['speed'] ?? null
+				'speed' => $attrs['speed'] ?? null,
+				'zabbix_itemids' => array_map('strval', $attrs['zabbix_itemids'] ?? [])
 			];
 		}
 

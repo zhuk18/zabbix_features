@@ -66,6 +66,26 @@ require_once 'include/classes/core/CAutoloader.php';
 /** Stub of the API facade: only the visible hosts matter to the topology classes. */
 class API {
 	public static array $visible = [];
+	/** @var array[] active triggers: ['priority' => int, 'itemids' => [..]] */
+	public static array $triggers = [];
+	public static int $trigger_calls = 0;
+
+	public static function Trigger() {
+		return new class {
+			public function get($options) {
+				API::$trigger_calls++;
+				$out = [];
+				foreach (API::$triggers as $trigger) {
+					$hit = array_values(array_intersect($trigger['itemids'], $options['itemids']));
+					if ($hit) {
+						$out[] = ['priority' => (string) $trigger['priority'],
+							'items' => array_map(static fn ($id): array => ['itemid' => (string) $id], $hit)];
+					}
+				}
+				return $out;
+			}
+		};
+	}
 
 	public static function Host() {
 		return new class {
@@ -554,5 +574,35 @@ $stale();
 check($warnings() === 3, 'a valid value adds no warning');
 $set_macro(null);
 CTopologyPrototype::reloadFreshness();
+
+// ============================================================================================================
+echo "\n=== step 9: /neighbors carries the link severity (topology-1-model.md \"Link severity (derived)\"), batched ===\n";
+reset_topology($pdo);
+$R = device($pdo, 'Router1');
+$names = ['Switch A', 'Switch B', 'Switch C', 'Switch D'];
+$far = [];
+$near_ports = [];
+foreach ($names as $k => $name) {
+	$far[$name] = device($pdo, $name);
+	$near_ports[$name] = node($pdo, 'port', ['if_index' => 10 + $k, 'name' => 'Gi0/'.(10 + $k), 'pseudo' => false, 'oper_status' => 'up',
+		'zabbix_itemids' => [1000 + $k]], $R);
+	$far_port = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up',
+		'zabbix_itemids' => [2000 + $k]], $far[$name]);
+	edge($pdo, 'physical_link', min($near_ports[$name], $far_port), max($near_ports[$name], $far_port),
+		['discovered_via' => 'lldp', 'last_seen' => time()]);
+}
+// Switch A: a warning (2) on the near port's item; Switch B: a high (4) on the far port's item and an average (3) on the near one;
+// Switch C: a trigger that is not active is not in the stub; Switch D: no items with triggers.
+API::$triggers = [['priority' => 2, 'itemids' => [1000]], ['priority' => 4, 'itemids' => [2001]], ['priority' => 3, 'itemids' => [1001]]];
+API::$trigger_calls = 0;
+$n = CTopologyPrototype::getNeighbors((string) $R);
+check(API::$trigger_calls === 1, 'four neighbors, ONE trigger lookup (no query per neighbor)');
+check(neighbor($n, $far['Switch A'])['severity'] === 2, 'near-port trigger: severity 2');
+check(neighbor($n, $far['Switch B'])['severity'] === 4, 'the highest of both end ports: severity 4');
+check(neighbor($n, $far['Switch C'])['severity'] === null && neighbor($n, $far['Switch D'])['severity'] === null, 'no active trigger: severity null');
+check(neighbor($n, $far['Switch C'])['link_type'] === 'physical_link', 'oper_status is untouched by it (a separate signal): the link is still reported as up');
+check(neighbor($n, $far['Switch A'])['local_status'] === 'up', 'local_status stays the port status, not the severity');
+API::$triggers = [];
+check(neighbor(CTopologyPrototype::getNeighbors((string) $R), $far['Switch A'])['severity'] === null, 'a resolved trigger: severity null again');
 
 echo "\nAll topology model tests passed.\n";
