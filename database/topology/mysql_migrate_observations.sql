@@ -1,4 +1,4 @@
--- topo_observations: the evidence behind NEIGHBORS rows of LLD snapshots (topology-lld-part2-spec.md §7).
+-- topo_observations: the evidence behind NEIGHBORS rows of LLD snapshots (topology-1-model.md "Observations").
 -- Edges are results, observations are evidence: one row per (rule, local port, remote identity), mirroring
 -- the LATEST snapshot of each NEIGHBORS rule. Rows are written by ingest.php only.
 --

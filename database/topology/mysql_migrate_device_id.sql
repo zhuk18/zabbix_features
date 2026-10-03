@@ -1,7 +1,7 @@
 -- Port->Device is a stable 1:many relationship — it doesn't need the generic topo_edges table's
--- type-specific constraint machinery (§2.1's uniqueness caveats don't apply to a plain FK). Replaces
--- the 'part_of' edge type with topo_nodes.device_id (set only when type='port'), per the spec's §2.1/
--- §2.2/§2.3/§3 rule 4 update.
+-- type-specific constraint machinery (the uniqueness caveats of topology-1-model.md "Port uniqueness" don't apply to a plain FK). Replaces
+-- the 'part_of' edge type with topo_nodes.device_id (set only when type='port'), per topology-1-model.md
+-- "Nodes: Storage", "Nodes: Attributes by type" and "Relationships: Storage".
 DELIMITER //
 
 CREATE PROCEDURE topology_migrate_device_id()

@@ -1,4 +1,4 @@
--- Device-level links (topology-device-level-edge-spec.md): topo_edges gets a second edge type, `device_link`
+-- Device-level links (topology-1-model.md "`device_link` (Port → Device)"): topo_edges gets a second edge type, `device_link`
 -- (src = Port, dst = Device) -- topo_edges.type is a free VARCHAR(32), so nothing changes there -- and
 -- topo_observations records how precisely the far end was identified. Idempotent.
 DELIMITER //

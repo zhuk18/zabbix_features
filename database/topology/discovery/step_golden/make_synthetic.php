@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Writes fixtures/synthetic-*.walk: what the lab walks (../lld_js/fixtures) do not contain — lldpLocPortTable
  * subtypes, chassis / port id subtypes, Hex-STRING ids, management addresses, Q-BRIDGE and BRIDGE forwarding tables,
  * a trunk over the MAC limit, LAG members, a device without LLDP-MIB, and CISCO-CDP-MIB. The data is that of
- * ../lld_js/test_lld_js.php (§"synthetic walk"), split into one walk per situation.
+ * ../lld_js/test_lld_js.php (its synthetic walk), split into one walk per situation.
  *
  * The walks are committed; run this only to change them, then `compare.php --generate` to refresh the expectations.
  */

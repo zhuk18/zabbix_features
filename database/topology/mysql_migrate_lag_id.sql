@@ -1,4 +1,4 @@
--- LAG membership (topology model spec §2.1): topo_nodes.lag_id, set only when type='port' — the LAG
+-- LAG membership (topology-1-model.md "LAG membership"): topo_nodes.lag_id, set only when type='port' — the LAG
 -- Port a physical member belongs to. Unlike device_id this is ON DELETE SET NULL, not CASCADE: member
 -- ports are real interfaces that must survive their LAG going away. The invariant "lag_id IS NOT NULL
 -- implies the target's attrs.if_type = 'lag'" is a cross-row rule enforced by ingest.php, not the schema.

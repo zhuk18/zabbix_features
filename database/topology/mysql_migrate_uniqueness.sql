@@ -1,4 +1,4 @@
--- §2.1/§5 uniqueness constraints. MySQL has no partial/filtered unique index, so a represented_by/physical_link
+-- Uniqueness constraints (topology-1-model.md "Port uniqueness"). MySQL has no partial/filtered unique index, so a represented_by/physical_link
 -- edge's src/dst id is projected into a STORED GENERATED COLUMN that is NULL for every other edge type, and the
 -- UNIQUE index goes on that generated column instead — MySQL (like Postgres) allows unlimited NULLs under a
 -- UNIQUE constraint, so non-represented_by/non-physical_link rows never collide with each other, only rows of

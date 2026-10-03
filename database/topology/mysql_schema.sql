@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS topo_nodes (
 	-- Set only when type='device' — the Host/Proxy topo_nodes.id this Device is represented by. Plain
 	-- self-referential FK, not a topo_edges row (see mysql_migrate_represented_by.sql's header comment
 	-- for why this replaced the old 'represented_by' edge type). matched_by/at are provenance for the
-	-- CURRENT representation only — both NULL exactly when represented_by_node_id is NULL (§2.3).
+	-- CURRENT representation only — both NULL exactly when represented_by_node_id is NULL (topology-1-model.md "`represented_by` (Device → Host or Proxy)").
 	represented_by_node_id BIGINT UNSIGNED NULL,
 	represented_by_matched_by VARCHAR(16) NULL,
 	represented_by_at INT UNSIGNED NULL,
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS topo_edges (
 	CONSTRAINT topo_edges_2 FOREIGN KEY (dst_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
--- topo_observations: the evidence behind NEIGHBORS rows of LLD snapshots (topology-lld-part2-spec.md §7).
+-- topo_observations: the evidence behind NEIGHBORS rows of LLD snapshots (topology-1-model.md "Observations").
 -- Edges are results, observations are evidence: one row per (rule, local port, remote identity), mirroring
 -- the LATEST snapshot of each NEIGHBORS rule. Rows are written by ingest.php only.
 --
@@ -76,9 +76,9 @@ CREATE TABLE IF NOT EXISTS topo_observations (
 	outcome VARCHAR(16) NOT NULL,
 	edge_id BIGINT UNSIGNED NULL,
 	device_id BIGINT UNSIGNED NULL,
-	-- topology-device-level-edge-spec.md §8: how precisely the far end was identified ('port' / 'device'; NULL when
+	-- topology-1-model.md "Observations": how precisely the far end was identified ('port' / 'device'; NULL when
 	-- no link was made) and, for 'device', why the far port is unknown (the link's far_port_reason).
-	-- precision_lower = 1: the observation confirms a port-level link only at device level (§5.2).
+	-- precision_lower = 1: the observation confirms a port-level link only at device level (topology-1-model.md "Lost precision").
 	link_precision VARCHAR(8) NULL,
 	far_port_reason VARCHAR(16) NULL,
 	precision_lower TINYINT UNSIGNED NOT NULL DEFAULT 0,

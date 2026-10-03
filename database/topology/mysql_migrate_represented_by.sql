@@ -2,7 +2,7 @@
 -- row (represented_by_node_id/represented_by_matched_by/represented_by_at). Unlike physical_link, it's
 -- directed, single-valued (at most one active representation per Device), not confirmed independently
 -- by multiple reporters, and has no reconciliation lifecycle of its own — it doesn't need the generic
--- edge table. See topology-prototype-spec.md §2.1/§2.3 for the full rationale and the two invariants
+-- edge table. See topology-1-model.md "`represented_by` (Device → Host or Proxy)" for the full rationale and the two invariants
 -- (target must be host/proxy; provenance fields only alongside a non-NULL represented_by_node_id) this
 -- shape depends on.
 DELIMITER //
@@ -28,7 +28,7 @@ BEGIN
 
 	-- Data migration: for every existing 'represented_by' topo_edges row, copy it onto the Device
 	-- (src_id) row, then drop the edge. attrs->>'matched_by' / attrs->>'created_at' are the old edge's
-	-- provenance fields (§2.3's old attrs shape); attrs->>'matched_mac' is deliberately NOT migrated —
+	-- provenance fields (the old edge's attrs shape); attrs->>'matched_mac' is deliberately NOT migrated —
 	-- it has no consumer in the new column-based model (see the spec addendum for why).
 	UPDATE topo_nodes device
 		JOIN topo_edges rep ON rep.type = 'represented_by' AND rep.src_id = device.id

@@ -1,4 +1,4 @@
--- §5/§6: Host/Proxy topo_nodes rows are now created lazily (only on a MAC match, reporter_self, or
+-- topology-1-model.md "Lazy Host/Proxy nodes": Host/Proxy topo_nodes rows are now created lazily (only on a MAC match, reporter_self, or
 -- manual /promote), not eagerly for every Zabbix host/proxy on pull. Any environment that already ran
 -- the old eager-pull logic has Host/Proxy topo_nodes rows with no active representation — orphans
 -- under the new policy (no Device's represented_by_node_id points at them). This is a one-time

@@ -2389,7 +2389,7 @@ INDEX		|1		|type
 UNIQUE		|2		|host_ref
 UNIQUE		|3		|proxy_ref
 
--- topo_edges also needs, per §2.1/§5 of the topology prototype spec, at most one 'represented_by' edge per
+-- topo_edges also needs, per topology-1-model.md "`represented_by` (Device → Host or Proxy)" and "Port uniqueness", at most one 'represented_by' edge per
 -- src (Device) and per dst (Host/Proxy), and at most one 'physical_link' edge per canonicalized port pair.
 -- This schema DSL has no generated-column/partial-index primitive, so those constraints aren't expressible
 -- here — they're applied only via database/topology/mysql_migrate_uniqueness.sql (MySQL: generated columns
