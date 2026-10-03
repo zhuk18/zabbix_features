@@ -1,8 +1,7 @@
 """Read-only access to topo_* state, by natural keys (topology-4-lab-simulator.md "Assertions").
 
-The only writes in this module are the ones the spec names: `reset_topo()` (topology-4-lab-simulator.md "Reset") and
-`insert_manual_link()` (the `zabbix_manual_link` deviation, created the way the existing test suites
-create it: a raw topo_edges row, because the UI action needs a browser session).
+The only write in this module is the one the spec names: `reset_topo()` (topology-4-lab-simulator.md "Reset").
+Manual links are created by php/manual_link.php through the UI code path, not here.
 Everything refuses to run unless the connected database is the configured one and that is `zabbix`.
 """
 import json
@@ -137,10 +136,8 @@ def port_node_id(conn, device, port):
     return r[0]['id'] if r else None
 
 
-def insert_manual_link(conn, port_a, port_b):
-    """A manual physical_link, as the existing test suites create one (raw_link in test_manual_contradiction.php)."""
-    a, b = sorted((port_a, port_b))
-    cur = conn.cursor()
-    cur.execute("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', %s, %s, %s, UNIX_TIMESTAMP())",
-                (a, b, json.dumps({'discovered_via': 'manual', 'last_seen': __import__('time').time().__int__()})))
-    return cur.lastrowid
+def edge_between(conn, port_a, port_b):
+    """The id of the physical_link between two ports (canonical direction), or None."""
+    r = rows(conn, "SELECT id FROM topo_edges WHERE type='physical_link' AND src_id=%s AND dst_id=%s ORDER BY id DESC",
+             (min(port_a, port_b), max(port_a, port_b)))
+    return r[0]['id'] if r else None

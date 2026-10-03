@@ -24,7 +24,8 @@ steps:
   - id: 0
     note: baseline (Switch1:Gi0/5 has nothing behind it)
     assert:
-      - link_absent: [Switch1:Gi0/5, PC1]
+      - link: [Switch1:Gi0/5, PC1]
+        state: absent
   - id: 1
     note: PC1 and PC2 both on Switch1:Gi0/5
     deviations: {enable: [unmanaged-switch-sw1-gi05]}
@@ -34,8 +35,10 @@ steps:
         outcome: ambiguous
       - observation: {reporter: Switch1, port: Gi0/5, remote: PC2}
         outcome: ambiguous
-      - link_absent: [Switch1:Gi0/5, PC1]
-      - link_absent: [Switch1:Gi0/5, PC2]
+      - link: [Switch1:Gi0/5, PC1]
+        state: absent
+      - link: [Switch1:Gi0/5, PC2]
+        state: absent
       - status: {field: observations.ambiguous, equals: 2}
   - id: 2
     note: PC2 removed; PC1 is the only neighbor on Switch1:Gi0/5
@@ -48,5 +51,6 @@ steps:
         state: active
       - observation: {reporter: Switch1, port: Gi0/5, remote: PC1}
         outcome: applied
-      - link_absent: [Switch1:Gi0/5, PC2]
+      - link: [Switch1:Gi0/5, PC2]
+        state: absent
       - status: {field: observations.ambiguous, equals: 0}

@@ -12,8 +12,21 @@ steps:
     # topology-1-model.md "Acceptance criteria", manual-link lab case: manual link stays, Printer1 observation shadowed, M contradicted
     assert:
       - link: [Router1:Gi0/1, UPS1:eth0]
-        via: manual
+        discovered_via: manual
         state: active
       - observation: {reporter: Router1, port: Gi0/1, remote: Printer1}
         outcome: shadowed
       - status: {field: manual_links_contradicted, equals: 1}
+      - observation_count: {outcome: shadowed, edge: [Router1:Gi0/1, UPS1:eth0], equals: 3}
+      - contradiction: {link: [Router1:Gi0/1, UPS1:eth0], hidden_neighbors: [Printer1, Switch2]}
+  - id: 2
+    note: UPS1 stops reporting LLDP; the manual link stays
+    deviations: {enable: [ups1-no-lldp]}
+    # topology-1-model.md "Acceptance criteria", UPS1 without LLDP: two shadowing observations (Printer1 near end, Switch2 third party)
+    assert:
+      - link: [Router1:Gi0/1, UPS1:eth0]
+        discovered_via: manual
+        state: active
+      - observation_count: {outcome: shadowed, edge: [Router1:Gi0/1, UPS1:eth0], equals: 2}
+      - status: {field: manual_links_contradicted, equals: 1}
+      - badge: {on: UPS1, present: false}

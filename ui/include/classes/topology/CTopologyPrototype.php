@@ -1,5 +1,8 @@
 <?php
 
+// The one definition of the hidden neighbor of a contradicted manual link, shared with database/topology/discovery/ingest.php.
+require_once __DIR__.'/../../../../database/topology/topology_contradiction.inc.php';
+
 class CTopologyPrototype {
 
 	// topology-1-model.md "`device_link` (Port → Device)": why a device_link ends at a Device and not at a Port. fdb_mac_only is
@@ -339,7 +342,10 @@ class CTopologyPrototype {
 		$device_links = [];
 		// A manual link that discovery contradicts (or that the operator acknowledged) keeps its own line, so its
 		// badge and its details are reachable even when the same two devices are also linked another way.
-		$own_line = array_column(self::getContradictions(), 'edge_id', 'edge_id');
+		$contradictions = self::getContradictions();
+		$own_line = array_column($contradictions, 'edge_id', 'edge_id');
+		// Superseded edges that sit under a ghost line are not drawn while it is unacknowledged.
+		$hidden_edges = self::getEdgesHiddenByGhosts($contradictions);
 		// Active discovered links by port, to say which link replaced a superseded one ("Replaced on ...").
 		$active_by_port = [];
 		foreach ($rows as $row) {
@@ -350,6 +356,9 @@ class CTopologyPrototype {
 			}
 		}
 		foreach ($rows as $row) {
+			if (isset($hidden_edges[$row['link_id']])) {
+				continue;
+			}
 			$pair = [$row['device_a'], $row['device_b']];
 			sort($pair);
 			$key = implode('-', $pair).(isset($own_line[$row['link_id']]) ? '#'.$row['link_id'] : '');
@@ -408,7 +417,7 @@ class CTopologyPrototype {
 		foreach ($device_links as $relation) {
 			$relations[] = $relation;
 		}
-		foreach (self::getDeviceLevelRelations($node_ids, $own_line) as $relation) {
+		foreach (self::getDeviceLevelRelations($node_ids, $own_line, $hidden_edges) as $relation) {
 			$relations[] = $relation;
 		}
 
@@ -425,7 +434,7 @@ class CTopologyPrototype {
 	 * @param array|null $node_ids  restrict to relations where BOTH Devices are in this set; null = unrestricted
 	 * @param array      $own_line  edge ids that keep a line of their own (contradicted / acknowledged manual links)
 	 */
-	private static function getDeviceLevelRelations(?array $node_ids, array $own_line): array {
+	private static function getDeviceLevelRelations(?array $node_ids, array $own_line, array $hidden_edges = []): array {
 		$sql = 'SELECT link.id AS link_id,link.src_id AS port_id,link.dst_id AS far_device,'.
 				'src_port.device_id AS near_device,link.attrs AS link_attrs,link.created_at AS link_created_at'.
 			' FROM topo_edges link'.
@@ -445,6 +454,9 @@ class CTopologyPrototype {
 
 		$bundles = [];
 		foreach ($rows as $row) {
+			if (isset($hidden_edges[$row['link_id']])) {
+				continue;
+			}
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$pair = [$row['near_device'], $row['far_device']];
 			sort($pair);
@@ -630,8 +642,10 @@ class CTopologyPrototype {
 		// No DISTINCT here (unlike before the severity field existed): a neighbor reached via more than one
 		// physical_link (e.g. redundant cabling) needs every one of those links' port pairs collected so the
 		// severity aggregation below sees every relevant port, not just whichever row happened to come first.
+		// Superseded edges under an unacknowledged ghost line are not drawn (topology-1-model.md "Contradicted manual links").
+		$hidden_edges = self::getEdgesHiddenByGhosts(self::getContradictions());
 		$result = DBselect(
-			'SELECT device.id,device.type,device.attrs,link.attrs AS link_attrs,local_port.id AS local_port_id,'.
+			'SELECT device.id,device.type,device.attrs,link.attrs AS link_attrs,link.id AS link_id,local_port.id AS local_port_id,'.
 				'remote_port.id AS remote_port_id'.
 			' FROM topo_nodes local_port'.
 			' JOIN topo_edges link ON link.type='.zbx_dbstr('physical_link').
@@ -663,6 +677,9 @@ class CTopologyPrototype {
 		// (below), rather than tracking it completely independently.
 		$link_ports = [];
 		while ($row = DBfetch($result)) {
+			if (isset($hidden_edges[$row['link_id']])) {
+				continue;
+			}
 			if (!array_key_exists($row['id'], $neighbors)) {
 				$attrs = self::attrs($row);
 				$neighbors[$row['id']] = ['id' => $row['id'], 'type' => 'device', 'name' => $attrs['sysname'],
@@ -708,14 +725,14 @@ class CTopologyPrototype {
 		// that one (port-level precision wins), as it does for several physical links.
 		$link_types = [];
 		$device_level = DBselect(
-			'SELECT device.id,device.attrs,link.attrs AS link_attrs,local_port.id AS local_port_id,'.
+			'SELECT device.id,device.attrs,link.attrs AS link_attrs,link.id AS link_id,local_port.id AS local_port_id,'.
 				'NULL AS remote_port_id'.
 			' FROM topo_nodes local_port'.
 			' JOIN topo_edges link ON link.type='.zbx_dbstr('device_link').' AND link.src_id=local_port.id'.
 			' JOIN topo_nodes device ON device.id=link.dst_id AND device.type='.zbx_dbstr('device').
 			' WHERE local_port.device_id='.zbx_dbstr($deviceid).
 			' UNION ALL '.
-			'SELECT device.id,device.attrs,link.attrs AS link_attrs,NULL AS local_port_id,'.
+			'SELECT device.id,device.attrs,link.attrs AS link_attrs,link.id AS link_id,NULL AS local_port_id,'.
 				'remote_port.id AS remote_port_id'.
 			' FROM topo_edges link'.
 			' JOIN topo_nodes remote_port ON remote_port.id=link.src_id'.
@@ -723,7 +740,7 @@ class CTopologyPrototype {
 			' WHERE link.type='.zbx_dbstr('device_link').' AND link.dst_id='.zbx_dbstr($deviceid)
 		);
 		while ($row = DBfetch($device_level, false)) {
-			if ((string) $row['id'] === $deviceid) {
+			if ((string) $row['id'] === $deviceid || isset($hidden_edges[$row['link_id']])) {
 				continue;
 			}
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
@@ -1314,15 +1331,18 @@ class CTopologyPrototype {
 		$cursor = DBselect('SELECT id,device_id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($port_ids))).
 			' AND type='.zbx_dbstr('port'));
 		while ($row = DBfetch($cursor, false)) {
-			$ports[$row['id']] = ['device_id' => $row['device_id'], 'name' => self::attrs($row)['name'] ?? null];
+			$ports[$row['id']] = ['device_id' => $row['device_id'], 'name' => self::attrs($row)['name'] ?? null,
+				'if_index' => isset(self::attrs($row)['if_index']) ? (int) self::attrs($row)['if_index'] : null];
 			$device_ids[] = $row['device_id'];
 		}
 		$devices = [];
+		$device_attrs = [];
 		if ($device_ids) {
 			$cursor = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($device_ids))).
 				' AND type='.zbx_dbstr('device'));
 			while ($row = DBfetch($cursor, false)) {
-				$devices[$row['id']] = self::attrs($row)['sysname'] ?? null;
+				$device_attrs[$row['id']] = self::attrs($row);
+				$devices[$row['id']] = $device_attrs[$row['id']]['sysname'] ?? null;
 			}
 		}
 
@@ -1340,13 +1360,18 @@ class CTopologyPrototype {
 				}
 			}
 
-			// The Devices the manual link itself joins. A neighbor that is one of them is this link's own far end seen at
-			// another precision (topology-1-model.md "Confirmation by discovery"): not a hidden neighbor, so not a contradiction.
-			$own_devices = [];
+			// The Ports and Devices the manual link itself joins. A neighbor that is one of those Devices is this link's own far
+			// end seen at another precision (topology-1-model.md "Confirmation by discovery"): not a hidden neighbor, so not
+			// a contradiction. The hidden neighbor itself is decided by topo_hidden_neighbor(), shared with ingest.php.
 			$device_level = $link['row']['type'] === 'device_link';
-			$own_devices[(string) ($ports[$link['row']['src_id']]['device_id'] ?? '')] = true;
-			$own_devices[(string) ($device_level ? $link['row']['dst_id']
-				: ($ports[$link['row']['dst_id']]['device_id'] ?? ''))] = true;
+			$end_ports = [(int) $link['row']['src_id']];
+			if (!$device_level) {
+				$end_ports[] = (int) $link['row']['dst_id'];
+			}
+			$end_devices = array_values(array_filter([
+				(int) ($ports[$link['row']['src_id']]['device_id'] ?? 0),
+				(int) ($device_level ? $link['row']['dst_id'] : ($ports[$link['row']['dst_id']]['device_id'] ?? 0))
+			]));
 
 			$shadows = [];
 			$confirmed_from = [];
@@ -1356,18 +1381,30 @@ class CTopologyPrototype {
 					continue;
 				}
 				$remote_attrs = json_decode((string) $observation['remote_attrs'], true) ?: [];
-				$hidden = $observation['device_id'];
-				if ($hidden !== null && isset($own_devices[(string) $hidden])) {
+				$local_device = $ports[$observation['local_port_id']]['device_id'] ?? null;
+				$verdict = topo_hidden_neighbor((int) $observation['local_port_id'],
+					$local_device === null ? null : (int) $local_device,
+					$observation['device_id'] === null ? null : (int) $observation['device_id'], $end_ports, $end_devices);
+				if ($verdict['kind'] === 'own') {
 					continue;
 				}
+				$hidden = $verdict['device_id'] === null ? null : (string) $verdict['device_id'];
 				$shadows[] = [
 					'observation_id' => $observation['id'],
 					'local_port_id' => $observation['local_port_id'],
 					'local_port' => $ports[$observation['local_port_id']]['name'] ?? null,
-					'local_device_id' => $ports[$observation['local_port_id']]['device_id'] ?? null,
+					'local_device_id' => $local_device,
+					// Where the observation is from and what it saw. For a third-party observation the hidden neighbor is the
+					// reporter (local_device_id), and the Device it saw (remote_device_id) is an end of the manual link.
+					'remote_device_id' => $observation['device_id'],
+					'remote_name' => $observation['device_id'] !== null ? ($devices[$observation['device_id']] ?? null) : null,
+					'third_party' => $verdict['third_party'],
 					'hidden_device_id' => $hidden,
 					'hidden_name' => $hidden !== null ? ($devices[$hidden] ?? null) : null,
-					'remote_key' => $observation['remote_key'],
+					// A third-party acknowledgment records the natural key of the reporter's local port (model "Acknowledgments").
+					'remote_key' => $verdict['third_party']
+						? topo_reporter_port_key($device_attrs[$local_device] ?? [], $ports[$observation['local_port_id']]['if_index'] ?? null)
+						: $observation['remote_key'],
 					'remote_port' => $remote_attrs['rem_port_desc'] ?? ($remote_attrs['rem_port'] ?? null),
 					'first_seen' => (int) $observation['first_seen'],
 					'reporter' => ['hostid' => $observation['hostid'], 'name' => $observation['host_name']],
@@ -1398,6 +1435,41 @@ class CTopologyPrototype {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Superseded edges that are not drawn while a manual link is contradicted (topology-1-model.md "Contradicted manual
+	 * links"): for every unacknowledged shadowing observation, the ghost line is drawn from the reporter's Device to the
+	 * Device it saw, and a superseded edge for the same port pair is not drawn next to it (one line, not two). Once the
+	 * hidden neighbor is acknowledged the ghost goes and the superseded edge renders as usual.
+	 *
+	 * @param array $contradictions  the result of getContradictions()
+	 *
+	 * @return array  edge id => true
+	 */
+	private static function getEdgesHiddenByGhosts(array $contradictions): array {
+		$hidden = [];
+		foreach ($contradictions as $entry) {
+			foreach ($entry['shadows'] as $shadow) {
+				if ($shadow['acknowledged'] || $shadow['local_port_id'] === null || $shadow['remote_device_id'] === null) {
+					continue;
+				}
+				$local = zbx_dbstr($shadow['local_port_id']);
+				$remote_device = zbx_dbstr($shadow['remote_device_id']);
+				$remote_ports = 'SELECT id FROM topo_nodes WHERE device_id='.$remote_device.' AND type='.zbx_dbstr('port');
+				$cursor = DBselect('SELECT id,attrs FROM topo_edges WHERE ('.
+					'type='.zbx_dbstr('physical_link').' AND ((src_id='.$local.' AND dst_id IN ('.$remote_ports.'))'.
+						' OR (dst_id='.$local.' AND src_id IN ('.$remote_ports.'))))'.
+					' OR (type='.zbx_dbstr('device_link').' AND src_id='.$local.' AND dst_id='.$remote_device.')');
+				while ($row = DBfetch($cursor, false)) {
+					if (self::supersededAt(self::attrs($row)) !== null) {
+						$hidden[$row['id']] = true;
+					}
+				}
+			}
+		}
+
+		return $hidden;
 	}
 
 	private static function getManualLink(string $edge_id): array {
@@ -1509,6 +1581,7 @@ class CTopologyPrototype {
 
 		$sql = 'SELECT o.id,o.itemid,o.local_port_id,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,'.
 				'o.link_precision,o.far_port_reason,o.precision_lower,o.first_seen,o.last_seen,i.name AS rule_name,h.hostid,h.name AS host_name,port.attrs AS port_attrs,'.
+				'port.device_id AS local_device_id,'.
 				'remote.attrs AS device_attrs'.
 			' FROM topo_observations o'.
 			// Only observations of a rule that still has a usable snapshot: enabled rule on an enabled host, snapshot of its current role
@@ -1534,23 +1607,61 @@ class CTopologyPrototype {
 		while ($row = DBfetch($cursor, false)) {
 			$rows[] = $row;
 		}
-		// Acknowledgments of the manual links that shadow these rows (attrs.shadow_ack, by hidden Device).
+		// Acknowledgments of the manual links that shadow these rows (attrs.shadow_ack, by hidden Device), and the Ports and
+		// Devices each manual link joins: the hidden neighbor of a row is decided by topo_hidden_neighbor(), the definition
+		// shared with ingest.php and getContradictions() (third party: the reporter, not the end of the link it reports).
 		$acknowledged_devices = [];
+		$edge_ends = [];
 		$edge_ids = array_values(array_unique(array_filter(array_column($rows, 'edge_id'))));
 		if ($edge_ids) {
-			$edges = DBselect('SELECT id,attrs FROM topo_edges WHERE '.dbConditionId('id', $edge_ids));
+			$edge_rows = [];
+			$end_port_ids = [];
+			$edges = DBselect('SELECT id,type,src_id,dst_id,attrs FROM topo_edges WHERE '.dbConditionId('id', $edge_ids));
 			while ($edge = DBfetch($edges, false)) {
+				$edge_rows[$edge['id']] = $edge;
+				$end_port_ids[] = $edge['src_id'];
+				if ($edge['type'] === 'physical_link') {
+					$end_port_ids[] = $edge['dst_id'];
+				}
 				foreach (self::attrs($edge)['shadow_ack'] ?? [] as $ack) {
 					$acknowledged_devices[$edge['id']][(string) ($ack['device_id'] ?? '')] = true;
 				}
+			}
+			$port_device = [];
+			if ($end_port_ids) {
+				$cursor = DBselect('SELECT id,device_id FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($end_port_ids))));
+				while ($port = DBfetch($cursor, false)) {
+					$port_device[$port['id']] = (int) $port['device_id'];
+				}
+			}
+			foreach ($edge_rows as $edge_id => $edge) {
+				$ports_of_edge = [(int) $edge['src_id']];
+				$devices_of_edge = [$port_device[$edge['src_id']] ?? 0];
+				if ($edge['type'] === 'physical_link') {
+					$ports_of_edge[] = (int) $edge['dst_id'];
+					$devices_of_edge[] = $port_device[$edge['dst_id']] ?? 0;
+				}
+				else {
+					$devices_of_edge[] = (int) $edge['dst_id'];
+				}
+				$edge_ends[$edge_id] = ['ports' => $ports_of_edge, 'devices' => array_values(array_filter($devices_of_edge))];
 			}
 		}
 		// DBfetch(..., false): with the default $convertNulls a NULL edge_id/device_id would come back as '0'
 		// (GOTCHAS.md #1), which is exactly the "no edge / no remote Device" state that must stay null.
 		foreach ($rows as $row) {
-			$acknowledged = $row['outcome'] === 'shadowed' && $row['edge_id'] !== null && $row['device_id'] !== null
-				&& isset($acknowledged_devices[$row['edge_id']][$row['device_id']]);
-			if ($contradicted_only && $acknowledged) {
+			$acknowledged = false;
+			$not_hidden = false;      // a shadow of the link's own far end at another precision: not contradicting
+			if ($row['outcome'] === 'shadowed' && $row['edge_id'] !== null && isset($edge_ends[$row['edge_id']])) {
+				$verdict = topo_hidden_neighbor((int) $row['local_port_id'],
+					$row['local_device_id'] === null ? null : (int) $row['local_device_id'],
+					$row['device_id'] === null ? null : (int) $row['device_id'],
+					$edge_ends[$row['edge_id']]['ports'], $edge_ends[$row['edge_id']]['devices']);
+				$not_hidden = $verdict['kind'] === 'own';
+				$acknowledged = $verdict['kind'] === 'hidden'
+					&& isset($acknowledged_devices[$row['edge_id']][(string) $verdict['device_id']]);
+			}
+			if ($contradicted_only && ($acknowledged || $not_hidden)) {
 				continue;
 			}
 			$port_attrs = json_decode((string) $row['port_attrs'], true) ?: [];

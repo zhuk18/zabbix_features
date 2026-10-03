@@ -63,18 +63,30 @@ def evaluate(a, state, ingest, history, clocks_hist, step):
     if 'link' in a:
         x, y = a['link']
         ls = find_links(state, x, y, a.get('type'))
-        if a.get('via'):
-            ls = [l for l in ls if l['via'] == a['via']]
+        if a.get('discovered_via'):
+            ls = [l for l in ls if l['via'] == a['discovered_via']]
+        if a.get('far_port_reason'):
+            ls = [l for l in ls if l['far_port_reason'] == a['far_port_reason']]
         want = a.get('state', 'active')
-        if a.get('reason'):
-            ls = [l for l in ls if l['far_port_reason'] == a['reason']]
+        if want == 'stale':
+            return Result('link', a, 'pending', 'state stale needs the derived-state helper (topology-4-lab-simulator.md "Open questions"): not implemented')
+        if want == 'absent':
+            active = [l for l in ls if l['state'] == 'active']
+            return Result('link', a, 'fail' if active else 'pass',
+                          'unexpected active link: %s' % [(l['ends'], l['type'], l['via']) for l in active] if active else '')
         ok = any(l['state'] == want for l in ls)
         return Result('link', a, 'pass' if ok else 'fail',
                       '' if ok else 'no %s link %s - %s (found: %s)' % (want, x, y, [(l['ends'], l['type'], l['via'], l['state']) for l in ls]))
-    if 'link_absent' in a:
-        x, y = a['link_absent']
-        ls = [l for l in find_links(state, x, y, a.get('type')) if l['state'] == a.get('state', 'active')]
-        return Result('link_absent', a, 'fail' if ls else 'pass', 'unexpected link: %s' % [l['ends'] for l in ls] if ls else '')
+    if 'observation_count' in a:
+        r = a['observation_count']
+        ls = find_links(state, r['edge'][0], r['edge'][1])
+        ids = {l['id'] for l in ls}
+        n = len([o for o in state['observations'] if o['outcome'] == r['outcome'] and o['edge_id'] in ids])
+        return Result('observation_count', a, 'pass' if n == r['equals'] else 'fail',
+                      '' if n == r['equals'] else '%d %s observation(s) of link %s - %s, expected %s' % (n, r['outcome'], r['edge'][0], r['edge'][1], r['equals']))
+    if 'contradiction' in a or 'badge' in a:
+        return Result('contradiction' if 'contradiction' in a else 'badge', a, 'pending',
+                      'derived state (contradiction, badges) needs the read-only helper (topology-4-lab-simulator.md "Open questions"): not implemented')
     if 'observation' in a:
         o = a['observation']
         hits = [x for x in state['observations'] if x['reporter'] == o['reporter'] and x['port'] == o['port']
@@ -149,7 +161,8 @@ def _sub(a, b):
 
 
 def create_manual_links(conn, scenario, i, log):
-    """zabbix_manual_link deviations enabled by step i: a manual physical_link between two existing ports."""
+    """zabbix_manual_link deviations enabled by step i: a manual physical_link between two existing ports, created through
+    CTopologyPrototype::linkPorts() (php/manual_link.php), the code path of the UI endpoint."""
     new = scenario.states[i].active - (scenario.states[i - 1].active if i else set())
     gone = (scenario.states[i - 1].active if i else set()) - scenario.states[i].active
     out = []
@@ -167,8 +180,16 @@ def create_manual_links(conn, scenario, i, log):
             if nid is None:
                 raise LabError('deviation %s: port %s does not exist in topo_nodes yet (ingest it first)' % (dev_id, ref))
             ids.append(nid)
-        eid = db.insert_manual_link(conn, *ids)
-        log('  manual link %s - %s created (edge %s)' % (d['link'][0], d['link'][1], eid))
+        p = subprocess.run(['php', os.path.join(HERE, 'php', 'manual_link.php'), str(ids[0]), str(ids[1])],
+                           capture_output=True, text=True, timeout=120)
+        try:
+            answer = json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            answer = {'error': (p.stderr or p.stdout).strip()[:300]}
+        if p.returncode or 'error' in answer:
+            raise LabError('deviation %s: the UI code path refused the manual link: %s' % (dev_id, answer.get('error')))
+        eid = db.edge_between(conn, ids[0], ids[1])
+        log('  manual link %s - %s created through CTopologyPrototype::linkPorts (edge %s)' % (d['link'][0], d['link'][1], eid))
         out.append(eid)
     return out
 

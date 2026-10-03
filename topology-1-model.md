@@ -948,7 +948,9 @@ revokes all acks.
   - **Third-party:** from reporter D that is not an end of M, where the
     remote port of the observation is an end port of M. The **hidden
     neighbor** is the reporter D, not `device_id` (`device_id` is an end
-    of M). Status: not implemented.
+    of M). Status: implemented: one shared function `topo_hidden_neighbor()`
+    (`database/topology/topology_contradiction.inc.php`) used by ingest and
+    `CTopologyPrototype`.
 - Observations mirror the latest snapshots, so "current" needs no clock.
 
 **State *contradicted*** (derived at read time, not stored): M is
@@ -1125,7 +1127,7 @@ Each channel is independent. Never put two meanings on one channel.
 - While M is contradicted, a superseded edge for the same port pair is
   **not drawn**; only the ghost is drawn. After the ack, the ghost goes
   and the superseded edge renders as usual.
-  Status: not implemented (third-party case and this rendering rule).
+  Status: implemented (third-party case and this rendering rule).
 - **Details of M:** created date/user if stored (no new columns);
   unacknowledged hidden neighbors with *Accept discovery* / *Keep manual*;
   acknowledged neighbors "kept by \<by\> on \<at\>" with *Revoke*;
@@ -1307,7 +1309,7 @@ keys, check convergence by ids (§6.10).
 - Hidden neighbor with other links still gets the badge.
 - Ingest keeps `shadow_ack` byte-identical; no ingest run changes a
   manual link.
-- **Third party (not implemented):**
+- **Third party** (tests: `test_manual_contradiction.php` sections 11 and 12; lab S0 steps 1 and 2 check the counts):
   - UPS1 without LLDP (`omit_mib: lldp`), M = Router1:Gi0/1 ↔ UPS1:eth0,
     Router1 sees Printer1 on Gi0/1, Switch2 sees UPS1:eth0 → two
     shadowing observations (Printer1 near end, Switch2 third party);

@@ -95,6 +95,11 @@ deviations:
     reason: "topology-1-model.md (Acceptance criteria), manual-link lab case: manual Router1 Gi0/1 - UPS1, LLDP shows Printer1 on Gi0/1"
     type: zabbix_manual_link
     link: [Router1:Gi0/1, UPS1:eth0]
+  - id: ups1-no-lldp
+    reason: "topology-1-model.md (Acceptance criteria), manual-link lab case, UPS1 without LLDP: UPS1 does not report the manual link's far side"
+    type: omit_mib
+    device: UPS1
+    mib: lldp
   - id: printer1-hex-sysname
     reason: "topology-2-lld-delivery.md (Edge cases (synthetic walks)): non-UTF-8 bytes in lldpRemSysName"
     type: override_oid

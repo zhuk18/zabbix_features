@@ -66,7 +66,7 @@ steps:
       - link_attr: {link: [Switch1:Gi0/7, AP2], attr: last_seen_port, vs_step: 2, is: eq}
       - link: [Switch1:Gi0/8, AP2]
         type: device_link
-        reason: port_shared_id
+        far_port_reason: port_shared_id
         state: active
   - id: 4
     note: shared id removed (AP2 no longer on Switch1:Gi0/8)

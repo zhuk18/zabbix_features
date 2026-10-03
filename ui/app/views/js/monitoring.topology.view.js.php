@@ -332,11 +332,27 @@ const view = new class {
 		return new Date(unix * 1000).toLocaleString();
 	}
 
+	// What discovery says, as plain text. Near end: the hidden neighbor is what the link's own port sees. Third party
+	// (topology-1-model.md "Contradiction"): the hidden neighbor is the reporter, which sees an end of the link on its own port.
+	shadowText(shadow) {
+		return shadow.third_party
+			? `${shadow.hidden_name ?? '?'} ${<?= json_encode(_('sees')) ?>} ${shadow.remote_name ?? '?'} ${<?= json_encode(_('on')) ?>} ${shadow.local_port ?? '?'}`
+			: `${<?= json_encode(_('Discovery sees')) ?>} ${shadow.hidden_name ?? shadow.remote_key} ${<?= json_encode(_('on')) ?>} ${shadow.local_port ?? '?'}`;
+	}
+
+	// The Device at the other end of a hidden-neighbor line: the end of the manual link that the shadow is seen from.
+	shadowFar(entry, shadow) {
+		if (shadow.third_party) {
+			return shadow.remote_name;
+		}
+
+		return String(shadow.local_device_id) === String(entry.device_a) ? entry.device_b_name : entry.device_a_name;
+	}
+
 	// Tooltip of the warning badge on a contradicted manual link: one line per unacknowledged hidden neighbor.
 	contradictionSummary(entry) {
 		return entry.shadows.filter(shadow => !shadow.acknowledged).map(shadow =>
-			`${<?= json_encode(_('Discovery sees')) ?>} ${shadow.hidden_name ?? shadow.remote_key} ` +
-			`${<?= json_encode(_('on')) ?>} ${shadow.local_port ?? '?'} (${<?= json_encode(_('since')) ?>} ${this.formatDate(shadow.first_seen)})`
+			`${this.shadowText(shadow)} (${<?= json_encode(_('since')) ?>} ${this.formatDate(shadow.first_seen)})`
 		).join('\n');
 	}
 
@@ -357,8 +373,8 @@ const view = new class {
 					? `<em>${this.escape(<?= json_encode(_('unknown device: it cannot be acknowledged')) ?>)}</em> `
 					: `<button type="button" class="btn-alt" data-topology-manual="keep" data-edge="${edge}" ` +
 						`data-device="${this.escape(shadow.hidden_device_id)}">${this.escape(<?= json_encode(_('Keep manual')) ?>)}</button> `;
-				parts.push(`<li>${this.escape(shadow.hidden_name ?? shadow.remote_key)} ${this.escape(<?= json_encode(_('on')) ?>)} ` +
-					`${this.escape(shadow.local_port ?? '?')}${shadow.remote_port ? ' (' + this.escape(shadow.remote_port) + ')' : ''}, ` +
+				parts.push(`<li>${this.escape(this.shadowText(shadow))}` +
+					`${shadow.remote_port ? ' (' + this.escape(shadow.remote_port) + ')' : ''}, ` +
 					`${this.escape(<?= json_encode(_('reported by')) ?>)} ${this.escape(shadow.reporter.name)}, ` +
 					`${this.escape(<?= json_encode(_('since')) ?>)} ${this.escape(this.formatDate(shadow.first_seen))}<br>${buttons}` +
 					`<button type="button" class="btn-alt" data-topology-manual="accept" data-edge="${edge}">` +
@@ -390,7 +406,7 @@ const view = new class {
 			if (!shadow && !ack) {
 				return;
 			}
-			const far = shadow && String(shadow.local_device_id) === String(entry.device_a) ? entry.device_b_name : entry.device_a_name;
+			const far = shadow ? this.shadowFar(entry, shadow) : entry.device_a_name;
 			const state = ack
 				? `${this.escape(<?= json_encode(_('kept by')) ?>)} ${this.escape(ack.by)} ${this.escape(<?= json_encode(_('on')) ?>)} ${this.escape(this.formatDate(ack.at))}`
 				: this.escape(<?= json_encode(_('not acknowledged')) ?>);
@@ -1327,7 +1343,9 @@ const view = new class {
 				return;
 			}
 			const from = node_by_id.get(resolve_display_id(String(shadow.local_device_id)));
-			const to = node_by_id.get(resolve_display_id(String(shadow.hidden_device_id)));
+			// The line goes from the reporter's Device to the Device it saw; for a third-party observation that is an end of the
+			// manual link, not the hidden neighbor (which is the reporter itself).
+			const to = node_by_id.get(resolve_display_id(String(shadow.remote_device_id ?? shadow.hidden_device_id)));
 			const pair = [from?.id, to?.id].sort().join('-');
 			if (!from || !to || from === to || ghost_seen.has(pair)) {
 				return;
@@ -1341,8 +1359,7 @@ const view = new class {
 			.on('click', (event, ghost) => this.manualAction('open', ghost.entry.edge_id));
 		const ghost_lines = ghosts.append('line').attr('stroke', '#c2410c').attr('stroke-width', 2)
 			.attr('stroke-dasharray', '2 5').style('pointer-events', 'stroke');
-		ghosts.append('title').text(ghost => `${<?= json_encode(_('Discovery sees')) ?>} ${ghost.shadow.hidden_name ?? ghost.shadow.remote_key} ` +
-			`${<?= json_encode(_('on')) ?>} ${ghost.shadow.local_port ?? '?'}`);
+		ghosts.append('title').text(ghost => this.shadowText(ghost.shadow));
 		const ghost_labels = ghosts.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
 			.style('fill', '#c2410c').style('pointer-events', 'none').text(ghost => ghost.shadow.remote_port ?? '');
 		const contradicted_links = simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type) && link.edge_id !== null
@@ -1478,7 +1495,7 @@ const view = new class {
 				return;
 			}
 			const display_id = resolve_display_id(String(shadow.hidden_device_id));
-			const far = String(shadow.local_device_id) === String(entry.device_a) ? entry.device_b_name : entry.device_a_name;
+			const far = this.shadowFar(entry, shadow);
 			const line = `${<?= json_encode(_('Link hidden by manual link')) ?>} ${shadow.local_port ?? '?'} ↔ ${far ?? '?'} ` +
 				`${<?= json_encode(_('on')) ?>} ${shadow.reporter.name}`;
 			hidden_tooltips.set(display_id, [...(hidden_tooltips.get(display_id) ?? []), line]);

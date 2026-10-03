@@ -42,9 +42,9 @@ environment variable; it is never written to a file. Exit code 0 only if every n
 - Zabbix configuration changes go through the API. Hosts get the tag `lab.managed=1`. A host without the tag is only touched
   when it is listed in `settings.adopt`, and its configuration is exported (`configuration.export`) to
   `settings.export_dir` (default `~/work/lab-backup`) first. `provision --prune` deletes only tagged hosts.
-- Writes to `topo_*`: `run --reset` (clear; "Reset" in the spec) and the `zabbix_manual_link` deviation (one `topo_edges` row, the way
-  `test_manual_contradiction.php` creates a manual link; the UI action needs a browser session).
-- No topology code is changed.
+- Writes to `topo_*`: `run --reset` (clear; "Reset" in the spec) and the `zabbix_manual_link` deviation, which runs `php/manual_link.php`
+  (`CTopologyPrototype::linkPorts()`, the UI code path; it refuses unless the database is `zabbix`).
+- No topology code is changed by the tool.
 
 ## snmpsim: why `labmultiplex`
 

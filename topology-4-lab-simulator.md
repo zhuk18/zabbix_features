@@ -183,11 +183,10 @@ deviations:
 | `ifindex_renumber` | changes ifIndex values; names stay |
 | `zabbix_manual_link` | creates a manual `physical_link` between two existing ports through the **same code path as the UI endpoint** (`CTopologyPrototype::linkPorts`: existence checks, canonical direction), called from a lab PHP helper. The function uses only the database layer, so it needs no browser session. Disabling it in a later step is not supported. |
 
-Status (`zabbix_manual_link`): not implemented. **Known deviation:** the
-tool inserts the `topo_edges` row itself (`physical_link`,
-`discovered_via: manual`, smaller port id as `src_id`), the way the test
-suites do. It skips the checks of the real path. The helper is built with
-the lab changes of S0 step 2.
+Status (`zabbix_manual_link`): implemented. The runner calls
+`php/manual_link.php`, which calls `CTopologyPrototype::linkPorts()`.
+`linkPorts` checks that both ports exist and are attached to devices, and
+that they differ; it does not check port uniqueness (see below).
 
 **Conflict to decide (reported, not resolved here).** `linkPorts` as built
 does not check port uniqueness (`linkPortToDevice` does), while model §9.1
@@ -481,15 +480,12 @@ Status: not implemented (depends on model §8.8).
 | 1 | deviation `router1-gi01-manual-vs-lldp` enabled: manual Router1:Gi0/1 ↔ UPS1:eth0, UPS1 with LLDP | model §15 "UPS1 with LLDP": three shadowing observations; hidden neighbors Printer1 and Switch2; `manual_links_contradicted` = 1 |
 | 2 | deviation `ups1-no-lldp` (`omit_mib: lldp` on UPS1) enabled; the manual link stays | model §15 "UPS1 without LLDP": two shadowing observations (Printer1 near end, Switch2 third party); no badge on UPS1 |
 
-- Built: steps 0 and 1 (assertions: the manual link is active; the
-  Printer1 observation is `shadowed`; `manual_links_contradicted` = 1).
-  Status: not implemented: step 2, and the hidden-neighbor, badge and
-  observation-count assertions of step 1 (they need model §9.4 third party
-  and the helper of §11).
+- Built: steps 0, 1 and 2 (assertions: the manual link is active; the
+  Printer1 observation is `shadowed`; `manual_links_contradicted` = 1;
+  `observation_count`). Status: not implemented: the `contradiction` and
+  `badge` assertions stay `pending` until the helper of §11.
 - The old `snmpdata/*` files were replaced by generated files after step 0
   passed (a copy is kept outside the repository).
-- Until model §9.4 (third party) is implemented, the third-party
-  assertions are expected to fail; that is a valid result.
 
 ### S1 — Recabling, flicker, return
 
@@ -549,8 +545,9 @@ Status: not implemented (depends on model §8.8 and on §8.5 here).
 - No host without `lab.managed=1` is changed.
 - Verified: S0–S3 run end to end; S3 twice from `--reset` gives equal
   reports.
-- Not implemented yet: the renamed assertion keys and `stale`,
-  `observation_count`, `contradiction`, `badge`; S0 step 2; the freshness
+- Assertion keys follow the model names (`discovered_via`,
+  `far_port_reason`, `state: absent`); no aliases. Not implemented yet:
+  `stale`, `contradiction`, `badge` (they stay `pending`); the freshness
   override with restore after failure and after a killed run (§8.5, S4).
 
 ## 11. Open questions

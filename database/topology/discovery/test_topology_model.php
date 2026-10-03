@@ -50,8 +50,11 @@ foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
+$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
+	' rows_valid INT NOT NULL DEFAULT 0)');
 
 // ---- the Zabbix PHP layer against the test database ----
 $ui = realpath(__DIR__.'/../../../ui');
@@ -351,5 +354,99 @@ $snapshot = $pdo->query('SELECT id, type, src_id, dst_id, attrs FROM topo_edges 
 check(call($class, ['id' => (string) $dl3, 'far_port_id' => (string) $Bp1]) === 'denied', 'the guest user is denied');
 check($pdo->query('SELECT id, type, src_id, dst_id, attrs FROM topo_edges ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $snapshot, 'and nothing changed');
 login();
+
+// ============================================================================================================
+echo "\n=== step 6: third-party shadowing (topology-1-model.md \"Contradiction\") ===\n";
+reset_topology($pdo);
+$pdo->exec('DELETE FROM items');
+$pdo->exec('DELETE FROM hosts');
+$Rd = device($pdo, 'Router1');
+$Sd = device($pdo, 'Switch2');
+$Ud = device($pdo, 'UPS1');
+$Pd = device($pdo, 'Printer1');
+$Rp = port($pdo, $Rd, 1, 'Gi0/1');
+$Sp = port($pdo, $Sd, 1, 'Gi0/1');
+$Up = port($pdo, $Ud, 1, 'eth0');
+$Pp = port($pdo, $Pd, 1, 'Gi0/1');
+foreach ([[101, 'Router1', 1002], [103, 'Switch2', 3002]] as [$hostid, $hostname, $itemid]) {
+	$pdo->prepare('INSERT INTO hosts (hostid, host, name, status) VALUES (?, ?, ?, 0)')->execute([$hostid, $hostname, $hostname]);
+	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role, type) VALUES (?, ?, 0, 2, 0)')->execute([$itemid, $hostid]);
+	$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json) VALUES (?, ?, 2, 1, 'h', '[]')")
+		->execute([$itemid, $hostid]);
+}
+API::$visible = [101, 103];
+// M = Router1:Gi0/1 <-> UPS1:eth0 (manual). Router1 sees the printer on Gi0/1; Switch2 (not an end of M) sees UPS1:eth0 on
+// its own Gi0/1. Both discovered links are superseded by M; UPS1 does not report (no LLDP).
+$M = edge($pdo, 'physical_link', min($Rp, $Up), max($Rp, $Up), ['discovered_via' => 'manual', 'last_seen' => time()]);
+$e_rp = edge($pdo, 'physical_link', min($Rp, $Pp), max($Rp, $Pp), ['discovered_via' => 'lldp', 'last_seen' => time() - 100, 'superseded_at' => time() - 50]);
+$e_su = edge($pdo, 'physical_link', min($Sp, $Up), max($Sp, $Up), ['discovered_via' => 'lldp', 'last_seen' => time() - 100, 'superseded_at' => time() - 50]);
+$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen)".
+	" VALUES (?, ?, ?, ?, 'shadowed', ?, ?, 1, 1)");
+$observe->execute([1002, $Rp, 'chassis:-:Printer1', '{"rem_port":"Gi0/1"}', $M, $Pd]);
+$observe->execute([3002, $Sp, 'chassis:-:UPS1', '{"rem_port":"eth0"}', $M, $Ud]);
+
+$c = CTopologyPrototype::getContradictions();
+check(count($c) === 1 && $c[0]['contradicted'], 'M is contradicted');
+$by_reporter = [];
+foreach ($c[0]['shadows'] as $shadow) {
+	$by_reporter[$shadow['reporter']['name']] = $shadow;
+}
+$third = $by_reporter['Switch2'];
+check($third['third_party'] === true && (int) $third['hidden_device_id'] === $Sd, 'Switch2\'s shadow is third party; the hidden neighbor is Switch2');
+check((int) $third['remote_device_id'] === $Ud && $third['remote_name'] === 'UPS1', 'it saw UPS1, an end of M');
+check((int) $third['local_device_id'] === $Sd, 'and it comes from Switch2\'s own port (the ghost starts there)');
+check($third['remote_key'] === 'port:chassis:-:Switch2:1', 'its acknowledgment key is the natural key of the reporter\'s local port');
+$near = $by_reporter['Router1'];
+check($near['third_party'] === false && (int) $near['hidden_device_id'] === $Pd && $near['remote_key'] === 'chassis:-:Printer1',
+	'Router1\'s shadow is the near end: the hidden neighbor is Printer1, remote_key as received');
+check(!in_array((string) $Ud, array_map(static fn (array $x): string => (string) $x['hidden_device_id'], $c[0]['shadows']), true),
+	'UPS1 is not a hidden neighbor');
+
+echo "\n  -- the superseded edges under the ghost lines are not drawn\n";
+$drawn = static function () use ($e_rp, $e_su): array {
+	$ids = [];
+	foreach (CTopologyPrototype::getRelations() as $relation) {
+		if (($relation['type'] ?? '') === 'physical_link') {
+			$ids[(int) $relation['edge_id']] = true;
+		}
+	}
+	return $ids;
+};
+$ids = $drawn();
+check(isset($ids[$M]) && !isset($ids[$e_rp]) && !isset($ids[$e_su]), 'M is drawn; neither superseded edge is');
+$neighbors = CTopologyPrototype::getNeighbors((string) $Ud);
+check(neighbor($neighbors, $Sd) === null, 'the neighbor expansion of UPS1 does not list Switch2 through the hidden superseded edge');
+
+echo "\n  -- keep manual for Switch2 only\n";
+CTopologyPrototype::keepManual((string) $M, (string) $Sd, 'Admin');
+$ack = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id={$M}")->fetchColumn(), true)['shadow_ack'];
+check(count($ack) === 1 && (int) $ack[0]['device_id'] === $Sd && $ack[0]['remote_key'] === 'port:chassis:-:Switch2:1',
+	'one acknowledgment, keyed by the reporter Device, remote_key = the reporter\'s port');
+$c = CTopologyPrototype::getContradictions();
+check($c[0]['contradicted'] === true, 'M is still contradicted (Printer1 is not acknowledged)');
+$ids = $drawn();
+check(isset($ids[$e_su]) && !isset($ids[$e_rp]), 'the Switch2 - UPS1 edge renders again; the Router1 - Printer1 one stays hidden');
+check(neighbor(CTopologyPrototype::getNeighbors((string) $Ud), $Sd) !== null, 'and UPS1\'s neighbor expansion lists Switch2 again');
+$rows = CTopologyPrototype::getObservations(['shadowed']);
+$ack_by_reporter = [];
+foreach ($rows as $row) {
+	$ack_by_reporter[$row['reporter']['name']] = $row['acknowledged'];
+}
+ksort($ack_by_reporter);
+check($ack_by_reporter === ['Router1' => false, 'Switch2' => true], '/topo/observations: acknowledged is decided by the hidden neighbor');
+$contradicted_rows = CTopologyPrototype::getObservations(null, null, 500, true);
+check(count($contradicted_rows) === 1 && $contradicted_rows[0]['reporter']['name'] === 'Router1', 'contradicted=1 lists only Router1\'s row');
+
+echo "\n  -- keep manual for Printer1 too\n";
+CTopologyPrototype::keepManual((string) $M, (string) $Pd, 'Admin');
+check(CTopologyPrototype::getContradictions()[0]['contradicted'] === false, 'no longer contradicted');
+$ids = $drawn();
+check(isset($ids[$e_su]) && isset($ids[$e_rp]), 'both superseded edges render as usual');
+
+echo "\n  -- a far end of M seen at another precision is not a hidden neighbor\n";
+$pdo->exec('DELETE FROM topo_observations');
+$observe->execute([1002, $Rp, 'chassis:-:UPS1', '{"rem_port":"eth0"}', $M, $Ud]);       // Router1 sees UPS1 on Gi0/1: M's own far end
+$shadows = CTopologyPrototype::getContradictions()[0]['shadows'] ?? [];
+check($shadows === [], 'no shadow for it');
 
 echo "\nAll topology model tests passed.\n";

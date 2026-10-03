@@ -463,4 +463,113 @@ $pdo->exec('UPDATE hosts SET status=0 WHERE hostid=101');
 $r = ingest($dsn, $user, $password, $pdo, 'with the host enabled again');
 check(contradicted($r) === 1, 'contradicted again from the same last snapshot');
 
+// ============================================================================================================
+// Third-party shadowing (topology-1-model.md "Contradiction"): a neighbor that reports a port of the manual link as its
+// own neighbor also contradicts it, and the hidden neighbor is the reporter, not the end of the link it reports. The
+// rule is topo_hidden_neighbor(), shared with CTopologyPrototype; here it is applied to the observations ingest wrote.
+require_once __DIR__.'/../topology_contradiction.inc.php';
+
+/** The hidden neighbor Devices of manual link $edge_id, from its shadowing observations (sorted, distinct). */
+function hidden_neighbors(PDO $pdo, int $edge_id): array {
+	$edge = $pdo->query("SELECT type, src_id, dst_id FROM topo_edges WHERE id={$edge_id}")->fetch(PDO::FETCH_ASSOC);
+	$end_ports = [(int) $edge['src_id'], (int) $edge['dst_id']];
+	$end_devices = [];
+	foreach ($end_ports as $port) {
+		$end_devices[] = (int) scalar($pdo, 'SELECT device_id FROM topo_nodes WHERE id=?', [$port]);
+	}
+	$hidden = [];
+	foreach ($pdo->query("SELECT o.local_port_id, o.device_id, p.device_id AS local_device FROM topo_observations o".
+			" JOIN topo_nodes p ON p.id=o.local_port_id WHERE o.outcome='shadowed' AND o.edge_id={$edge_id}")->fetchAll(PDO::FETCH_ASSOC) as $o) {
+		$verdict = topo_hidden_neighbor((int) $o['local_port_id'], (int) $o['local_device'],
+			$o['device_id'] === null ? null : (int) $o['device_id'], $end_ports, $end_devices);
+		if ($verdict['kind'] === 'hidden') {
+			$hidden[$verdict['device_id']] = true;
+		}
+	}
+	$ids = array_keys($hidden);
+	sort($ids);
+	return $ids;
+}
+
+$S = 'e0:00:00:00:00:05';     // Switch2: reports UPS1:eth0 on its own Gi0/1, and is not an end of the manual link
+
+/**
+ * The lab: Router1 Gi0/1 sees the printer, Switch2 Gi0/1 sees UPS1:eth0 (both discovered links exist), then the manual
+ * link Router1:Gi0/1 <-> UPS1:eth0 is drawn over them, the way the UI endpoint does. UPS1 reports (with LLDP) or not.
+ */
+function third_party_case(PDO $pdo, string $dsn, string $user, string $password, string $R, string $U, string $PR, string $S,
+		bool $ups_lldp): array {
+	reset_db($pdo);
+	add_host($pdo, 101, 'Router1', 'Router1', '10.0.0.1');
+	add_host($pdo, 103, 'Switch2', 'Switch2', '10.0.0.3');
+	snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+	snapshot($pdo, 3001, 103, 1, CLOCK, ports_rows($S, [1 => 'Gi0/1']));
+	snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nbr($R, 1, $PR, 'Gi0/1')]);
+	snapshot($pdo, 3002, 103, 2, CLOCK + 10, [nbr($S, 1, $U, 'eth0')]);
+	if ($ups_lldp) {
+		add_host($pdo, 102, 'UPS1', 'UPS1', '10.0.0.2');
+		snapshot($pdo, 2001, 102, 1, CLOCK, ports_rows($U, [1 => 'eth0']));
+		snapshot($pdo, 2002, 102, 2, CLOCK + 10, [nbr($U, 1, $S, 'Gi0/1')]);
+	}
+	ingest($dsn, $user, $password, $pdo, 'with the discovered links');
+	$P = ports_of($pdo, $R)['Gi0/1'];
+	$Up = ports_of($pdo, $U)['eth0'];
+	$out = ['P' => $P, 'Up' => $Up, 'printer_port' => ports_of($pdo, $PR)['Gi0/1'], 'switch_port' => ports_of($pdo, $S)['Gi0/1']];
+	$out['edge_printer'] = link_between($pdo, $P, $out['printer_port'])['id'];
+	$out['edge_switch'] = link_between($pdo, $out['switch_port'], $Up)['id'];
+	$out['M'] = raw_link($pdo, $P, $Up, 'manual');
+	return $out;
+}
+
+echo "\n=== 11: UPS1 without LLDP — the third party (Switch2) is a hidden neighbor, UPS1 is not ===\n";
+$t = third_party_case($pdo, $dsn, $user, $password, $R, $U, $PR, $S, false);
+$r = ingest($dsn, $user, $password, $pdo, 'with the manual link over both discovered links');
+check(contradicted($r) === 1, 'manual_links_contradicted = 1');
+$edge_of_switch = observation($pdo, 3002, $U);
+check($edge_of_switch['outcome'] === 'shadowed' && (int) $edge_of_switch['edge_id'] === $t['M'], 'Switch2\'s observation of UPS1 is shadowed by the manual link');
+check(observation($pdo, 1002, $PR)['outcome'] === 'shadowed', 'Router1\'s observation of the printer is shadowed by the manual link');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='shadowed' AND edge_id=?", [$t['M']]) === 2, 'two shadowing observations');
+$hidden = hidden_neighbors($pdo, $t['M']);
+$expect = [device_id($pdo, $PR), device_id($pdo, $S)];
+sort($expect);
+check($hidden === $expect, 'hidden neighbors: Printer1 and Switch2');
+check(!in_array(device_id($pdo, $U), $hidden, true), 'UPS1 is not a hidden neighbor');
+check(isset(link_between($pdo, $t['P'], $t['printer_port'])['superseded_at']) && isset(link_between($pdo, $t['switch_port'], $t['Up'])['superseded_at']),
+	'both discovered links are superseded by the manual link');
+// acknowledging UPS1 (the old, wrong key) does nothing; acknowledging the hidden neighbors one by one does
+acknowledge($pdo, $t['M'], device_id($pdo, $U), 'chassis:macAddress:'.$U);
+check(contradicted(ingest($dsn, $user, $password, $pdo, 'after acknowledging UPS1')) === 1, 'acknowledging UPS1 does not clear the contradiction');
+acknowledge($pdo, $t['M'], device_id($pdo, $PR), 'chassis:macAddress:'.$PR);
+check(contradicted(ingest($dsn, $user, $password, $pdo, 'after acknowledging Printer1')) === 1, 'Switch2 is still unacknowledged: still contradicted');
+$ack_before = shadow_ack_json($pdo, $t['M']);
+acknowledge($pdo, $t['M'], device_id($pdo, $S), 'port:chassis:-:'.$S.':1');
+check(contradicted(ingest($dsn, $user, $password, $pdo, 'after acknowledging Switch2')) === 0, 'acknowledging Switch2 clears it');
+$fp = fingerprint($pdo);
+$ack = shadow_ack_json($pdo, $t['M']);
+for ($i = 0; $i < 5; $i++) {
+	$r = ingest($dsn, $user, $password, $pdo, 'in a rerun');
+}
+check(fingerprint($pdo) === $fp && shadow_ack_json($pdo, $t['M']) === $ack, 'five runs change nothing; shadow_ack is byte-identical');
+// accept discovery: the manual link goes, the superseded discovered links come back with their old ids
+$pdo->prepare('DELETE FROM topo_edges WHERE id=?')->execute([$t['M']]);
+ingest($dsn, $user, $password, $pdo, 'after accepting discovery');
+$back_printer = link_between($pdo, $t['P'], $t['printer_port']);
+$back_switch = link_between($pdo, $t['switch_port'], $t['Up']);
+check(is_active($back_printer) && $back_printer['id'] === $t['edge_printer'], 'Router1 - Printer1 is active again, same edge id');
+check(is_active($back_switch) && $back_switch['id'] === $t['edge_switch'], 'Switch2 - UPS1 is active again, same edge id');
+
+echo "\n=== 12: UPS1 with LLDP — three shadowing observations, the same two hidden neighbors ===\n";
+$t = third_party_case($pdo, $dsn, $user, $password, $R, $U, $PR, $S, true);
+$r = ingest($dsn, $user, $password, $pdo, 'with the manual link and UPS1 reporting');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='shadowed' AND edge_id=?", [$t['M']]) === 3, 'three shadowing observations');
+$hidden = hidden_neighbors($pdo, $t['M']);
+$expect = [device_id($pdo, $PR), device_id($pdo, $S)];
+sort($expect);
+check($hidden === $expect, 'hidden neighbors: Printer1 and Switch2 (Switch2 from two observations: one hidden neighbor)');
+check(contradicted($r) === 1, 'manual_links_contradicted = 1');
+acknowledge($pdo, $t['M'], device_id($pdo, $S), 'chassis:macAddress:'.$S);
+check(contradicted(ingest($dsn, $user, $password, $pdo, 'after acknowledging Switch2 only')) === 1, 'Printer1 is still hidden: still contradicted');
+acknowledge($pdo, $t['M'], device_id($pdo, $PR), 'chassis:macAddress:'.$PR);
+check(contradicted(ingest($dsn, $user, $password, $pdo, 'after acknowledging both')) === 0, 'both acknowledged: not contradicted');
+
 echo "\nAll manual contradiction ingest tests passed.\n";

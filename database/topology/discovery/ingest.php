@@ -61,6 +61,8 @@ if (isset($options['help'])) {
 // STATUS file still lives in sys_get_temp_dir(): a run's status is visible to callers of the same temporary
 // directory only (a web-started run to the web page; a CLI run is reported on the CLI) — see the loser's branch. ----
 
+require_once __DIR__.'/../topology_contradiction.inc.php';
+
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
 const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.json';
 // Identifies this run in the status file: a caller that has just started a run can tell "my run" from the previous
@@ -2389,7 +2391,9 @@ $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 
 // Manual links contradicted by discovery at the end of a run (topology-1-model.md "Contradiction"): a
 // `shadowed` observation of the link whose hidden neighbor Device is not in its attrs.shadow_ack (a shadow without
-// a Device cannot be acknowledged). Ingest only reads shadow_ack here to count; it never writes it.
+// a Device cannot be acknowledged). The hidden neighbor is decided by topo_hidden_neighbor(), the one definition shared
+// with CTopologyPrototype: for a third-party observation it is the reporter, not the end of the link it reports.
+// Ingest only reads shadow_ack here to count; it never writes it.
 $count_contradicted_manual_links = static function () use ($pdo): int {
 	$links = [];
 	$device_of = $pdo->prepare("SELECT device_id FROM topo_nodes WHERE id = ? AND type = 'port'");
@@ -2397,35 +2401,44 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 			->fetchAll(PDO::FETCH_ASSOC) as $edge) {
 		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
-			// The Devices the manual link itself joins: a neighbor that is one of them is the link's own far end seen at
-			// another precision (topology-1-model.md "Confirmation by discovery"), not a hidden neighbor.
-			$own = [];
+			// The Ports and Devices the manual link itself joins: a neighbor that is one of those Devices is the link's own
+			// far end seen at another precision (topology-1-model.md "Confirmation by discovery"), not a hidden neighbor.
+			$end_ports = [];
+			$end_devices = [];
 			foreach ($edge['type'] === 'device_link' ? [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'device']]
 					: [[(int) $edge['src_id'], 'port'], [(int) $edge['dst_id'], 'port']] as [$node, $kind]) {
 				if ($kind === 'device') {
-					$own[$node] = true;
+					$end_devices[] = $node;
 					continue;
 				}
+				$end_ports[] = $node;
 				$device_of->execute([$node]);
 				if (($device = $device_of->fetchColumn()) !== false && $device !== null) {
-					$own[(int) $device] = true;
+					$end_devices[] = (int) $device;
 				}
 			}
 			$links[(int) $edge['id']] = ['ack' => array_fill_keys(array_map('strval', array_column($attrs['shadow_ack'] ?? [], 'device_id')), true),
-				'own' => $own];
+				'end_ports' => $end_ports, 'end_devices' => $end_devices];
 		}
 	}
 	$contradicted = [];
 	// Only observations of rules that still have a usable snapshot (the test of $clean_stale_observations).
-	foreach ($pdo->query("SELECT o.edge_id, o.device_id FROM topo_observations o".
+	foreach ($pdo->query("SELECT o.edge_id, o.device_id, o.local_port_id, p.device_id AS local_device_id FROM topo_observations o".
 			" JOIN items i ON i.itemid = o.itemid AND i.status = 0".
 			" JOIN hosts h ON h.hostid = i.hostid AND h.status = 0".
 			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.role = i.topology_role".
+			" LEFT JOIN topo_nodes p ON p.id = o.local_port_id".
 			" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
 		$edge_id = (int) $observation['edge_id'];
-		if (isset($links[$edge_id]) && ($observation['device_id'] === null
-				|| (!isset($links[$edge_id]['ack'][(string) $observation['device_id']])
-					&& !isset($links[$edge_id]['own'][(int) $observation['device_id']])))) {
+		if (!isset($links[$edge_id])) {
+			continue;
+		}
+		$hidden = topo_hidden_neighbor((int) $observation['local_port_id'],
+			$observation['local_device_id'] === null ? null : (int) $observation['local_device_id'],
+			$observation['device_id'] === null ? null : (int) $observation['device_id'],
+			$links[$edge_id]['end_ports'], $links[$edge_id]['end_devices']);
+		if ($hidden['kind'] === 'unknown'
+				|| ($hidden['kind'] === 'hidden' && !isset($links[$edge_id]['ack'][(string) $hidden['device_id']]))) {
 			$contradicted[$edge_id] = true;
 		}
 	}
