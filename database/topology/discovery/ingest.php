@@ -275,6 +275,91 @@ $find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $loc
 	return null;
 };
 
+// topology-1-model.md "Far Device" (§6.7.1) and "Shared identifier" (§6.7.4), for the snapshot path.
+// Keys, strongest first: chassis_id, mgmt_ip, sysname (scoped to the reporter and the local port, see $find_device).
+//  1. look up by the strongest key the row has;
+//  2. not found: look up by a weaker key of the row, but only among Devices that have no value for any stronger key the row
+//     has (such a Device gets that key written by the caller);
+//  3. more than one match at any step: shared, nothing is picked and no weaker key is tried.
+// Returns [device_id, matched_by], null (nothing found: create a Device) or ['shared', kind, value, node_ids].
+$note_shared = static function (string $kind, string $value, array $node_ids) use (&$summary): void {
+	foreach ($summary['identity_keys_shared']['list'] as $entry) {
+		if ($entry['key'] === $kind && $entry['value'] === $value) {
+			return;
+		}
+	}
+	$summary['identity_keys_shared']['count']++;
+	if (count($summary['identity_keys_shared']['list']) < 200) {
+		$summary['identity_keys_shared']['list'][] = ['key' => $kind, 'value' => $value, 'node_ids' => array_map('intval', $node_ids)];
+	}
+};
+
+$resolve_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname) use ($pdo): ?array {
+	$has = static function (array $attrs, string $key): bool {
+		return isset($attrs[$key]) && $attrs[$key] !== '';
+	};
+	$device_attrs = static function (int $id) use ($pdo): array {
+		$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+		$stmt->execute([$id]);
+		return json_decode((string) $stmt->fetchColumn(), true) ?: [];
+	};
+	$keys = [];       // [kind => candidate ids], in the order of strength, only the keys the row has
+	if ($chassis_id) {
+		$keys['chassis_id'] = $chassis_id;
+	}
+	if ($mgmt_ip) {
+		$keys['mgmt_ip'] = $mgmt_ip;
+	}
+	if ($local_port_id !== null && $sysname) {
+		$keys['sysname'] = $sysname;
+	}
+	$stronger = [];
+	foreach ($keys as $kind => $value) {
+		if ($kind === 'sysname') {
+			$ids = [];
+			foreach ([
+				"SELECT dev.id FROM topo_edges link JOIN topo_nodes port ON port.id = (CASE WHEN link.src_id = ? THEN link.dst_id ELSE link.src_id END)".
+					" JOIN topo_nodes dev ON dev.id = port.device_id WHERE link.type = 'physical_link' AND (link.src_id = ? OR link.dst_id = ?)".
+					" AND port.type = 'port' AND dev.type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ? ORDER BY dev.id" =>
+					[$local_port_id, $local_port_id, $local_port_id, $value],
+				"SELECT dev.id FROM topo_edges link JOIN topo_nodes dev ON dev.id = link.dst_id WHERE link.type = 'device_link'".
+					" AND link.src_id = ? AND dev.type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ? ORDER BY dev.id" =>
+					[$local_port_id, $value],
+			] as $sql => $params) {
+				$stmt = $pdo->prepare($sql);
+				$stmt->execute($params);
+				$ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
+			}
+			$ids = array_values(array_unique(array_map('intval', $ids)));
+		}
+		else {
+			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.{$kind}')) = ? ORDER BY id");
+			$stmt->execute([$value]);
+			$ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+		}
+		if ($stronger) {
+			// a weaker key may only take a Device that has no value for a stronger key the row has
+			$ids = array_values(array_filter($ids, static function (int $id) use ($device_attrs, $has, $stronger): bool {
+				$attrs = $device_attrs($id);
+				foreach ($stronger as $stronger_kind) {
+					if ($has($attrs, $stronger_kind)) {
+						return false;
+					}
+				}
+				return true;
+			}));
+		}
+		if (count($ids) > 1 && $kind !== 'sysname') {
+			return ['shared', $kind, $value, $ids];
+		}
+		if ($ids) {
+			return [$ids[0], $kind];
+		}
+		$stronger[] = $kind;
+	}
+	return null;
+};
+
 $find_port = static function (int $device_id, int $if_index) use ($pdo): ?int {
 	$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
 		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
@@ -494,18 +579,49 @@ $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $l
 // field carrying an LLDP chassis ID (host_inventory.chassis is an unrelated free-text field), so
 // $device_attrs is unused here now; it stays a parameter only because callers pass it (see the neighbor
 // Device call below), not because this function reads it.
-$reconcile_device = static function (int $device_id, array $device_attrs, array $port_macs) use ($pdo, $promote): void {
+$reconcile_device = static function (int $device_id, array $device_attrs, array $port_macs) use ($pdo, $promote, &$summary): void {
+	$note_mac = static function (string $kind, string $mac, array $node_ids) use (&$summary): void {
+		foreach ($summary['macs_shared']['list'] as $entry) {
+			if ($entry['kind'] === $kind && $entry['value'] === $mac) {
+				return;
+			}
+		}
+		$summary['macs_shared']['count']++;
+		if (count($summary['macs_shared']['list']) < 200) {
+			// Device ids are topology node ids; Host ids are Zabbix hostids (a Host that matched nothing has no node)
+			$summary['macs_shared']['list'][] = ['kind' => $kind, 'value' => $mac,
+				($kind === 'host' ? 'host_ids' : 'node_ids') => array_map('intval', $node_ids)];
+		}
+	};
 	foreach ($port_macs as $mac) {
 		if (!$mac) {
 			continue;
 		}
 		$mac = strtolower($mac);
-		$stmt = $pdo->prepare("SELECT node.id FROM topo_nodes node".
-			" JOIN host_inventory hi ON hi.hostid = node.host_ref".
-			" WHERE node.type = 'host' AND (LOWER(hi.macaddress_a) = ? OR LOWER(hi.macaddress_b) = ?)");
+		// topology-1-model.md "Automatic MAC match (Host only)", "Shared identifier": a MAC on more than one Device, or in the
+		// inventory of more than one Host, matches nothing.
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ?".
+			" UNION SELECT device_id FROM topo_nodes WHERE type = 'port' AND device_id IS NOT NULL".
+			" AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ? ORDER BY 1");
 		$stmt->execute([$mac, $mac]);
-		while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			$promote($device_id, (int) $row['id'], 'mac');
+		$devices = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+		if (count($devices) > 1) {
+			$note_mac('device', $mac, $devices);
+			continue;
+		}
+		$stmt = $pdo->prepare("SELECT hi.hostid, node.id AS node_id FROM host_inventory hi".
+			" LEFT JOIN topo_nodes node ON node.type = 'host' AND node.host_ref = hi.hostid".
+			" WHERE LOWER(hi.macaddress_a) = ? OR LOWER(hi.macaddress_b) = ? ORDER BY hi.hostid");
+		$stmt->execute([$mac, $mac]);
+		$hosts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+		if (count($hosts) > 1) {
+			$note_mac('host', $mac, array_column($hosts, 'hostid'));
+			continue;
+		}
+		foreach ($hosts as $host) {
+			if ($host['node_id'] !== null) {        // only an existing Host node is matched, as before
+				$promote($device_id, (int) $host['node_id'], 'mac');
+			}
 		}
 	}
 };
@@ -742,6 +858,11 @@ $summary += [
 	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
 	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
+	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
+	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
+	// (neighbor rows and reporters), and of the MACs found on several Devices or in the inventory of several Hosts.
+	'identity_keys_shared' => ['count' => 0, 'list' => []],
+	'macs_shared' => ['count' => 0, 'list' => []],
 	'hosts_duplicate_transport' => [],
 	'links_refined' => 0,
 	'device_level_reasons' => [],
@@ -941,18 +1062,29 @@ $snap_port = static function (int $device_id, int $if_index, array $overlay = []
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
-	$find_device, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
-): int {
-	$match = $find_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
+	$resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+): ?int {
+	$match = $resolve_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
 		$incoming['sysname'] ?? null);
+	if ($match !== null && $match[0] === 'shared') {
+		$note_shared($match[1], $match[2], $match[3]);
+		return null;            // topology-1-model.md "Shared identifier": nothing is created or changed
+	}
 	if ($match !== null) {
 		[$device_id, $matched_by] = $match;
 		$before = $snap_node_attrs($device_id);
 		$attrs = $before;
 		foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
-			if (($incoming[$key] ?? null) !== null && $incoming[$key] !== '') {
-				$attrs[$key] = $incoming[$key];
+			if (($incoming[$key] ?? null) === null || $incoming[$key] === '') {
+				continue;
 			}
+			// A stored stronger key is never replaced by a different value (topology-1-model.md "Far Device"); the MAC
+			// is the chassis id spelled as a MAC, so it follows the chassis id.
+			if (in_array($key, ['chassis_id', 'mac'], true) && ($before['chassis_id'] ?? '') !== ''
+					&& ($incoming['chassis_id'] ?? null) !== $before['chassis_id']) {
+				continue;
+			}
+			$attrs[$key] = $incoming[$key];
 		}
 		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $seen_at);
 		if ($matched_by === 'sysname') {
@@ -1385,12 +1517,18 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		}
 		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
 			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen);
+		if ($device_id === null) {
+			echo "SKIP: reporter '{$label}' has an identifier (".($loc_chassis ?? $mgmt_ip).") that more than one Device has — ".
+				"not picking one\n";
+			return ['status' => 'skipped', 'reason' => 'identity_key_shared'];
+		}
 	}
 	else {
 		$device_id = (int) $device_id;
 		$before = $snap_node_attrs($device_id);
 		$attrs = $before;
-		if ($loc_chassis !== null) {
+		// a stored chassis id is never replaced by a different value (topology-1-model.md "Far Device")
+		if ($loc_chassis !== null && ($before['chassis_id'] ?? '') === '') {
 			$attrs['chassis_id'] = $loc_chassis;
 		}
 		if ($mgmt_ip !== null) {
@@ -1501,7 +1639,10 @@ $snap_ingest_reporter = static function (array $reporter) use (
 				'sysname' => $row['rem_sysname'] ?? null,
 				'vendor' => 'unknown',
 			], $local_port_id, $clock);
-			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
+			// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
+			if ($remote_device_id !== null) {
+				$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
+			}
 
 			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
 			// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
@@ -1509,7 +1650,7 @@ $snap_ingest_reporter = static function (array $reporter) use (
 			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
 				'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
 				'remote_key' => $snap_remote_key($row), 'remote_attrs' => $remote_attrs,
-				'pre_outcome' => $has_remote_port ? null : 'device_only', // topology-1-model.md "Observations": device_only, no port advertised, no link
+				'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
 				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
 				'port_label' => $has_remote_port ? $resolve_port_label($row['rem_port_desc'] ?? null,
 					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null) : null,

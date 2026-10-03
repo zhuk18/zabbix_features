@@ -1307,22 +1307,37 @@ class CTopologyPrototype {
 	// topology-1-model.md "Automatic MAC match (Host only)": proxy.get is not called by this pull at all — Proxy has no automatic matching path (no MAC
 	// source, reporter_self doesn't apply, topology-1-model.md "Lazy Host/Proxy nodes"), so there's nothing here to reconcile it
 	// against; a Proxy node is only ever created via manual /promote.
-	public static function pullHosts(): int {
+	/**
+	 * @return array  ['hosts' => hosts looked at, 'macs_shared' => ['count' => n, 'list' => [[kind, value, host_ids|node_ids]]]]:
+	 *                a MAC in the inventory of more than one Host, or on more than one Device, matches nothing
+	 *                (topology-1-model.md "Shared identifier (FR 4.h)")
+	 */
+	public static function pullHosts(): array {
 		// topology-1-model.md "Automatic MAC match (Host only)": only on a match does a Host get a topo_nodes row at all — reconcileHost() (via
 		// promote()) upserts the node and sets the representation together, in the same step. No
 		// match → nothing written for that host. This does not reduce Zabbix API traffic versus the
 		// old eager-upsert design — inventory still has to be pulled for every host to know whether
 		// it matches — the savings are in topo_nodes row count and graph size, not API call volume.
-		$count = 0;
-		foreach (API::Host()->get([
+		$hosts = API::Host()->get([
 			'output' => ['hostid'],
 			'selectInventory' => ['macaddress_a', 'macaddress_b']
-		]) as $host) {
-			self::reconcileHost($host['hostid'], $host['inventory'] ?? []);
-			$count++;
+		]);
+
+		$hosts_by_mac = [];
+		foreach ($hosts as $host) {
+			foreach (['macaddress_a', 'macaddress_b'] as $field) {
+				if (!empty($host['inventory'][$field])) {
+					$hosts_by_mac[strtolower($host['inventory'][$field])][(string) $host['hostid']] = (int) $host['hostid'];
+				}
+			}
 		}
 
-		return $count;
+		$shared = ['count' => 0, 'list' => []];
+		foreach ($hosts as $host) {
+			self::reconcileHost($host['hostid'], $host['inventory'] ?? [], $hosts_by_mac, $shared);
+		}
+
+		return ['hosts' => count($hosts), 'macs_shared' => $shared];
 	}
 
 	// linkPorts()'s whole job is linking, never creating identity — reject a port id that doesn't exist, or
@@ -2111,18 +2126,48 @@ class CTopologyPrototype {
 	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so the "run Device
 	// reconciliation for each Proxy" is not implemented, and pullHosts() never calls proxy.get at
 	// all — a Proxy node is only ever created via manual /promote.
-	private static function reconcileHost(string $hostid, array $inventory): void {
+	private static function reconcileHost(string $hostid, array $inventory, array $hosts_by_mac, array &$shared): void {
+		$note = static function (string $kind, string $mac, array $ids) use (&$shared): void {
+			foreach ($shared['list'] as $entry) {
+				if ($entry['kind'] === $kind && $entry['value'] === $mac) {
+					return;
+				}
+			}
+			$shared['count']++;
+			if (count($shared['list']) < 200) {
+				$shared['list'][] = ['kind' => $kind, 'value' => $mac, ($kind === 'host' ? 'host_ids' : 'node_ids') => array_values($ids)];
+			}
+		};
+
 		foreach (['macaddress_a', 'macaddress_b'] as $field) {
 			if (empty($inventory[$field])) {
 				continue;
 			}
 			$mac = strtolower($inventory[$field]);
+
+			// topology-1-model.md "Shared identifier": a MAC in the inventory of several Hosts matches nothing
+			if (count($hosts_by_mac[$mac] ?? []) > 1) {
+				$note('host', $mac, $hosts_by_mac[$mac]);
+				continue;
+			}
+
+			$devices = [];
 			$result = DBselect('SELECT device_id FROM topo_nodes port'.
 				' WHERE port.type='.zbx_dbstr('port').' AND port.device_id IS NOT NULL'.
 				' AND port.attrs LIKE '.zbx_dbstr('%"mac":"'.$mac.'"%'));
 			while ($device = DBfetch($result)) {
+				$devices[(int) $device['device_id']] = (int) $device['device_id'];
+			}
+
+			// a MAC on several Devices matches nothing either
+			if (count($devices) > 1) {
+				$note('device', $mac, $devices);
+				continue;
+			}
+
+			foreach ($devices as $device_id) {
 				try {
-					self::promote($device['device_id'], 'host', $hostid, 'mac');
+					self::promote((string) $device_id, 'host', $hostid, 'mac');
 				}
 				catch (Exception $exception) {
 					// the 1:1 constraint (topology-1-model.md "`represented_by` (Device → Host or Proxy)") applies here too, not just to the manual endpoint: the device or

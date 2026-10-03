@@ -33,7 +33,8 @@ run() {      # run <database> <test> [dsn|name]
 
 for t in discovery/test_device_links.php discovery/test_device_link_validation.php discovery/test_identity_normalization.php \
 		discovery/test_link_replacement.php discovery/test_manual_contradiction.php discovery/test_reconciliation_scenarios.php \
-		discovery/test_topology_model.php test_contradiction_rule.php test_lazy_host_nodes.php; do
+		discovery/test_topology_model.php test_contradiction_rule.php test_lazy_host_nodes.php \
+		discovery/test_shared_identifier.php; do
 	db=topo_t_$(basename "$t" .php | cut -c6-40)
 	fresh "$db"
 	run "$db" "$t"

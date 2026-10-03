@@ -87,9 +87,16 @@ class API {
 		};
 	}
 
+	/** @var array[] inventory per hostid for the Host pull: [hostid => ['macaddress_a' => .., 'macaddress_b' => ..]] */
+	public static array $inventory = [];
+
 	public static function Host() {
 		return new class {
 			public function get($options) {
+				if (isset($options['selectInventory'])) {
+					return array_map(static fn ($id): array => ['hostid' => (string) $id, 'inventory' => API::$inventory[$id]],
+						array_keys(API::$inventory));
+				}
 				return array_map(static fn ($id): array => ['hostid' => (string) $id], API::$visible);
 			}
 		};
@@ -635,5 +642,44 @@ check(neighbor($n, $far['Switch C'])['link_type'] === 'physical_link', 'oper_sta
 check(neighbor($n, $far['Switch A'])['local_status'] === 'up', 'local_status stays the port status, not the severity');
 API::$triggers = [];
 check(neighbor(CTopologyPrototype::getNeighbors((string) $R), $far['Switch A'])['severity'] === null, 'a resolved trigger: severity null again');
+
+// ============================================================================================================
+echo "\n=== step 10: the Host pull — a shared MAC matches nothing (topology-1-model.md \"Automatic MAC match\", \"Shared identifier\") ===\n";
+reset_topology($pdo);
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+$D1 = device($pdo, 'Dev 1');
+$D2 = device($pdo, 'Dev 2');
+$D3 = device($pdo, 'Dev 3');
+node($pdo, 'port', ['if_index' => 1, 'name' => 'p', 'pseudo' => false, 'mac' => 'c0:ff:ee:00:00:01'], $D1);
+node($pdo, 'port', ['if_index' => 1, 'name' => 'p', 'pseudo' => false, 'mac' => 'c0:ff:ee:00:00:02'], $D2);
+node($pdo, 'port', ['if_index' => 1, 'name' => 'p', 'pseudo' => false, 'mac' => 'c0:ff:ee:00:00:02'], $D3);
+$represented = static fn (): int => (int) $pdo->query('SELECT COUNT(*) FROM topo_nodes WHERE represented_by_node_id IS NOT NULL')->fetchColumn();
+login();
+API::$visible = [301, 302, 303];
+foreach ([301, 302, 303] as $hostid) {
+	$pdo->prepare('REPLACE INTO hosts (hostid, host, name, status) VALUES (?, ?, ?, 0)')->execute([$hostid, "h{$hostid}", "h{$hostid}"]);
+}
+$pull = static fn () => call(CControllerTopologyHostsPull::class, []);
+
+API::$inventory = [301 => ['macaddress_a' => 'C0:FF:EE:00:00:01', 'macaddress_b' => ''],
+	302 => ['macaddress_a' => '', 'macaddress_b' => 'c0:ff:ee:00:00:01'], 303 => ['macaddress_a' => '', 'macaddress_b' => '']];
+$r = $pull();
+check($r['hosts'] === 3 && $represented() === 0, 'a MAC in the inventory of two Hosts (either field, any case): no represented_by');
+check($r['macs_shared']['count'] === 1 && $r['macs_shared']['list'][0]['kind'] === 'host'
+	&& $r['macs_shared']['list'][0]['value'] === 'c0:ff:ee:00:00:01' && $r['macs_shared']['list'][0]['host_ids'] === [301, 302],
+	'macs_shared lists the MAC with both hostids');
+
+API::$inventory[302]['macaddress_b'] = '';
+$r = $pull();
+check($represented() === 1 && $r['macs_shared'] === ['count' => 0, 'list' => []], 'one Host with the MAC: Device 1 is matched, nothing shared');
+check((int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE id = {$D1} AND represented_by_matched_by = 'mac'")->fetchColumn() === 1,
+	'matched_by is mac');
+
+API::$inventory[303]['macaddress_a'] = 'c0:ff:ee:00:00:02';
+$r = $pull();
+check($represented() === 1, 'a MAC on two Devices matches nothing');
+check($r['macs_shared']['count'] === 1 && $r['macs_shared']['list'][0]['kind'] === 'device'
+	&& $r['macs_shared']['list'][0]['node_ids'] === [$D2, $D3], 'macs_shared lists the MAC with both node ids');
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 
 echo "\nAll topology model tests passed.\n";
