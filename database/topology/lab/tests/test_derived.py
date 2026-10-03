@@ -104,6 +104,24 @@ class ScenarioFormat(unittest.TestCase):
             with self.assertRaisesRegex(LabError, 'wait'):
                 scenario(steps=[{'id': 0, 'wait': bad}])
 
+    def test_assertion_keys(self):
+        import yaml
+        ok = [{'badge': {'node': 'UPS1', 'present': False}}, {'link': ['A:p', 'B'], 'state': 'stale'}, {'pending': 'x'},
+              {'observation': {'reporter': 'A', 'port': 'p'}, 'outcome': 'applied', 'precision_lower': True}]
+        scenario(steps=[{'id': 0, 'assert': ok}])
+        # the YAML 1.1 surprise: an unquoted `on` key is the boolean True
+        surprise = yaml.safe_load('badge: {on: UPS1, present: false}')
+        self.assertIn(True, surprise['badge'])
+        for bad, msg in ((surprise, 'not a string'), ({'badge': {'node': 'U', 'on': 'U'}}, "unknown key 'on'"),
+                         ({'badge': {'on': 'U'}}, "unknown key 'on'"), ({'link': ['A', 'B'], 'sate': 'active'}, "unknown key 'sate'"),
+                         ({'nothing': 1}, 'exactly one'), ({'badge': {}, 'pending': 'x'}, 'exactly one'), ('badge', 'mapping')):
+            with self.assertRaisesRegex(LabError, msg):
+                scenario(steps=[{'id': 0, 'assert': [bad]}])
+
+    def test_shipped_scenarios_load(self):
+        for sid in ('S0', 'S1', 'S2', 'S3', 'S4'):
+            model.load_scenario(sid)
+
     def test_s4_loads(self):
         s = model.load_scenario('S4')
         self.assertEqual(s.freshness_seconds, 60)
@@ -154,13 +172,13 @@ class DerivedAssertions(unittest.TestCase):
         self.assertEqual(ev({'contradiction': {'link': ['A:x', 'B:y'], 'hidden_neighbors': []}}).status, 'fail', 'no such link')
 
     def test_badge(self):
-        self.assertEqual(ev({'badge': {'on': 'Printer1', 'present': True}}).status, 'pass')
-        self.assertEqual(ev({'badge': {'on': 'UPS1', 'present': False}}).status, 'pass')
-        self.assertEqual(ev({'badge': {'on': 'UPS1', 'present': True}}).status, 'fail')
-        self.assertEqual(ev({'badge': {'on': 'Printer1', 'present': False}}).status, 'fail')
+        self.assertEqual(ev({'badge': {'node': 'Printer1', 'present': True}}).status, 'pass')
+        self.assertEqual(ev({'badge': {'node': 'UPS1', 'present': False}}).status, 'pass')
+        self.assertEqual(ev({'badge': {'node': 'UPS1', 'present': True}}).status, 'fail')
+        self.assertEqual(ev({'badge': {'node': 'Printer1', 'present': False}}).status, 'fail')
 
     def test_no_assertion_is_pending_any_more(self):
-        for a in ({'link': ['Switch1:Gi0/4', 'Printer1'], 'state': 'stale'}, {'badge': {'on': 'UPS1', 'present': False}},
+        for a in ({'link': ['Switch1:Gi0/4', 'Printer1'], 'state': 'stale'}, {'badge': {'node': 'UPS1', 'present': False}},
                   {'contradiction': {'link': ['Router1:Gi0/1', 'UPS1'], 'hidden_neighbors': ['Printer1', 'Switch2']}}):
             self.assertNotEqual(ev(a).status, 'pending')
 

@@ -195,6 +195,50 @@ def validate_wait(scenario_id, i, wait):
         raise LabError('scenario %s step %d: wait.seconds must be a number >= 0, got %r' % (scenario_id, i, s))
 
 
+# Assertion forms (topology-4-lab-simulator.md "Assertions"): the form key -> (other keys on the assertion itself,
+# keys of the form's own mapping, or None when its value is a plain scalar). snapshot_unchanged is an extension.
+ASSERTION_FORMS = {
+    'link': ({'state', 'stale', 'type', 'discovered_via', 'far_port_reason'}, None),
+    'observation': ({'outcome', 'precision_lower'}, {'reporter', 'port', 'remote'}),
+    'edge_id_same_as': (set(), {'step', 'link'}),
+    'link_attr': (set(), {'link', 'attr', 'vs_step', 'is'}),
+    'snapshot_unchanged': (set(), {'host', 'since_step'}),
+    'status': (set(), {'field', 'equals'}),
+    'observation_count': (set(), {'outcome', 'edge', 'equals'}),
+    'contradiction': (set(), {'link', 'hidden_neighbors'}),
+    'badge': (set(), {'node', 'present'}),
+    'matches_reference': (set(), None),
+    'pending': (set(), None),
+}
+
+
+def validate_assertion(scenario_id, i, a):
+    """Reject an unknown or non-string key, so a YAML 1.1 surprise (`on:` read as True) is an error here, not a crash later."""
+    where = 'scenario %s step %d: assertion %r' % (scenario_id, i, a)
+    if not isinstance(a, dict):
+        raise LabError('%s must be a mapping' % where)
+    bad = [k for k in a if not isinstance(k, str)]
+    if bad:
+        raise LabError('%s has a key that is not a string: %r (quote it?)' % (where, bad[0]))
+    forms = [k for k in a if k in ASSERTION_FORMS]
+    if len(forms) != 1:
+        raise LabError('%s must have exactly one of %s, has %s' % (where, sorted(ASSERTION_FORMS), forms or 'none'))
+    extra, inner = ASSERTION_FORMS[forms[0]]
+    unknown = [k for k in a if k != forms[0] and k not in extra]
+    if unknown:
+        raise LabError('%s: unknown key %r for %s (allowed: %s)' % (where, unknown[0], forms[0], sorted(extra) or 'none'))
+    if inner is not None:
+        body = a[forms[0]]
+        if not isinstance(body, dict):
+            raise LabError('%s: %s must be a mapping' % (where, forms[0]))
+        bad = [k for k in body if not isinstance(k, str)]
+        if bad:
+            raise LabError('%s: %s has a key that is not a string: %r (quote it?)' % (where, forms[0], bad[0]))
+        unknown = [k for k in body if k not in inner]
+        if unknown:
+            raise LabError('%s: unknown key %r in %s (allowed: %s)' % (where, unknown[0], forms[0], sorted(inner)))
+
+
 def load_yaml(path):
     with open(path) as f:
         return yaml.safe_load(f)
@@ -216,6 +260,8 @@ class Scenario:
                            % (self.id, self.freshness_seconds))
         for i, step in enumerate(self.steps):
             validate_wait(self.id, i, step.get('wait'))
+            for a in step.get('assert') or []:
+                validate_assertion(self.id, i, a)
         self.base = base_lab.copy()
         self.base.apply_patch(data.get('patch'))
         self.states = []             # Lab state per step (index = step number)

@@ -29,4 +29,4 @@ steps:
         state: active
       - observation_count: {outcome: shadowed, edge: [Router1:Gi0/1, UPS1:eth0], equals: 2}
       - status: {field: manual_links_contradicted, equals: 1}
-      - badge: {on: UPS1, present: false}
+      - badge: {node: UPS1, present: false}

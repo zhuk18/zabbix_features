@@ -121,10 +121,10 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
                       '' if ok else 'hidden neighbors %s, expected %s' % (got, want))
     if 'badge' in a:
         r = a['badge']
-        present = r['on'] in derived()['badges']
+        present = r['node'] in derived()['badges']
         ok = present == r.get('present', True)
         return Result('badge', a, 'pass' if ok else 'fail',
-                      '' if ok else 'badge on %s is %s, expected %s' % (r['on'], 'present' if present else 'absent',
+                      '' if ok else 'badge on %s is %s, expected %s' % (r['node'], 'present' if present else 'absent',
                                                                        'present' if r.get('present', True) else 'absent'))
     if 'observation' in a:
         o = a['observation']
