@@ -7,12 +7,18 @@ import shutil
 
 from .model import LabError, split_port
 
+# A record after every walked OID. Without it the last walked column (ifName) is the end of the device's MIB, and a bulk walk
+# of it ends in endOfMibView inside the table: push.py counts that as a truncated walk (topology-3-push-delivery.md "Design
+# rules" 3). A real device always has more MIB after ifXTable. Enterprise 99999 sorts after CDP (…4.1.9) and is never walked.
+LAB_TAIL = (1, 3, 6, 1, 4, 1, 99999, 1)
+
 # subtree name -> root OID. A subtree that changes in any step of the scenario goes through labmultiplex.
 SUBTREES = {
     'lldp': (1, 0, 8802, 1, 1, 2),
     'lag': (1, 2, 840, 10006, 300, 43),
     'mib2': (1, 3, 6, 1, 2, 1),
     'cdp': (1, 3, 6, 1, 4, 1, 9, 9, 23),
+    'tail': LAB_TAIL,
 }
 CONTROL_SUFFIX = (99999, 0)
 
@@ -260,6 +266,8 @@ def device_records(lab, name):
                     r.put_hex((1, 3, 6, 1, 2, 1, 17, 4, 3, 1, 1) + tuple(m), m)
                     r.put((1, 3, 6, 1, 2, 1, 17, 4, 3, 1, 2) + tuple(m), '2', i)
                     r.put((1, 3, 6, 1, 2, 1, 17, 4, 3, 1, 3) + tuple(m), '2', 3)
+
+    r.put_str(LAB_TAIL + (0,), 'end of lab data')
 
     # override_oid deviations (last: they replace values written above)
     for d in lab.active_deviations('override_oid'):
