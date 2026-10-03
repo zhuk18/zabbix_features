@@ -303,6 +303,33 @@ check(edge_count($pdo) === $before, 'and nothing was written');
 login();
 
 // ============================================================================================================
+echo "\n=== step 5: topology.ports.link returns the edge id (topology-1-model.md \"Manual links\": creation) ===\n";
+reset_topology($pdo);
+$A = device($pdo, 'Switch A');
+$B = device($pdo, 'Switch B');
+$Ap1 = port($pdo, $A, 1, 'Gi0/1');
+$Ap2 = port($pdo, $A, 2, 'Gi0/2');
+$Bp1 = port($pdo, $B, 1, 'Gi0/1');
+$Bp2 = port($pdo, $B, 2, 'Gi0/2');
+$class = CControllerTopologyPortsLink::class;
+
+$r = call($class, ['id' => (string) $Ap1, 'dst_id' => (string) $Bp1]);
+$new = $pdo->query("SELECT id FROM topo_edges WHERE type='physical_link' AND src_id=".min($Ap1, $Bp1).' AND dst_id='.max($Ap1, $Bp1))->fetchColumn();
+check(!failed($r) && ($r['success'] ?? false) === true && isset($r['edge_id']) && (int) $r['edge_id'] === (int) $new,
+	'a new link: success and the id of the created link');
+check(edge_row($pdo, (int) $r['edge_id'])['discovered_via'] === 'manual', 'it is the manual link');
+
+$disc = edge($pdo, 'physical_link', min($Ap2, $Bp2), max($Ap2, $Bp2), ['discovered_via' => 'lldp', 'last_seen' => time()]);
+$edges = edge_count($pdo);
+$r = call($class, ['id' => (string) $Ap2, 'dst_id' => (string) $Bp2]);
+check(!failed($r) && (int) ($r['edge_id'] ?? 0) === $disc, 'same ends as a discovered link: its id comes back');
+check(edge_count($pdo) === $edges && !isset(edge_row($pdo, $disc)['superseded_at']) && edge_row($pdo, $disc)['discovered_via'] === 'lldp',
+	'and nothing changed');
+$r = call(CControllerTopologyDeviceLinkCreate::class, ['port_id' => (string) $Ap2, 'device_id' => (string) $B]);
+check(!failed($r) && (int) ($r['edge_id'] ?? 0) === $disc, 'the device-link endpoint returns the discovered physical_link to that Device too');
+check(failed(call($class, ['id' => (string) $Ap1, 'dst_id' => (string) $Bp2])), 'a busy port still fails, with no edge_id');
+
+// ============================================================================================================
 echo "\n=== step 5: topology.link.remove ===\n";
 reset_topology($pdo);
 $A = device($pdo, 'Switch A');
