@@ -2,6 +2,7 @@
 
 // The one definition of the hidden neighbor of a contradicted manual link, shared with database/topology/discovery/ingest.php.
 require_once __DIR__.'/../../../../database/topology/topology_contradiction.inc.php';
+require_once __DIR__.'/../../../../database/topology/topology_freshness.inc.php';
 
 class CTopologyPrototype {
 
@@ -15,16 +16,36 @@ class CTopologyPrototype {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
 
-	// the physical_link staleness indicator (topology-1-model.md "Disappearance and staleness"): a starting-point threshold, not tuned against real
-	// data yet (the spec's own note on this: topology-1-model.md "Freshness threshold"). Computed server-side (both here and by every caller)
-	// so the raw threshold never needs to ship to the client — the client only ever sees the
+	// the physical_link staleness indicator (topology-1-model.md "Disappearance and staleness"): the threshold is the global macro
+	// {$TOPOLOGY.LINK.FRESH.SECONDS} (topology-1-model.md "Freshness threshold"), read once per request. Computed server-side
+	// (both here and by every caller) so the raw threshold never needs to ship to the client — the client only ever sees the
 	// already-derived boolean.
-	private const STALE_LINK_SECONDS = 7 * 24 * 60 * 60;
+	private static ?int $fresh_seconds = null;
+
+	private static function freshSeconds(): int {
+		if (self::$fresh_seconds === null) {
+			$macro = DBfetch(DBselect('SELECT value FROM globalmacro WHERE macro='.zbx_dbstr(TOPOLOGY_FRESH_MACRO), 1), false);
+			[self::$fresh_seconds, $warning] = topology_fresh_seconds($macro ? (string) $macro['value'] : null);
+			if ($warning !== null) {
+				CMessageHelper::addWarning($warning);
+			}
+		}
+
+		return self::$fresh_seconds;
+	}
+
+	/**
+	 * Forget the threshold read earlier in this process, so the next call reads the macro again. A UI request is one
+	 * process and never needs it; a long-lived caller (the lab's helper, a test that changes the macro) does.
+	 */
+	public static function reloadFreshness(): void {
+		self::$fresh_seconds = null;
+	}
 
 	// A superseded link (topology-1-model.md "Replacement of discovered links", superseded state) lost its port to a newer one: it is stale
 	// whatever its last_seen says.
-	private static function isLinkStale(?int $last_seen, ?int $superseded_at = null): bool {
-		return $superseded_at !== null || $last_seen === null || (time() - $last_seen) > self::STALE_LINK_SECONDS;
+	public static function isLinkStale(?int $last_seen, ?int $superseded_at = null): bool {
+		return $superseded_at !== null || $last_seen === null || (time() - $last_seen) > self::freshSeconds();
 	}
 
 	private static function supersededAt(array $link_attrs): ?int {

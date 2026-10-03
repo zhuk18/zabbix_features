@@ -43,13 +43,14 @@ $dbname = $m[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items',
+foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'globalmacro',
 		'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
+$pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
 $pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 $pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
@@ -508,5 +509,50 @@ check($u['contradiction'] === 'acknowledged', 'after Keep manual the state is ac
 CTopologyPrototype::revokeAcknowledgment((string) $M, (string) $Pd);
 $u = neighbor(CTopologyPrototype::getNeighbors((string) $Rd), $Ud);
 check($u['contradiction'] === 'contradicted', 'after Revoke it is contradicted again');
+
+// ============================================================================================================
+echo "\n=== step 8: the freshness threshold is the global macro (topology-1-model.md \"Freshness threshold\") ===\n";
+reset_topology($pdo);
+$A = device($pdo, 'Switch A');
+$B = device($pdo, 'Switch B');
+$Ap = port($pdo, $A, 1, 'Gi0/1');
+$Bp = port($pdo, $B, 1, 'Gi0/1');
+edge($pdo, 'physical_link', min($Ap, $Bp), max($Ap, $Bp), ['discovered_via' => 'lldp', 'last_seen' => time() - 100]);
+$stale = static function () use ($A, $B): bool {
+	CTopologyPrototype::reloadFreshness();
+	return neighbor(CTopologyPrototype::getNeighbors((string) $A), $B)['stale'];
+};
+$set_macro = static function (?string $value) use ($pdo): void {
+	$pdo->exec('DELETE FROM globalmacro');
+	if ($value !== null) {
+		$pdo->prepare('INSERT INTO globalmacro (macro, value) VALUES (?, ?)')->execute(['{$TOPOLOGY.LINK.FRESH.SECONDS}', $value]);
+	}
+};
+$warnings = static fn (): int => count(array_filter(CMessageHelper::getMessages(), static fn (array $m): bool => $m['type'] === 'warning'));
+$last_warning = static function (): string {
+	$all = array_values(array_filter(CMessageHelper::getMessages(), static fn (array $m): bool => $m['type'] === 'warning'));
+	return $all[count($all) - 1]['message'];
+};
+$set_macro(null);
+check($stale() === false && $warnings() === 0, 'no macro: the default (7 days), no warning; a link seen 100 s ago is fresh');
+$set_macro('60');
+check($stale() === true, 'macro 60: the same link is stale');
+$set_macro('3600');
+check($stale() === false, 'macro 3600: fresh again');
+$set_macro('59');
+check($stale() === false && $warnings() === 1, 'macro 59 (below the minimum): the default, one warning');
+$set_macro('1h');
+check($stale() === false && $warnings() === 2, 'macro "1h" (not digits): the default, one more warning');
+$message = $last_warning();
+check(str_contains($message, '{$TOPOLOGY.LINK.FRESH.SECONDS}') && str_contains($message, '"1h"'), 'the warning names the macro and the rejected text');
+$set_macro('<b>x</b>');
+$stale();
+$message = $last_warning();
+check(!str_contains($message, '<b>') && str_contains($message, '&lt;b&gt;'), 'the rejected text is escaped');
+$set_macro('60');
+$stale();
+check($warnings() === 3, 'a valid value adds no warning');
+$set_macro(null);
+CTopologyPrototype::reloadFreshness();
 
 echo "\nAll topology model tests passed.\n";

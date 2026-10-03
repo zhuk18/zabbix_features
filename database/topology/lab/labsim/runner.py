@@ -9,6 +9,8 @@ from .model import HERE, LabError
 
 INGEST = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'ingest.php'))
 SCHEDULE_FILE = os.path.join(ctl.RUN_DIR, 'schedule.json')
+FRESH_FILE = os.path.join(ctl.RUN_DIR, 'freshness.json')
+DERIVED = os.path.join(HERE, 'php', 'derived.php')
 STATUS_FILE = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'topology-ingest-status.json')
 
 
@@ -28,6 +30,18 @@ def run_ingest(settings):
     if st.get('started_at', 0) < t0 - 1:
         raise LabError('ingest status file is older than this run (started_at %s < %s)' % (st.get('started_at'), t0))
     return st
+
+
+def run_derived():
+    """The derived state the UI reads (php/derived.php: read only), as a dict; LabError if the helper fails."""
+    p = subprocess.run(['php', DERIVED], capture_output=True, text=True, timeout=120)
+    try:
+        answer = json.loads(p.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        answer = {'error': (p.stderr or p.stdout).strip()[:300]}
+    if p.returncode or 'error' in answer:
+        raise LabError('the read-only helper failed: %s' % answer.get('error'))
+    return answer
 
 
 class Result:
@@ -56,8 +70,11 @@ def find_links(state, a, b, type_=None):
     return out
 
 
-def evaluate(a, state, ingest, history, clocks_hist, step):
-    """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus snapshot_unchanged (an extension)."""
+def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
+    """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus snapshot_unchanged (an extension).
+
+    derived: a zero-argument callable returning the helper's derived state (run_derived()), for stale, contradiction and badge.
+    """
     if 'pending' in a:
         return Result('pending', a, 'pending', a['pending'])
     if 'link' in a:
@@ -68,8 +85,15 @@ def evaluate(a, state, ingest, history, clocks_hist, step):
         if a.get('far_port_reason'):
             ls = [l for l in ls if l['far_port_reason'] == a['far_port_reason']]
         want = a.get('state', 'active')
+        if want == 'stale' or 'stale' in a:
+            by_edge = {l['edge_id']: l for l in derived()['links']}
+            ls = [dict(l, stale=by_edge.get(str(l['id']), {}).get('stale')) for l in ls]
         if want == 'stale':
-            return Result('link', a, 'pending', 'state stale needs the derived-state helper (topology-4-lab-simulator.md "Open questions"): not implemented')
+            hit = [l for l in ls if l['state'] == 'active' and l['stale']]
+            return Result('link', a, 'pass' if hit else 'fail',
+                          '' if hit else 'no stale active link %s - %s (found: %s)' % (x, y, [(l['ends'], l['state'], l['stale']) for l in ls]))
+        if 'stale' in a:
+            ls = [l for l in ls if l['stale'] == a['stale']]
         if want == 'absent':
             active = [l for l in ls if l['state'] == 'active']
             return Result('link', a, 'fail' if active else 'pass',
@@ -84,9 +108,24 @@ def evaluate(a, state, ingest, history, clocks_hist, step):
         n = len([o for o in state['observations'] if o['outcome'] == r['outcome'] and o['edge_id'] in ids])
         return Result('observation_count', a, 'pass' if n == r['equals'] else 'fail',
                       '' if n == r['equals'] else '%d %s observation(s) of link %s - %s, expected %s' % (n, r['outcome'], r['edge'][0], r['edge'][1], r['equals']))
-    if 'contradiction' in a or 'badge' in a:
-        return Result('contradiction' if 'contradiction' in a else 'badge', a, 'pending',
-                      'derived state (contradiction, badges) needs the read-only helper (topology-4-lab-simulator.md "Open questions"): not implemented')
+    if 'contradiction' in a:
+        r = a['contradiction']
+        ids = {str(l['id']) for l in find_links(state, r['link'][0], r['link'][1])}
+        if not ids:
+            return Result('contradiction', a, 'fail', 'no link %s - %s' % tuple(r['link']))
+        entries = [c for c in derived()['contradictions'] if c['edge_id'] in ids and c['contradicted']]
+        want = sorted(r.get('hidden_neighbors') or [])
+        got = sorted({n for c in entries for n in c['hidden_neighbors']})
+        ok = got == want and bool(entries) == bool(want)
+        return Result('contradiction', a, 'pass' if ok else 'fail',
+                      '' if ok else 'hidden neighbors %s, expected %s' % (got, want))
+    if 'badge' in a:
+        r = a['badge']
+        present = r['on'] in derived()['badges']
+        ok = present == r.get('present', True)
+        return Result('badge', a, 'pass' if ok else 'fail',
+                      '' if ok else 'badge on %s is %s, expected %s' % (r['on'], 'present' if present else 'absent',
+                                                                       'present' if r.get('present', True) else 'absent'))
     if 'observation' in a:
         o = a['observation']
         hits = [x for x in state['observations'] if x['reporter'] == o['reporter'] and x['port'] == o['port']
@@ -219,8 +258,12 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
         for dev in mon:
             if not ms.get(dev) or not ms[dev]['core']:
                 raise LabError('host %s has no topology.walk.core item (run "provision" first)' % dev)
+        zbx.restore_fresh_macro(api, FRESH_FILE, log)          # what a killed earlier run left
         zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
         report['schedule_suspended'] = True
+        if scenario.freshness_seconds is not None:
+            before, during = zbx.set_fresh_macro(api, scenario.freshness_seconds, FRESH_FILE, log)
+            report['freshness_macro'] = {'before': before, 'during': during, 'after': None}
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
@@ -303,6 +346,12 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                     sr['errors'].append('timeout: %s did not fail the poll' % dev)
             sr['waited_for'] = waited_for
 
+            seconds = (step.get('wait') or {}).get('seconds')
+            if seconds:
+                log('  waiting %s s' % seconds)
+                time.sleep(seconds)
+                sr['waited_seconds'] = seconds
+
             try:
                 create_manual_links(conn, scenario, i, log)
             except LabError as e:
@@ -315,8 +364,18 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             sr['snapshot_clocks'] = {'%s/%s' % k: v[0] for k, v in clocks_hist[i].items()}
             sr['links'] = [{k: l[k] for k in ('id', 'type', 'ends', 'discovered_via', 'state', 'far_port_reason')} for l in state['links']]
             sr['observations'] = state['observations']
+            derived_cache = {}
+
+            def derived():
+                if 'd' not in derived_cache:
+                    derived_cache['d'] = run_derived()
+                return derived_cache['d']
+
             for a in step.get('assert') or []:
-                res = evaluate(a, state, ingest, history, clocks_hist, i)
+                try:
+                    res = evaluate(a, state, ingest, history, clocks_hist, i, derived)
+                except LabError as e:
+                    res = Result(next(iter(a)), a, 'fail', str(e))
                 sr['assertions'].append(res.as_dict())
                 log('  %-7s %s' % (res.status.upper(), (res.message if res.status == 'pending' else
                                                           '%s %s %s' % (res.kind, json.dumps(a, default=str)[:110], res.message))[:300]))
@@ -325,6 +384,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
     finally:
         ctl.down(log)
         zbx.restore_schedule(api, SCHEDULE_FILE, log)
+        after = zbx.restore_fresh_macro(api, FRESH_FILE, log)
+        if after is not None and 'freshness_macro' in report:
+            report['freshness_macro']['after'] = after
     return report
 
 

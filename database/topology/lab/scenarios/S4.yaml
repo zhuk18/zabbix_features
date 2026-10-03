@@ -1,0 +1,45 @@
+id: S4
+title: Link staleness
+base: lab.yaml
+# The freshness threshold is the global macro {$TOPOLOGY.LINK.FRESH.SECONDS} (topology-1-model.md "Freshness threshold"); the
+# runner sets it for the run and restores it afterwards (topology-4-lab-simulator.md "Freshness threshold override").
+# The spec's table puts Printer1 on Switch1:Gi0/2, which carries the Switch2 uplink in the current lab; as in S1, the patch
+# gives Switch1 a spare port and moves Printer1 there.
+settings:
+  freshness_seconds: 60
+patch:
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 4, name: Gi0/4}
+  cables:
+    remove: [[Router1:Gi0/1, Printer1:Gi0/1]]
+    add:    [[Switch1:Gi0/4, Printer1:Gi0/1]]
+steps:
+  - id: 0
+    note: baseline, freshness 60 s - Printer1 on Switch1:Gi0/4
+    assert:
+      - link: [Switch1:Gi0/4, Printer1]
+        state: active
+        stale: false
+  - id: 1
+    note: Printer1 removed from Switch1's LLDP; wait 90 s after the poll
+    cables:
+      remove: [[Switch1:Gi0/4, Printer1:Gi0/1]]
+    wait: {seconds: 90}
+    # topology-1-model.md "Disappearance and staleness": the link stays (nothing contradicts it), nobody confirms it, and after the
+    # threshold it is stale; it is not deleted
+    assert:
+      - link: [Switch1:Gi0/4, Printer1]
+        state: stale
+      - link: [Switch1:Gi0/4, Printer1]
+        state: active
+  - id: 2
+    note: Printer1 back on Switch1:Gi0/4
+    cables:
+      add: [[Switch1:Gi0/4, Printer1:Gi0/1]]
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/4, Printer1]}
+      - link: [Switch1:Gi0/4, Printer1]
+        state: active
+        stale: false

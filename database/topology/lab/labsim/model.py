@@ -181,6 +181,20 @@ class Lab:
                 self.port(d['writes'])
 
 
+WAIT_KEYS = {'unsupported', 'timeout', 'seconds'}
+
+
+def validate_wait(scenario_id, i, wait):
+    """`wait` has two forms that can be combined: {unsupported, timeout} and {seconds: N} (topology-4-lab-simulator.md "Scenario format")."""
+    if wait is None:
+        return
+    if not isinstance(wait, dict) or set(wait) - WAIT_KEYS:
+        raise LabError('scenario %s step %d: wait takes only %s, got %r' % (scenario_id, i, sorted(WAIT_KEYS), wait))
+    s = wait.get('seconds')
+    if 'seconds' in wait and (isinstance(s, bool) or not isinstance(s, (int, float)) or s < 0):
+        raise LabError('scenario %s step %d: wait.seconds must be a number >= 0, got %r' % (scenario_id, i, s))
+
+
 def load_yaml(path):
     with open(path) as f:
         return yaml.safe_load(f)
@@ -195,6 +209,13 @@ class Scenario:
         self.id = data['id']
         self.title = data.get('title', '')
         self.steps = data['steps']
+        self.freshness_seconds = (data.get('settings') or {}).get('freshness_seconds')
+        if self.freshness_seconds is not None and (not isinstance(self.freshness_seconds, int) or isinstance(self.freshness_seconds, bool)
+                                                   or self.freshness_seconds < 60):
+            raise LabError('scenario %s: settings.freshness_seconds must be a whole number of at least 60 (or null), got %r'
+                           % (self.id, self.freshness_seconds))
+        for i, step in enumerate(self.steps):
+            validate_wait(self.id, i, step.get('wait'))
         self.base = base_lab.copy()
         self.base.apply_patch(data.get('patch'))
         self.states = []             # Lab state per step (index = step number)

@@ -44,6 +44,11 @@ environment variable; it is never written to a file. Exit code 0 only if every n
   `settings.export_dir` (default `~/work/lab-backup`) first. `provision --prune` deletes only tagged hosts.
 - Writes to `topo_*`: `run --reset` (clear; "Reset" in the spec) and the `zabbix_manual_link` deviation, which runs `php/manual_link.php`
   (`CTopologyPrototype::linkPorts()`, the UI code path; it refuses unless the database is `zabbix`).
+- `php/derived.php` is read only (a read-only session): it prints the state the UI derives at read time (`stale`, contradiction,
+  badges) for the assertions of the same names. The runner calls it only in steps that have such an assertion.
+- A scenario with `settings.freshness_seconds` (>= 60) sets the global macro `{$TOPOLOGY.LINK.FRESH.SECONDS}` for the run; the old value
+  (or "absent") is written to `run/freshness.json` first and put back in `finally`. A killed run is restored by the next `run`
+  or by `restore`. The report has `freshness_macro: {before, during, after}`.
 - No topology code is changed by the tool.
 
 ## snmpsim: why `labmultiplex`
@@ -61,7 +66,7 @@ for OIDs under the record's subtree, and the control OID is not in the step file
 ## Files
 
 - `lab.yaml` — the current lab, one-to-one with the old `snmpdata/*` fixtures (S0 proves it against `reference-s0.json`).
-- `scenarios/S0..S3.yaml` — steps and assertions. A scenario may carry a `patch:` (devices, ports, cables, deviations)
+- `scenarios/S0..S4.yaml` — steps and assertions. A scenario may carry a `patch:` (devices, ports, cables, deviations)
   applied before step 0.
 - `reference-s0.json` — natural keys of the `topo_*` state the lab produced before this tool existed.
 - `reports/` — run reports (JSON); `data/`, `run/` — generated, not tracked.

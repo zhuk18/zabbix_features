@@ -194,3 +194,56 @@ def restore_schedule(api, state_file, log=print):
     os.remove(state_file)
     log('  scheduled polling restored on %d master item(s)' % len(items))
     return True
+
+
+FRESH_MACRO = '{$TOPOLOGY.LINK.FRESH.SECONDS}'       # topology-1-model.md "Freshness threshold"; one definition: database/topology/topology_freshness.inc.php
+
+
+def get_fresh_macro(api):
+    """The global macro as it is now: {'globalmacroid', 'value'}, or None when it does not exist."""
+    r = api.call('usermacro.get', {'globalmacro': True, 'filter': {'macro': FRESH_MACRO}, 'output': ['globalmacroid', 'value']})
+    return r[0] if r else None
+
+
+def set_fresh_macro(api, seconds, state_file, log=print):
+    """Set the freshness macro for a run (topology-4-lab-simulator.md "Freshness threshold override").
+
+    The original state ({'was': value or None}) is written to state_file first, so restore_fresh_macro() can put it back
+    after a failure or a killed run. Returns (before, during): the macro text before the change ('absent' if it did not
+    exist) and as read back after it.
+    """
+    if os.path.exists(state_file):
+        restore_fresh_macro(api, state_file, log)
+    current = get_fresh_macro(api)
+    before = current['value'] if current else None
+    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+    with open(state_file, 'w') as f:
+        json.dump({'macro': FRESH_MACRO, 'was': before}, f)
+    if current:
+        api.call('usermacro.updateglobal', {'globalmacroid': current['globalmacroid'], 'value': str(seconds)})
+    else:
+        api.call('usermacro.createglobal', {'macro': FRESH_MACRO, 'value': str(seconds)})
+    during = get_fresh_macro(api)
+    log('  freshness macro set to %s (was %s)' % (seconds, before if before is not None else 'absent'))
+    return before if before is not None else 'absent', during['value'] if during else 'absent'
+
+
+def restore_fresh_macro(api, state_file, log=print):
+    """Put the freshness macro back: the old value, or deletion if it did not exist. Returns the state read back
+    ('absent' or the text), or None when there was nothing to restore."""
+    if not os.path.exists(state_file):
+        return None
+    with open(state_file) as f:
+        saved = json.load(f)
+    current = get_fresh_macro(api)
+    if saved['was'] is None:
+        if current:
+            api.call('usermacro.deleteglobal', [current['globalmacroid']])
+    elif current:
+        api.call('usermacro.updateglobal', {'globalmacroid': current['globalmacroid'], 'value': saved['was']})
+    else:
+        api.call('usermacro.createglobal', {'macro': FRESH_MACRO, 'value': saved['was']})
+    os.remove(state_file)
+    after = get_fresh_macro(api)
+    log('  freshness macro restored (%s)' % (saved['was'] if saved['was'] is not None else 'absent'))
+    return after['value'] if after else 'absent'

@@ -27,7 +27,7 @@ def main(argv=None):
     p = sub.add_parser('provision'); p.add_argument('scenario'); p.add_argument('--prune', action='store_true')
     p = sub.add_parser('run'); p.add_argument('scenario'); p.add_argument('--reset', action='store_true')
     p.add_argument('--timeout', type=int, default=120); p.add_argument('--report')
-    sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals)')
+    sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     a = ap.parse_args(argv)
     try:
@@ -51,7 +51,10 @@ def main(argv=None):
                 print(path)
         elif a.cmd == 'restore':
             db.connect(settings).close()
-            if not zbx.restore_schedule(zbx.Api(settings['zabbix']['url']), runner.SCHEDULE_FILE):
+            api = zbx.Api(settings['zabbix']['url'])
+            schedule = zbx.restore_schedule(api, runner.SCHEDULE_FILE)
+            macro = zbx.restore_fresh_macro(api, runner.FRESH_FILE)
+            if not schedule and macro is None:
                 print('nothing to restore')
         elif a.cmd == 'compare-reports':
             x, y = (runner.normalize_report(json.load(open(f))) for f in (a.a, a.b))
