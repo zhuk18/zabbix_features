@@ -3,6 +3,7 @@
         {
             "id": "I-01",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -62,6 +63,7 @@
         {
             "id": "I-02",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -121,6 +123,7 @@
         {
             "id": "I-03",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -192,6 +195,7 @@
         {
             "id": "I-04",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -295,6 +299,7 @@
         {
             "id": "I-05",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -375,6 +380,7 @@
         {
             "id": "I-06",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -457,6 +463,7 @@
         {
             "id": "I-07",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -528,6 +535,7 @@
         {
             "id": "I-08",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -608,6 +616,7 @@
         {
             "id": "I-09",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -699,6 +708,7 @@
         {
             "id": "I-10",
             "rating": "Пробел",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -779,6 +789,7 @@
         {
             "id": "I-11",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -848,6 +859,7 @@
         {
             "id": "I-12",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -917,6 +929,7 @@
         {
             "id": "I-13",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -993,6 +1006,7 @@
         {
             "id": "I-14",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1084,6 +1098,7 @@
         {
             "id": "I-15",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1146,6 +1161,7 @@
         {
             "id": "I-16",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1202,6 +1218,7 @@
         {
             "id": "I-17",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1261,6 +1278,7 @@
         {
             "id": "I-18",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1285,6 +1303,7 @@
         {
             "id": "I-19",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1309,6 +1328,7 @@
         {
             "id": "I-20",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1350,6 +1370,7 @@
         {
             "id": "I-21",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1424,6 +1445,7 @@
         {
             "id": "I-22",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1455,6 +1477,7 @@
         {
             "id": "I-23",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1514,6 +1537,7 @@
         {
             "id": "I-24",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1587,6 +1611,7 @@
         {
             "id": "I-25",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1675,6 +1700,7 @@
         {
             "id": "I-26",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1734,6 +1760,7 @@
         {
             "id": "I-27",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "live from host.get in the UI, no ingest involved",
             "covered_by": null
@@ -1741,6 +1768,7 @@
         {
             "id": "I-28",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1808,6 +1836,7 @@
         {
             "id": "P-01",
             "rating": "Пробел",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1898,6 +1927,7 @@
         {
             "id": "P-02",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -1967,6 +1997,7 @@
         {
             "id": "P-03",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2039,6 +2070,7 @@
         {
             "id": "P-04",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2108,6 +2140,7 @@
         {
             "id": "P-05",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2177,6 +2210,7 @@
         {
             "id": "P-06",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2246,6 +2280,7 @@
         {
             "id": "P-07",
             "rating": "Вывод",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2317,6 +2352,7 @@
         {
             "id": "P-08",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2382,6 +2418,7 @@
         {
             "id": "P-09",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2421,6 +2458,7 @@
         {
             "id": "P-10",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2466,6 +2504,7 @@
         {
             "id": "P-11",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2511,6 +2550,7 @@
         {
             "id": "P-12",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2555,6 +2595,7 @@
         {
             "id": "P-13",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2614,6 +2655,7 @@
         {
             "id": "P-14",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2673,6 +2715,7 @@
         {
             "id": "P-15",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2732,6 +2775,7 @@
         {
             "id": "P-16",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2798,6 +2842,7 @@
         {
             "id": "P-17",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2836,6 +2881,7 @@
         {
             "id": "P-18",
             "rating": "Пробел",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2879,6 +2925,7 @@
         {
             "id": "L-01",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -2938,6 +2985,7 @@
         {
             "id": "L-02",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3000,6 +3048,7 @@
         {
             "id": "L-03",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3071,6 +3120,7 @@
         {
             "id": "L-04",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3157,6 +3207,7 @@
         {
             "id": "L-05",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3285,6 +3336,7 @@
         {
             "id": "L-06",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3358,6 +3410,7 @@
         {
             "id": "L-07",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3435,6 +3488,7 @@
         {
             "id": "L-08",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3517,6 +3571,7 @@
         {
             "id": "L-09",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3629,6 +3684,7 @@
         {
             "id": "L-10",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3714,6 +3770,7 @@
         {
             "id": "L-11",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3829,6 +3886,7 @@
         {
             "id": "L-12",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -3897,6 +3955,7 @@
         {
             "id": "L-13",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4004,6 +4063,7 @@
         {
             "id": "L-13b",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4109,6 +4169,7 @@
         {
             "id": "L-14",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4188,6 +4249,7 @@
         {
             "id": "L-15",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4270,6 +4332,7 @@
         {
             "id": "L-16",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4349,6 +4412,7 @@
         {
             "id": "L-17",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4427,6 +4491,7 @@
         {
             "id": "L-18",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4487,6 +4552,7 @@
         {
             "id": "L-19",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4549,6 +4615,7 @@
         {
             "id": "L-20",
             "rating": "Вывод",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4642,6 +4709,7 @@
         {
             "id": "L-21",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4707,6 +4775,7 @@
         {
             "id": "L-22",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4811,6 +4880,7 @@
         {
             "id": "L-23",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "a model limitation (point-to-point links): there is no behavior to run",
             "covered_by": null
@@ -4818,6 +4888,7 @@
         {
             "id": "L-24",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4890,6 +4961,7 @@
         {
             "id": "L-25",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -4963,6 +5035,7 @@
         {
             "id": "L-26",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "three or more competing claims with some ports occupied: the catalog gives no concrete input, and the \"not optimal but stable\" outcome is not asserted by any rule",
             "covered_by": "test_link_replacement.php §14 (two claims) and §11 (order independence)"
@@ -4970,6 +5043,7 @@
         {
             "id": "L-27",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "not modeled (backlog: a separate link type); nothing to run",
             "covered_by": null
@@ -4977,6 +5051,7 @@
         {
             "id": "M-01",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5030,6 +5105,7 @@
         {
             "id": "M-02",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5099,6 +5175,7 @@
         {
             "id": "M-03",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5150,6 +5227,7 @@
         {
             "id": "M-04",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5206,6 +5284,7 @@
         {
             "id": "M-05",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5263,6 +5342,7 @@
         {
             "id": "M-06",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5313,6 +5393,7 @@
         {
             "id": "M-07",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5375,6 +5456,7 @@
         {
             "id": "M-08",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5447,6 +5529,7 @@
         {
             "id": "M-09",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5509,6 +5592,7 @@
         {
             "id": "M-10",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5583,6 +5667,7 @@
         {
             "id": "M-11",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5665,6 +5750,7 @@
         {
             "id": "M-12",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5749,6 +5835,7 @@
         {
             "id": "M-13",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5844,6 +5931,7 @@
         {
             "id": "M-14",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -5936,6 +6024,7 @@
         {
             "id": "M-15",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6030,6 +6119,7 @@
         {
             "id": "M-16",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6114,6 +6204,7 @@
         {
             "id": "M-17",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6200,6 +6291,7 @@
         {
             "id": "M-18",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6284,6 +6376,7 @@
         {
             "id": "M-19",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6351,6 +6444,7 @@
         {
             "id": "M-20",
             "rating": "Пробел",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6426,6 +6520,7 @@
         {
             "id": "M-21",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6496,6 +6591,7 @@
         {
             "id": "M-22",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6588,6 +6684,7 @@
         {
             "id": "D-01",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6647,6 +6744,7 @@
         {
             "id": "D-02",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6707,6 +6805,7 @@
         {
             "id": "D-03",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6771,6 +6870,7 @@
         {
             "id": "D-04",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6840,6 +6940,7 @@
         {
             "id": "D-05",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -6911,6 +7012,7 @@
         {
             "id": "D-06",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7000,6 +7102,7 @@
         {
             "id": "D-07",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7069,6 +7172,7 @@
         {
             "id": "D-08",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7148,6 +7252,7 @@
         {
             "id": "D-09",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7223,6 +7328,7 @@
         {
             "id": "D-10",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7305,6 +7411,7 @@
         {
             "id": "D-11",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7376,6 +7483,7 @@
         {
             "id": "D-12",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7445,6 +7553,7 @@
         {
             "id": "D-13",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7485,6 +7594,7 @@
         {
             "id": "D-14",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7525,6 +7635,7 @@
         {
             "id": "D-15",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7571,6 +7682,7 @@
         {
             "id": "C-01",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7650,6 +7762,7 @@
         {
             "id": "C-02",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the fault wrong_community is not implemented in the lab (simulator spec §6.3); for ingest it is C-01",
             "covered_by": null
@@ -7657,6 +7770,7 @@
         {
             "id": "C-03",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "native step / template (missing_mib), C server; not an ingest case",
             "covered_by": "LLD golden fixtures (database/topology/discovery/step_golden, lld_js), simulator spec §6.1"
@@ -7664,6 +7778,7 @@
         {
             "id": "C-04",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7729,6 +7844,7 @@
         {
             "id": "C-05",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "a truncated walk is decided by push.py and the native step, before any snapshot exists",
             "covered_by": "database/topology/discovery/test_push.py (truncated walk), step_golden"
@@ -7736,6 +7852,7 @@
         {
             "id": "C-06",
             "rating": "Вывод",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7813,6 +7930,7 @@
         {
             "id": "C-07",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the contract check runs in the server (lld_topology.c) before the snapshot is written; invalid rows never reach ingest",
             "covered_by": null
@@ -7820,6 +7938,7 @@
         {
             "id": "C-08",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the native step (C, preproc_topology.c) drops the row; nothing reaches ingest",
             "covered_by": "step_golden (no counter exists: nothing to assert)"
@@ -7827,6 +7946,7 @@
         {
             "id": "C-09",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the snapshot clock rule is in the server (lld_topology.c)",
             "covered_by": "database/topology/discovery/test_snapshot_clock.py; handoff 005 (live, through a proxy)"
@@ -7834,6 +7954,7 @@
         {
             "id": "C-10",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "needs a proxy and zabbix_sender",
             "covered_by": "handoff 005 report (live, 5 values through a proxy)"
@@ -7841,6 +7962,7 @@
         {
             "id": "C-11",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the LLD manager queue (C server)",
             "covered_by": "handoff 005 report (lld_manager.c:303)"
@@ -7848,6 +7970,7 @@
         {
             "id": "C-12",
             "rating": "Пробел",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the snapshot clock is written by the C server (lld_topology.c); not ingest",
             "covered_by": "live check on the test VM: database/topology/discovery/test_snapshot_clock.py (future timestamps), handoff 010 report section 4"
@@ -7855,6 +7978,7 @@
         {
             "id": "C-13",
             "rating": "Правило",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -7926,6 +8050,7 @@
         {
             "id": "C-14",
             "rating": "Вывод",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8012,6 +8137,7 @@
         {
             "id": "C-15",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8077,6 +8203,7 @@
         {
             "id": "C-16",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8162,6 +8289,7 @@
         {
             "id": "C-17",
             "rating": "Вывод",
+            "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8244,6 +8372,7 @@
         {
             "id": "C-18",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "needs the legacy blob item (topology.discovery.raw) read through the Zabbix API, which the harness does not simulate; no existing test found for the \"snapshots win\" line",
             "covered_by": null
@@ -8251,6 +8380,7 @@
         {
             "id": "C-19",
             "rating": "Ограничение",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the legacy loop reads blobs through the API",
             "covered_by": "database/topology/discovery/test_reconciliation_scenarios.php (legacy closures)"
@@ -8258,6 +8388,7 @@
         {
             "id": "C-20",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "needs two concurrent processes",
             "covered_by": "database/topology/discovery/test_ingest_lock.php"
@@ -8265,6 +8396,7 @@
         {
             "id": "C-21",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8323,6 +8455,7 @@
         {
             "id": "C-22",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8491,6 +8624,7 @@
         {
             "id": "C-23",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "JSON validity of the values is decided by push.py and the native step; the escaping at display is the UI",
             "covered_by": "database/topology/discovery/test_push.py, step_golden"
@@ -8498,6 +8632,7 @@
         {
             "id": "C-24",
             "rating": "Правило",
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
@@ -8557,19 +8692,219 @@
         {
             "id": "C-25",
             "rating": "Вывод",
+            "first_pass": false,
             "verdict": "out of harness",
             "reason": "the fault lldp_error is not implemented in the lab (simulator spec §6.3)",
             "covered_by": null
+        },
+        {
+            "id": "N-01",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_far_port_identification.php §1, §2",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1503,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1509,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1505/if1",
+                        "Gi0/2#1506/if2",
+                        "Gi0/3#1507/if3",
+                        "Gi0/4#1508/if4"
+                    ],
+                    "B": [
+                        "Gi0/1#1511/if10",
+                        "Gi0/2#1512/if11"
+                    ]
+                },
+                "links": [
+                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #216"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> B applied edge#216 port",
+                    "R:Gi0/1 -> B applied edge#216 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "LLDP: interfaceName Gi0/1 with the description \"uplink to core\"; CDP: GigabitEthernet0/1",
+                    "devices": 2,
+                    "links": [
+                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #216"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> B applied edge#216 port",
+                        "R:Gi0/1 -> B applied edge#216 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "N-02",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_far_port_identification.php §1",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1523,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1529,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1525/if1",
+                        "Gi0/2#1526/if2",
+                        "Gi0/3#1527/if3",
+                        "Gi0/4#1528/if4"
+                    ],
+                    "B": [
+                        "Gi0/1#1531/if10",
+                        "Gi0/2#1532/if11",
+                        "Gi0/3#1533/if12"
+                    ]
+                },
+                "links": [
+                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #218",
+                    "device_link R:Gi0/2 ~ B active port_shared_id #219"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> B applied edge#218 port",
+                    "R:Gi0/2 -> B applied edge#219 device port_shared_id"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "port id = the MAC of one Port (R:Gi0/1), of two Ports (R:Gi0/2)",
+                    "devices": 2,
+                    "links": [
+                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #218",
+                        "device_link R:Gi0/2 ~ B active port_shared_id #219"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> B applied edge#218 port",
+                        "R:Gi0/2 -> B applied edge#219 device port_shared_id"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "N-03",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_pseudo_port_index.php",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1545,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1551,
+                        "name": "D",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.0.0.50",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1547/if1",
+                        "Gi0/2#1548/if2",
+                        "Gi0/3#1549/if3",
+                        "Gi0/4#1550/if4"
+                    ],
+                    "D": [
+                        "Gi0/9#1554/if663128"
+                    ]
+                },
+                "links": [
+                    "device_link R:Gi0/1 ~ D active port_unmatched #222"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> D applied edge#222 device port_unmatched"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "D is a neighbor: a pseudo port p1",
+                    "devices": 2,
+                    "links": [
+                        "physical_link D:p1* ~ R:Gi0/1 active #222"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> D applied edge#222 port"
+                    ]
+                },
+                {
+                    "step": "D becomes a reporter with a real port whose ifIndex equals the old positive allocated index",
+                    "devices": 2,
+                    "links": [
+                        "device_link R:Gi0/1 ~ D active port_unmatched #222"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> D applied edge#222 device port_unmatched"
+                    ]
+                }
+            ]
         }
     ],
     "counts": {
         "verdict": {
-            "match": 118,
+            "match": 121,
             "out of harness": 18
         },
         "rating": {
             "Правило": {
-                "match": 91,
+                "match": 94,
                 "out of harness": 9
             },
             "Ограничение": {

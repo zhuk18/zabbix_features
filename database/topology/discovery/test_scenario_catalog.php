@@ -19,7 +19,8 @@ declare(strict_types=1);
  * ingest.php as a subprocess after every change, so the actual CLI path is exercised end to end — no test-only
  * hook, no reimplementation of the algorithm here.
  *
- * Usage: test_scenario_catalog.php <PDO DSN> <database user> [password]
+ * Usage: test_scenario_catalog.php [--first-pass] <PDO DSN> <database user> [password]
+ *   --first-pass runs only the cases tagged first_pass (the reviewer's first pass); the JSON file is written by full runs only.
  * Expects a THROWAWAY database: it drops and recreates the topology tables and minimal stand-ins for the Zabbix
  * tables they reference (hosts, proxy, items, interface, host_inventory, topo_lld_snapshot). Never point it at a
  * real Zabbix database.
@@ -38,8 +39,10 @@ function check(bool $condition, string $description): void {
 }
 
 $args = array_slice($argv, 1);
+$first_pass_only = in_array('--first-pass', $args, true);
+$args = array_values(array_filter($args, static fn (string $a): bool => $a !== '--first-pass'));
 if (count($args) < 2 || count($args) > 3) {
-	fwrite(STDERR, "Usage: {$argv[0]} <PDO DSN> <database user> [password]\n");
+	fwrite(STDERR, "Usage: {$argv[0]} [--first-pass] <PDO DSN> <database user> [password]\n");
 	exit(1);
 }
 [$dsn, $user] = $args;
@@ -544,6 +547,11 @@ function device(PDO $pdo, ?string $chassis, ?string $ip, string $sysname = ''): 
 
 $CASES = [];
 
+/** The reviewer's first pass (handoff 011): a merged row of the catalog is all of its IDs. `--first-pass` runs only these. */
+const FIRST_PASS = ['I-01', 'I-07', 'I-08', 'I-10', 'I-23', 'P-01', 'P-07', 'M-20', 'P-08', 'P-18', 'P-09', 'P-10', 'P-13', 'L-17', 'L-01', 'L-02',
+	'L-03', 'L-04', 'L-06', 'L-07', 'C-06', 'L-08', 'L-11', 'L-12', 'L-13', 'L-13b', 'L-20', 'M-02', 'M-07', 'M-10', 'M-11', 'M-12', 'M-16', 'D-04',
+	'D-01', 'D-05', 'D-07', 'C-01', 'C-14', 'C-17', 'C-13'];
+
 /** A case of the catalog. $multi = run again with the reporters walked in the reverse order. */
 function c(string $id, string $rating, callable $fn, ?string $covered = null): void {
 	global $CASES;
@@ -637,7 +645,7 @@ function h_idempotent(): array {
 function h_execute(array $case): array {
 	global $H;
 	if ($case['fn'] === null) {
-		return ['id' => $case['id'], 'rating' => $case['rating'], 'verdict' => 'out of harness', 'reason' => $case['out'], 'covered_by' => $case['covered']];
+		return ['id' => $case['id'], 'rating' => $case['rating'], 'first_pass' => in_array($case['id'], FIRST_PASS, true), 'verdict' => 'out of harness', 'reason' => $case['out'], 'covered_by' => $case['covered']];
 	}
 	$run = h_run_case($case, 'forward');
 	$fails = $H['fails'];
@@ -672,7 +680,7 @@ function h_execute(array $case): array {
 				.'; forward: '.json_encode($natural, JSON_UNESCAPED_UNICODE).'; reverse: '.json_encode($rev, JSON_UNESCAPED_UNICODE);
 		}
 	}
-	return ['id' => $case['id'], 'rating' => $case['rating'], 'verdict' => $fails ? 'differs' : 'match', 'failed' => $fails,
+	return ['id' => $case['id'], 'rating' => $case['rating'], 'first_pass' => in_array($case['id'], FIRST_PASS, true), 'verdict' => $fails ? 'differs' : 'match', 'failed' => $fails,
 		'idempotent' => $idem, 'order_independent' => $order_ok, 'covered_by' => $case['covered'], 'notes' => $notes,
 		'actual' => ['devices' => $state['devices'], 'ports' => $state['ports'], 'links' => $state['links'], 'observations' => $state['obs']],
 		'steps' => $steps];
@@ -2340,10 +2348,60 @@ c('C-24', 'Правило', function () {
 oh('C-25', 'Вывод', 'the fault lldp_error is not implemented in the lab (simulator spec §6.3)');
 
 // ============================================================================================================
+// N. New acceptance lines of model §15 "Device-level" (handoff 011): far port identification by subtype, pseudo port index
+// ============================================================================================================
+
+c('N-01', 'Правило', function () {
+	base_r();
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('B', [10 => 'Gi0/1', 11 => 'Gi0/2']);
+	h_nbrs('R', [NR(1, mac(2), 'B', 'Gi0/1', ['rem_port_desc' => 'uplink to core'])], 'lldp');
+	h_nbrs('R', [NR(1, mac(2), 'B', 'GigabitEthernet0/1')], 'cdp');
+	h_ingest('LLDP: interfaceName Gi0/1 with the description "uplink to core"; CDP: GigabitEthernet0/1');
+	ex(count(h_links('R:Gi0/1', 'B:Gi0/1', 'physical_link', 'active')) === 1 && count(h_state()['links_full']) === 1, 'one far port, one link');
+	$o = h_obs_all('R', 'Gi0/1');
+	ex(count($o) === 2 && array_unique(array_column($o, 'outcome')) === ['applied'], 'both observations applied');
+	ex(count(ports_of_dev('B')) === 2, 'no port was created on B');
+}, 'test_far_port_identification.php §1, §2');
+
+c('N-02', 'Правило', function () {
+	base_r();
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('B', [10 => ['Gi0/1', ['mac' => '02:00:00:0b:00:01']], 11 => ['Gi0/2', ['mac' => '02:00:00:0b:00:02']], 12 => ['Gi0/3', ['mac' => '02:00:00:0b:00:02']]]);
+	h_nbrs('R', [NR(1, mac(2), 'B', '02:00:00:0b:00:01', ['rem_port_type' => 'macAddress']), NR(2, mac(2), 'B', '02:00:00:0b:00:02', ['rem_port_type' => 'macAddress'])]);
+	h_ingest('port id = the MAC of one Port (R:Gi0/1), of two Ports (R:Gi0/2)');
+	ex(count(h_links('R:Gi0/1', 'B:Gi0/1', 'physical_link', 'active')) === 1, 'the MAC of one Port: port-level');
+	$l = h_links('R:Gi0/2', 'B', 'device_link', 'active');
+	ex(count($l) === 1 && $l[0]['reason'] === 'port_shared_id', 'the MAC of several Ports: device_link, port_shared_id');
+}, 'test_far_port_identification.php §1');
+
+c('N-03', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'D', 'p1')]);
+	h_ingest('D is a neighbor: a pseudo port p1');
+	$pseudo = array_filter(h_state()['ports']['D'] ?? [], static fn ($p) => str_starts_with($p, 'p1*'));
+	preg_match('/\/if(-?\d+)$/', array_values($pseudo)[0] ?? '', $m);
+	ex(isset($m[1]) && (int) $m[1] < 0, 'the allocated if_index of the pseudo port is negative ('.($m[1] ?? '?').')');
+	$old_positive = (int) (crc32('p1') % 999999) + 1;
+	h_tick();
+	h_rep('D', mac(10), '10.0.0.50');
+	h_ports('D', [$old_positive => 'Gi0/9']);
+	h_nbrs('D', []);
+	$summary = h_ingest('D becomes a reporter with a real port whose ifIndex equals the old positive allocated index');
+	$d_ports = h_state()['ports']['D'] ?? [];
+	ex(count($d_ports) === 1 && str_starts_with($d_ports[0], 'Gi0/9') && !str_contains($d_ports[0], '*'), 'the real port is a new row; the pseudo port is gone (converted), not overwritten');
+	ex(count(h_links('R:Gi0/1', 'D', 'device_link', 'active')) === 1 && (int) ($summary['pseudo_ports_converted'] ?? 0) === 1, 'its link was converted to a device_link (§6.7.3), pseudo_ports_converted = 1');
+}, 'test_pseudo_port_index.php');
+
+// ============================================================================================================
 // Run
 // ============================================================================================================
 
+$started = microtime(true);
 $only = getenv('CATALOG_CASES') ? explode(',', (string) getenv('CATALOG_CASES')) : null;
+if ($first_pass_only) {
+	$only = FIRST_PASS;
+}
 $results = [];
 foreach ($CASES as $id => $case) {
 	if ($only !== null && !in_array($id, $only, true)) {
@@ -2364,6 +2422,8 @@ foreach ($results as $r) {
 	$counts['rating'][$r['rating']][$r['verdict']] = ($counts['rating'][$r['rating']][$r['verdict']] ?? 0) + 1;
 }
 echo "\nverdicts: ".json_encode($counts['verdict'], JSON_UNESCAPED_UNICODE)."\nby rating: ".json_encode($counts['rating'], JSON_UNESCAPED_UNICODE)."\n";
+
+echo sprintf("\nrun time: %.1f s (%d cases%s)\n", microtime(true) - $started, count($results), $first_pass_only ? ', first pass' : '');
 
 if ($only === null) {
 	file_put_contents(__DIR__.'/scenario_catalog_results.json', json_encode(['cases' => $results, 'counts' => $counts],
