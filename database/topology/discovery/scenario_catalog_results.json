@@ -8895,16 +8895,235 @@
                     ]
                 }
             ]
+        },
+        {
+            "id": "J-01",
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_join_identity.php §1",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1565,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1571,
+                        "name": "N",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1567/if1",
+                        "Gi0/2#1568/if2",
+                        "Gi0/3#1569/if3",
+                        "Gi0/4#1570/if4"
+                    ],
+                    "N": [
+                        "Gi0/1#1576/if1"
+                    ]
+                },
+                "links": [
+                    "physical_link N:Gi0/1 ~ R:Gi0/1 active #224"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> N applied edge#224 port",
+                    "R:Gi0/1 -> N applied edge#224 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "LLDP (chassis only) and CDP (IP only) for one neighbor",
+                    "devices": 3,
+                    "links": [],
+                    "obs": [
+                        "R:Gi0/1 -> N ambiguous port",
+                        "R:Gi0/1 -> N ambiguous port"
+                    ]
+                },
+                {
+                    "step": "the neighbor becomes a reporter: loc_chassis + SNMP IP",
+                    "devices": 2,
+                    "links": [
+                        "physical_link N:Gi0/1 ~ R:Gi0/1 active #224"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> N applied edge#224 port",
+                        "R:Gi0/1 -> N applied edge#224 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "J-02",
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": "test_join_identity.php §2",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1589,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1595,
+                        "name": "N",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1591/if1",
+                        "Gi0/2#1592/if2",
+                        "Gi0/3#1593/if3",
+                        "Gi0/4#1594/if4"
+                    ],
+                    "N": [
+                        "Gi0/1*#1597/if-563193"
+                    ]
+                },
+                "links": [
+                    "physical_link N:Gi0/1* ~ R:Gi0/1 active #226"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> N applied edge#226 port",
+                    "R:Gi0/1 -> N applied edge#226 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a split identity: A (chassis), B (IP)",
+                    "devices": 3,
+                    "links": [],
+                    "obs": [
+                        "R:Gi0/1 -> N ambiguous port",
+                        "R:Gi0/1 -> N ambiguous port"
+                    ]
+                },
+                {
+                    "step": "LLDP now carries the management address: a row with chassis + IP",
+                    "devices": 2,
+                    "links": [
+                        "physical_link N:Gi0/1* ~ R:Gi0/1 active #226"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> N applied edge#226 port",
+                        "R:Gi0/1 -> N applied edge#226 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "J-03",
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_join_identity.php §3",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1599,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1605,
+                        "name": "NA",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.0.0.30",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1608,
+                        "name": "NB",
+                        "chassis": null,
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1601/if1",
+                        "Gi0/2#1602/if2",
+                        "Gi0/3#1603/if3",
+                        "Gi0/4#1604/if4"
+                    ],
+                    "NA": [
+                        "Gi0/1#1607/if1"
+                    ],
+                    "NB": [
+                        "Gi0/1#1610/if1"
+                    ]
+                },
+                "links": [
+                    "physical_link NA:Gi0/1 ~ R:Gi0/1 active #227"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> NA applied edge#227 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "A (a reporter with a chassis) and B (a reporter known by IP only) exist",
+                    "devices": 3,
+                    "links": [],
+                    "obs": []
+                },
+                {
+                    "step": "a row names the chassis of A and the IP of B",
+                    "devices": 3,
+                    "links": [
+                        "physical_link NA:Gi0/1 ~ R:Gi0/1 active #227"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> NA applied edge#227 port"
+                    ]
+                }
+            ]
         }
     ],
     "counts": {
         "verdict": {
-            "match": 121,
+            "match": 124,
             "out of harness": 18
         },
         "rating": {
             "Правило": {
-                "match": 94,
+                "match": 97,
                 "out of harness": 9
             },
             "Ограничение": {

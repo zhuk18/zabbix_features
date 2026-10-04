@@ -550,7 +550,7 @@ $CASES = [];
 /** The reviewer's first pass (handoff 011): a merged row of the catalog is all of its IDs. `--first-pass` runs only these. */
 const FIRST_PASS = ['I-01', 'I-07', 'I-08', 'I-10', 'I-23', 'P-01', 'P-07', 'M-20', 'P-08', 'P-18', 'P-09', 'P-10', 'P-13', 'L-17', 'L-01', 'L-02',
 	'L-03', 'L-04', 'L-06', 'L-07', 'C-06', 'L-08', 'L-11', 'L-12', 'L-13', 'L-13b', 'L-20', 'M-02', 'M-07', 'M-10', 'M-11', 'M-12', 'M-16', 'D-04',
-	'D-01', 'D-05', 'D-07', 'C-01', 'C-14', 'C-17', 'C-13'];
+	'D-01', 'D-05', 'D-07', 'C-01', 'C-14', 'C-17', 'C-13', 'J-01', 'J-02', 'J-03'];
 
 /** A case of the catalog. $multi = run again with the reporters walked in the reverse order. */
 function c(string $id, string $rating, callable $fn, ?string $covered = null): void {
@@ -2392,6 +2392,56 @@ c('N-03', 'Правило', function () {
 	ex(count($d_ports) === 1 && str_starts_with($d_ports[0], 'Gi0/9') && !str_contains($d_ports[0], '*'), 'the real port is a new row; the pseudo port is gone (converted), not overwritten');
 	ex(count(h_links('R:Gi0/1', 'D', 'device_link', 'active')) === 1 && (int) ($summary['pseudo_ports_converted'] ?? 0) === 1, 'its link was converted to a device_link (§6.7.3), pseudo_ports_converted = 1');
 }, 'test_pseudo_port_index.php');
+
+// ============================================================================================================
+// J. Join of a split identity (model §6.7.1; handoff 012)
+// ============================================================================================================
+
+c('J-01', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1')], 'lldp');                                        // LLDP without a management address: chassis only
+	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');           // CDP: IP only
+	h_ingest('LLDP (chassis only) and CDP (IP only) for one neighbor');
+	ex(h_dev_count() === 3, 'two Devices for one neighbor after run 1');
+	h_tick();
+	h_rep('N', mac(10), '10.5.5.5');
+	h_ports('N', [1 => 'Gi0/1']);
+	h_nbrs('N', []);
+	$summary = h_ingest('the neighbor becomes a reporter: loc_chassis + SNMP IP');
+	ex(h_dev_count() === 2, 'one Device (A kept, B deleted)');
+	ex(count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 1 && count(h_links('R:Gi0/1', 'N:Gi0/1', 'physical_link', 'active')) === 1, 'one link, pseudo ports merged by name');
+	ex(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['applied'], 'the CDP observation is applied, not ambiguous');
+	ex((int) ($summary['devices_joined']['count'] ?? 0) === 1, 'devices_joined = 1');
+}, 'test_join_identity.php §1');
+
+c('J-02', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1')], 'lldp');
+	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
+	h_ingest('a split identity: A (chassis), B (IP)');
+	ex(h_dev_count() === 3, 'two Devices for the neighbor');
+	h_tick();
+	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
+	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
+	$summary = h_ingest('LLDP now carries the management address: a row with chassis + IP');
+	ex(h_dev_count() === 2 && (int) ($summary['devices_joined']['count'] ?? 0) === 1, 'B is merged into A in the same run (devices_joined = 1)');
+	ex(count(h_links('R:Gi0/1', 'N', 'physical_link', 'active')) === 1 && array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['applied'], 'one link, both observations applied');
+}, 'test_join_identity.php §2');
+
+c('J-03', 'Правило', function () {
+	base_r();
+	h_rep('NA', mac(10), '10.0.0.30');
+	h_ports('NA', [1 => 'Gi0/1']);
+	h_rep('NB', null, '10.5.5.5');                          // a reporter known by its SNMP IP only
+	h_snap('NB', ROLE_PORTS, PR([1 => 'Gi0/1']));
+	h_ingest('A (a reporter with a chassis) and B (a reporter known by IP only) exist');
+	ex(h_dev_count() === 3, 'setup: three Devices (R, A, B)');
+	h_tick();
+	h_nbrs('R', [NR(1, mac(10), 'NA', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
+	$summary = h_ingest('a row names the chassis of A and the IP of B');
+	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no join: both Devices stay (R, A, B)');
+	ex((int) ($summary['devices_join_refused']['count'] ?? 0) === 1, 'devices_join_refused = 1 (both have a represented_by)');
+}, 'test_join_identity.php §3');
 
 // ============================================================================================================
 // Run
