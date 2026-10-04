@@ -1,0 +1,86 @@
+id: S5
+title: Far port identification by port id subtype
+base: lab.yaml
+# topology-4-lab-simulator.md §9 S5. The step-level `devices:` changes AP1's advertisement. emit_mgmt_addr: LLDP carries the
+# management address, so the CDP row (IP only) and the LLDP row (chassis + IP) resolve to the one Device (model §6.7.1 step 2);
+# without it the two rows would create two Devices.
+patch:
+  settings: {emit_subtypes: true, emit_mgmt_addr: true}
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 6, name: Gi0/6}
+      cdp: true
+      lldp_local_port_subtype: interfaceName
+    AP1:
+      ip: 127.0.0.7
+      port_mac_prefix: "02:00:00:07"
+      cdp: true
+      lldp_local_port_subtype: interfaceName
+      lldp_loc_port_num: ifindex
+      add_ports:
+        - {ifindex: 2, name: eth0, desc: "uplink to core"}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+  cables:
+    add: [[Switch1:Gi0/6, AP1:eth0]]
+steps:
+  - id: 0
+    note: Switch1:Gi0/6 - AP1:eth0 seen by LLDP (interfaceName, free-text description) and by CDP
+    # model §6.7.2: the port id decides, the description is only a fallback: one far port, one link, both observations applied
+    assert:
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/6, remote: AP1}
+        outcome: applied
+        precision_lower: false
+  - id: 1
+    note: AP1 advertises its port as local, the number is the ifIndex
+    devices:
+      AP1: {lldp_local_port_subtype: local, lldp_loc_port_num: ifindex}
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/6, AP1:eth0]}
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/6, remote: AP1}
+        outcome: applied
+        precision_lower: false
+  - id: 2
+    note: the local number is not an ifIndex (offset 1000); only CDP identifies the port
+    devices:
+      AP1: {lldp_loc_port_num: "offset:1000"}
+    # the LLDP row identifies no Port (no such ifIndex, no such name, the description is free text); the CDP row does: one link, best precision
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/6, AP1:eth0]}
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/6, remote: AP1}
+        outcome: applied
+        precision_lower: false
+  - id: 3
+    note: as step 2, CDP off on AP1
+    devices:
+      AP1: {cdp: false}
+    # model §8.3: nothing identifies the port any more: the link stays a physical_link (same edge id), precision_lower
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/6, AP1:eth0]}
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/6, remote: AP1}
+        outcome: applied
+        precision_lower: true
+  - id: 4
+    note: back to step 0
+    devices:
+      AP1: {lldp_local_port_subtype: interfaceName, lldp_loc_port_num: ifindex, cdp: true}
+    assert:
+      - edge_id_same_as: {step: 0, link: [Switch1:Gi0/6, AP1:eth0]}
+      - link: [Switch1:Gi0/6, AP1:eth0]
+        type: physical_link
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/6, remote: AP1}
+        outcome: applied
+        precision_lower: false

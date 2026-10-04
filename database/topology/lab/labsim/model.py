@@ -74,6 +74,7 @@ class Lab:
 
     def apply_patch(self, patch):
         """Scenario-level patch applied before step 0 (devices, ports, cables, deviations)."""
+        self.settings.update((patch or {}).get('settings') or {})      # e.g. emit_subtypes, emit_mgmt_addr for this scenario only
         for name, d in ((patch or {}).get('devices') or {}).items():
             if name in self.devices:
                 dev = self.devices[name]
@@ -103,6 +104,15 @@ class Lab:
             self.cables.append(nc)
 
     def apply_step(self, step):
+        # `devices:` changes attributes of devices from this step on (lldp_local_port_subtype, lldp_loc_port_num, cdp, lldp, ...);
+        # ports, zabbix and the identity of a device are not changed this way
+        for name, change in (step.get('devices') or {}).items():
+            if name not in self.devices:
+                raise LabError('step changes unknown device %r' % name)
+            bad = set(change) & {'ports', 'zabbix', 'chassis', 'ip', 'sysname'}
+            if bad:
+                raise LabError('step changes %s of device %s: only attributes of its LLDP/CDP/FDB behavior can change in a step' % (sorted(bad), name))
+            self.devices[name].update(change)
         self.apply_cables(step.get('cables') or {})
         dv = step.get('deviations') or {}
         for i in dv.get('enable') or []:

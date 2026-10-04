@@ -114,7 +114,7 @@ def _port_id(dev, p):
         return 5, p['name']
     if sub == 'macAddress':
         return 3, bytes.fromhex(port_mac(dev, p).replace(':', ''))
-    return 7, str(p['ifindex'])
+    return 7, str(_loc_port_num(dev, p))     # the local port number: an ifIndex only when lldp_loc_port_num is ifindex
 
 
 def device_records(lab, name):
@@ -200,7 +200,7 @@ def device_records(lab, name):
                 sub, pid = _port_id(dev, p)
                 r.put(lb + (7, 1, 2, n), '2', sub)
                 (r.put_hex if isinstance(pid, bytes) else r.put_str)(lb + (7, 1, 3, n), pid)
-                r.put_str(lb + (7, 1, 4, n), long_name(p['name']))
+                r.put_str(lb + (7, 1, 4, n), p.get('desc') or long_name(p['name']))
         for p in ports:
             n = _loc_port_num(dev, p)
             for k, (fd, fp) in enumerate(neighbors.get((name, p['name']), []), 1):

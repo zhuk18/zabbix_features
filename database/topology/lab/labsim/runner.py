@@ -429,7 +429,8 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             sr['links'] = [{k: l[k] for k in ('id', 'type', 'ends', 'discovered_via', 'state', 'far_port_reason')} for l in state['links']]
             sr['observations'] = state['observations']
             sr['natural_state'] = db.comparable(state)
-            sr['neighbor_outcomes'] = sorted([o['reporter'], o['port'], o['device'], o['outcome']] for o in state['observations'])
+            sr['neighbor_outcomes'] = sorted(([o['reporter'], o['port'], o['device'], o['outcome']] for o in state['observations']),
+                                             key=lambda row: [str(v) for v in row])
             sr['snapshot_rows'] = db.snapshot_rows(conn)
             derived_cache = {}
 
