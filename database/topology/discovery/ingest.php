@@ -838,6 +838,7 @@ const TOPO_ROLE_LAG = 4;
 const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
 
 $summary += [
+	'pseudo_ports_reindexed' => 0,
 	'reporters_processed' => 0,
 	'reporters_skipped' => [],
 	'snapshots_ignored_role_mismatch' => 0,
@@ -1728,12 +1729,27 @@ $snap_ingest_reporter = static function (array $reporter) use (
 // A candidate that is both unmatched and in a shared / LAG group takes the group's reason (shared id wins over LAG).
 // No port is created on a Device that has authoritative ports: that would be a phantom.
 // ============================================================================================================
+// An internal if_index for a pseudo port that has no real ifIndex (topology-1-model.md §6.6 "Pseudo ports never take a PORTS row"):
+// NEGATIVE, from the hash of the normalized name, moved on (further down) past any if_index the Device already uses. Real ifIndex
+// values are positive, so a reporter's PORTS row can never land on such a pseudo port.
+$alloc_pseudo_index = static function (int $device_id, string $key) use ($pdo): int {
+	$index = -((int) (crc32($key) % 999999) + 1);
+	$used = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+	for ($tries = 0; $tries < 1000; $tries++, $index--) {
+		$used->execute([$device_id, $index]);
+		if ($used->fetchColumn() === false) {
+			break;
+		}
+	}
+	return $index;
+};
+
 // The pseudo port of a far Device that is not a reporter (topology-1-model.md "Far port"). Found by the normalized name of the
 // advertisement, never by the raw string, so `GigabitEthernet0/24` (LLDP) and `Gi0/24` (CDP) are one port and two different
 // names are never one port. Only a numeric `local` port id (a real ifIndex) is first looked up by if_index: a confirmed Port that
-// owns it is the same physical port. A new pseudo port gets an if_index allocated from the hash of the normalized name, moved
-// on past any if_index the Device already uses (the Port key is (device, if_index); the index carries no meaning).
-$snap_pseudo_port = static function (array $candidate) use ($pdo, $snap_port, $normalize_port_name): int {
+// owns it is the same physical port, and a pseudo port made from it keeps that real ifIndex (marked local_ifindex). Any other new
+// pseudo port gets a negative allocated if_index.
+$snap_pseudo_port = static function (array $candidate) use ($pdo, $snap_port, $normalize_port_name, $alloc_pseudo_index): int {
 	$device_id = $candidate['remote_device_id'];
 	$key = (string) $candidate['pseudo_key'];
 	if ($candidate['pseudo_index'] !== null) {
@@ -1751,16 +1767,27 @@ $snap_pseudo_port = static function (array $candidate) use ($pdo, $snap_port, $n
 			return (int) $pseudo['id'];
 		}
 	}
-	$index = $candidate['pseudo_index'] ?? (int) (crc32($key) % 999999) + 1;
-	$used = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
-	for ($tries = 0; $tries < 1000; $tries++, $index++) {
-		$used->execute([$device_id, $index]);
-		if ($used->fetchColumn() === false) {
-			break;
-		}
-	}
+	$local = $candidate['pseudo_index'] !== null;
+	$index = $local ? $candidate['pseudo_index'] : $alloc_pseudo_index($device_id, $key);
 	return $snap_port($device_id, $index, ['if_index' => $index, 'name' => $candidate['port_label'], 'pseudo' => true,
-		'mac' => $candidate['pseudo_mac']]);
+		'mac' => $candidate['pseudo_mac']] + ($local ? ['local_ifindex' => true] : []));
+};
+
+// Existing pseudo ports with a positive allocated if_index (made before the allocation became negative) move to a negative one, so a
+// real port with that ifIndex can never land on them (topology-1-model.md §6.6). A pseudo port made from a numeric local port id keeps
+// its real ifIndex: it is marked local_ifindex, or (older data) is named by that number. Runs before any reporter is ingested.
+$reindex_pseudo_ports = static function () use ($pdo, $normalize_port_name, $alloc_pseudo_index, $update_node, $now, &$summary): void {
+	$rows = $pdo->query("SELECT id, device_id, attrs FROM topo_nodes WHERE type = 'port' AND device_id IS NOT NULL".
+		" AND JSON_EXTRACT(attrs, '\$.pseudo') = true AND JSON_EXTRACT(attrs, '\$.if_index') > 0 ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+	foreach ($rows as $row) {
+		$attrs = json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		if (!empty($attrs['local_ifindex']) || (string) ($attrs['name'] ?? '') === (string) $attrs['if_index']) {
+			continue;
+		}
+		$attrs['if_index'] = $alloc_pseudo_index((int) $row['device_id'], $normalize_port_name((string) ($attrs['name'] ?? '')));
+		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $row['id']]);
+		$summary['pseudo_ports_reindexed']++;
+	}
 };
 
 $snap_classify_candidates = static function (array &$candidates) use ($pdo, $find_matching_real_port, $snap_port, $snap_pseudo_port): void {
@@ -2573,6 +2600,7 @@ $processed = 0;
 $skipped = 0;
 
 // ---- LLD snapshot reporters (topology-1-model.md "Reporters and usable snapshots") ----
+$reindex_pseudo_ports();
 $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 
 // Manual links contradicted by discovery at the end of a run (topology-1-model.md "Contradiction"): a

@@ -175,10 +175,42 @@ echo '  links before: '.json_encode($link_before).' after: '.json_encode(array_m
 echo '  pseudo-port counters: '.json_encode(array_intersect_key($r['summary'], array_flip(['pseudo_ports_converted', 'pseudo_ports_ambiguous', 'pseudo_ports_move_failed',
 	'pseudo_ports_kept_manual', 'pseudo_ports_removed', 'ports_created'])))."\n";
 
-// what the code of handoff 010 does (characterization; flipped by the fix):
-check(isset($before[$pseudo_id]) && $before[$pseudo_id]['pseudo'] === true && $before[$pseudo_id]['if_index'] === $N, 'before: the pseudo port p1 has the allocated positive if_index '.$N);
-check(count($after) === 1 && isset($after[$pseudo_id]) && $after[$pseudo_id]['pseudo'] === false && $after[$pseudo_id]['name'] === 'Gi0/9',
-	'after: the PORTS row landed ON the pseudo port: same row, now a real port named Gi0/9, the name p1 is gone');
-check(count($link_after) === 1 && (int) $link_after[0]['id'] === (int) $link_before[0]['id'], 'the link stayed on that row (the same edge): it now ends at Gi0/9, not at p1');
+check(isset($before[$pseudo_id]) && $before[$pseudo_id]['pseudo'] === true && $before[$pseudo_id]['if_index'] < 0, 'before: the pseudo port p1 has a NEGATIVE allocated if_index ('.$before[$pseudo_id]['if_index'].')');
+check(count($after) === 1 && !isset($after[$pseudo_id]) && array_values($after)[0]['name'] === 'Gi0/9' && array_values($after)[0]['pseudo'] === false
+	&& array_values($after)[0]['if_index'] === $N, 'after: the real port is a NEW row (Gi0/9, if_index '.$N.'); the pseudo port row was not overwritten');
+check(count($link_after) === 0 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='device_link' AND id=?", [(int) $link_before[0]['id']]) === 1
+	&& ($r['summary']['pseudo_ports_converted'] ?? 0) === 1, 'the pseudo port was converted (§6.7.3): its link is the same edge, now a device_link; pseudo_ports_converted = 1');
+check(!isset(ports_of_device($pdo, $D)[$pseudo_id]), 'and the pseudo port is deleted');
+
+// ============================================================================================================
+echo "\n=== 2: a pseudo port from a numeric local port id keeps that real ifIndex ===\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R]]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 10, [['if_index' => 1, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'D',
+	'rem_port' => '7', 'rem_port_type' => 'local', 'source' => 'lldp', 'loc_chassis' => $R]]);
+run_ingest($dsn, $user, $password);
+$D = (int) device_id($pdo, $X);
+$p = array_values(ports_of_device($pdo, $D));
+check(count($p) === 1 && $p[0]['if_index'] === 7 && $p[0]['pseudo'] === true, 'local 7: the pseudo port has if_index 7 (a real ifIndex, positive)');
+$before = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $before, 'a rerun changes nothing (ingest does not move it to a negative index)');
+
+// ============================================================================================================
+echo "\n=== 3: ingest moves an existing pseudo port with a positive allocated if_index to a negative one ===\n";
+$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+	->execute([$D, json_encode(['if_index' => 663128, 'name' => 'old-allocated', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+$old = (int) $pdo->lastInsertId();
+$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+	->execute([$D, json_encode(['if_index' => 42, 'name' => '42', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+$numbered = (int) $pdo->lastInsertId();
+$r = run_ingest($dsn, $user, $password);
+$ports = ports_of_device($pdo, $D);
+check($ports[$old]['if_index'] < 0 && $ports[$old]['name'] === 'old-allocated', 'the old allocated index is now negative ('.$ports[$old]['if_index'].'), same row, same name');
+check($ports[$numbered]['if_index'] === 42, 'a pseudo port named by its numeric ifIndex keeps it');
+check(($r['summary']['pseudo_ports_reindexed'] ?? 0) === 1, 'pseudo_ports_reindexed = 1');
+$again = run_ingest($dsn, $user, $password);
+check(($again['summary']['pseudo_ports_reindexed'] ?? -1) === 0, 'a second run moves nothing');
 
 echo "\nAll pseudo port index checks passed.\n";
