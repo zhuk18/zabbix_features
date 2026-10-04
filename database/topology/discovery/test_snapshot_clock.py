@@ -68,8 +68,9 @@ check(send(t_first, rows("first")) and snapshot() == first, "the same timestamp 
 check(send(t_new, rows("newer")) and snapshot()[:1] == [str(t_new)] and snapshot()[1:] != first[1:],
       "a newer timestamp replaces the rows and the clock")
 def rule_error():
-    time.sleep(6)          # the item error is written with the history sync
-    q = (f"select error from items where key_='{KEY}' and hostid=(select hostid from hosts where host='{args.host}')")
+    time.sleep(6)          # the rule's error text is written with the history sync
+    q = ("select error from item_rtdata where itemid=(select itemid from items "
+         f"where key_='{KEY}' and hostid=(select hostid from hosts where host='{args.host}'))")
     return subprocess.run(["mysql", f"-u{args.db_user}", args.db, "-N", "-e", q], capture_output=True, text=True).stdout.strip()
 
 
