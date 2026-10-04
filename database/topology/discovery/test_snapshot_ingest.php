@@ -424,4 +424,62 @@ $pdo->exec('UPDATE hosts SET status=0 WHERE hostid=106');
 run_ingest($dsn, $user, $password);
 check($obs_of(8001) >= 1, 'the host is enabled again: its last snapshot is used again');
 
+// ============================================================================================================
+echo "\n=== 13: pseudo port identity is the normalized name (topology-1-model.md \"Far port\") ===\n";
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+	$pdo->exec("DELETE FROM {$t}");
+}
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+$RR = 'a0:00:00:00:00:99';
+$XX = 'b0:00:00:00:00:98';
+$rports = [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $RR], ['if_index' => 2, 'name' => 'Gi0/2', 'loc_chassis' => $RR],
+	['if_index' => 3, 'name' => 'Gi0/3', 'loc_chassis' => $RR]];
+snapshot($pdo, 1001, 101, 1, CLOCK, $rports);
+$x_ports = static fn (): array => array_map(static fn ($r) => json_decode($r['attrs'], true),
+	$pdo->query("SELECT attrs FROM topo_nodes WHERE type='port' AND device_id=".(int) device_id($pdo, 'b0:00:00:00:00:98').' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+$row = static fn (int $if, array $extra): array => $extra + ['if_index' => $if, 'rem_chassis' => 'b0:00:00:00:00:98', 'rem_sysname' => 'X', 'source' => 'lldp',
+	'loc_chassis' => 'a0:00:00:00:00:99'];
+
+// one far port, two spellings: LLDP (long, port description) and CDP (short, port id) -> one pseudo port, one link
+snapshot($pdo, 1002, 101, 2, CLOCK + 10, [$row(1, ['rem_port' => 'Gi0/24', 'rem_port_desc' => 'GigabitEthernet0/24'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 10, [$row(1, ['rem_port' => 'gi0/24', 'source' => 'cdp'])]);
+$r = run_ingest($dsn, $user, $password);
+$names = array_column($x_ports(), 'name');
+check(count($names) === 1, 'LLDP "GigabitEthernet0/24" and CDP "gi0/24": one pseudo port ('.implode(',', $names).')');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='physical_link' AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL") === 1
+	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome='applied'") === 2, 'one link, both observations applied');
+$before = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $before, 'a rerun changes nothing (the port name does not flip between the spellings)');
+
+// two different names never share a pseudo port, and none gets if_index 0 (rows with only rem_port_desc)
+snapshot($pdo, 1003, 101, 2, CLOCK + 20, []);
+snapshot($pdo, 1002, 101, 2, CLOCK + 20, [$row(1, ['rem_port_desc' => 'Uplink A']), $row(2, ['rem_port_desc' => 'Uplink B'])]);
+run_ingest($dsn, $user, $password);
+$idx = array_column($x_ports(), 'if_index', 'name');
+check(isset($idx['Uplink A'], $idx['Uplink B']) && $idx['Uplink A'] !== $idx['Uplink B'] && !in_array(0, $idx, true),
+	'rem_port_desc only: two names, two pseudo ports, no if_index 0 ('.json_encode($idx).')');
+
+// a rename on the same row (description only) is a new pseudo port; the same name in another case is the same port
+snapshot($pdo, 1002, 101, 2, CLOCK + 30, [$row(1, ['rem_port_desc' => 'UPLINK a']), $row(2, ['rem_port_desc' => 'Uplink B'])]);
+$ports_before = count($x_ports());
+run_ingest($dsn, $user, $password);
+check(count($x_ports()) === $ports_before, 'the same name in another case is the same pseudo port');
+snapshot($pdo, 1002, 101, 2, CLOCK + 40, [$row(1, ['rem_port_desc' => 'Core uplink']), $row(2, ['rem_port_desc' => 'Uplink B'])]);
+run_ingest($dsn, $user, $password);
+check(count($x_ports()) === $ports_before + 1, 'another name is another pseudo port');
+
+// old data: a pseudo port made under the hash of the raw spelling is found by its name
+$dev = (int) device_id($pdo, $XX);
+$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+	->execute([$dev, json_encode(['if_index' => 123456, 'name' => 'TenGigabitEthernet1/1', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+$old = (int) $pdo->lastInsertId();
+$ports_before = count($x_ports());
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [$row(3, ['rem_port' => 'Te1/1', 'rem_port_desc' => 'te1/1']), $row(2, ['rem_port_desc' => 'Uplink B'])]);
+run_ingest($dsn, $user, $password);
+check(count($x_ports()) === $ports_before && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations o JOIN topo_edges e ON e.id=o.edge_id WHERE e.src_id=? OR e.dst_id=?", [$old, $old]) >= 1,
+	'an existing pseudo port is found by its normalized name, whatever index it has');
+
 echo "\nAll snapshot ingest tests passed.\n";

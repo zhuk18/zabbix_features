@@ -638,18 +638,15 @@ $resolve_port_label = static function (?string $remote_port_desc, ?string $remot
 	return $remote_port_id ?: 'unknown';
 };
 
-// LLDP's remote_port_id is a string (interface name, MAC, locally-assigned number — depending on
-// remote_port_id_subtype), not a numeric SNMP ifIndex, except when the subtype is literally 'local' and
-// the value happens to be numeric. The Port upsert key (topology-1-model.md "PORTS, LAG, LEARNED_MACS") needs *a* stable if_index-shaped number for
-// the neighbor's port, so this derives one deterministically from remote_port_id when a real numeric
-// ifIndex isn't available — same value every run (crc32 is stable), so upsert idempotency still
-// holds even though it is NOT a genuine SNMP ifIndex. Flagged as a known gap: the real ifIndex of a
-// neighbor's port is never actually discoverable from lldpRemTable alone (see the delivery report).
-$pseudo_if_index = static function (?string $remote_port_id, ?string $remote_port_id_subtype): int {
+// The ifIndex of a far port when the advertisement really carries one (LLDP port id subtype `local` with a number): such a
+// number is the neighbor's own ifIndex, and a confirmed Port that owns it is the same physical port. Any other far port has
+// no ifIndex that lldpRemTable could tell us; a pseudo port is then found and created by its normalized name (topology-1-model.md
+// "Far port": "Pseudo port identity is the normalized name"), and its if_index is only an allocation (see $snap_pseudo_port).
+$pseudo_local_if_index = static function (?string $remote_port_id, ?string $remote_port_id_subtype): ?int {
 	if ($remote_port_id_subtype === 'local' && $remote_port_id !== null && ctype_digit($remote_port_id)) {
 		return (int) $remote_port_id;
 	}
-	return (int) (crc32((string) $remote_port_id) % 1000000);
+	return null;
 };
 
 // topology-1-model.md "Pseudo-port merge" / topology-1-model.md "`physical_link` (Port ↔ Port)": "canonicalization alone does not prevent a same-cable
@@ -661,6 +658,8 @@ $pseudo_if_index = static function (?string $remote_port_id, ?string $remote_por
 // present in the fixtures but are the same well-known Cisco IOS ifDescr long-form convention, named
 // explicitly in the spec text this implements — kept here, not factored into a general-purpose utility
 // elsewhere, since nothing else in this file needs vendor name normalization (per the brief's scope note).
+// The ONE normalization of a port name: real ports ($find_matching_real_port), pseudo ports ($snap_pseudo_port) and the pseudo-port merge
+// all compare names through it.
 $normalize_port_name = static function (string $name): string {
 	static $long_to_short = [
 		'gigabitethernet' => 'gi',
@@ -1471,7 +1470,7 @@ $neighbor_snapshots = [];
 $snap_ingest_reporter = static function (array $reporter) use (
 	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $pseudo_if_index, $reconcile_device, $update_node, $now, &$summary,
+	$find_matching_real_port, $resolve_port_label, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -1654,8 +1653,10 @@ $snap_ingest_reporter = static function (array $reporter) use (
 				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
 				'port_label' => $has_remote_port ? $resolve_port_label($row['rem_port_desc'] ?? null,
 					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null) : null,
-				'pseudo_index' => $has_remote_port ? $pseudo_if_index($row['rem_port'] ?? null,
+				'pseudo_index' => $has_remote_port ? $pseudo_local_if_index($row['rem_port'] ?? null,
 					$row['rem_port_type'] ?? null) : null,
+				'pseudo_key' => $has_remote_port ? $normalize_port_name($resolve_port_label($row['rem_port_desc'] ?? null,
+					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null)) : null,
 				'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
 				'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
 					'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
@@ -1722,7 +1723,42 @@ $snap_ingest_reporter = static function (array $reporter) use (
 // A candidate that is both unmatched and in a shared / LAG group takes the group's reason (shared id wins over LAG).
 // No port is created on a Device that has authoritative ports: that would be a phantom.
 // ============================================================================================================
-$snap_classify_candidates = static function (array &$candidates) use ($pdo, $find_matching_real_port, $snap_port): void {
+// The pseudo port of a far Device that is not a reporter (topology-1-model.md "Far port"). Found by the normalized name of the
+// advertisement, never by the raw string, so `GigabitEthernet0/24` (LLDP) and `Gi0/24` (CDP) are one port and two different
+// names are never one port. Only a numeric `local` port id (a real ifIndex) is first looked up by if_index: a confirmed Port that
+// owns it is the same physical port. A new pseudo port gets an if_index allocated from the hash of the normalized name, moved
+// on past any if_index the Device already uses (the Port key is (device, if_index); the index carries no meaning).
+$snap_pseudo_port = static function (array $candidate) use ($pdo, $snap_port, $normalize_port_name): int {
+	$device_id = $candidate['remote_device_id'];
+	$key = (string) $candidate['pseudo_key'];
+	if ($candidate['pseudo_index'] !== null) {
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+		$stmt->execute([$device_id, $candidate['pseudo_index']]);
+		if (($found = $stmt->fetchColumn()) !== false) {
+			return (int) $found;
+		}
+	}
+	$stmt = $pdo->prepare("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
+		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = true ORDER BY id");
+	$stmt->execute([$device_id]);
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $pseudo) {
+		if ($normalize_port_name((string) $pseudo['name']) === $key) {
+			return (int) $pseudo['id'];
+		}
+	}
+	$index = $candidate['pseudo_index'] ?? (int) (crc32($key) % 999999) + 1;
+	$used = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+	for ($tries = 0; $tries < 1000; $tries++, $index++) {
+		$used->execute([$device_id, $index]);
+		if ($used->fetchColumn() === false) {
+			break;
+		}
+	}
+	return $snap_port($device_id, $index, ['if_index' => $index, 'name' => $candidate['port_label'], 'pseudo' => true,
+		'mac' => $candidate['pseudo_mac']]);
+};
+
+$snap_classify_candidates = static function (array &$candidates) use ($pdo, $find_matching_real_port, $snap_port, $snap_pseudo_port): void {
 	$authoritative = [];
 	$is_authoritative = static function (int $device_id) use ($pdo, &$authoritative): bool {
 		if (!array_key_exists($device_id, $authoritative)) {
@@ -1817,16 +1853,7 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 			continue;
 		}
 		$candidate['level'] = 'port';
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-			" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
-		$stmt->execute([$candidate['remote_device_id'], $candidate['pseudo_index']]);
-		// A confirmed port already owns that if_index (LLDP "local" subtype carries a real ifIndex): it is the same
-		// physical port, do not turn it into a pseudo one.
-		$candidate['remote_port_id'] = ($found = $stmt->fetchColumn()) !== false ? (int) $found
-			: $snap_port($candidate['remote_device_id'], $candidate['pseudo_index'], [
-				'if_index' => $candidate['pseudo_index'], 'name' => $candidate['port_label'], 'pseudo' => true,
-				'mac' => $candidate['pseudo_mac'],
-			]);
+		$candidate['remote_port_id'] = $snap_pseudo_port($candidate);
 	}
 	unset($candidate);
 };
