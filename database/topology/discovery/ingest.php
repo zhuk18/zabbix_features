@@ -820,6 +820,71 @@ $find_matching_real_port = static function (int $device_id, string $name, ?bool 
 	return count($matches) === 1 ? (int) $matches[0]['id'] : null;
 };
 
+// topology-1-model.md §6.7.2 "Far port": the far port of a neighbor row is decided by the port id subtype (`rem_port_type`); the LLDP port
+// description (`rem_port_desc`, often free text) is only a fallback. One function for both kinds of far Device:
+//  - reporter (authoritative ports): ['port' => id] when exactly one real Port matches (primary match by subtype, else the description
+//    by normalized name); ['shared' => true] when a step matches several (that step stops the search); neither: no port (port_unmatched);
+//  - not a reporter: $far_pseudo_name() gives the name of the pseudo port.
+// Every CDP row counts as interfaceName (the CDP port id is the port name).
+$identify_far_port = static function (int $device_id, array $row) use ($pdo, $normalize_port_name): array {
+	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = false ORDER BY id");
+	$stmt->execute([$device_id]);
+	$ports = [];
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
+		$ports[(int) $port['id']] = json_decode($port['attrs'], true) ?: [];
+	}
+	$by_name = static function (string $name) use ($ports, $normalize_port_name): array {
+		$key = $normalize_port_name($name);
+		return array_keys(array_filter($ports, static fn (array $a): bool => $normalize_port_name((string) ($a['name'] ?? '')) === $key));
+	};
+	$rem_port = (string) ($row['rem_port'] ?? '');
+	$type = (string) ($row['rem_port_type'] ?? '');
+	$primary = [];
+	if ($rem_port !== '') {
+		if (($row['source'] ?? 'lldp') === 'cdp' || $type === 'interfaceName') {
+			$primary = $by_name($rem_port);
+		}
+		elseif ($type === 'macAddress') {
+			$mac = strtolower($rem_port);
+			$primary = array_keys(array_filter($ports, static fn (array $a): bool => strtolower((string) ($a['mac'] ?? '')) === $mac));
+		}
+		elseif ($type === 'local' && ctype_digit($rem_port)) {
+			$primary = array_keys(array_filter($ports, static fn (array $a): bool => (int) ($a['if_index'] ?? 0) === (int) $rem_port));
+			$primary = $primary ?: $by_name($rem_port);
+		}
+		else {
+			$primary = $by_name($rem_port);
+		}
+	}
+	if (count($primary) > 1) {
+		return ['port' => null, 'shared' => true];
+	}
+	if (count($primary) === 1) {
+		return ['port' => $primary[0], 'shared' => false];
+	}
+	$desc = (string) ($row['rem_port_desc'] ?? '');
+	if ($desc !== '') {
+		$fallback = $by_name($desc);
+		if (count($fallback) > 1) {
+			return ['port' => null, 'shared' => true];
+		}
+		if (count($fallback) === 1) {
+			return ['port' => $fallback[0], 'shared' => false];
+		}
+	}
+	return ['port' => null, 'shared' => false];
+};
+
+// The name of the pseudo port of a far Device that is not a reporter (§6.7.2): rem_port for interfaceName, CDP and a non-numeric
+// local id; otherwise rem_port_desc when present, else rem_port. (A numeric local id also gives the pseudo port its ifIndex.)
+$far_pseudo_name = static function (array $row): string {
+	$rem_port = (string) ($row['rem_port'] ?? '');
+	$desc = (string) ($row['rem_port_desc'] ?? '');
+	$type = (string) ($row['rem_port_type'] ?? '');
+	$by_port_id = ($row['source'] ?? 'lldp') === 'cdp' || $type === 'interfaceName' || ($type === 'local' && !ctype_digit($rem_port));
+	return $by_port_id ? ($rem_port !== '' ? $rem_port : $desc) : ($desc !== '' ? $desc : $rem_port);
+};
+
 // ============================================================================================================
 // LLD snapshot path (topology-1-model.md "Ingest"). A host with rows in topo_lld_snapshot is a reporter whose
 // data comes from discovery rules with a topology_role instead of the Trapper blob above. Everything below
@@ -1476,7 +1541,7 @@ $neighbor_snapshots = [];
 $snap_ingest_reporter = static function (array $reporter) use (
 	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -1657,12 +1722,11 @@ $snap_ingest_reporter = static function (array $reporter) use (
 				'remote_key' => $snap_remote_key($row), 'remote_attrs' => $remote_attrs,
 				'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
 				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
-				'port_label' => $has_remote_port ? $resolve_port_label($row['rem_port_desc'] ?? null,
-					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null) : null,
+				'port_label' => $has_remote_port ? $far_pseudo_name($row + ['source' => $source]) : null,
+				'rem_port_desc' => (string) ($row['rem_port_desc'] ?? ''),
 				'pseudo_index' => $has_remote_port ? $pseudo_local_if_index($row['rem_port'] ?? null,
 					$row['rem_port_type'] ?? null) : null,
-				'pseudo_key' => $has_remote_port ? $normalize_port_name($resolve_port_label($row['rem_port_desc'] ?? null,
-					$row['rem_port'] ?? null, $row['rem_port_type'] ?? null)) : null,
+				'pseudo_key' => $has_remote_port ? $normalize_port_name($far_pseudo_name($row + ['source' => $source])) : null,
 				'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
 				'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
 					'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
@@ -1790,7 +1854,7 @@ $reindex_pseudo_ports = static function () use ($pdo, $normalize_port_name, $all
 	}
 };
 
-$snap_classify_candidates = static function (array &$candidates) use ($pdo, $find_matching_real_port, $snap_port, $snap_pseudo_port): void {
+$snap_classify_candidates = static function (array &$candidates) use ($pdo, $identify_far_port, $snap_port, $snap_pseudo_port): void {
 	$authoritative = [];
 	$is_authoritative = static function (int $device_id) use ($pdo, &$authoritative): bool {
 		if (!array_key_exists($device_id, $authoritative)) {
@@ -1801,13 +1865,6 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 		}
 		return $authoritative[$device_id];
 	};
-	$real_ports_with_mac = static function (int $device_id, string $mac) use ($pdo): int {
-		$stmt = $pdo->prepare("SELECT COUNT(*) FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-			" AND JSON_EXTRACT(attrs, '\$.pseudo') = false AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ?");
-		$stmt->execute([$device_id, $mac]);
-		return (int) $stmt->fetchColumn();
-	};
-
 	foreach ($candidates as &$candidate) {
 		$candidate['level'] = 'port';
 		$candidate['far_port_reason'] = null;
@@ -1815,20 +1872,16 @@ $snap_classify_candidates = static function (array &$candidates) use ($pdo, $fin
 		if ($candidate['pre_outcome'] !== null) {
 			continue;
 		}
-		$ambiguous = false;
-		$real = $find_matching_real_port($candidate['remote_device_id'], $candidate['port_label'], $ambiguous);
-		if ($real !== null) {
-			$candidate['remote_port_id'] = $real;
-		}
-		elseif ($ambiguous) {
-			$candidate['level'] = 'device';
-			$candidate['far_port_reason'] = 'port_shared_id';
-		}
-		elseif ($is_authoritative($candidate['remote_device_id'])) {
-			$candidate['level'] = 'device';
-			$shared = $candidate['rem_port_type'] === 'macAddress' && $candidate['rem_port'] !== ''
-				&& $real_ports_with_mac($candidate['remote_device_id'], strtolower($candidate['rem_port'])) >= 2;
-			$candidate['far_port_reason'] = $shared ? 'port_shared_id' : 'port_unmatched';
+		if ($is_authoritative($candidate['remote_device_id'])) {
+			// a reporter: its walk is the only description of its ports (§6.7.2)
+			$identified = $identify_far_port($candidate['remote_device_id'], $candidate);
+			if ($identified['port'] !== null) {
+				$candidate['remote_port_id'] = $identified['port'];
+			}
+			else {
+				$candidate['level'] = 'device';
+				$candidate['far_port_reason'] = $identified['shared'] ? 'port_shared_id' : 'port_unmatched';
+			}
 		}
 		else {
 			$candidate['level'] = 'pending'; // far Device without authoritative ports: a pseudo-Port, unless shared
