@@ -53,6 +53,10 @@ typedef struct
 }
 zbx_lld_topo_field_t;
 
+/* A value whose timestamp is more than this many seconds after the server time is refused; a stored clock that far ahead     */
+/* does not block a valid value (topology-1-model.md "Snapshot rules" rule 9). The one place the tolerance is defined.       */
+#define ZBX_LLD_TOPO_FUTURE_TOLERANCE	300
+
 #define ZBX_LLD_TOPO_MAX_FIELDS		16
 #define ZBX_LLD_TOPO_MAX_REASONS	(2 * ZBX_LLD_TOPO_MAX_FIELDS + 2)
 
@@ -321,20 +325,24 @@ static void	lld_topology_reasons_format(const zbx_lld_topo_field_t *contract, co
 	*out = buf;
 }
 
-static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid, int role, int now,
+static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid, int role, int now, int server_time,
 		const char *rows_json, const char *hash, int rows_total, int rows_valid)
 {
 	zbx_db_result_t	result;
 	zbx_db_row_t	db_row;
-	int		exists = 0, same = 0, ret = SUCCEED;
+	int		exists = 0, same = 0, ret = SUCCEED, stored;
 
 	result = zbx_db_select("select role,rows_hash,clock from topo_lld_snapshot where itemid=" ZBX_FS_UI64, itemid);
 
 	if (NULL != (db_row = zbx_db_fetch(result)))
 	{
+		stored = atoi(db_row[2]);
+
 		/* the snapshot clock never goes back: a value older than the stored one (a delayed or replayed */
-		/* send) changes nothing; an equal clock is accepted */
-		if (atoi(db_row[2]) > now)
+		/* send) changes nothing; an equal clock is accepted. A stored clock that is itself too far in  */
+		/* the future (written before the future-timestamp rule) is not a clock to protect: the value   */
+		/* replaces it.                                                                                 */
+		if (stored > now && stored <= server_time + ZBX_LLD_TOPO_FUTURE_TOLERANCE)
 		{
 			zbx_db_free_result(result);
 
@@ -402,7 +410,9 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
  *             hostid   - [IN] host of the rule                               *
  *             role     - [IN] topology_role of the rule                      *
  *             lld_rows - [IN] rows that passed the LLD filter                *
- *             now      - [IN] processing time                                *
+ *             value_clock - [IN] the timestamp of the value (or the server time  *
+ *                           when it has none)                                *
+ *             server_time - [IN] the server time                             *
  *             info     - [OUT] problems to append to the rule's info text    *
  *                                                                            *
  * Comments: Called only after successful processing, so an empty row set is  *
@@ -411,7 +421,7 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
  *                                                                            *
  ******************************************************************************/
 void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int role,
-		const zbx_vector_lld_row_ptr_t *lld_rows, int now, char **info)
+		const zbx_vector_lld_row_ptr_t *lld_rows, int value_clock, int server_time, char **info)
 {
 	const zbx_lld_topo_field_t	*contract = lld_topology_contract(role);
 	zbx_vector_lld_topo_row_ptr_t	rows;
@@ -422,6 +432,14 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 
 	if (NULL == contract)
 		return;
+
+	/* topology-1-model.md "Snapshot rules" rule 9: a value dated too far ahead changes nothing; the rule stays supported */
+	if (value_clock > server_time + ZBX_LLD_TOPO_FUTURE_TOLERANCE)
+	{
+		*info = zbx_dsprintf(*info, "Topology: value timestamp %d s in the future, ignored\n", value_clock - server_time);
+
+		return;
+	}
 
 	zbx_vector_lld_topo_row_ptr_create(&rows);
 
@@ -451,7 +469,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	zbx_sha256_hash_len(rows_json, offset, (char *)digest);
 	zbx_bin2hex(digest, sizeof(digest), hash, sizeof(hash));
 
-	if (SUCCEED != lld_topology_snapshot_write(itemid, hostid, role, now, rows_json, hash, rows_total,
+	if (SUCCEED != lld_topology_snapshot_write(itemid, hostid, role, value_clock, server_time, rows_json, hash, rows_total,
 			rows.values_num))
 	{
 		zabbix_log(LOG_LEVEL_WARNING, "cannot store topology snapshot of discovery rule " ZBX_FS_UI64,

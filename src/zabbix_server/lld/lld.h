@@ -135,7 +135,7 @@ ZBX_PTR_VECTOR_DECL(lld_row_ptr, zbx_lld_row_t*)
 void	lld_row_free(zbx_lld_row_t *lld_row);
 
 void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int role,
-		const zbx_vector_lld_row_ptr_t *lld_rows, int now, char **info);
+		const zbx_vector_lld_row_ptr_t *lld_rows, int value_clock, int server_time, char **info);
 
 typedef struct
 {

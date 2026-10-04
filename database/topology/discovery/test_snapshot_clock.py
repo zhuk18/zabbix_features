@@ -8,7 +8,9 @@ zabbix_sender. It writes only the snapshot of HOST's topology.push.ports rule. U
                                             [--sender ../../../src/zabbix_sender/zabbix_sender]
 
 Sends one PORTS value with a timestamp (-T), then: an older timestamp with other rows -> snapshot unchanged; the same
-timestamp -> unchanged; a newer timestamp with other rows -> snapshot replaced and dated by it.
+timestamp -> unchanged; a newer timestamp with other rows -> snapshot replaced and dated by it. Then the future-timestamp
+rule (topology-1-model.md "Snapshot rules" rule 9): a value more than 300 s ahead of the server is refused and the rule's info
+text says so; one 200 s ahead is accepted; a stored clock written by hand far in the future does not block a normal value.
 """
 import argparse
 import json
@@ -65,5 +67,20 @@ check(send(t_old, rows("older")) and snapshot() == first, "an older timestamp wi
 check(send(t_first, rows("first")) and snapshot() == first, "the same timestamp is accepted")
 check(send(t_new, rows("newer")) and snapshot()[:1] == [str(t_new)] and snapshot()[1:] != first[1:],
       "a newer timestamp replaces the rows and the clock")
+def rule_error():
+    time.sleep(6)          # the item error is written with the history sync
+    q = (f"select error from items where key_='{KEY}' and hostid=(select hostid from hosts where host='{args.host}')")
+    return subprocess.run(["mysql", f"-u{args.db_user}", args.db, "-N", "-e", q], capture_output=True, text=True).stdout.strip()
+
+
+kept = snapshot()
+check(send(int(time.time()) + 86400, rows("future")) and snapshot() == kept, "a value one day ahead is refused: the snapshot does not change")
+check("in the future, ignored" in rule_error(), "the rule's info text says so (%s)" % rule_error())
+check(send(int(time.time()) + 200, rows("tolerated")) and snapshot()[:1] != kept[:1], "a value 200 s ahead (inside the tolerance) is accepted")
+subprocess.run(["mysql", f"-u{args.db_user}", args.db, "-e",
+                "update topo_lld_snapshot set clock=%d where itemid=(select itemid from items where key_='%s' and hostid="
+                "(select hostid from hosts where host='%s'))" % (int(time.time()) + 86400, KEY, args.host)])
+check(send(int(time.time()), rows("recovered")) and abs(int(snapshot()[0]) - time.time()) < 30,
+      "a stored clock a day ahead (hand-written) does not block a value with a valid timestamp")
 print("\n%s" % ("All snapshot clock tests passed." if not failures else f"{failures} FAILED"))
 sys.exit(1 if failures else 0)
