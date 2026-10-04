@@ -141,6 +141,13 @@ function reset_all(PDO $pdo): void {
 }
 
 /** Devices, ports, links and observations as short strings (ids included), for the characterization output. */
+/** A Device made by hand: old data, or a Device another reporter found first. */
+function device(PDO $pdo, ?string $chassis, ?string $ip, string $sysname = ''): int {
+	$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
+		->execute([json_encode(['mac' => null, 'chassis_id' => $chassis, 'mgmt_ip' => $ip, 'sysname' => $sysname, 'vendor' => 'unknown', 'last_seen' => 1])]);
+	return (int) $pdo->lastInsertId();
+}
+
 function picture(PDO $pdo): array {
 	$nodes = [];
 	foreach ($pdo->query('SELECT * FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) as $n) {
@@ -208,12 +215,97 @@ $p3 = picture($pdo);
 show('run 3: nothing new', $p3);
 echo '  summary: '.json_encode(array_intersect_key($r3['summary'], array_flip(['devices_created', 'identity_keys_shared', 'devices_joined', 'devices_join_refused'])))."\n";
 
-// what the code of handoff 011 does (characterization):
 check(count($p1['devices']) === 3, 'run 1: two Devices for one neighbor (A by chassis, B by IP), plus R');
 check(str_contains(implode(' ', $p1['obs']), 'ambiguous') && !str_contains(implode(' ', $p1['obs']), 'applied'), 'run 1: both observations are ambiguous (two claims on one port), no link');
-check(count($p2['devices']) === 3 && count(array_filter($p2['devices'], static fn ($d) => str_contains($d, '/'.$IP.')'))) === 2,
-	'run 2: the reporter identity wrote IP 1 into A: the IP is now on two Devices, they are not joined');
-check(($r3['summary']['identity_keys_shared']['count'] ?? 0) === 1 && str_contains(implode(' ', $p3['obs']), 'ambiguous'),
-	'run 3: the CDP row finds IP 1 on two Devices: shared, ambiguous for good (identity_keys_shared = 1)');
+check(count($p2['devices']) === 2 && !array_filter($p2['devices'], static fn ($d) => str_starts_with($d, '#5')), 'run 2 (the neighbor reports itself): one Device — A kept, B deleted');
+check(count($p2['links']) === 1 && !str_contains(implode(' ', $p2['links']), 'device_link') && count(array_filter($p2['ports'], static fn ($p) => str_contains($p, 'N:') || str_contains($p, 'Switch N:'))) === 1,
+	'run 2: pseudo ports merged by name (one port of the neighbor), one link');
+check(substr_count(implode(' ', $p2['obs']), 'applied') === 2 && !str_contains(implode(' ', $p2['obs']), 'ambiguous'), 'run 2: the CDP observation is applied (not ambiguous), the LLDP one too');
+check(($r2['summary']['devices_joined']['count'] ?? 0) === 1 && ($r2['summary']['devices_joined']['list'][0]['key'] ?? '') === 'mgmt_ip'
+	&& ($r2['summary']['devices_joined']['list'][0]['value'] ?? '') === $IP, 'devices_joined = 1 with {kept, removed, key mgmt_ip, value}');
+$fp = fingerprint($pdo);
+for ($i = 0; $i < 5; $i++) {
+	$r = run_ingest($dsn, $user, $password);
+}
+check(fingerprint($pdo) === $fp && ($r['summary']['devices_joined']['count'] ?? -1) === 0 && ($r['summary']['identity_keys_shared']['count'] ?? -1) === 0, '5 more runs change nothing, nothing is joined or shared again');
 
-echo "\nAll join characterization checks passed.\n";
+// ============================================================================================================
+echo "\n=== 2: join from a neighbor row (chassis + IP): links, observations and shadow_ack move to A ===\n";
+foreach (['full run' => [], 'partial run (--zabbix-host)' => ['SwR']] as $label => $only) {
+	echo "  -- {$label}\n";
+	reset_all($pdo);
+	add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+	add_host($pdo, 103, 'SwZ', 'Switch Z', '10.0.0.3');
+	snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R], ['if_index' => 2, 'name' => 'Gi0/2', 'loc_chassis' => $R]]);
+	snapshot($pdo, 3001, 103, 1, CLOCK, [['if_index' => 1, 'name' => 'eth0', 'loc_chassis' => 'c0:00:00:00:00:0c']]);
+	run_ingest($dsn, $user, $password);
+	$A = device($pdo, $Y, null, 'N');
+	$B = device($pdo, null, $IP, 'N');
+	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+		->execute([$B, json_encode(['if_index' => -5, 'name' => 'p1', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	$bp = (int) $pdo->lastInsertId();
+	$r_p1 = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='port' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.name'))='Gi0/1' AND device_id=(SELECT id FROM (SELECT id FROM topo_nodes WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id'))='{$R}') x)");
+	$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")
+		->execute([min($r_p1, $bp), max($r_p1, $bp), json_encode(['discovered_via' => 'lldp', 'last_seen' => CLOCK, 'last_seen_src' => CLOCK])]);
+	$link_id = (int) $pdo->lastInsertId();
+	$z_port = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='port' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.name'))='eth0'");
+	$r_p2 = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='port' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.name'))='Gi0/2' AND device_id=(SELECT id FROM (SELECT id FROM topo_nodes WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id'))='{$R}') x)");
+	$ack = [['device_id' => $B, 'remote_key' => 'ip:'.$IP, 'at' => CLOCK, 'by' => 'Admin'], ['device_id' => 999, 'remote_key' => 'other', 'at' => 5, 'by' => 'Someone']];
+	$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")
+		->execute([min($r_p2, $z_port), max($r_p2, $z_port), json_encode(['discovered_via' => 'manual', 'last_seen' => 1, 'shadow_ack' => $ack])]);
+	$manual_id = (int) $pdo->lastInsertId();
+	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'N',
+		'rem_port' => 'p1', 'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $R]]);
+	$r = run_ingest($dsn, $user, $password, $only);
+	check(scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id=?', [$B]) == 0 && scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id=?', [$A]) == 1, 'B is merged into A: B deleted, A kept');
+	check(($r['summary']['devices_joined']['count'] ?? 0) === 1 && ($r['summary']['devices_joined']['list'][0] ?? []) === ['kept' => $A, 'removed' => $B, 'key' => 'mgmt_ip', 'value' => $IP],
+		'devices_joined lists {kept, removed, key, value}');
+	check((int) scalar($pdo, 'SELECT device_id FROM topo_nodes WHERE id=?', [$bp]) === $A, 'the Port of B is a Port of A now');
+	check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE id=? AND type='physical_link'", [$link_id]) === 1
+		&& (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_observations o JOIN topo_edges e ON e.id=o.edge_id WHERE e.id=? AND o.device_id=?', [$link_id, $A]) === 1,
+		'the link of B is the same edge, its observation names A');
+	$attrs = json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_edges WHERE id=?', [$manual_id]), true);
+	check($attrs['shadow_ack'][0]['device_id'] === $A && $attrs['shadow_ack'][0]['remote_key'] === 'ip:'.$IP && $attrs['shadow_ack'][0]['by'] === 'Admin'
+		&& $attrs['shadow_ack'][1] === $ack[1], 'the shadow_ack that named B names A; every other byte of shadow_ack is the same');
+	check(attrs($pdo, $A)['mgmt_ip'] === $IP, 'B\'s IP filled the empty mgmt_ip of A');
+}
+
+// ============================================================================================================
+echo "\n=== 3: no join when both Devices have a represented_by; no join when the IP is shared ===\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+add_host($pdo, 111, 'HostA', 'Host A', null);
+add_host($pdo, 112, 'HostB', 'Host B', null);
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R]]);
+$A = device($pdo, $Y, null, 'N');
+$B = device($pdo, null, $IP, 'N');
+foreach ([[$A, 111], [$B, 112]] as [$dev, $hostid]) {
+	$pdo->prepare("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', ?, '{}', 1, 1)")->execute([$hostid]);
+	$node = (int) $pdo->lastInsertId();
+	$pdo->prepare("UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = 'manual', represented_by_at = 1 WHERE id = ?")->execute([$node, $dev]);
+}
+$targets = [(int) scalar($pdo, 'SELECT represented_by_node_id FROM topo_nodes WHERE id=?', [$A]), (int) scalar($pdo, 'SELECT represented_by_node_id FROM topo_nodes WHERE id=?', [$B])];
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'N',
+	'rem_port' => 'Gi0/1', 'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $R]]);
+$r = run_ingest($dsn, $user, $password);
+check(scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id IN (?, ?)', [$A, $B]) == 2 && ($r['summary']['devices_joined']['count'] ?? -1) === 0, 'both Devices stay, nothing is joined');
+$refused = $r['summary']['devices_join_refused'] ?? [];
+check(($refused['count'] ?? 0) === 1 && $refused['list'][0]['kept'] === $A && $refused['list'][0]['removed'] === $B
+	&& $refused['list'][0]['kept_target'] === $targets[0] && $refused['list'][0]['removed_target'] === $targets[1], 'devices_join_refused names both node ids and both targets');
+$fp = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
+
+echo "  -- the IP on two Devices without a chassis\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R]]);
+$A = device($pdo, $Y, null, 'N');
+$B1 = device($pdo, null, $IP, 'old1');
+$B2 = device($pdo, null, $IP, 'old2');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'N',
+	'rem_port' => 'Gi0/1', 'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $R]]);
+$r = run_ingest($dsn, $user, $password);
+check(scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id IN (?, ?, ?)', [$A, $B1, $B2]) == 3 && ($r['summary']['devices_joined']['count'] ?? -1) === 0, 'IP 1 on two other Devices: no join, all three stay');
+
+echo "\nAll join checks passed.\n";

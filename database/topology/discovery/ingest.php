@@ -904,6 +904,10 @@ const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguou
 
 $summary += [
 	'pseudo_ports_reindexed' => 0,
+	// topology-1-model.md §6.7.1 "Join of a split identity": Devices merged (kept, removed, key, value) and joins refused because both had a represented_by
+	'devices_joined' => ['count' => 0, 'list' => []],
+	'devices_join_refused' => ['count' => 0, 'list' => []],
+	'join_links_deleted' => 0,
 	'reporters_processed' => 0,
 	'reporters_skipped' => [],
 	'snapshots_ignored_role_mismatch' => 0,
@@ -1123,12 +1127,194 @@ $snap_port = static function (int $device_id, int $if_index, array $overlay = []
 	return $last_insert_id();
 };
 
+// topology-1-model.md §6.7.1 "Join of a split identity". One neighbor can first give two Devices: LLDP without a management address
+// gives a chassis only (A), CDP gives an IP only (B). A row that carries both keys (a neighbor row with chassis + IP, or a reporter's own
+// identity: loc_chassis + SNMP interface IP) merges B into A when the chassis finds exactly A, the IP finds exactly one other Device B and
+// B has no chassis. B's Ports, links, observations, shadow_ack entries and represented_by move to A, B's attributes fill A's empty ones,
+// B is deleted (the only deletion of a Device by ingest). Both with a represented_by: no join, reported. The IP on two or more other
+// Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
+$join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) use (
+	$pdo, $snap_node_attrs, $merge_pseudo_port, $convert_leftover_pseudo_ports, &$link_candidates, &$summary
+): ?int {
+	if (!$chassis_id || !$mgmt_ip) {
+		return null;
+	}
+	$by = static function (string $key, string $value) use ($pdo): array {
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\\$.{$key}')) = ? ORDER BY id");
+		$stmt->execute([$value]);
+		return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+	};
+	$with_chassis = $by('chassis_id', $chassis_id);
+	if (count($with_chassis) !== 1) {
+		return null;
+	}
+	$a = $with_chassis[0];
+	$others = array_values(array_diff($by('mgmt_ip', $mgmt_ip), [$a]));
+	if (count($others) !== 1) {
+		return null;
+	}
+	$b = $others[0];
+	$a_attrs = $snap_node_attrs($a);
+	$b_attrs = $snap_node_attrs($b);
+	if (($b_attrs['chassis_id'] ?? '') !== '') {
+		return null;
+	}
+	$represented = $pdo->prepare('SELECT represented_by_node_id, represented_by_matched_by, represented_by_at FROM topo_nodes WHERE id = ?');
+	$represented->execute([$a]);
+	$a_rep = $represented->fetch(PDO::FETCH_ASSOC);
+	$represented->execute([$b]);
+	$b_rep = $represented->fetch(PDO::FETCH_ASSOC);
+	if ($a_rep['represented_by_node_id'] !== null && $b_rep['represented_by_node_id'] !== null) {
+		$summary['devices_join_refused']['count']++;
+		if (count($summary['devices_join_refused']['list']) < 200) {
+			$summary['devices_join_refused']['list'][] = ['kept' => $a, 'removed' => $b, 'key' => 'mgmt_ip', 'value' => $mgmt_ip,
+				'kept_target' => (int) $a_rep['represented_by_node_id'], 'removed_target' => (int) $b_rep['represented_by_node_id']];
+		}
+		return null;
+	}
+
+	// represented_by moves from B when only B has one
+	if ($b_rep['represented_by_node_id'] !== null) {
+		$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = NULL, represented_by_matched_by = NULL, represented_by_at = NULL WHERE id = ?')->execute([$b]);
+		$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ?, represented_by_at = ? WHERE id = ?')
+			->execute([$b_rep['represented_by_node_id'], $b_rep['represented_by_matched_by'], $b_rep['represented_by_at'], $a]);
+	}
+
+	// B's Ports -> A. A Port with the same if_index on A absorbs B's: its links and observations move to it.
+	$port_map = [];
+	$a_ports = [];
+	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'");
+	$stmt->execute([$a]);
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
+		$a_ports[(string) (json_decode($port['attrs'], true)['if_index'] ?? '')] = (int) $port['id'];
+	}
+	$stmt->execute([$b]);
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
+		$id = (int) $port['id'];
+		$attrs = json_decode($port['attrs'], true) ?: [];
+		$key = (string) ($attrs['if_index'] ?? '');
+		if ($key === '' || !isset($a_ports[$key])) {
+			$pdo->prepare('UPDATE topo_nodes SET device_id = ? WHERE id = ?')->execute([$a, $id]);
+			continue;
+		}
+		$target = $a_ports[$key];
+		$port_map[$id] = $target;
+		$target_attrs = $snap_node_attrs($target);
+		foreach ($attrs as $k => $v) {
+			if (($target_attrs[$k] ?? null) === null || $target_attrs[$k] === '' || $target_attrs[$k] === []) {
+				$target_attrs[$k] = $v;
+			}
+		}
+		$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($target_attrs, JSON_THROW_ON_ERROR), $target]);
+		foreach ($pdo->query("SELECT id, type, src_id, dst_id FROM topo_edges WHERE src_id = {$id} OR dst_id = {$id}")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+			$src = (int) $edge['src_id'] === $id ? $target : (int) $edge['src_id'];
+			$dst = (int) $edge['dst_id'] === $id ? $target : (int) $edge['dst_id'];
+			if ($edge['type'] === 'physical_link' && $src > $dst) {
+				[$src, $dst] = [$dst, $src];
+			}
+			$twin = $pdo->prepare('SELECT id FROM topo_edges WHERE src_id = ? AND dst_id = ?');
+			$twin->execute([$src, $dst]);
+			if ($twin->fetchColumn() !== false || $src === $dst) {
+				$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);     // the same link already exists (or it ends on itself)
+			}
+			else {
+				$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ? WHERE id = ?')->execute([$src, $dst, $edge['id']]);
+			}
+		}
+		$pdo->prepare('UPDATE IGNORE topo_observations SET local_port_id = ? WHERE local_port_id = ?')->execute([$target, $id]);
+		$pdo->prepare('DELETE FROM topo_observations WHERE local_port_id = ?')->execute([$id]);
+		$pdo->prepare('UPDATE topo_nodes SET lag_id = ? WHERE lag_id = ?')->execute([$target, $id]);
+		$pdo->prepare('DELETE FROM topo_nodes WHERE id = ?')->execute([$id]);
+	}
+
+	// device-level links that ended at B end at A; observations and shadow_ack that named B name A
+	$pdo->prepare("UPDATE IGNORE topo_edges SET dst_id = ? WHERE type = 'device_link' AND dst_id = ?")->execute([$a, $b]);
+	$pdo->prepare("DELETE FROM topo_edges WHERE type = 'device_link' AND dst_id = ?")->execute([$b]);
+	$pdo->prepare('UPDATE topo_observations SET device_id = ? WHERE device_id = ?')->execute([$a, $b]);
+	foreach ($pdo->query("SELECT id, attrs FROM topo_edges WHERE type IN ('physical_link', 'device_link') AND attrs LIKE '%shadow_ack%'")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
+		$changed = false;
+		foreach ($attrs['shadow_ack'] ?? [] as $n => $entry) {
+			if (isset($entry['device_id']) && (string) $entry['device_id'] === (string) $b) {
+				$attrs['shadow_ack'][$n]['device_id'] = is_int($entry['device_id']) ? $a : (string) $a;
+				$changed = true;
+			}
+		}
+		if ($changed) {
+			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $edge['id']]);
+		}
+	}
+
+	// B's attributes fill only what A has no value for
+	$attrs = $a_attrs;
+	foreach ($b_attrs as $k => $v) {
+		if ($k !== 'last_seen' && ($attrs[$k] ?? null) === null || ($attrs[$k] ?? null) === '') {
+			if ($v !== null && $v !== '') {
+				$attrs[$k] = $v;
+			}
+		}
+	}
+	$attrs['last_seen'] = max((int) ($a_attrs['last_seen'] ?? 0), (int) ($b_attrs['last_seen'] ?? 0));
+	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $a]);
+
+	// a link whose two ends are both on A now is deleted (counted)
+	$deleted = 0;
+	foreach ($pdo->query("SELECT e.id, e.type, e.src_id, e.dst_id FROM topo_edges e WHERE e.type IN ('physical_link', 'device_link')")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+		$src_device = $pdo->query('SELECT device_id FROM topo_nodes WHERE id = '.(int) $edge['src_id'])->fetchColumn();
+		$dst_device = $edge['type'] === 'device_link' ? (int) $edge['dst_id']
+			: $pdo->query('SELECT device_id FROM topo_nodes WHERE id = '.(int) $edge['dst_id'])->fetchColumn();
+		if ((int) $src_device === $a && (int) $dst_device === $a) {
+			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);
+			$deleted++;
+		}
+	}
+
+	$pdo->prepare('DELETE FROM topo_nodes WHERE id = ?')->execute([$b]);
+
+	// candidates collected earlier in this run that name B or a merged Port
+	foreach ($link_candidates as &$candidate) {
+		if (($candidate['remote_device_id'] ?? null) === $b) {
+			$candidate['remote_device_id'] = $a;
+		}
+		foreach (['local_port_id', 'remote_port_id'] as $field) {
+			if (isset($candidate[$field], $port_map[$candidate[$field]])) {
+				$candidate[$field] = $port_map[$candidate[$field]];
+			}
+		}
+	}
+	unset($candidate);
+
+	// §6.7.3 on A: pseudo ports that now have a real counterpart merge by name; leftovers on a Device with real ports are converted
+	$real = $pdo->prepare("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\\$.name')) AS name FROM topo_nodes WHERE device_id = ? AND type = 'port'".
+		" AND JSON_EXTRACT(attrs, '\\$.pseudo') = false");
+	$real->execute([$a]);
+	$real_ports = $real->fetchAll(PDO::FETCH_ASSOC);
+	foreach ($real_ports as $port) {
+		if ((string) $port['name'] !== '') {
+			$merge_pseudo_port($a, (int) $port['id'], (string) $port['name']);
+		}
+	}
+	if ($real_ports) {
+		$convert_leftover_pseudo_ports($a);
+	}
+
+	$summary['devices_joined']['count']++;
+	$summary['join_links_deleted'] += $deleted;
+	if (count($summary['devices_joined']['list']) < 200) {
+		$summary['devices_joined']['list'][] = ['kept' => $a, 'removed' => $b, 'key' => 'mgmt_ip', 'value' => $mgmt_ip];
+	}
+
+	return $a;
+};
+
 // Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
-	$resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+	$join_split_identity, $resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
+	// a row with both keys may join a split identity (§6.7.1); sysname never does
+	$join_split_identity($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null);
 	$match = $resolve_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
 		$incoming['sysname'] ?? null);
 	if ($match !== null && $match[0] === 'shared') {
@@ -1539,7 +1725,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 $link_candidates = [];
 $neighbor_snapshots = [];
 $snap_ingest_reporter = static function (array $reporter) use (
-	$pdo, $find_device, $snap_device, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $find_device, $snap_device, $join_split_identity, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
@@ -1568,16 +1754,19 @@ $snap_ingest_reporter = static function (array $reporter) use (
 	}
 	$loc_chassis = $chassis_values ? (string) array_key_first($chassis_values) : null;
 
+	$interface = $pdo->prepare(
+		'SELECT ip FROM interface WHERE hostid = ? AND type = 2 AND useip = 1 AND ip <> \'\' ORDER BY main DESC, interfaceid LIMIT 1');
+	$interface->execute([$reporter['hostid']]);
+	$mgmt_ip = $interface->fetchColumn() ?: null;
+
+	// the reporter's own identity carries both keys: it may join a split identity (§6.7.1), before its Device is looked up
+	$join_split_identity($loc_chassis, $mgmt_ip);
+
 	$existing = $pdo->prepare(
 		"SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id".
 		" WHERE d.type = 'device' AND h.host_ref = ? AND d.represented_by_matched_by = 'reporter_self'");
 	$existing->execute([$reporter['hostid']]);
 	$device_id = $existing->fetchColumn();
-
-	$interface = $pdo->prepare(
-		'SELECT ip FROM interface WHERE hostid = ? AND type = 2 AND useip = 1 AND ip <> \'\' ORDER BY main DESC, interfaceid LIMIT 1');
-	$interface->execute([$reporter['hostid']]);
-	$mgmt_ip = $interface->fetchColumn() ?: null;
 
 	if ($device_id === false) {
 		if ($loc_chassis === null && $mgmt_ip === null) {
