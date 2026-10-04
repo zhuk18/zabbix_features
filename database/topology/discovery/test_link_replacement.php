@@ -678,4 +678,52 @@ $fp = fingerprint($pdo);
 ingest($dsn, $user, $password, $pdo, 'in the second run');
 check(fingerprint($pdo) === $fp, 'a second run changes nothing');
 
+// ============================================================================================================
+echo "\n=== 16: the neighbors on one port from ALL rules are one set (topology-1-model.md \"Several neighbors or claims on one port\") ===\n";
+$E = 'f0:00:00:00:00:0e';
+foreach (['no link before' => false, 'a link among them' => true] as $label => $with_link) {
+	echo "  -- {$label}\n";
+	reset_db($pdo);
+	add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+	snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+	if ($with_link) {
+		snapshot($pdo, 1002, 101, 2, CLOCK + 20, [nbr($R, 1, $B, 'Gi0/24')]);
+		ingest($dsn, $user, $password, $pdo, 'with L to B');
+	}
+	// LLDP shows B and C, CDP shows D
+	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24'), nbr($R, 1, $C, 'eth0')]);
+	snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nbr($R, 1, $D, 'eth1', 'cdp')]);
+	$r = ingest($dsn, $user, $password, $pdo, 'LLDP shows B and C, CDP shows D');
+	$P = ports_of($pdo, $R)['Gi0/1'];
+	$active = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='physical_link' AND (src_id=? OR dst_id=?) AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL", [$P, $P]);
+	if ($with_link) {
+		check($active === 1 && observation($pdo, 1002, $B)['outcome'] === 'applied', 'the existing link (B) stays, applied');
+		check(observation($pdo, 1002, $C)['outcome'] === 'ambiguous' && observation($pdo, 1003, $D)['outcome'] === 'ambiguous', 'C and D are ambiguous (not conflict)');
+	}
+	else {
+		check($active === 0, 'no link on the port');
+		check(observation($pdo, 1002, $B)['outcome'] === 'ambiguous' && observation($pdo, 1002, $C)['outcome'] === 'ambiguous'
+			&& observation($pdo, 1003, $D)['outcome'] === 'ambiguous', 'B, C and D are all ambiguous');
+	}
+	check(observation($pdo, 1003, $D)['edge_id'] === null, 'ambiguous observations have no edge');
+	check((int) $r['summary']['ports_ambiguous'] === 1, 'ports_ambiguous counts the port once');
+	$fp = fingerprint($pdo);
+	ingest($dsn, $user, $password, $pdo, 'in a rerun');
+	check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
+}
+echo "  -- the same Device seen by CDP at device level while LLDP shows several\n";
+reset_db($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']));
+snapshot($pdo, 1002, 101, 2, CLOCK + 20, [nbr($R, 1, $B, 'Gi0/24')]);
+ingest($dsn, $user, $password, $pdo, 'with L to B');
+$P = ports_of($pdo, $R)['Gi0/1'];
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr($R, 1, $B, 'Gi0/24'), nbr($R, 1, $C, 'eth0')]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_chassis' => $B, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'sys-'.$B,
+	'source' => 'cdp', 'loc_chassis' => $R]]);
+ingest($dsn, $user, $password, $pdo, 'LLDP shows B and C, CDP shows B without a port');
+check(observation($pdo, 1002, $B)['outcome'] === 'applied' && observation($pdo, 1002, $C)['outcome'] === 'ambiguous', 'B applied, C ambiguous');
+check(in_array(observation($pdo, 1003, $B)['outcome'], ['applied', 'device_only'], true), 'CDP\'s sighting of B is not another neighbor (outcome '.observation($pdo, 1003, $B)['outcome'].')');
+check(is_active(link_between($pdo, $P, ports_of($pdo, $B)['Gi0/24'])), 'the link to B stays');
+
 echo "\nAll link replacement tests passed.\n";

@@ -1966,7 +1966,8 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 	$rules_port = [];      // key => itemid set, exactly that entity
 	$rules_of = [];        // same, plus device-level sightings of a port-level link (they still say it is there)
 	$support_clock = [];
-	$groups = [];
+	$groups = [];          // local port => token set: the neighbors on the port from ALL the rules (topology-1-model.md "Several neighbors or claims on one port")
+	$rule_tokens = [];     // local port => itemid => token set
 	$device_cands = [];    // local port => [candidate index] of the device-level candidates
 	foreach ($candidates as $i => $candidate) {
 		[$key] = $candidate_entity($candidate);
@@ -1977,7 +1978,8 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$rules_of[$key][$candidate['itemid']] = true;
 		$support_clock[$key] = max($support_clock[$key] ?? 0, $candidate['clock']);
 		$token = $candidate['level'] === 'device' ? 'd'.$candidate['remote_device_id'] : (string) $candidate['remote_port_id'];
-		$groups[$candidate['itemid'].'|'.$candidate['local_port_id']][$token] = true;
+		$rule_tokens[$candidate['local_port_id']][$candidate['itemid']][$token] = true;
+		$groups[$candidate['local_port_id']][$token] = true;
 		if ($candidate['level'] === 'device') {
 			$device_cands[$candidate['local_port_id']][] = $i;
 		}
@@ -2111,8 +2113,15 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 
 		// topology-1-model.md "Several neighbors or claims on one port": several neighbors on one port in one snapshot are not a sequence. None replaces another; the
 		// existing active link on the port, if it is one of them, stays.
-		$group_key = $candidate['itemid'].'|'.$port;
-		if (count($groups[$group_key]) >= 2) {
+		// The neighbors on a port from all the rules are one set as soon as some rule shows several of them (LLDP shows X and Y,
+		// CDP shows Z: the set is X, Y, Z). When every rule shows one neighbor, the claims of different rules are decided below
+		// (competing claims, or §8.4 against the active link).
+		$group_key = $port;
+		$several = false;
+		foreach ($rule_tokens[$port] ?? [] as $tokens) {
+			$several = $several || count($tokens) >= 2;
+		}
+		if ($several) {
 			if (!isset($counted_groups[$group_key])) {
 				$counted_groups[$group_key] = true;
 				$summary['ports_ambiguous']++;
@@ -2129,11 +2138,15 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 			if ($holder !== null && $holder['key'] === $key) {
 				$result[$i] = ['outcome' => 'applied', 'edge_id' => $holder['id'], 'key' => $key];
 				$confirming[$key][] = $i;
+				continue;
 			}
-			else {
+			// the same Device as the one that holds the port, seen at device level by another rule: the same cable at a lower
+			// precision, decided with the claims below (4a), not another neighbor
+			if (!($holder !== null && $holder['type'] === 'physical_link' && $candidate['level'] === 'device'
+					&& $far_device_from($holder, $port) === $candidate['remote_device_id'])) {
 				$result[$i] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
+				continue;
 			}
-			continue;
 		}
 
 		$claims[$key] ??= ['a' => $port, 'b' => $candidate['level'] === 'device' ? null : $candidate['remote_port_id'],
