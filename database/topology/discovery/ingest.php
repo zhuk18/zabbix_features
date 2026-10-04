@@ -1099,6 +1099,11 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		'mgmt_ip' => $incoming['mgmt_ip'] ?? null, 'sysname' => $incoming['sysname'] ?? '',
 		'vendor' => $incoming['vendor'] ?? 'unknown', 'last_seen' => $seen_at,
 	];
+	// A Device whose only key is the scoped sysname is created by sysname: marked in the same run (topology-1-model.md "Far Device"),
+	// so the first repeat run changes no attribute.
+	if (!($incoming['chassis_id'] ?? null) && !($incoming['mgmt_ip'] ?? null) && $local_port_id !== null && ($incoming['sysname'] ?? '') !== '') {
+		$attrs['matched_by'] = 'sysname';
+	}
 	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$summary['devices_created']++;
 	return $last_insert_id();

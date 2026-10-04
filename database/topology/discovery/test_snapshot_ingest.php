@@ -482,4 +482,21 @@ run_ingest($dsn, $user, $password);
 check(count($x_ports()) === $ports_before && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations o JOIN topo_edges e ON e.id=o.edge_id WHERE e.src_id=? OR e.dst_id=?", [$old, $old]) >= 1,
 	'an existing pseudo port is found by its normalized name, whatever index it has');
 
+// ============================================================================================================
+echo "\n=== 14: a Device created by sysname has matched_by sysname at once (topology-1-model.md \"Far Device\") ===\n";
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+	$pdo->exec("DELETE FROM {$t}");
+}
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:99']]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 10, [['if_index' => 1, 'rem_sysname' => 'only-a-name', 'rem_port' => 'eth0', 'source' => 'lldp', 'loc_chassis' => 'a0:00:00:00:00:99']]);
+run_ingest($dsn, $user, $password);
+$d = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname'))='only-a-name'");
+check($d > 0 && (attrs($pdo, $d)['matched_by'] ?? null) === 'sysname', 'created by sysname: matched_by is set in the same run');
+$before = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $before, 'the first repeat run changes no attribute');
+
 echo "\nAll snapshot ingest tests passed.\n";
