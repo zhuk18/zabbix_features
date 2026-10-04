@@ -726,10 +726,12 @@ c('I-04', 'Правило', function () {
 	h_ports('R2', [1 => 'Gi0/1']);
 	h_nbrs('R', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('sysname-only neighbor');
+	ex((h_dev('S-only')['matched_by'] ?? null) === 'sysname', 'a Device created by sysname has matched_by sysname in the same run');
 	h_tick();
 	h_nbrs('R', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('seen again on the same port');
 	ex(h_dev_count() === 3 && (h_dev('S-only')['matched_by'] ?? null) === 'sysname', 'found by sysname on the same R and P: matched_by sysname, one Device');
+	ex(in_array('attributes other than ids and last_seen* changed once on the first repeat (e.g. matched_by) and then stayed', $GLOBALS['H']['notes'], true) === false, 'the first repeat run changes no attribute (matched_by is set at creation)');
 	h_tick();
 	h_nbrs('R2', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('the same sysname behind another reporter');
@@ -1062,8 +1064,10 @@ c('P-01', 'Пробел', function () {
 	$s = h_state();
 	h_note('ports of R: '.json_encode($s['ports']['R']));
 	ex(count($s['ports']['R']) === 4, 'new Ports; the old ones stay (the names are duplicated)');
-	$device_level = array_filter($s['links_full'], static fn ($l) => $l['type'] === 'device_link' && $l['state'] === 'active' && $l['reason'] === 'port_shared_id');
-	ex(count($device_level) >= 1, 'S sees R: the name is on two authoritative ports -> port_shared_id, a false device_link');
+	$o = h_obs('S', 'Gi0/24');
+	ex(count(h_links('R:Gi0/1', 'S:Gi0/24', 'physical_link', 'active')) === 1 && array_filter($s['links_full'], static fn ($l) => $l['type'] === 'device_link') === [],
+		'S sees R: the name is on two authoritative ports, but the link stays a physical_link (§8.3), no device_link');
+	ex(($o['lower'] ?? null) === true && ($o['reason'] ?? null) === 'port_shared_id', 'the observation of S says precision_lower (reason port_shared_id)');
 	ex(count(array_filter($s['links_full'], static fn ($l) => $l['state'] === 'active' && in_array('R:Gi0/2', $l['ends'], true))) === 1, 'the link of X moved to the new port (the old one is superseded or ages)');
 });
 
@@ -1464,12 +1468,28 @@ c('L-13', 'Правило', function () {
 	h_ingest('a hypervisor: three VMs with LLDP on Gi0/1; two CDP neighbors behind a vSwitch on Gi0/2');
 	ex(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['ambiguous'] && count(h_active_on('R:Gi0/1')) === 0, 'LLDP: as L-11');
 	ex(array_unique(array_column(h_obs_all('R', 'Gi0/2'), 'outcome')) === ['ambiguous'] && count(h_active_on('R:Gi0/2')) === 0, 'CDP: as L-11');
-	h_tick();
-	h_nbrs('R', [NR(3, mac(15), 'a', 'eth0'), NR(3, mac(16), 'b', 'eth0')], 'lldp');
-	h_nbrs('R', [NR(3, mac(17), 'c', 'eth0')], 'cdp');
-	h_ingest('extra: two LLDP neighbors and one CDP neighbor on Gi0/3');
-	h_note('LLDP x2 + CDP x1 on one port: '.json_encode(array_map(static fn ($o) => $o['device'].' '.$o['outcome'], h_obs_all('R', 'Gi0/3'))));
 });
+
+c('L-13b', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'X', 'eth0'), NR(1, mac(11), 'Y', 'eth0')], 'lldp');
+	h_nbrs('R', [NR(1, mac(12), 'Z', 'vmnic0')], 'cdp');
+	$summary = h_ingest('LLDP shows X and Y, CDP shows Z on one port, no link before');
+	ex(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['ambiguous'] && count(h_obs_all('R', 'Gi0/1')) === 3, 'X, Y and Z are all ambiguous (the neighbors of all rules are one set)');
+	ex(count(h_active_on('R:Gi0/1')) === 0 && h_state()['links'] === [], 'no link on the port');
+	ex(array_filter(h_obs_all('R', 'Gi0/1'), static fn ($o) => $o['edge_id'] !== null) === [], 'ambiguous observations have no edge');
+	h_tick();
+	h_nbrs('R', [NR(2, mac(10), 'X', 'eth0')], 'lldp');
+	h_nbrs('R', [], 'cdp');
+	h_ingest('only X on Gi0/2: a link');
+	h_tick();
+	h_nbrs('R', [NR(2, mac(10), 'X', 'eth0'), NR(2, mac(11), 'Y', 'eth0')], 'lldp');
+	h_nbrs('R', [NR(2, mac(12), 'Z', 'vmnic0')], 'cdp');
+	h_ingest('then LLDP shows X and Y, CDP shows Z: the link is among them');
+	$by = array_column(h_obs_all('R', 'Gi0/2'), 'outcome', 'device');
+	ex(($by['X'] ?? null) === 'applied' && ($by['Y'] ?? null) === 'ambiguous' && ($by['Z'] ?? null) === 'ambiguous' && count(h_active_on('R:Gi0/2')) === 1,
+		'the existing link (X) stays applied, Y and Z are ambiguous');
+}, 'test_link_replacement.php §16');
 
 c('L-14', 'Правило', function () {
 	base_r();
@@ -2209,7 +2229,7 @@ oh('C-08', 'Пробел', 'the native step (C, preproc_topology.c) drops the ro
 oh('C-09', 'Правило', 'the snapshot clock rule is in the server (lld_topology.c)', 'database/topology/discovery/test_snapshot_clock.py; handoff 005 (live, through a proxy)');
 oh('C-10', 'Правило', 'needs a proxy and zabbix_sender', 'handoff 005 report (live, 5 values through a proxy)');
 oh('C-11', 'Ограничение', 'the LLD manager queue (C server)', 'handoff 005 report (lld_manager.c:303)');
-oh('C-12', 'Пробел', 'the snapshot clock is written by the C server; see the server check in the 009 report (section 3)');
+oh('C-12', 'Пробел', 'the snapshot clock is written by the C server (lld_topology.c); not ingest', 'live check on the test VM: database/topology/discovery/test_snapshot_clock.py (future timestamps), handoff 010 report section 4');
 
 c('C-13', 'Правило', function () {
 	global $pdo;
