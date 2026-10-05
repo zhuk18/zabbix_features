@@ -11,7 +11,10 @@ class CControllerTopologyPromote extends CController {
 			'target_id' => 'required|id'
 		]);
 	}
-	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
+	// Promote to a proxy: Super admin only (a proxy has no write permission for other users in Zabbix, topology-5-access-control.md §1, §4)
+	protected function checkPermissions(): bool {
+		return !CWebUser::isGuest() && ($this->getInput('target_type') !== 'proxy' || CWebUser::getType() == USER_TYPE_SUPER_ADMIN);
+	}
 	protected function doAction() {
 		try {
 			CTopologyPrototype::promote($this->getInput('id'), $this->getInput('target_type'),

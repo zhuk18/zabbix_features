@@ -1325,6 +1325,12 @@ class CTopologyPrototype {
 	// represents it (isRepresentedTarget() — covers both an automatic mac/reporter_self match and a
 	// manual promotion by someone else). Leaving an orphaned node behind would silently reintroduce
 	// the exact "node with nothing to show" clutter the lazy-creation policy exists to avoid.
+	/** A Device whose represented_by points to a Proxy node (the promotion to a proxy is Super admin only). */
+	public static function isRepresentedByProxy(string $deviceid): bool {
+		return (bool) DBfetch(DBselect('SELECT dev.id FROM topo_nodes dev JOIN topo_nodes target ON target.id=dev.represented_by_node_id'.
+			' WHERE dev.id='.zbx_dbstr($deviceid).' AND dev.type='.zbx_dbstr('device').' AND target.type='.zbx_dbstr('proxy'), 1));
+	}
+
 	public static function depromote(string $deviceid): void {
 		$device = DBfetch(DBselect('SELECT represented_by_node_id FROM topo_nodes WHERE id='.zbx_dbstr($deviceid)), false);
 		$target_nodeid = $device['represented_by_node_id'] ?? null;

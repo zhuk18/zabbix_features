@@ -26,6 +26,12 @@ class CControllerTopologyIngestStatus extends CController {
 			$status = ['status' => 'idle', 'started_at' => null, 'finished_at' => null, 'summary' => null];
 		}
 
+		// The run summary (counts and lists of the whole installation) is for Super admin only (topology-5-access-control.md §3.10);
+		// everyone else gets the state of the run and nothing else.
+		if (CWebUser::getType() != USER_TYPE_SUPER_ADMIN) {
+			$status = ['status' => $status['status'] ?? 'idle'];
+		}
+
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode($status)]));
 	}
 }
