@@ -33,10 +33,10 @@ $page_styles = '
 .topology-group{margin:14px 0}
 .topology-group h3{font-size:14px;margin:0 0 6px}
 .topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
-.topology-col-port{width:32%}
-.topology-col-status{width:16%}
-.topology-col-connected{width:26%}
-.topology-col-source{width:15%}
+.topology-col-port{width:24%}
+.topology-col-status{width:19%}
+.topology-col-connected{width:24%}
+.topology-col-source{width:17%}
 .topology-col-action{width:64px}
 .topology-group th,.topology-group td{padding:6px 6px;border-bottom:1px solid #e5e7eb;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .topology-port-name{font-family:monospace;font-size:11px}
