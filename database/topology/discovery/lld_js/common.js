@@ -177,24 +177,12 @@ function interfaces() {
 	return result;
 }
 
-/* The device's own chassis id: lldpLocChassisId, else the MAC of its lowest-ifIndex port that has one. The fallback
- * is push.py's own convention; every rule of a host must derive the same value, so it lives here. */
+/* The device's own chassis id: lldpLocChassisId only. It is never guessed (no fallback to a port MAC):
+ * topology-2-lld-delivery.md, topology-1-model.md section 6.4 step 7. */
 function localChassis(ifs) {
-	var row = WALK.rows['1.0.8802.1.1.2.1.3.2.0'], value = row !== undefined ? normMac(decode(row)) : '', keys, i;
+	var row = WALK.rows['1.0.8802.1.1.2.1.3.2.0'];
 
-	if (value !== '') {
-		return value;
-	}
-
-	keys = numericKeys(ifs);
-
-	for (i = 0; i < keys.length; i++) {
-		if (ifs[keys[i]].mac !== '') {
-			return ifs[keys[i]].mac;
-		}
-	}
-
-	return '';
+	return row !== undefined ? normMac(decode(row)) : '';
 }
 
 /* Adds {#LOC_CHASSIS} to a row when the device's own chassis id is known. */

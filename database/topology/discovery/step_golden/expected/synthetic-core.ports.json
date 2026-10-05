@@ -6,8 +6,7 @@
         "{#IFNAME}": "Gi0/1",
         "{#IFOPERSTATUS}": "1",
         "{#IFSPEED}": "1000",
-        "{#IFTYPE}": "6",
-        "{#LOC_CHASSIS}": "02:00:00:00:00:01"
+        "{#IFTYPE}": "6"
     },
     {
         "{#IFADMINSTATUS}": "1",
@@ -16,8 +15,7 @@
         "{#IFNAME}": "Po1",
         "{#IFOPERSTATUS}": "1",
         "{#IFSPEED}": "2000",
-        "{#IFTYPE}": "161",
-        "{#LOC_CHASSIS}": "02:00:00:00:00:01"
+        "{#IFTYPE}": "161"
     },
     {
         "{#IFADMINSTATUS}": "1",
@@ -26,8 +24,7 @@
         "{#IFNAME}": "Gi0/4",
         "{#IFOPERSTATUS}": "2",
         "{#IFSPEED}": "1000",
-        "{#IFTYPE}": "6",
-        "{#LOC_CHASSIS}": "02:00:00:00:00:01"
+        "{#IFTYPE}": "6"
     },
     {
         "{#IFADMINSTATUS}": "1",
@@ -36,8 +33,7 @@
         "{#IFNAME}": "Gi0/2",
         "{#IFOPERSTATUS}": "1",
         "{#IFSPEED}": "1000",
-        "{#IFTYPE}": "6",
-        "{#LOC_CHASSIS}": "02:00:00:00:00:01"
+        "{#IFTYPE}": "6"
     },
     {
         "{#IFADMINSTATUS}": "1",
@@ -46,7 +42,6 @@
         "{#IFNAME}": "Gi0/3",
         "{#IFOPERSTATUS}": "1",
         "{#IFSPEED}": "1000",
-        "{#IFTYPE}": "6",
-        "{#LOC_CHASSIS}": "02:00:00:00:00:01"
+        "{#IFTYPE}": "6"
     }
 ]

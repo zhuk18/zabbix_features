@@ -558,8 +558,8 @@ static void	topo_ifs_clear(zbx_vector_topo_if_t *ifs)
 	zbx_vector_topo_if_destroy(ifs);
 }
 
-/* the device's own chassis id: lldpLocChassisId, else the MAC of the lowest-ifIndex port that has one (as the JS) */
-static char	*topo_local_chassis(const zbx_snmp_value_cache_t *cache, const zbx_vector_topo_if_t *ifs)
+/* the device's own chassis id: lldpLocChassisId only; never guessed (no fallback to a port MAC, topology-2-lld-delivery.md) */
+static char	*topo_local_chassis(const zbx_snmp_value_cache_t *cache)
 {
 	topo_table_t	loc;
 	char		*chassis;
@@ -569,18 +569,7 @@ static char	*topo_local_chassis(const zbx_snmp_value_cache_t *cache, const zbx_v
 	chassis = topo_mac_normalize(topo_table_text(&loc, "0"));
 	topo_table_clear(&loc);
 
-	if ('\0' != *chassis)
-		return chassis;
-
-	zbx_free(chassis);
-
-	for (int i = 0; i < ifs->values_num; i++)
-	{
-		if ('\0' != *ifs->values[i].mac)
-			return zbx_strdup(NULL, ifs->values[i].mac);
-	}
-
-	return zbx_strdup(NULL, "");
+	return chassis;
 }
 
 /******************************************************************************
@@ -1636,7 +1625,7 @@ int	item_preproc_snmp_walk_to_topology(zbx_variant_t *value, const char *params,
 
 	zbx_vector_topo_row_ptr_create(&rows);
 	topo_ifs_load(&cache, &ifs);
-	chassis = topo_local_chassis(&cache, &ifs);
+	chassis = topo_local_chassis(&cache);
 
 	switch (p.source)
 	{

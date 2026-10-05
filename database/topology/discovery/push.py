@@ -401,15 +401,8 @@ def collect_reporter_identity(target: str, port: int, community: str, version: s
     sys_object_id = snmp_get(target, port, community, version, SYS_OBJECT_ID_OID)
     chassis_id = snmp_get(target, port, community, version, LLDP_LOC_CHASSIS_ID_OID)
 
-    if not chassis_id:
-        # Deviation from a fully spec'd device: lldpLocChassisId isn't populated by every
-        # agent (and isn't in this lab's fixture at all — see the delivery report). Fall back
-        # to the lowest-ifIndex port's MAC as a stand-in chassis identity, a common real-world
-        # convention (many vendors' own chassis ID *is* the base MAC of the lowest port) —
-        # flagged here rather than silently treated as equivalent to a real LLDP-sourced value.
-        ports = collect_ports(target, port, community, version)
-        macs = [p["mac"] for p in sorted(ports.values(), key=lambda p: p["if_index"]) if p.get("mac")]
-        chassis_id = macs[0] if macs else None
+    # No fallback: a sender never guesses the chassis id (model §6.4 step 7); without lldpLocChassisId the identity has none.
+    chassis_id = chassis_id or None
 
     return {
         "sysname": sysname,
@@ -541,15 +534,9 @@ def _interfaces(rows: dict) -> dict[str, dict]:
 
 
 def _local_chassis(rows: dict, ifs: dict) -> str:
-    """lldpLocChassisId, else the MAC of the lowest-ifIndex port that has one."""
+    """lldpLocChassisId only; never guessed from a port MAC (model §6.4 step 7)."""
     row = rows.get(LLDP_LOC_CHASSIS_ID_FULL)
-    value = _norm_mac(_decode(row)) if row is not None else ""
-    if value != "":
-        return value
-    for k in _numeric_keys(ifs):
-        if ifs[str(k)]["mac"] != "":
-            return ifs[str(k)]["mac"]
-    return ""
+    return _norm_mac(_decode(row)) if row is not None else ""
 
 
 def _with_chassis(row: dict, chassis: str) -> dict:

@@ -237,5 +237,8 @@ for code, name, want in ((24, "Loopback0", "virtual"), (53, "Vlan10", "virtual")
                          (6, "Gi0/1", "physical"), (1, "Gi0/2", "physical"), (6, "", "physical"), (24, "mgmt0", "virtual")):
     check(push.port_class(code, name) == want, f"port class: IANA {code}, {name!r} -> {want}")
 
+# No guessed chassis (model §6.4 step 7): without lldpLocChassisId there is no chassis, whatever the port MACs are
+check(push._local_chassis({}, {"1": {"mac": "02:00:00:00:00:01"}}) == "", "no lldpLocChassisId: _local_chassis is empty, not a port MAC")
+
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)

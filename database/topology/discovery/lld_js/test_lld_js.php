@@ -95,7 +95,7 @@ foreach ($if as $i => [$name, $mac]) {
 	$w .= line("1.3.6.1.2.1.31.1.1.1.1.{$i}", 'STRING', '"'.$name.'"');
 	$w .= line("1.3.6.1.2.1.31.1.1.1.15.{$i}", 'Gauge32', $i === 10 ? '2000' : '1000');
 }
-// no lldpLocChassisId on purpose: the chassis falls back to the lowest-ifIndex port MAC.
+// no lldpLocChassisId on purpose: the rows have no {#LOC_CHASSIS} (never guessed from a port MAC).
 $loc = '1.0.8802.1.1.2.1.3.7.1';
 foreach ([[101, 5, 'Gi0/1'], [102, 3, hex('02:00:00:00:00:02')], [103, 7, '3'], [104, 1, 'alias-x']] as [$num, $type, $id]) {
 	$w .= line("{$loc}.2.{$num}", 'INTEGER', (string) $type);
@@ -133,7 +133,7 @@ check(($d['{#IFINDEX}'] ?? '') === '1' && ($d['{#REM_CHASSIS}'] ?? '') === 'aa:b
 	&& ($d['{#REM_PORT}'] ?? '') === 'Te1/0/1' && ($d['{#REM_PORT_TYPE}'] ?? '') === 'interfaceName'
 	&& ($d['{#REM_PORT_DESC}'] ?? '') === 'TenGigabitEthernet1/0/1' && ($d['{#REM_MGMT_IP}'] ?? '') === '10.0.0.9',
 	'local port resolved by interfaceName; chassis/port subtypes named; IPv4 management address taken from the index', $d);
-check(($d['{#LOC_CHASSIS}'] ?? '') === '02:00:00:00:00:01', 'no lldpLocChassisId: chassis falls back to the lowest-ifIndex port MAC', $d);
+check(!array_key_exists('{#LOC_CHASSIS}', $d), 'no lldpLocChassisId: no {#LOC_CHASSIS} (no fallback to a port MAC)', $d);
 $m = $by['aa:bb:cc:00:00:09'] ?? $by['192.168.1.10'] ?? [];
 $net = array_values(array_filter($n['rows'], static fn (array $r): bool => ($r['{#REM_CHASSIS_TYPE}'] ?? '') === 'networkAddress'))[0] ?? [];
 check(($net['{#IFINDEX}'] ?? '') === '2' && ($net['{#REM_CHASSIS}'] ?? '') === '192.168.1.10' && ($net['{#REM_PORT}'] ?? '') === 'aa:bb:cc:00:00:09'

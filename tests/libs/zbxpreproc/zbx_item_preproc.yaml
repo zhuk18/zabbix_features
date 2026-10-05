@@ -5074,7 +5074,7 @@ in:
       20
 out:
   return: SUCCEED
-  value: '[{"{#IFINDEX}":"1","{#IFNAME}":"Gi0/1","{#IFTYPE}":"6","{#IFMAC}":"02:00:00:00:00:01","{#LOC_CHASSIS}":"02:00:00:00:00:01"}]'
+  value: '[{"{#IFINDEX}":"1","{#IFNAME}":"Gi0/1","{#IFTYPE}":"6","{#IFMAC}":"02:00:00:00:00:01"}]'
 ---
 test case: SNMP walk to topology rows - LLDP with no neighbors is an empty result
 in:
