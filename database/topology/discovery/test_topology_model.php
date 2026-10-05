@@ -277,8 +277,8 @@ $r = call($class, ['port_id' => (string) $Ap1, 'device_id' => (string) $B]);
 check(!failed($r) && ($r['success'] ?? false) === true && isset($r['edge_id']), 'success: the link is created');
 $e = edge_row($pdo, (int) $r['edge_id']);
 check($e['type'] === 'device_link' && $e['src'] === $Ap1 && $e['dst'] === $B && $e['discovered_via'] === 'manual'
-	&& $e['far_port_reason'] === 'manual' && $e['created_by'] === 'Admin' && !isset($e['far_port_hint']),
-	'a manual device_link from the port to the device, reason manual, created by the user, no hint');
+	&& $e['far_port_reason'] === 'manual' && $e['created_by'] === '1' && !isset($e['far_port_hint']),
+	'a manual device_link from the port to the device, reason manual, created by the user (the Zabbix user id), no hint');
 $again = call($class, ['port_id' => (string) $Ap1, 'device_id' => (string) $B]);
 check(failed($again), 'the same port again: it already has a link');
 check(edge_count($pdo) === 1, 'nothing was added');

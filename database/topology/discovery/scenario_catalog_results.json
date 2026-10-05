@@ -6697,14 +6697,14 @@
             ]
         },
         {
-            "id": "D-01",
+            "id": "M-23",
             "rating": "Правило",
-            "first_pass": true,
+            "first_pass": false,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
             "order_independent": true,
-            "covered_by": "test_device_links.php §4.1",
+            "covered_by": "topology-5-access-control.md §3.11 (handoff 016 section 3)",
             "notes": [],
             "actual": {
                 "devices": [
@@ -6717,7 +6717,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1135,
+                        "id": 1133,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6728,19 +6728,96 @@
                 "ports": {
                     "R": [
                         "Gi0/1#1131/if1",
-                        "Gi0/2#1132/if2",
-                        "Gi0/3#1133/if3",
-                        "Gi0/4#1134/if4"
+                        "Gi0/2#1132/if2"
                     ],
                     "B": [
-                        "Gi0/1#1137/if1"
+                        "Gi0/24#1135/if24"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B active port_unmatched #165"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #165",
+                    "device_link R:Gi0/2 ~ B active (manual) manual #166"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#165 device port_unmatched"
+                    "R:Gi0/1 -> B applied edge#165 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "ports",
+                    "devices": 2,
+                    "links": [],
+                    "obs": []
+                },
+                {
+                    "step": "discovery confirms the manual link",
+                    "devices": 2,
+                    "links": [
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #165",
+                        "device_link R:Gi0/2 ~ B active (manual) manual #166"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> B applied edge#165 port"
+                    ]
+                },
+                {
+                    "step": "a repeat run",
+                    "devices": 2,
+                    "links": [
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #165",
+                        "device_link R:Gi0/2 ~ B active (manual) manual #166"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> B applied edge#165 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "D-01",
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": "test_device_links.php §4.1",
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1143,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1149,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1145/if1",
+                        "Gi0/2#1146/if2",
+                        "Gi0/3#1147/if3",
+                        "Gi0/4#1148/if4"
+                    ],
+                    "B": [
+                        "Gi0/1#1151/if1"
+                    ]
+                },
+                "links": [
+                    "device_link R:Gi0/1 ~ B active port_unmatched #169"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> B applied edge#169 device port_unmatched"
                 ]
             },
             "steps": [
@@ -6748,10 +6825,10 @@
                     "step": "B is a reporter; the advertised port matches none of its ports",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #165"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #169"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#165 device port_unmatched"
+                        "R:Gi0/1 -> B applied edge#169 device port_unmatched"
                     ]
                 }
             ]
@@ -6769,7 +6846,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1147,
+                        "id": 1161,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -6777,7 +6854,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1153,
+                        "id": 1167,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": null,
@@ -6787,19 +6864,19 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1149/if1",
-                        "Gi0/2#1150/if2",
-                        "Gi0/3#1151/if3",
-                        "Gi0/4#1152/if4"
+                        "Gi0/1#1163/if1",
+                        "Gi0/2#1164/if2",
+                        "Gi0/3#1165/if3",
+                        "Gi0/4#1166/if4"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B active port_shared_id #167",
-                    "device_link R:Gi0/2 ~ B active port_shared_id #168"
+                    "device_link R:Gi0/1 ~ B active port_shared_id #171",
+                    "device_link R:Gi0/2 ~ B active port_shared_id #172"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#167 device port_shared_id",
-                    "R:Gi0/2 -> B applied edge#168 device port_shared_id"
+                    "R:Gi0/1 -> B applied edge#171 device port_shared_id",
+                    "R:Gi0/2 -> B applied edge#172 device port_shared_id"
                 ]
             },
             "steps": [
@@ -6807,12 +6884,12 @@
                     "step": "two local ports see the same far port id (the chassis MAC)",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_shared_id #167",
-                        "device_link R:Gi0/2 ~ B active port_shared_id #168"
+                        "device_link R:Gi0/1 ~ B active port_shared_id #171",
+                        "device_link R:Gi0/2 ~ B active port_shared_id #172"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#167 device port_shared_id",
-                        "R:Gi0/2 -> B applied edge#168 device port_shared_id"
+                        "R:Gi0/1 -> B applied edge#171 device port_shared_id",
+                        "R:Gi0/2 -> B applied edge#172 device port_shared_id"
                     ]
                 }
             ]
@@ -6830,7 +6907,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1154,
+                        "id": 1168,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -6838,7 +6915,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1160,
+                        "id": 1174,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6848,23 +6925,23 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1156/if1",
-                        "Gi0/2#1157/if2",
-                        "Gi0/3#1158/if3",
-                        "Gi0/4#1159/if4"
+                        "Gi0/1#1170/if1",
+                        "Gi0/2#1171/if2",
+                        "Gi0/3#1172/if3",
+                        "Gi0/4#1173/if4"
                     ],
                     "B": [
-                        "Gi0/24#1162/if24",
-                        "Gi0/23#1163/if23"
+                        "Gi0/24#1176/if24",
+                        "Gi0/23#1177/if23"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B active port_unmatched #169",
-                    "device_link B:Gi0/24 ~ R active port_unmatched #170"
+                    "device_link R:Gi0/1 ~ B active port_unmatched #173",
+                    "device_link B:Gi0/24 ~ R active port_unmatched #174"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#169 device port_unmatched",
-                    "B:Gi0/24 -> R applied edge#170 device port_unmatched"
+                    "R:Gi0/1 -> B applied edge#173 device port_unmatched",
+                    "B:Gi0/24 -> R applied edge#174 device port_unmatched"
                 ]
             },
             "steps": [
@@ -6872,12 +6949,12 @@
                     "step": "one cable, both ends are reporters, both advertise the chassis MAC as the port id",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #169",
-                        "device_link B:Gi0/24 ~ R active port_unmatched #170"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #173",
+                        "device_link B:Gi0/24 ~ R active port_unmatched #174"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#169 device port_unmatched",
-                        "B:Gi0/24 -> R applied edge#170 device port_unmatched"
+                        "R:Gi0/1 -> B applied edge#173 device port_unmatched",
+                        "B:Gi0/24 -> R applied edge#174 device port_unmatched"
                     ]
                 }
             ]
@@ -6895,7 +6972,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1174,
+                        "id": 1188,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -6903,7 +6980,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1180,
+                        "id": 1194,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6913,26 +6990,26 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1176/if1",
-                        "Gi0/2#1177/if2",
-                        "Gi0/3#1178/if3",
-                        "Gi0/4#1179/if4"
+                        "Gi0/1#1190/if1",
+                        "Gi0/2#1191/if2",
+                        "Gi0/3#1192/if3",
+                        "Gi0/4#1193/if4"
                     ],
                     "B": [
-                        "Gi0/1#1182/if1",
-                        "Gi0/2#1183/if2",
-                        "Gi0/3#1184/if3"
+                        "Gi0/1#1196/if1",
+                        "Gi0/2#1197/if2",
+                        "Gi0/3#1198/if3"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B active lag_ambiguous #173",
-                    "device_link R:Gi0/2 ~ B active lag_ambiguous #174",
-                    "physical_link B:Gi0/3 ~ R:Gi0/3 active #175"
+                    "device_link R:Gi0/1 ~ B active lag_ambiguous #177",
+                    "device_link R:Gi0/2 ~ B active lag_ambiguous #178",
+                    "physical_link B:Gi0/3 ~ R:Gi0/3 active #179"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#173 device lag_ambiguous",
-                    "R:Gi0/2 -> B applied edge#174 device lag_ambiguous",
-                    "R:Gi0/3 -> B applied edge#175 port"
+                    "R:Gi0/1 -> B applied edge#177 device lag_ambiguous",
+                    "R:Gi0/2 -> B applied edge#178 device lag_ambiguous",
+                    "R:Gi0/3 -> B applied edge#179 port"
                 ]
             },
             "steps": [
@@ -6940,14 +7017,14 @@
                     "step": "a LAG to one neighbor: two legs with unusable far ids, one with a known port",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active lag_ambiguous #173",
-                        "device_link R:Gi0/2 ~ B active lag_ambiguous #174",
-                        "physical_link B:Gi0/3 ~ R:Gi0/3 active #175"
+                        "device_link R:Gi0/1 ~ B active lag_ambiguous #177",
+                        "device_link R:Gi0/2 ~ B active lag_ambiguous #178",
+                        "physical_link B:Gi0/3 ~ R:Gi0/3 active #179"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#173 device lag_ambiguous",
-                        "R:Gi0/2 -> B applied edge#174 device lag_ambiguous",
-                        "R:Gi0/3 -> B applied edge#175 port"
+                        "R:Gi0/1 -> B applied edge#177 device lag_ambiguous",
+                        "R:Gi0/2 -> B applied edge#178 device lag_ambiguous",
+                        "R:Gi0/3 -> B applied edge#179 port"
                     ]
                 }
             ]
@@ -6965,7 +7042,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1196,
+                        "id": 1210,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -6973,7 +7050,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1202,
+                        "id": 1216,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6983,21 +7060,21 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1198/if1",
-                        "Gi0/2#1199/if2",
-                        "Gi0/3#1200/if3",
-                        "Gi0/4#1201/if4"
+                        "Gi0/1#1212/if1",
+                        "Gi0/2#1213/if2",
+                        "Gi0/3#1214/if3",
+                        "Gi0/4#1215/if4"
                     ],
                     "B": [
-                        "Gi0/24#1204/if24"
+                        "Gi0/24#1218/if24"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #179"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #183"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#179 port",
-                    "B:Gi0/24 -> R applied edge#179 port"
+                    "R:Gi0/1 -> B applied edge#183 port",
+                    "B:Gi0/24 -> R applied edge#183 port"
                 ]
             },
             "steps": [
@@ -7005,21 +7082,21 @@
                     "step": "R names a port B does not know: a device_link",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #179"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #183"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#179 device port_unmatched"
+                        "R:Gi0/1 -> B applied edge#183 device port_unmatched"
                     ]
                 },
                 {
                     "step": "the far port is known now (the LLDP config was fixed); B reports the reverse half too",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #179"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #183"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#179 port",
-                        "B:Gi0/24 -> R applied edge#179 port"
+                        "R:Gi0/1 -> B applied edge#183 port",
+                        "B:Gi0/24 -> R applied edge#183 port"
                     ]
                 }
             ]
@@ -7037,7 +7114,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1214,
+                        "id": 1228,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7045,7 +7122,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1220,
+                        "id": 1234,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7053,7 +7130,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1223,
+                        "id": 1237,
                         "name": "C",
                         "chassis": "a0:00:00:00:00:03",
                         "ip": "10.0.0.3",
@@ -7063,26 +7140,26 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1216/if1",
-                        "Gi0/2#1217/if2",
-                        "Gi0/3#1218/if3",
-                        "Gi0/4#1219/if4"
+                        "Gi0/1#1230/if1",
+                        "Gi0/2#1231/if2",
+                        "Gi0/3#1232/if3",
+                        "Gi0/4#1233/if4"
                     ],
                     "B": [
-                        "Gi0/24#1222/if24"
+                        "Gi0/24#1236/if24"
                     ],
                     "C": [
-                        "Gi0/1#1225/if1"
+                        "Gi0/1#1239/if1"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B active port_unmatched #181",
-                    "physical_link B:Gi0/24 ~ C:Gi0/1 active #182"
+                    "device_link R:Gi0/1 ~ B active port_unmatched #185",
+                    "physical_link B:Gi0/24 ~ C:Gi0/1 active #186"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B conflict edge#182 port",
-                    "B:Gi0/24 -> C applied edge#182 port",
-                    "C:Gi0/1 -> B applied edge#182 port"
+                    "R:Gi0/1 -> B conflict edge#186 port",
+                    "B:Gi0/24 -> C applied edge#186 port",
+                    "C:Gi0/1 -> B applied edge#186 port"
                 ]
             },
             "steps": [
@@ -7090,26 +7167,26 @@
                     "step": "Q = B:Gi0/24 holds a supported link to C; R has a device_link to B",
                     "devices": 3,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #181",
-                        "physical_link B:Gi0/24 ~ C:Gi0/1 active #182"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #185",
+                        "physical_link B:Gi0/24 ~ C:Gi0/1 active #186"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#181 device port_unmatched",
-                        "B:Gi0/24 -> C applied edge#182 port",
-                        "C:Gi0/1 -> B applied edge#182 port"
+                        "R:Gi0/1 -> B applied edge#185 device port_unmatched",
+                        "B:Gi0/24 -> C applied edge#186 port",
+                        "C:Gi0/1 -> B applied edge#186 port"
                     ]
                 },
                 {
                     "step": "R now names B:Gi0/24",
                     "devices": 3,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #181",
-                        "physical_link B:Gi0/24 ~ C:Gi0/1 active #182"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #185",
+                        "physical_link B:Gi0/24 ~ C:Gi0/1 active #186"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B conflict edge#182 port",
-                        "B:Gi0/24 -> C applied edge#182 port",
-                        "C:Gi0/1 -> B applied edge#182 port"
+                        "R:Gi0/1 -> B conflict edge#186 port",
+                        "B:Gi0/24 -> C applied edge#186 port",
+                        "C:Gi0/1 -> B applied edge#186 port"
                     ]
                 }
             ]
@@ -7127,7 +7204,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1238,
+                        "id": 1252,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7135,7 +7212,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1244,
+                        "id": 1258,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7145,20 +7222,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1240/if1",
-                        "Gi0/2#1241/if2",
-                        "Gi0/3#1242/if3",
-                        "Gi0/4#1243/if4"
+                        "Gi0/1#1254/if1",
+                        "Gi0/2#1255/if2",
+                        "Gi0/3#1256/if3",
+                        "Gi0/4#1257/if4"
                     ],
                     "B": [
-                        "Gi0/24#1246/if24"
+                        "Gi0/24#1260/if24"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #185"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#185 device port_unmatched precision_lower"
+                    "R:Gi0/1 -> B applied edge#189 device port_unmatched precision_lower"
                 ]
             },
             "steps": [
@@ -7166,20 +7243,20 @@
                     "step": "a port-level link R:Gi0/1 ~ B:Gi0/24",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #185"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#185 port"
+                        "R:Gi0/1 -> B applied edge#189 port"
                     ]
                 },
                 {
                     "step": "B is still seen on the port, the far port is no longer recognized",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #185"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#185 device port_unmatched precision_lower"
+                        "R:Gi0/1 -> B applied edge#189 device port_unmatched precision_lower"
                     ]
                 }
             ]
@@ -7197,7 +7274,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1256,
+                        "id": 1270,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7205,7 +7282,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1262,
+                        "id": 1276,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7215,20 +7292,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1258/if1",
-                        "Gi0/2#1259/if2",
-                        "Gi0/3#1260/if3",
-                        "Gi0/4#1261/if4"
+                        "Gi0/1#1272/if1",
+                        "Gi0/2#1273/if2",
+                        "Gi0/3#1274/if3",
+                        "Gi0/4#1275/if4"
                     ],
                     "B": [
-                        "Gi0/24#1264/if24"
+                        "Gi0/24#1278/if24"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #187"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #191"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#187 port"
+                    "R:Gi0/1 -> B applied edge#191 port"
                 ]
             },
             "steps": [
@@ -7236,30 +7313,30 @@
                     "step": "a port-level link R:Gi0/1 ~ B:Gi0/24",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #187"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #191"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#187 port"
+                        "R:Gi0/1 -> B applied edge#191 port"
                     ]
                 },
                 {
                     "step": "lost precision",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #187"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #191"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#187 device port_unmatched precision_lower"
+                        "R:Gi0/1 -> B applied edge#191 device port_unmatched precision_lower"
                     ]
                 },
                 {
                     "step": "the port is recognized again",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #187"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #191"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#187 port"
+                        "R:Gi0/1 -> B applied edge#191 port"
                     ]
                 }
             ]
@@ -7277,7 +7354,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1274,
+                        "id": 1288,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7285,7 +7362,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1280,
+                        "id": 1294,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7295,17 +7372,17 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1276/if1",
-                        "Gi0/2#1277/if2",
-                        "Gi0/3#1278/if3",
-                        "Gi0/4#1279/if4"
+                        "Gi0/1#1290/if1",
+                        "Gi0/2#1291/if2",
+                        "Gi0/3#1292/if3",
+                        "Gi0/4#1293/if4"
                     ],
                     "B": [
-                        "Gi0/24#1282/if24"
+                        "Gi0/24#1296/if24"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #193"
                 ],
                 "observations": []
             },
@@ -7314,27 +7391,27 @@
                     "step": "a port-level link R:Gi0/1 ~ B:Gi0/24",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #193"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#189 port"
+                        "R:Gi0/1 -> B applied edge#193 port"
                     ]
                 },
                 {
                     "step": "lost precision",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #193"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#189 device port_unmatched precision_lower"
+                        "R:Gi0/1 -> B applied edge#193 device port_unmatched precision_lower"
                     ]
                 },
                 {
                     "step": "D is gone completely",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #189"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #193"
                     ],
                     "obs": []
                 }
@@ -7353,7 +7430,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1292,
+                        "id": 1306,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7361,7 +7438,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1298,
+                        "id": 1312,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7369,7 +7446,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1301,
+                        "id": 1315,
                         "name": "E",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -7379,24 +7456,24 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1294/if1",
-                        "Gi0/2#1295/if2",
-                        "Gi0/3#1296/if3",
-                        "Gi0/4#1297/if4"
+                        "Gi0/1#1308/if1",
+                        "Gi0/2#1309/if2",
+                        "Gi0/3#1310/if3",
+                        "Gi0/4#1311/if4"
                     ],
                     "B": [
-                        "Gi0/24#1300/if24"
+                        "Gi0/24#1314/if24"
                     ],
                     "E": [
-                        "eth0*#1302/if-597821"
+                        "eth0*#1316/if-597821"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ B superseded port_unmatched #191",
-                    "physical_link E:eth0* ~ R:Gi0/1 active #192"
+                    "device_link R:Gi0/1 ~ B superseded port_unmatched #195",
+                    "physical_link E:eth0* ~ R:Gi0/1 active #196"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> E applied edge#192 port"
+                    "R:Gi0/1 -> E applied edge#196 port"
                 ]
             },
             "steps": [
@@ -7404,21 +7481,21 @@
                     "step": "device_link R:Gi0/1 -> B",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ B active port_unmatched #191"
+                        "device_link R:Gi0/1 ~ B active port_unmatched #195"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#191 device port_unmatched"
+                        "R:Gi0/1 -> B applied edge#195 device port_unmatched"
                     ]
                 },
                 {
                     "step": "another device E appears on the port",
                     "devices": 3,
                     "links": [
-                        "device_link R:Gi0/1 ~ B superseded port_unmatched #191",
-                        "physical_link E:eth0* ~ R:Gi0/1 active #192"
+                        "device_link R:Gi0/1 ~ B superseded port_unmatched #195",
+                        "physical_link E:eth0* ~ R:Gi0/1 active #196"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> E applied edge#192 port"
+                        "R:Gi0/1 -> E applied edge#196 port"
                     ]
                 }
             ]
@@ -7436,7 +7513,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1314,
+                        "id": 1328,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7444,7 +7521,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1320,
+                        "id": 1334,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7454,20 +7531,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1316/if1",
-                        "Gi0/2#1317/if2",
-                        "Gi0/3#1318/if3",
-                        "Gi0/4#1319/if4"
+                        "Gi0/1#1330/if1",
+                        "Gi0/2#1331/if2",
+                        "Gi0/3#1332/if3",
+                        "Gi0/4#1333/if4"
                     ],
                     "B": [
-                        "Gi0/24#1322/if24"
+                        "Gi0/24#1336/if24"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #195"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #199"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#195 device port_unmatched precision_lower",
+                    "R:Gi0/1 -> B applied edge#199 device port_unmatched precision_lower",
                     "R:Gi0/1 -> B device_only"
                 ]
             },
@@ -7476,20 +7553,20 @@
                     "step": "a port-level link R:Gi0/1 ~ B:Gi0/24",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #195"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #199"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#195 port"
+                        "R:Gi0/1 -> B applied edge#199 port"
                     ]
                 },
                 {
                     "step": "a device-level candidate to the same Device",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #195"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #199"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#195 device port_unmatched precision_lower",
+                        "R:Gi0/1 -> B applied edge#199 device port_unmatched precision_lower",
                         "R:Gi0/1 -> B device_only"
                     ]
                 }
@@ -7508,7 +7585,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1332,
+                        "id": 1346,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7516,7 +7593,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1338,
+                        "id": 1352,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.50",
@@ -7526,20 +7603,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1334/if1",
-                        "Gi0/2#1335/if2",
-                        "Gi0/3#1336/if3",
-                        "Gi0/4#1337/if4"
+                        "Gi0/1#1348/if1",
+                        "Gi0/2#1349/if2",
+                        "Gi0/3#1350/if3",
+                        "Gi0/4#1351/if4"
                     ],
                     "X": [
-                        "Gi0/1#1341/if1"
+                        "Gi0/1#1355/if1"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ X active port_unmatched #197"
+                    "device_link R:Gi0/1 ~ X active port_unmatched #201"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#197 device port_unmatched"
+                    "R:Gi0/1 -> X applied edge#201 device port_unmatched"
                 ]
             },
             "steps": [
@@ -7547,20 +7624,20 @@
                     "step": "X is a neighbor: pseudo port p1",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:p1* active #197"
+                        "physical_link R:Gi0/1 ~ X:p1* active #201"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#197 port"
+                        "R:Gi0/1 -> X applied edge#201 port"
                     ]
                 },
                 {
                     "step": "X becomes a reporter; the name p1 matches none of its ports",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ X active port_unmatched #197"
+                        "device_link R:Gi0/1 ~ X active port_unmatched #201"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#197 device port_unmatched"
+                        "R:Gi0/1 -> X applied edge#201 device port_unmatched"
                     ]
                 }
             ]
@@ -7578,7 +7655,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1352,
+                        "id": 1366,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7588,10 +7665,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1354/if1",
-                        "Gi0/2#1355/if2",
-                        "Gi0/3#1356/if3",
-                        "Gi0/4#1357/if4"
+                        "Gi0/1#1368/if1",
+                        "Gi0/2#1369/if2",
+                        "Gi0/3#1370/if3",
+                        "Gi0/4#1371/if4"
                     ]
                 },
                 "links": [],
@@ -7619,7 +7696,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1358,
+                        "id": 1372,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7629,10 +7706,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1360/if1",
-                        "Gi0/2#1361/if2",
-                        "Gi0/3#1362/if3",
-                        "Gi0/4#1363/if4"
+                        "Gi0/1#1374/if1",
+                        "Gi0/2#1375/if2",
+                        "Gi0/3#1376/if3",
+                        "Gi0/4#1377/if4"
                     ]
                 },
                 "links": [],
@@ -7660,7 +7737,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1364,
+                        "id": 1378,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7670,10 +7747,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1366/if1",
-                        "Gi0/2#1367/if2",
-                        "Gi0/3#1368/if3",
-                        "Gi0/4#1369/if4"
+                        "Gi0/1#1380/if1",
+                        "Gi0/2#1381/if2",
+                        "Gi0/3#1382/if3",
+                        "Gi0/4#1383/if4"
                     ]
                 },
                 "links": [],
@@ -7707,7 +7784,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1370,
+                        "id": 1384,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7715,7 +7792,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1376,
+                        "id": 1390,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -7725,20 +7802,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1372/if1",
-                        "Gi0/2#1373/if2",
-                        "Gi0/3#1374/if3",
-                        "Gi0/4#1375/if4"
+                        "Gi0/1#1386/if1",
+                        "Gi0/2#1387/if2",
+                        "Gi0/3#1388/if3",
+                        "Gi0/4#1389/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1377/if-682742"
+                        "Gi0/24*#1391/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #199"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #203"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#199 port"
+                    "R:Gi0/1 -> X applied edge#203 port"
                 ]
             },
             "steps": [
@@ -7746,30 +7823,30 @@
                     "step": "baseline",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #199"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #203"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#199 port"
+                        "R:Gi0/1 -> X applied edge#203 port"
                     ]
                 },
                 {
                     "step": "the device does not answer: the rule is unsupported, no new snapshot, the old one is used",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #199"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #203"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#199 port"
+                        "R:Gi0/1 -> X applied edge#203 port"
                     ]
                 },
                 {
                     "step": "and again",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #199"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #203"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#199 port"
+                        "R:Gi0/1 -> X applied edge#203 port"
                     ]
                 }
             ]
@@ -7803,7 +7880,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1378,
+                        "id": 1392,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7811,7 +7888,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1384,
+                        "id": 1398,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -7821,17 +7898,17 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1380/if1",
-                        "Gi0/2#1381/if2",
-                        "Gi0/3#1382/if3",
-                        "Gi0/4#1383/if4"
+                        "Gi0/1#1394/if1",
+                        "Gi0/2#1395/if2",
+                        "Gi0/3#1396/if3",
+                        "Gi0/4#1397/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1385/if-682742"
+                        "Gi0/24*#1399/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #200"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #204"
                 ],
                 "observations": []
             },
@@ -7840,17 +7917,17 @@
                     "step": "baseline",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #200"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #204"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#200 port"
+                        "R:Gi0/1 -> X applied edge#204 port"
                     ]
                 },
                 {
                     "step": "LLDP is on, no neighbors: an empty snapshot []",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #200"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #204"
                     ],
                     "obs": []
                 }
@@ -7877,7 +7954,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1386,
+                        "id": 1400,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -7885,7 +7962,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1392,
+                        "id": 1406,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -7895,20 +7972,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1388/if1",
-                        "Gi0/2#1389/if2",
-                        "Gi0/3#1390/if3",
-                        "Gi0/4#1391/if4"
+                        "Gi0/1#1402/if1",
+                        "Gi0/2#1403/if2",
+                        "Gi0/3#1404/if3",
+                        "Gi0/4#1405/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1393/if-682742"
+                        "Gi0/24*#1407/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #201"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #205"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#201 port"
+                    "R:Gi0/1 -> X applied edge#205 port"
                 ]
             },
             "steps": [
@@ -7916,17 +7993,17 @@
                     "step": "baseline",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #201"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #205"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#201 port"
+                        "R:Gi0/1 -> X applied edge#205 port"
                     ]
                 },
                 {
                     "step": "the device just rebooted: the LLDP table is still empty",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #201"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #205"
                     ],
                     "obs": []
                 },
@@ -7934,10 +8011,10 @@
                     "step": "the next poll",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #201"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #205"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#201 port"
+                        "R:Gi0/1 -> X applied edge#205 port"
                     ]
                 }
             ]
@@ -8003,7 +8080,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1394,
+                        "id": 1408,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8011,7 +8088,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1400,
+                        "id": 1414,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8021,21 +8098,21 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1396/if1",
-                        "Gi0/2#1397/if2",
-                        "Gi0/3#1398/if3",
-                        "Gi0/4#1399/if4"
+                        "Gi0/1#1410/if1",
+                        "Gi0/2#1411/if2",
+                        "Gi0/3#1412/if3",
+                        "Gi0/4#1413/if4"
                     ],
                     "B": [
-                        "Gi0/24#1402/if24",
-                        "Gi0/23#1403/if23"
+                        "Gi0/24#1416/if24",
+                        "Gi0/23#1417/if23"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #202"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #206"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#202 port"
+                    "R:Gi0/1 -> B applied edge#206 port"
                 ]
             },
             "steps": [
@@ -8043,21 +8120,21 @@
                     "step": "baseline",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #202"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #206"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#202 port",
-                        "B:Gi0/24 -> R applied edge#202 port"
+                        "R:Gi0/1 -> B applied edge#206 port",
+                        "B:Gi0/24 -> R applied edge#206 port"
                     ]
                 },
                 {
                     "step": "the rule of B is disabled (a full run)",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #202"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #206"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#202 port"
+                        "R:Gi0/1 -> B applied edge#206 port"
                     ]
                 }
             ]
@@ -8072,12 +8149,12 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "R observation: {\"id\":316,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:macAddress:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":204,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #204\"]"
+                "R observation: {\"id\":318,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:macAddress:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":208,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #208\"]"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1414,
+                        "id": 1428,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8085,7 +8162,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1420,
+                        "id": 1434,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8093,7 +8170,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1424,
+                        "id": 1438,
                         "name": "C",
                         "chassis": "a0:00:00:00:00:03",
                         "ip": "10.0.0.3",
@@ -8103,25 +8180,25 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1416/if1",
-                        "Gi0/2#1417/if2",
-                        "Gi0/3#1418/if3",
-                        "Gi0/4#1419/if4"
+                        "Gi0/1#1430/if1",
+                        "Gi0/2#1431/if2",
+                        "Gi0/3#1432/if3",
+                        "Gi0/4#1433/if4"
                     ],
                     "B": [
-                        "Gi0/24#1422/if24",
-                        "Gi0/23#1423/if23"
+                        "Gi0/24#1436/if24",
+                        "Gi0/23#1437/if23"
                     ],
                     "C": [
-                        "eth0#1426/if1"
+                        "eth0#1440/if1"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #204"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #208"
                 ],
                 "observations": [
-                    "B:Gi0/24 -> R applied edge#204 port",
-                    "R:Gi0/1 -> C conflict edge#204 port"
+                    "B:Gi0/24 -> R applied edge#208 port",
+                    "R:Gi0/1 -> C conflict edge#208 port"
                 ]
             },
             "steps": [
@@ -8129,22 +8206,22 @@
                     "step": "baseline, both snapshots 30 days old",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #204"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #208"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#204 port",
-                        "B:Gi0/24 -> R applied edge#204 port"
+                        "R:Gi0/1 -> B applied edge#208 port",
+                        "B:Gi0/24 -> R applied edge#208 port"
                     ]
                 },
                 {
                     "step": "R recabled to C now; B is a re-enabled rule: its month-old snapshot still holds the old link",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #204"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #208"
                     ],
                     "obs": [
-                        "B:Gi0/24 -> R applied edge#204 port",
-                        "R:Gi0/1 -> C conflict edge#204 port"
+                        "B:Gi0/24 -> R applied edge#208 port",
+                        "R:Gi0/1 -> C conflict edge#208 port"
                     ]
                 }
             ]
@@ -8162,7 +8239,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1440,
+                        "id": 1454,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8170,7 +8247,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1446,
+                        "id": 1460,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8180,17 +8257,17 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1442/if1",
-                        "Gi0/2#1443/if2",
-                        "Gi0/3#1444/if3",
-                        "Gi0/4#1445/if4"
+                        "Gi0/1#1456/if1",
+                        "Gi0/2#1457/if2",
+                        "Gi0/3#1458/if3",
+                        "Gi0/4#1459/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1447/if-682742"
+                        "Gi0/24*#1461/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #206"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #210"
                 ],
                 "observations": []
             },
@@ -8199,17 +8276,17 @@
                     "step": "baseline",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #206"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #210"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#206 port"
+                        "R:Gi0/1 -> X applied edge#210 port"
                     ]
                 },
                 {
                     "step": "the rule's topology_role changed: its snapshot (role 2) is ignored",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #206"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #210"
                     ],
                     "obs": []
                 }
@@ -8228,7 +8305,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1448,
+                        "id": 1462,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8236,7 +8313,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1454,
+                        "id": 1468,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8244,7 +8321,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1456,
+                        "id": 1470,
                         "name": "Y",
                         "chassis": "a0:00:00:00:00:0b",
                         "ip": null,
@@ -8254,25 +8331,25 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1450/if1",
-                        "Gi0/2#1451/if2",
-                        "Gi0/3#1452/if3",
-                        "Gi0/4#1453/if4"
+                        "Gi0/1#1464/if1",
+                        "Gi0/2#1465/if2",
+                        "Gi0/3#1466/if3",
+                        "Gi0/4#1467/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1455/if-682742"
+                        "Gi0/24*#1469/if-682742"
                     ],
                     "Y": [
-                        "eth0*#1457/if-597821"
+                        "eth0*#1471/if-597821"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #207",
-                    "physical_link R:Gi0/2 ~ Y:eth0* active (cdp) #208"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #211",
+                    "physical_link R:Gi0/2 ~ Y:eth0* active (cdp) #212"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#207 port",
-                    "R:Gi0/2 -> Y applied edge#208 port"
+                    "R:Gi0/1 -> X applied edge#211 port",
+                    "R:Gi0/2 -> Y applied edge#212 port"
                 ]
             },
             "steps": [
@@ -8280,23 +8357,23 @@
                     "step": "LLDP through an SNMP rule and through a trapper rule on one host",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #207"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #211"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#207 port",
-                        "R:Gi0/1 -> X applied edge#207 port"
+                        "R:Gi0/1 -> X applied edge#211 port",
+                        "R:Gi0/1 -> X applied edge#211 port"
                     ]
                 },
                 {
                     "step": "LLDP by SNMP + CDP by push",
                     "devices": 3,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #207",
-                        "physical_link R:Gi0/2 ~ Y:eth0* active (cdp) #208"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #211",
+                        "physical_link R:Gi0/2 ~ Y:eth0* active (cdp) #212"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#207 port",
-                        "R:Gi0/2 -> Y applied edge#208 port"
+                        "R:Gi0/1 -> X applied edge#211 port",
+                        "R:Gi0/2 -> Y applied edge#212 port"
                     ]
                 }
             ]
@@ -8314,7 +8391,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1458,
+                        "id": 1472,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8322,7 +8399,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1464,
+                        "id": 1478,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8330,7 +8407,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1466,
+                        "id": 1480,
                         "name": "Y",
                         "chassis": "a0:00:00:00:00:0b",
                         "ip": null,
@@ -8340,24 +8417,24 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1460/if1",
-                        "Gi0/2#1461/if2",
-                        "Gi0/3#1462/if3",
-                        "Gi0/4#1463/if4"
+                        "Gi0/1#1474/if1",
+                        "Gi0/2#1475/if2",
+                        "Gi0/3#1476/if3",
+                        "Gi0/4#1477/if4"
                     ],
                     "X": [
-                        "Gi0/24*#1465/if-682742"
+                        "Gi0/24*#1479/if-682742"
                     ],
                     "Y": [
-                        "eth0*#1467/if-597821"
+                        "eth0*#1481/if-597821"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #209"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #213"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#209 port",
-                    "R:Gi0/1 -> Y conflict edge#209 port"
+                    "R:Gi0/1 -> X applied edge#213 port",
+                    "R:Gi0/1 -> Y conflict edge#213 port"
                 ]
             },
             "steps": [
@@ -8365,21 +8442,21 @@
                     "step": "the (stale) push snapshot says X on Gi0/1: a link",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #209"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #213"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#209 port"
+                        "R:Gi0/1 -> X applied edge#213 port"
                     ]
                 },
                 {
                     "step": "the fresh SNMP snapshot says Y on Gi0/1, the stale push snapshot still says X",
                     "devices": 3,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #209"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #213"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#209 port",
-                        "R:Gi0/1 -> Y conflict edge#209 port"
+                        "R:Gi0/1 -> X applied edge#213 port",
+                        "R:Gi0/1 -> Y conflict edge#213 port"
                     ]
                 }
             ]
@@ -8421,7 +8498,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1468,
+                        "id": 1482,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8429,7 +8506,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1473,
+                        "id": 1487,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8439,19 +8516,19 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1[lag 1472]#1470/if1",
-                        "Gi0/2[lag 1472]#1471/if2",
-                        "(lag)#1472/if50"
+                        "Gi0/1[lag 1486]#1484/if1",
+                        "Gi0/2[lag 1486]#1485/if2",
+                        "(lag)#1486/if50"
                     ],
                     "X": [
-                        "Gi0/24*#1474/if-682742"
+                        "Gi0/24*#1488/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #210"
+                    "physical_link R:Gi0/1 ~ X:Gi0/24* active #214"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> X applied edge#210 port"
+                    "R:Gi0/1 -> X applied edge#214 port"
                 ]
             },
             "steps": [
@@ -8459,10 +8536,10 @@
                     "step": "the snapshots of one reporter have five different ages",
                     "devices": 2,
                     "links": [
-                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #210"
+                        "physical_link R:Gi0/1 ~ X:Gi0/24* active #214"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> X applied edge#210 port"
+                        "R:Gi0/1 -> X applied edge#214 port"
                     ]
                 }
             ]
@@ -8480,7 +8557,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1475,
+                        "id": 1489,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8488,7 +8565,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1481,
+                        "id": 1495,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8496,7 +8573,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1482,
+                        "id": 1496,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8506,27 +8583,27 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1477/if1",
-                        "Gi0/2#1478/if2",
-                        "Gi0/3#1479/if3",
-                        "Gi0/4#1480/if4"
+                        "Gi0/1#1491/if1",
+                        "Gi0/2#1492/if2",
+                        "Gi0/3#1493/if3",
+                        "Gi0/4#1494/if4"
                     ],
                     "B": [
-                        "Gi0/24#1484/if24",
-                        "Gi0/23#1485/if23"
+                        "Gi0/24#1498/if24",
+                        "Gi0/23#1499/if23"
                     ],
                     "X": [
-                        "eth0*#1486/if-597821"
+                        "eth0*#1500/if-597821"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                    "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                    "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                    "physical_link R:Gi0/2 ~ X:eth0* active #216"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#211 port",
-                    "R:Gi0/2 -> X applied edge#212 port",
-                    "B:Gi0/24 -> R applied edge#211 port"
+                    "R:Gi0/1 -> B applied edge#215 port",
+                    "R:Gi0/2 -> X applied edge#216 port",
+                    "B:Gi0/24 -> R applied edge#215 port"
                 ]
             },
             "steps": [
@@ -8534,104 +8611,104 @@
                     "step": "baseline",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 1",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 2",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 3",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 4",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 5",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 6",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 },
                 {
                     "step": "repeat 7",
                     "devices": 3,
                     "links": [
-                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #211",
-                        "physical_link R:Gi0/2 ~ X:eth0* active #212"
+                        "physical_link B:Gi0/24 ~ R:Gi0/1 active #215",
+                        "physical_link R:Gi0/2 ~ X:eth0* active #216"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#211 port",
-                        "R:Gi0/2 -> X applied edge#212 port",
-                        "B:Gi0/24 -> R applied edge#211 port"
+                        "R:Gi0/1 -> B applied edge#215 port",
+                        "R:Gi0/2 -> X applied edge#216 port",
+                        "B:Gi0/24 -> R applied edge#215 port"
                     ]
                 }
             ]
@@ -8657,7 +8734,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1499,
+                        "id": 1513,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8665,7 +8742,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1505,
+                        "id": 1519,
                         "name": "<script>alert(1)</script>",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8675,20 +8752,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1501/if1",
-                        "Gi0/2#1502/if2",
-                        "Gi0/3#1503/if3",
-                        "Gi0/4#1504/if4"
+                        "Gi0/1#1515/if1",
+                        "Gi0/2#1516/if2",
+                        "Gi0/3#1517/if3",
+                        "Gi0/4#1518/if4"
                     ],
                     "<script>alert(1)</script>": [
-                        "Gi0/24*#1506/if-682742"
+                        "Gi0/24*#1520/if-682742"
                     ]
                 },
                 "links": [
-                    "physical_link <script>alert(1)</script>:Gi0/24* ~ R:Gi0/1 active #215"
+                    "physical_link <script>alert(1)</script>:Gi0/24* ~ R:Gi0/1 active #219"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> <script>alert(1)</script> applied edge#215 port"
+                    "R:Gi0/1 -> <script>alert(1)</script> applied edge#219 port"
                 ]
             },
             "steps": [
@@ -8696,10 +8773,10 @@
                     "step": "<script> in the sysname of a neighbor",
                     "devices": 2,
                     "links": [
-                        "physical_link <script>alert(1)</script>:Gi0/24* ~ R:Gi0/1 active #215"
+                        "physical_link <script>alert(1)</script>:Gi0/24* ~ R:Gi0/1 active #219"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> <script>alert(1)</script> applied edge#215 port"
+                        "R:Gi0/1 -> <script>alert(1)</script> applied edge#219 port"
                     ]
                 }
             ]
@@ -8725,7 +8802,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1507,
+                        "id": 1521,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8733,7 +8810,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1513,
+                        "id": 1527,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8743,22 +8820,22 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1509/if1",
-                        "Gi0/2#1510/if2",
-                        "Gi0/3#1511/if3",
-                        "Gi0/4#1512/if4"
+                        "Gi0/1#1523/if1",
+                        "Gi0/2#1524/if2",
+                        "Gi0/3#1525/if3",
+                        "Gi0/4#1526/if4"
                     ],
                     "B": [
-                        "Gi0/1#1515/if10",
-                        "Gi0/2#1516/if11"
+                        "Gi0/1#1529/if10",
+                        "Gi0/2#1530/if11"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #216"
+                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #220"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#216 port",
-                    "R:Gi0/1 -> B applied edge#216 port"
+                    "R:Gi0/1 -> B applied edge#220 port",
+                    "R:Gi0/1 -> B applied edge#220 port"
                 ]
             },
             "steps": [
@@ -8766,11 +8843,11 @@
                     "step": "LLDP: interfaceName Gi0/1 with the description \"uplink to core\"; CDP: GigabitEthernet0/1",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #216"
+                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #220"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#216 port",
-                        "R:Gi0/1 -> B applied edge#216 port"
+                        "R:Gi0/1 -> B applied edge#220 port",
+                        "R:Gi0/1 -> B applied edge#220 port"
                     ]
                 }
             ]
@@ -8788,7 +8865,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1527,
+                        "id": 1541,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8796,7 +8873,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1533,
+                        "id": 1547,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8806,24 +8883,24 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1529/if1",
-                        "Gi0/2#1530/if2",
-                        "Gi0/3#1531/if3",
-                        "Gi0/4#1532/if4"
+                        "Gi0/1#1543/if1",
+                        "Gi0/2#1544/if2",
+                        "Gi0/3#1545/if3",
+                        "Gi0/4#1546/if4"
                     ],
                     "B": [
-                        "Gi0/1#1535/if10",
-                        "Gi0/2#1536/if11",
-                        "Gi0/3#1537/if12"
+                        "Gi0/1#1549/if10",
+                        "Gi0/2#1550/if11",
+                        "Gi0/3#1551/if12"
                     ]
                 },
                 "links": [
-                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #218",
-                    "device_link R:Gi0/2 ~ B active port_shared_id #219"
+                    "physical_link B:Gi0/1 ~ R:Gi0/1 active #222",
+                    "device_link R:Gi0/2 ~ B active port_shared_id #223"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> B applied edge#218 port",
-                    "R:Gi0/2 -> B applied edge#219 device port_shared_id"
+                    "R:Gi0/1 -> B applied edge#222 port",
+                    "R:Gi0/2 -> B applied edge#223 device port_shared_id"
                 ]
             },
             "steps": [
@@ -8831,12 +8908,12 @@
                     "step": "port id = the MAC of one Port (R:Gi0/1), of two Ports (R:Gi0/2)",
                     "devices": 2,
                     "links": [
-                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #218",
-                        "device_link R:Gi0/2 ~ B active port_shared_id #219"
+                        "physical_link B:Gi0/1 ~ R:Gi0/1 active #222",
+                        "device_link R:Gi0/2 ~ B active port_shared_id #223"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> B applied edge#218 port",
-                        "R:Gi0/2 -> B applied edge#219 device port_shared_id"
+                        "R:Gi0/1 -> B applied edge#222 port",
+                        "R:Gi0/2 -> B applied edge#223 device port_shared_id"
                     ]
                 }
             ]
@@ -8854,7 +8931,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1549,
+                        "id": 1563,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8862,7 +8939,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1555,
+                        "id": 1569,
                         "name": "D",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.50",
@@ -8872,20 +8949,20 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1551/if1",
-                        "Gi0/2#1552/if2",
-                        "Gi0/3#1553/if3",
-                        "Gi0/4#1554/if4"
+                        "Gi0/1#1565/if1",
+                        "Gi0/2#1566/if2",
+                        "Gi0/3#1567/if3",
+                        "Gi0/4#1568/if4"
                     ],
                     "D": [
-                        "Gi0/9#1558/if663128"
+                        "Gi0/9#1572/if663128"
                     ]
                 },
                 "links": [
-                    "device_link R:Gi0/1 ~ D active port_unmatched #222"
+                    "device_link R:Gi0/1 ~ D active port_unmatched #226"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> D applied edge#222 device port_unmatched"
+                    "R:Gi0/1 -> D applied edge#226 device port_unmatched"
                 ]
             },
             "steps": [
@@ -8893,20 +8970,20 @@
                     "step": "D is a neighbor: a pseudo port p1",
                     "devices": 2,
                     "links": [
-                        "physical_link D:p1* ~ R:Gi0/1 active #222"
+                        "physical_link D:p1* ~ R:Gi0/1 active #226"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> D applied edge#222 port"
+                        "R:Gi0/1 -> D applied edge#226 port"
                     ]
                 },
                 {
                     "step": "D becomes a reporter with a real port whose ifIndex equals the old positive allocated index",
                     "devices": 2,
                     "links": [
-                        "device_link R:Gi0/1 ~ D active port_unmatched #222"
+                        "device_link R:Gi0/1 ~ D active port_unmatched #226"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> D applied edge#222 device port_unmatched"
+                        "R:Gi0/1 -> D applied edge#226 device port_unmatched"
                     ]
                 }
             ]
@@ -8924,7 +9001,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1569,
+                        "id": 1583,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -8932,7 +9009,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1575,
+                        "id": 1589,
                         "name": "N",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.5.5.5",
@@ -8942,21 +9019,21 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1571/if1",
-                        "Gi0/2#1572/if2",
-                        "Gi0/3#1573/if3",
-                        "Gi0/4#1574/if4"
+                        "Gi0/1#1585/if1",
+                        "Gi0/2#1586/if2",
+                        "Gi0/3#1587/if3",
+                        "Gi0/4#1588/if4"
                     ],
                     "N": [
-                        "Gi0/1#1580/if1"
+                        "Gi0/1#1594/if1"
                     ]
                 },
                 "links": [
-                    "physical_link N:Gi0/1 ~ R:Gi0/1 active #224"
+                    "physical_link N:Gi0/1 ~ R:Gi0/1 active #228"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> N applied edge#224 port",
-                    "R:Gi0/1 -> N applied edge#224 port"
+                    "R:Gi0/1 -> N applied edge#228 port",
+                    "R:Gi0/1 -> N applied edge#228 port"
                 ]
             },
             "steps": [
@@ -8973,11 +9050,11 @@
                     "step": "the neighbor becomes a reporter: loc_chassis + SNMP IP",
                     "devices": 2,
                     "links": [
-                        "physical_link N:Gi0/1 ~ R:Gi0/1 active #224"
+                        "physical_link N:Gi0/1 ~ R:Gi0/1 active #228"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> N applied edge#224 port",
-                        "R:Gi0/1 -> N applied edge#224 port"
+                        "R:Gi0/1 -> N applied edge#228 port",
+                        "R:Gi0/1 -> N applied edge#228 port"
                     ]
                 }
             ]
@@ -8995,7 +9072,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1593,
+                        "id": 1607,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -9003,7 +9080,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1599,
+                        "id": 1613,
                         "name": "N",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.5.5.5",
@@ -9011,7 +9088,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1600,
+                        "id": 1614,
                         "name": "N",
                         "chassis": null,
                         "ip": "10.5.5.5",
@@ -9021,21 +9098,21 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1595/if1",
-                        "Gi0/2#1596/if2",
-                        "Gi0/3#1597/if3",
-                        "Gi0/4#1598/if4"
+                        "Gi0/1#1609/if1",
+                        "Gi0/2#1610/if2",
+                        "Gi0/3#1611/if3",
+                        "Gi0/4#1612/if4"
                     ],
                     "N": [
-                        "Gi0/1*#1601/if-563193",
-                        "Gi0/1*#1602/if-563193"
+                        "Gi0/1*#1615/if-563193",
+                        "Gi0/1*#1616/if-563193"
                     ]
                 },
                 "links": [
-                    "physical_link N:Gi0/1* ~ R:Gi0/1 active #226"
+                    "physical_link N:Gi0/1* ~ R:Gi0/1 active #230"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> N applied edge#226 port",
+                    "R:Gi0/1 -> N applied edge#230 port",
                     "R:Gi0/1 -> ? ambiguous"
                 ]
             },
@@ -9053,10 +9130,10 @@
                     "step": "LLDP now carries the management address: a row with chassis + IP",
                     "devices": 3,
                     "links": [
-                        "physical_link N:Gi0/1* ~ R:Gi0/1 active #226"
+                        "physical_link N:Gi0/1* ~ R:Gi0/1 active #230"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> N applied edge#226 port",
+                        "R:Gi0/1 -> N applied edge#230 port",
                         "R:Gi0/1 -> ? ambiguous"
                     ]
                 }
@@ -9075,7 +9152,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1603,
+                        "id": 1617,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -9083,7 +9160,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1609,
+                        "id": 1623,
                         "name": "NA",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.5.5.5",
@@ -9091,7 +9168,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1612,
+                        "id": 1626,
                         "name": "NB",
                         "chassis": null,
                         "ip": "10.5.5.5",
@@ -9101,23 +9178,23 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1605/if1",
-                        "Gi0/2#1606/if2",
-                        "Gi0/3#1607/if3",
-                        "Gi0/4#1608/if4"
+                        "Gi0/1#1619/if1",
+                        "Gi0/2#1620/if2",
+                        "Gi0/3#1621/if3",
+                        "Gi0/4#1622/if4"
                     ],
                     "NA": [
-                        "Gi0/1#1611/if1"
+                        "Gi0/1#1625/if1"
                     ],
                     "NB": [
-                        "Gi0/1#1614/if1"
+                        "Gi0/1#1628/if1"
                     ]
                 },
                 "links": [
-                    "physical_link NA:Gi0/1 ~ R:Gi0/1 active #227"
+                    "physical_link NA:Gi0/1 ~ R:Gi0/1 active #231"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> NA applied edge#227 port"
+                    "R:Gi0/1 -> NA applied edge#231 port"
                 ]
             },
             "steps": [
@@ -9131,10 +9208,10 @@
                     "step": "a row names the chassis of A and the IP of B",
                     "devices": 3,
                     "links": [
-                        "physical_link NA:Gi0/1 ~ R:Gi0/1 active #227"
+                        "physical_link NA:Gi0/1 ~ R:Gi0/1 active #231"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> NA applied edge#227 port"
+                        "R:Gi0/1 -> NA applied edge#231 port"
                     ]
                 }
             ]
@@ -9157,7 +9234,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1654,
+                        "id": 1668,
                         "name": "H2",
                         "chassis": null,
                         "ip": "10.5.5.5",
@@ -9165,7 +9242,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1657,
+                        "id": 1671,
                         "name": "H1",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.30",
@@ -9173,7 +9250,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1660,
+                        "id": 1674,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -9183,20 +9260,20 @@
                 ],
                 "ports": {
                     "H2": [
-                        "Gi0/1#1656/if1"
+                        "Gi0/1#1670/if1"
                     ],
                     "H1": [
-                        "Gi0/1#1659/if1"
+                        "Gi0/1#1673/if1"
                     ],
                     "R": [
-                        "Gi0/1#1662/if1"
+                        "Gi0/1#1676/if1"
                     ]
                 },
                 "links": [
-                    "physical_link H1:Gi0/1 ~ R:Gi0/1 active #232"
+                    "physical_link H1:Gi0/1 ~ R:Gi0/1 active #236"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> H1 applied edge#232 port"
+                    "R:Gi0/1 -> H1 applied edge#236 port"
                 ]
             },
             "steps": []
@@ -9214,7 +9291,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1699,
+                        "id": 1713,
                         "name": "H1",
                         "chassis": null,
                         "ip": "10.5.5.5",
@@ -9224,8 +9301,8 @@
                 ],
                 "ports": {
                     "H1": [
-                        "Gi0/1#1701/if1",
-                        "Gi0/2#1702/if2"
+                        "Gi0/1#1715/if1",
+                        "Gi0/2#1716/if2"
                     ]
                 },
                 "links": [],
@@ -9260,7 +9337,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1703,
+                        "id": 1717,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9268,7 +9345,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1706,
+                        "id": 1720,
                         "name": "PRINTER-B",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9276,7 +9353,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1707,
+                        "id": 1721,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9286,13 +9363,13 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1705/if1"
+                        "Gi0/1#1719/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1709/if1"
+                        "Gi0/1#1723/if1"
                     ],
                     "PRINTER-B": [
-                        "Gi0/1*#1710/if-563193"
+                        "Gi0/1*#1724/if-563193"
                     ]
                 },
                 "links": [],
@@ -9325,13 +9402,13 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-02: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:14 ip 10.0.0.1 reporter_self\"],\"links\":[\"physical_link R1:Gi0\\/1 ~ R2:Gi0\\/1 active (cdp) #237\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}",
+                "S-02: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:14 ip 10.0.0.1 reporter_self\"],\"links\":[\"physical_link R1:Gi0\\/1 ~ R2:Gi0\\/1 active (cdp) #241\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}",
                 "S-02 summary: devices_joined={\"count\":0,\"list\":[]} duplicate_candidates={\"count\":0}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1719,
+                        "id": 1733,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9339,7 +9416,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1722,
+                        "id": 1736,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:14",
                         "ip": "10.0.0.1",
@@ -9349,17 +9426,17 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1721/if1"
+                        "Gi0/1#1735/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1725/if1"
+                        "Gi0/1#1739/if1"
                     ]
                 },
                 "links": [
-                    "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #237"
+                    "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #241"
                 ],
                 "observations": [
-                    "R1:Gi0/1 -> R2 applied edge#237 port"
+                    "R1:Gi0/1 -> R2 applied edge#241 port"
                 ]
             },
             "steps": [
@@ -9367,20 +9444,20 @@
                     "step": "a CDP-only Device with IP 10.0.0.1 seen from P1",
                     "devices": 2,
                     "links": [
-                        "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #237"
+                        "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #241"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> CDP-ONLY applied edge#237 port"
+                        "R1:Gi0/1 -> CDP-ONLY applied edge#241 port"
                     ]
                 },
                 {
                     "step": "a reporter behind P2 with SNMP IP 10.0.0.1 and its own chassis",
                     "devices": 2,
                     "links": [
-                        "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #237"
+                        "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #241"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> R2 applied edge#237 port"
+                        "R1:Gi0/1 -> R2 applied edge#241 port"
                     ]
                 }
             ]
@@ -9395,12 +9472,12 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #239\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #240\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
+                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #243\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #244\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1733,
+                        "id": 1747,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9408,7 +9485,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1736,
+                        "id": 1750,
                         "name": "PROVIDER",
                         "chassis": "a0:00:00:00:00:1e",
                         "ip": null,
@@ -9416,7 +9493,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1737,
+                        "id": 1751,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9426,23 +9503,23 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1735/if1"
+                        "Gi0/1#1749/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1739/if1"
+                        "Gi0/1#1753/if1"
                     ],
                     "PROVIDER": [
-                        "Gi0/7*#1740/if-691254",
-                        "Gi0/8*#1741/if-724686"
+                        "Gi0/7*#1754/if-691254",
+                        "Gi0/8*#1755/if-724686"
                     ]
                 },
                 "links": [
-                    "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #239",
-                    "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #240"
+                    "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #243",
+                    "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #244"
                 ],
                 "observations": [
-                    "R1:Gi0/1 -> PROVIDER applied edge#239 port",
-                    "R2:Gi0/1 -> PROVIDER applied edge#240 port"
+                    "R1:Gi0/1 -> PROVIDER applied edge#243 port",
+                    "R2:Gi0/1 -> PROVIDER applied edge#244 port"
                 ]
             },
             "steps": [
@@ -9450,12 +9527,12 @@
                     "step": "the same chassis seen by reporters behind two proxies",
                     "devices": 3,
                     "links": [
-                        "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #239",
-                        "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #240"
+                        "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #243",
+                        "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #244"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> PROVIDER applied edge#239 port",
-                        "R2:Gi0/1 -> PROVIDER applied edge#240 port"
+                        "R1:Gi0/1 -> PROVIDER applied edge#243 port",
+                        "R2:Gi0/1 -> PROVIDER applied edge#244 port"
                     ]
                 }
             ]
@@ -9463,13 +9540,13 @@
     ],
     "counts": {
         "verdict": {
-            "match": 127,
+            "match": 128,
             "out of harness": 18,
             "differs": 2
         },
         "rating": {
             "Правило": {
-                "match": 101,
+                "match": 102,
                 "out of harness": 9
             },
             "Ограничение": {

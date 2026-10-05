@@ -8,7 +8,8 @@ class CControllerTopologyPortsLink extends CController {
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 	protected function doAction() {
 		try {
-			$edge_id = CTopologyPrototype::linkPorts($this->getInput('id'), $this->getInput('dst_id'));
+			$edge_id = CTopologyPrototype::linkPorts($this->getInput('id'), $this->getInput('dst_id'),
+				(string) CWebUser::$data['userid']);
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true, 'edge_id' => $edge_id])]));
 		}
 		catch (Exception $exception) {

@@ -746,7 +746,7 @@ const view = new class {
 					<?= json_encode(_('whose remote ports can\'t be told apart, typically a link aggregation.')) ?>;
 			case 'manual':
 				return <?= json_encode(_('Created manually without a remote port')) ?> +
-					`${item.created_by ? ' ' + <?= json_encode(_('by')) ?> + ' ' + item.created_by : ''}` +
+					`${item.created_by ? ' ' + <?= json_encode(_('by')) ?> + ' ' + (item.created_by_name ?? <?= json_encode(_('another user')) ?>) : ''}` +
 					`${item.created_at ? ' ' + <?= json_encode(_('on')) ?> + ' ' + this.formatDate(item.created_at) : ''}.`;
 			case 'fdb_mac_only':
 				return <?= json_encode(_('Found by a learned MAC address (FDB) only; FDB doesn\'t tell which port of the device it is.')) ?>;

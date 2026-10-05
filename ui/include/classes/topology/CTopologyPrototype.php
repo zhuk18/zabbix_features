@@ -524,7 +524,9 @@ class CTopologyPrototype {
 				'near_speed' => $port_details[$row['port_id']]['speed'] ?? null,
 				'far_port_reason' => (string) ($link_attrs['far_port_reason'] ?? ''),
 				'far_port_hint' => is_array($link_attrs['far_port_hint'] ?? null) ? $link_attrs['far_port_hint'] : null,
-				'created_by' => $link_attrs['created_by'] ?? null, 'created_at' => (int) $row['link_created_at'],
+				'created_by' => isset($link_attrs['created_by']) ? (string) $link_attrs['created_by'] : null,
+				'created_by_name' => self::userName($link_attrs['created_by'] ?? null),
+				'created_at' => (int) ($link_attrs['created_at'] ?? $row['link_created_at']),
 				'discovered_via' => $discovery_source === 'manual' ? 'manual' : 'lldp',
 				'discovery_source' => $discovery_source,
 				'last_seen' => $last_seen,
@@ -1052,7 +1054,7 @@ class CTopologyPrototype {
 	 *
 	 * @return string  the edge id
 	 */
-	public static function linkPorts(string $src_port_id, string $dst_port_id): string {
+	public static function linkPorts(string $src_port_id, string $dst_port_id, ?string $userid = null): string {
 		if ($src_port_id === $dst_port_id) {
 			throw new Exception('A port cannot be linked to itself.');
 		}
@@ -1068,12 +1070,34 @@ class CTopologyPrototype {
 		}
 
 		self::claimPortsForManualLink([$src_port_id, $dst_port_id]);
-		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual');
+		self::upsertPhysicalLink($src_port_id, $dst_port_id, 'manual', $userid);
 
 		[$low, $high] = (int) $src_port_id < (int) $dst_port_id ? [$src_port_id, $dst_port_id] : [$dst_port_id, $src_port_id];
 
 		return (string) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('physical_link').
 			' AND src_id='.zbx_dbstr($low).' AND dst_id='.zbx_dbstr($high), 1))['id'];
+	}
+
+	/**
+	 * Name of the author of a manual link (topology-5-access-control.md §3.11): only if the current user can see that user by Zabbix rules
+	 * (user.get answers with the permissions of the caller), else null ("another user" in the UI). A value that is not a user id is an older
+	 * link that stored a name: shown as it is.
+	 */
+	private static function userName($created_by): ?string {
+		static $names = [];
+		if ($created_by === null || $created_by === '') {
+			return null;
+		}
+		$created_by = (string) $created_by;
+		if (!ctype_digit($created_by)) {
+			return $created_by;
+		}
+		if (!array_key_exists($created_by, $names)) {
+			$user = API::User()->get(['userids' => [$created_by], 'output' => ['username']]);
+			$names[$created_by] = $user ? (string) $user[0]['username'] : null;
+		}
+
+		return $names[$created_by];
 	}
 
 	private static function isDiscovered(array $link): bool {
@@ -1147,7 +1171,7 @@ class CTopologyPrototype {
 	 *
 	 * @return string  the edge id
 	 */
-	public static function linkPortToDevice(string $port_id, string $device_id, string $username): string {
+	public static function linkPortToDevice(string $port_id, string $device_id, string $userid): string {
 		self::assertPortOnDevice($port_id);
 		$device = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE id='.zbx_dbstr($device_id).
 			' AND type='.zbx_dbstr('device'), 1));
@@ -1186,7 +1210,7 @@ class CTopologyPrototype {
 			$attrs = self::attrs($existing);
 			if (self::supersededAt($attrs) !== null) {
 				$attrs = ['discovered_via' => 'manual', 'far_port_reason' => 'manual', 'last_seen' => time(),
-					'created_by' => $username];
+					'created_by' => $userid, 'created_at' => time()];
 				DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($existing['id']));
 			}
 
@@ -1196,7 +1220,7 @@ class CTopologyPrototype {
 		DBexecute('INSERT INTO topo_edges (type,src_id,dst_id,attrs,created_at) VALUES ('.
 			zbx_dbstr('device_link').','.zbx_dbstr($port_id).','.zbx_dbstr($device_id).','.
 			zbx_dbstr(json_encode(['discovered_via' => 'manual', 'far_port_reason' => 'manual', 'last_seen' => time(),
-				'created_by' => $username])).','.time().')');
+				'created_by' => $userid, 'created_at' => time()])).','.time().')');
 
 		return (string) DBfetch(DBselect('SELECT id FROM topo_edges WHERE type='.zbx_dbstr('device_link').
 			' AND src_id='.zbx_dbstr($port_id).' AND dst_id='.zbx_dbstr($device_id), 1))['id'];
@@ -1404,7 +1428,7 @@ class CTopologyPrototype {
 	// tracks attrs.last_seen_src/last_seen_dst per reporter side (topology-1-model.md "`physical_link` (Port ↔ Port)"). There's no reporter to attribute a
 	// side to here, so per spec those two fields are deliberately left unset for manual links, never
 	// zero-initialized or defaulted — only attrs.last_seen (kept for the staleness indicator, topology-1-model.md "Disappearance and staleness") is stamped.
-	private static function upsertPhysicalLink(string $port_a, string $port_b, string $discovered_via): void {
+	private static function upsertPhysicalLink(string $port_a, string $port_b, string $discovered_via, ?string $userid = null): void {
 		// topology-1-model.md "`physical_link` (Port ↔ Port)": canonicalize direction (numerically smaller port id always src_id) so A→B and B→A collapse to
 		// the same row — both for the lookup below and for the DB-level unique index on (src_id, dst_id)
 		// WHERE type='physical_link' (mysql_migrate_uniqueness.sql), which only catches duplicates that agree
@@ -1422,6 +1446,10 @@ class CTopologyPrototype {
 				// The user declares the pair again: it is a manual link now, and manual links are never superseded.
 				$attrs['discovered_via'] = 'manual';
 				$attrs['last_seen'] = time();
+				if ($userid !== null) {
+					$attrs['created_by'] = $userid;
+					$attrs['created_at'] = time();
+				}
 				unset($attrs['superseded_at']);
 				DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($existing['id']));
 				return;
@@ -1436,7 +1464,8 @@ class CTopologyPrototype {
 
 		DBexecute('INSERT INTO topo_edges (type,src_id,dst_id,attrs,created_at) VALUES ('.
 			zbx_dbstr('physical_link').','.zbx_dbstr($port_a).','.zbx_dbstr($port_b).','.
-			zbx_dbstr(json_encode(['discovered_via' => $discovered_via, 'last_seen' => time()])).','.time().')');
+			zbx_dbstr(json_encode(['discovered_via' => $discovered_via, 'last_seen' => time()]
+				+ ($discovered_via === 'manual' && $userid !== null ? ['created_by' => $userid, 'created_at' => time()] : []))).','.time().')');
 	}
 
 	private static function upsertPointerNode(string $type, string $ref_column, string $ref_value): string {

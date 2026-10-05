@@ -2008,6 +2008,37 @@ c('M-22', 'Правило', function () {
 	ex((h_obs('R', 'Gi0/1')['outcome'] ?? null) === 'shadowed', 'its observation is shadowed');
 }, 'test_link_replacement.php §15');
 
+c('M-23', 'Правило', function () {
+	global $pdo;
+	h_rep('R', mac(1), '10.0.0.1');
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('R', [1 => 'Gi0/1', 2 => 'Gi0/2']);
+	h_ports('B', [24 => 'Gi0/24']);
+	h_ingest('ports');
+	$author = static function (int $id) use ($pdo): array {
+		$a = json_decode((string) $pdo->query("SELECT attrs FROM topo_edges WHERE id = {$id}")->fetchColumn(), true);
+		return [$a['created_by'] ?? null, $a['created_at'] ?? null];
+	};
+	$id = (int) CTopologyPrototype::linkPorts(m_port('R', 'Gi0/1'), m_port('B', 'Gi0/24'), '42');
+	[$by, $at] = $author($id);
+	ex($by === '42' && is_int($at) && abs($at - time()) < 60, 'a new manual physical_link stores attrs.created_by (the user id) and attrs.created_at');
+	$dl = (int) CTopologyPrototype::linkPortToDevice(m_port('R', 'Gi0/2'), (string) h_device_id('B'), '42');
+	ex($author($dl)[0] === '42' && is_int($author($dl)[1]), 'a new manual device_link stores them too');
+	$before = $author($id);
+	CTopologyPrototype::convertManualLink((string) $id, null, m_port('R', 'Gi0/1'));
+	ex($author($id) === $before, 'convertManualLink keeps both');
+	CTopologyPrototype::convertManualLink((string) $id, m_port('B', 'Gi0/24'), null);
+	h_tick();
+	h_nbrs('R', [NR(1, mac(2), 'B', 'Gi0/24')]);
+	h_ingest('discovery confirms the manual link');
+	$l = h_links('R:Gi0/1', 'B:Gi0/24', 'physical_link', 'active');
+	ex(count($l) === 1 && $l[0]['via'] !== 'manual' && $author($id) === $before, 'a manual link confirmed by discovery keeps both, byte for byte');
+	h_tick();
+	h_ingest('a repeat run');
+	ex($author($id) === $before, 'ingest never changes them');
+}, 'topology-5-access-control.md §3.11 (handoff 016 section 3)');
+
+
 // ============================================================================================================
 // 5. Связи до устройства (device_link) и точность
 // ============================================================================================================
