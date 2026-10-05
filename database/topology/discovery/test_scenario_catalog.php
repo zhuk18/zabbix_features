@@ -1280,22 +1280,23 @@ c('P-16', 'Правило', function () {
 
 c('P-17', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
-	h_ports('R', [1 => 'Gi0/1', 99 => ['mgmt0', ['if_type' => 'mgmt']]]);
-	h_ingest('a management port');
-	exv(port_attr('R', 'mgmt0', 'if_type'), 'mgmt', 'if_type mgmt');
+	h_ports('R', [1 => 'Gi0/1', 99 => ['mgmt0', ['if_type' => '6']], 98 => ['Management0/0', ['if_type' => '6']], 97 => ['fxp0', ['if_type' => '6']]]);
+	h_ingest('management ports by name (type 6)');
+	exv([port_attr('R', 'mgmt0', 'if_type'), port_attr('R', 'Management0/0', 'if_type'), port_attr('R', 'fxp0', 'if_type'), port_attr('R', 'Gi0/1', 'if_type')],
+		['mgmt', 'mgmt', 'mgmt', 'physical'], 'mgmt by name (mgmt0, Management0/0, fxp0), a normal port stays physical');
 });
 
-c('P-18', 'Пробел', function () {
+c('P-18', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
 	h_ports('R', [1 => 'Gi0/1', 2 => ['Loopback0', ['if_type' => '24']], 3 => ['Tunnel1', ['if_type' => '131']], 4 => ['Vlan10', ['if_type' => '53']],
-		5 => ['Gi0/1.100', ['if_type' => '135']]]);
+		5 => ['Gi0/1.100', ['if_type' => '135']], 6 => ['Vlan20', ['if_type' => '136']], 7 => ['Po9', ['if_type' => '161']]]);
 	h_ingest('virtual interfaces in ifTable');
 	$classes = [];
-	foreach (['Loopback0', 'Tunnel1', 'Vlan10', 'Gi0/1.100'] as $n) {
+	foreach (['Loopback0', 'Tunnel1', 'Vlan10', 'Gi0/1.100', 'Vlan20', 'Po9'] as $n) {
 		$classes[$n] = port_attr('R', $n, 'if_type');
 	}
-	h_note('classes: '.json_encode($classes));
-	ex(array_diff(array_values($classes), ['physical', 'lag', 'mgmt']) === [], 'only the three classes exist; all virtual ports land in: '.json_encode(array_unique(array_values($classes))));
+	exv($classes, ['Loopback0' => 'virtual', 'Tunnel1' => 'virtual', 'Vlan10' => 'virtual', 'Gi0/1.100' => 'virtual', 'Vlan20' => 'virtual', 'Po9' => 'lag'],
+		'IANA 24, 131, 53, 135, 136 -> virtual; 161 -> lag');
 });
 
 // ============================================================================================================

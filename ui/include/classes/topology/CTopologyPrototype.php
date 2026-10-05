@@ -935,7 +935,7 @@ class CTopologyPrototype {
 
 	public static function getPorts(string $deviceid): array {
 		$groups = [
-			'connected_lldp' => [], 'connected_mac_only' => [], 'disconnected' => [], 'port_channel' => [], 'management' => []
+			'connected_lldp' => [], 'connected_mac_only' => [], 'disconnected' => [], 'port_channel' => [], 'management' => [], 'virtual' => []
 		];
 		$result = DBselect(
 			'SELECT port.id,port.attrs,link.id AS linkid,link.attrs AS link_attrs,'.
@@ -1013,6 +1013,10 @@ class CTopologyPrototype {
 			}
 			elseif ($attrs['if_type'] === 'mgmt') {
 				$group = 'management';
+			}
+			elseif ($attrs['if_type'] === 'virtual') {
+				// topology-1-model.md §6.6 / §11: virtual ports (loopback, tunnel, SVI, subinterface) have a group of their own, never Disconnected
+				$group = 'virtual';
 			}
 			elseif ($row['linkid'] !== null || isset($device_level[$row['id']])) {
 				$group = 'connected_lldp';

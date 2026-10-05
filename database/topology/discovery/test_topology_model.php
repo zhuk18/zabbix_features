@@ -704,4 +704,16 @@ check(count($devices[$Da]['duplicates']) === 2 && $devices[$Da]['duplicates'][0]
 	&& $devices[$Da]['duplicates'][1]['device_id'] === null, 'duplicates: reason, key, value as stored (the UI escapes), the other Device\'s name, null for "no Device C"');
 check($devices[$Db]['dismissed'][0]['name'] === 'Dev <A>' && $devices[$Db]['dismissed'][0]['by'] === 'Admin' && isset($devices[$Da]['created_at']), 'dismissed pairs with the other name, and created_at (for the proposed K)');
 
+// ============================================================================================================
+echo "\n=== step 12: the port table groups virtual ports apart (topology-1-model.md §6.6, §11) ===\n";
+reset_topology($pdo);
+$Dv = device($pdo, 'Dev V');
+foreach ([[1, 'Gi0/1', 'physical'], [2, 'Loopback0', 'virtual'], [3, 'mgmt0', 'mgmt'], [4, 'Po1', 'lag']] as [$if, $name, $class]) {
+	node($pdo, 'port', ['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => 'down', 'if_type' => $class], $Dv);
+}
+$groups = CTopologyPrototype::getPorts((string) $Dv);
+check(array_column($groups['virtual'], 'port') === ['Loopback0'], 'the virtual port is in the Virtual group');
+check(array_column($groups['disconnected'], 'port') === ['Gi0/1'] && array_column($groups['management'], 'port') === ['mgmt0'] && array_column($groups['port_channel'], 'port') === ['Po1'],
+	'and not under Disconnected, even though it is down; the other groups are as before');
+
 echo "\nAll topology model tests passed.\n";

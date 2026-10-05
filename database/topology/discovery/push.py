@@ -212,6 +212,33 @@ class ReporterConfig:
     snmp_version: str = "2c"
 
 
+# topology-1-model.md §6.6 "Port class": the same table as ingest.php ($snap_if_type, TOPO_PORT_CLASS_*). lag: IANA 161; virtual: 24 softwareLoopback,
+# 53 propVirtual, 131 tunnel, 135 l2vlan, 136 l3ipvlan, 150 mplsTunnel, 166 mpls; mgmt: any other type whose normalized name starts with one of
+# the prefixes below; physical: everything else (IANA 1 and a missing type included). The contract rows send the IANA number as {#IFTYPE}
+# unchanged; only the legacy blob carries the class, so this function is used there.
+PORT_CLASS_LAG = (161,)
+PORT_CLASS_VIRTUAL = (24, 53, 131, 135, 136, 150, 166)
+PORT_CLASS_MGMT_NAME_PREFIXES = ("mgmt", "management", "fxp0", "me0", "oob")
+
+
+def normalize_port_name(name: str) -> str:
+    """The port name normalization of ingest.php ($normalize_port_name): vendor long/short forms, case-insensitive."""
+    lower = name.strip().lower()
+    for long_form, short in (("gigabitethernet", "gi"), ("tengigabitethernet", "te"), ("fastethernet", "fa"), ("port-channel", "po")):
+        if lower.startswith(long_form):
+            return short + lower[len(long_form):]
+    return lower
+
+
+def port_class(type_code: int, name: str) -> str:
+    if type_code in PORT_CLASS_LAG:
+        return "lag"
+    if type_code in PORT_CLASS_VIRTUAL:
+        return "virtual"
+    normalized = normalize_port_name(name or "")
+    return "mgmt" if normalized and normalized.startswith(PORT_CLASS_MGMT_NAME_PREFIXES) else "physical"
+
+
 def load_reporters(config_path: str) -> list[ReporterConfig]:
     with open(config_path) as fh:
         data = json.load(fh)
@@ -261,11 +288,7 @@ def collect_ports(target: str, port: int, community: str, version: str) -> dict[
         name = decode_snmp_value(*ifname.get(suffix, ("STRING", ""))) or \
             decode_snmp_value(*descr.get(suffix, ("STRING", f"if{if_index}")))
         type_code = int(decode_snmp_value(*iftype.get(suffix, ("INTEGER", "6")))) if suffix in iftype else 6
-        # 161 = ieee8023adLag (LACP port-channel); everything else defaults to "physical" —
-        # this prototype's SNMP-only heuristic has no signal for "mgmt" (that's typically a
-        # naming/OOB-VLAN convention, not a standard MIB value), so mgmt ports fall back to
-        # "physical" here; flagged as a known gap vs. the richer seed.php fixture.
-        if_type = "lag" if type_code == 161 else "physical"
+        if_type = port_class(type_code, name)
         mac = decode_snmp_value(*physaddr[suffix]) if suffix in physaddr else None
         admin_status = "up" if suffix in admin and decode_snmp_value(*admin[suffix]) == "1" else "down"
         oper_status = "up" if suffix in oper and decode_snmp_value(*oper[suffix]) == "1" else "down"

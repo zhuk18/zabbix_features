@@ -1088,14 +1088,37 @@ $convert_leftover_pseudo_ports = static function (int $device_id) use ($pdo, $va
 
 // IANA ifType 161 = ieee8023adLag; anything else is "physical" (same classification as push.py — there is no
 // SNMP signal for "mgmt"). A value that is already one of the model's own labels passes through.
-$snap_if_type = static function (?string $value): string {
-	if ($value === null || $value === '') {
-		return 'physical';
-	}
-	if (in_array($value, ['physical', 'lag', 'mgmt'], true)) {
+// topology-1-model.md §6.6 "Port class" — the ONE table of port classes (push.py and the native step follow it; the native step passes the IANA
+// number through in {#IFTYPE}, this function decides). An already-classified value (physical, lag, mgmt, virtual) is kept.
+//   lag      IANA 161
+//   virtual  IANA 24 softwareLoopback, 53 propVirtual, 131 tunnel, 135 l2vlan, 136 l3ipvlan, 150 mplsTunnel, 166 mpls
+//   mgmt     any other type whose normalized name starts with one of TOPO_MGMT_NAME_PREFIXES
+//   physical everything else, including IANA 1 (other) and a missing type
+// The name list is data: extending it is a change of this list only (and of push.py's PORT_CLASS_MGMT_NAME_PREFIXES).
+const TOPO_PORT_CLASSES = ['physical', 'lag', 'mgmt', 'virtual'];
+const TOPO_PORT_CLASS_LAG = [161];
+const TOPO_PORT_CLASS_VIRTUAL = [24, 53, 131, 135, 136, 150, 166];
+const TOPO_MGMT_NAME_PREFIXES = ['mgmt', 'management', 'fxp0', 'me0', 'oob'];
+$snap_if_type = static function (?string $value, string $name = '') use ($normalize_port_name): string {
+	$value = trim((string) $value);
+	if (in_array($value, TOPO_PORT_CLASSES, true)) {
 		return $value;
 	}
-	return $value === '161' ? 'lag' : 'physical';
+	if (ctype_digit($value)) {
+		if (in_array((int) $value, TOPO_PORT_CLASS_LAG, true)) {
+			return 'lag';
+		}
+		if (in_array((int) $value, TOPO_PORT_CLASS_VIRTUAL, true)) {
+			return 'virtual';
+		}
+	}
+	$normalized = $normalize_port_name($name);
+	foreach (TOPO_MGMT_NAME_PREFIXES as $prefix) {
+		if ($normalized !== '' && str_starts_with($normalized, $prefix)) {
+			return 'mgmt';
+		}
+	}
+	return 'physical';
 };
 
 // IF-MIB: 1 = up; everything else counts as down (push.py does the same).
@@ -1893,8 +1916,8 @@ $snap_ingest_reporter = static function (array $reporter) use (
 					$overlay[$key] = $row[$key];
 				}
 			}
-			if (array_key_exists('if_type', $row)) {
-				$overlay['if_type'] = $snap_if_type((string) $row['if_type']);
+			if (array_key_exists('if_type', $row) || ($row['name'] ?? '') !== '') {
+				$overlay['if_type'] = $snap_if_type((string) ($row['if_type'] ?? ''), (string) ($row['name'] ?? ''));
 			}
 			foreach (['admin_status', 'oper_status'] as $key) {
 				if (array_key_exists($key, $row)) {

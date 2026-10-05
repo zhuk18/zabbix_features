@@ -230,5 +230,12 @@ finally:
 check(ok is False and list(sent.get("values", {})) == [push.ROLE_PORTS_KEY],
       "the run sends the ports role (and the heartbeat), not the LLDP role")
 
+# Port class (topology-1-model.md §6.6): the table of ingest.php, for the legacy blob
+for code, name, want in ((24, "Loopback0", "virtual"), (53, "Vlan10", "virtual"), (131, "Tunnel1", "virtual"), (135, "Gi0/1.100", "virtual"),
+                         (136, "Vlan20", "virtual"), (150, "Tu2", "virtual"), (166, "mpls0", "virtual"), (161, "Po1", "lag"),
+                         (6, "mgmt0", "mgmt"), (6, "Management0/0", "mgmt"), (6, "fxp0", "mgmt"), (6, "ME0", "mgmt"), (6, "oob1", "mgmt"),
+                         (6, "Gi0/1", "physical"), (1, "Gi0/2", "physical"), (6, "", "physical"), (24, "mgmt0", "virtual")):
+    check(push.port_class(code, name) == want, f"port class: IANA {code}, {name!r} -> {want}")
+
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)

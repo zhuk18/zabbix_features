@@ -499,4 +499,34 @@ $before = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $before, 'the first repeat run changes no attribute');
 
+// ============================================================================================================
+echo "\n=== 15: port class (topology-1-model.md §6.6): IANA types and the management names ===\n";
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+	$pdo->exec("DELETE FROM {$t}");
+}
+$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+$class_rows = [
+	['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6'], ['if_index' => 2, 'name' => 'Gi0/2', 'if_type' => '1'], ['if_index' => 3, 'name' => 'Loopback0', 'if_type' => '24'],
+	['if_index' => 4, 'name' => 'Vlan10', 'if_type' => '53'], ['if_index' => 5, 'name' => 'Tunnel1', 'if_type' => '131'], ['if_index' => 6, 'name' => 'Gi0/1.100', 'if_type' => '135'],
+	['if_index' => 7, 'name' => 'Vlan20', 'if_type' => '136'], ['if_index' => 8, 'name' => 'Tu2', 'if_type' => '150'], ['if_index' => 9, 'name' => 'mpls0', 'if_type' => '166'],
+	['if_index' => 10, 'name' => 'Po1', 'if_type' => '161'], ['if_index' => 11, 'name' => 'mgmt0', 'if_type' => '6'], ['if_index' => 12, 'name' => 'Management0/0', 'if_type' => '6'],
+	['if_index' => 13, 'name' => 'fxp0', 'if_type' => '6'], ['if_index' => 14, 'name' => 'ME0', 'if_type' => '6'], ['if_index' => 15, 'name' => 'oob1', 'if_type' => '6'],
+	['if_index' => 16, 'name' => 'mgmt-vlan', 'if_type' => '53'], ['if_index' => 17, 'name' => 'Gi0/17'], ['if_index' => 18, 'name' => 'mgmt9', 'if_type' => 'mgmt'],
+	['if_index' => 19, 'name' => 'Loop1', 'if_type' => 'virtual'], ['if_index' => 20, 'name' => 'Gi0/20', 'if_type' => 'physical'], ['if_index' => 21, 'name' => 'Po2', 'if_type' => 'lag'],
+];
+snapshot($pdo, 1001, 101, 1, CLOCK, array_map(static fn ($r) => $r + ['loc_chassis' => 'a0:00:00:00:00:99'], $class_rows));
+run_ingest($dsn, $user, $password);
+$dev = (int) device_id($pdo, 'a0:00:00:00:00:99');
+$class_of = static fn (int $if): ?string => attrs($pdo, (int) port_id($pdo, $dev, $if))['if_type'] ?? null;
+$expect = [1 => 'physical', 2 => 'physical', 3 => 'virtual', 4 => 'virtual', 5 => 'virtual', 6 => 'virtual', 7 => 'virtual', 8 => 'virtual', 9 => 'virtual', 10 => 'lag',
+	11 => 'mgmt', 12 => 'mgmt', 13 => 'mgmt', 14 => 'mgmt', 15 => 'mgmt', 16 => 'virtual', 17 => 'physical', 18 => 'mgmt', 19 => 'virtual', 20 => 'physical', 21 => 'lag'];
+$actual = [];
+foreach ($expect as $if => $class) {
+	$actual[$if] = $class_of($if);
+}
+check($actual === $expect, 'IANA 24, 53, 131, 135, 136, 150, 166 -> virtual; 161 -> lag; mgmt0 / Management0/0 / fxp0 / ME0 / oob1 (type 6) -> mgmt; 6, 1 and a missing type -> physical; '.
+	'a class name is kept; a virtual type wins over a mgmt name'.($actual === $expect ? '' : ' (actual '.json_encode($actual).')'));
+
 echo "\nAll snapshot ingest tests passed.\n";
