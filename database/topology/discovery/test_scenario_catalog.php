@@ -2479,7 +2479,7 @@ c('J-03', 'Правило', function () {
 }, 'test_join_identity.php §3');
 
 // ============================================================================================================
-// X. Order dependence found while building J-03 (handoff 013 section 1): characterization, never fails
+// X. Two hosts of one box (handoff 013 section 1; since 015 a rule: the reporter's own data wins, model §6.7.1)
 // ============================================================================================================
 
 /** One run of the "two hosts of one box" scenario with the reporters walked in $order (names). Returns the picture. */
@@ -2505,7 +2505,7 @@ function x01_run(array $order): array {
 		'exit' => $r['code'], 'refused_list' => $r['summary']['devices_join_refused']['list'] ?? null];
 }
 
-c('X-01', 'Пробел', function () {
+c('X-01', 'Правило', function () {
 	$runs = [x01_run(['R', 'H1', 'H2']), x01_run(['H1', 'R', 'H2']), x01_run(['H2', 'R', 'H1']), x01_run(['H2', 'H1', 'R'])];
 	foreach ($runs as $run) {
 		h_note(json_encode($run, JSON_UNESCAPED_UNICODE));
@@ -2518,6 +2518,20 @@ c('X-01', 'Пробел', function () {
 		$same = $same && $n === $natural[0];
 	}
 	ex($same, 'catalog: the result does not depend on the order of the reporters (actual: '.json_encode(array_column($runs, 'devices', 'order'), JSON_UNESCAPED_UNICODE).')');
+});
+
+c('X-02', 'Правило', function () {
+	h_rep('H1', null, '10.5.5.5');                          // H1 is known by its SNMP IP only
+	h_rep('H2', mac(20), '10.5.5.5');                       // H2 has the same SNMP IP (a second host of the same box) and its own chassis
+	h_ports('H1', [1 => 'Gi0/1', 2 => 'Gi0/2']);
+	h_ports('H2', [7 => 'Gi0/7']);
+	$summary = h_ingest('two hosts with one SNMP IP: the second one finds a Device that another host represents');
+	ex(($summary['reporters_skipped']['identity_conflict'] ?? 0) === 1, 'the second reporter is skipped as identity_conflict (actual: '.json_encode($summary['reporters_skipped'] ?? null).')');
+	$ports = h_state()['ports'];
+	ex(!isset($ports['H2']) && array_key_exists('H1', $ports) && count($ports['H1']) === 2, 'no port of the skipped host lands on the other host\'s Device (actual: '.json_encode($ports).')');
+	ex(h_dev_count() === 1, 'no Device is created for the skipped host');
+	global $H;
+	$H['multi'] = false;    // which of two hosts claiming one identity is skipped depends on the order by design: the first one keeps it (model §6.4 step 5)
 });
 
 // ============================================================================================================

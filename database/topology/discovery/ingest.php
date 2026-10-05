@@ -294,7 +294,7 @@ $note_shared = static function (string $kind, string $value, array $node_ids) us
 	}
 };
 
-$resolve_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname) use ($pdo): ?array {
+$resolve_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname, bool $for_reporter = false) use ($pdo): ?array {
 	$has = static function (array $attrs, string $key): bool {
 		return isset($attrs[$key]) && $attrs[$key] !== '';
 	};
@@ -339,7 +339,16 @@ $resolve_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $
 		}
 		if ($stronger) {
 			// a weaker key may only take a Device that has no value for a stronger key the row has
-			$ids = array_values(array_filter($ids, static function (int $id) use ($device_attrs, $has, $stronger): bool {
+			// A neighbor row never gives its stronger key to a reporter's Device (the reporter's own data wins, §6.7.1): the row does not find it
+			// by the weaker key, so the result does not depend on which host is ingested first.
+			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $device_attrs, $has, $stronger, $for_reporter): bool {
+				if (!$for_reporter) {
+					$rep = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
+					$rep->execute([$id]);
+					if ($rep->fetchColumn() !== false) {
+						return false;
+					}
+				}
 				$attrs = $device_attrs($id);
 				foreach ($stronger as $stronger_kind) {
 					if ($has($attrs, $stronger_kind)) {
@@ -1410,24 +1419,36 @@ $join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) u
 // Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
-$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
-	$note_split_identity, $resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false) use (
+	$pdo, $note_split_identity, $resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
 	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
 	// reporter's own identity joins automatically (see $snap_ingest_reporter).
 	$note_split_identity($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null);
 	$match = $resolve_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
-		$incoming['sysname'] ?? null);
+		$incoming['sysname'] ?? null, $for_reporter);
 	if ($match !== null && $match[0] === 'shared') {
 		$note_shared($match[1], $match[2], $match[3]);
 		return null;            // topology-1-model.md "Shared identifier": nothing is created or changed
 	}
 	if ($match !== null) {
 		[$device_id, $matched_by] = $match;
+		$owner = $pdo->prepare('SELECT represented_by_node_id, represented_by_matched_by FROM topo_nodes WHERE id = ?');
+		$owner->execute([$device_id]);
+		$owner = $owner->fetch(PDO::FETCH_ASSOC);
+		if ($for_reporter && $owner['represented_by_node_id'] !== null) {
+			return 0;           // the reporter's own identity found a Device that belongs to another host or proxy (§6.4 step 5): nothing is written
+		}
+		// The reporter's own data wins (topology-1-model.md §6.7.1, §6.4 step 6): a neighbor row refreshes a Device without a reporter, and on a
+		// reporter's Device it only fills what is empty. The reporter writes its own values itself ($snap_ingest_reporter).
+		$has_reporter = $owner['represented_by_matched_by'] === 'reporter_self' && $owner['represented_by_node_id'] !== null;
 		$before = $snap_node_attrs($device_id);
 		$attrs = $before;
 		foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
 			if (($incoming[$key] ?? null) === null || $incoming[$key] === '') {
+				continue;
+			}
+			if ($has_reporter && ($before[$key] ?? '') !== '' && !($key === 'vendor' && $before[$key] === 'unknown')) {
 				continue;
 			}
 			// A stored stronger key is never replaced by a different value (topology-1-model.md "Far Device"); the MAC
@@ -1870,13 +1891,26 @@ $snap_ingest_reporter = static function (array $reporter) use (
 	$device_id = $existing->fetchColumn();
 
 	if ($device_id === false) {
+		// The host node already represents a Device that is not this reporter's own (an operator promotion, a MAC match): identity_conflict, §6.4 step 5
+		$host_owner = $pdo->prepare("SELECT d.id FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id".
+			" WHERE h.type = 'host' AND h.host_ref = ? LIMIT 1");
+		$host_owner->execute([$reporter['hostid']]);
+		if ($host_owner->fetchColumn() !== false) {
+			echo "SKIP: reporter '{$label}' — its host already represents another Device (identity_conflict): none of its snapshots is ingested\n";
+			return ['status' => 'skipped', 'reason' => 'identity_conflict'];
+		}
 		if ($loc_chassis === null && $mgmt_ip === null) {
 			echo "SKIP: reporter '{$label}' has neither a loc_chassis nor an SNMP interface IP — no identity key, ".
 				"not creating a keyless Device\n";
 			return ['status' => 'skipped', 'reason' => 'identity_missing'];
 		}
 		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
-			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen);
+			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true);
+		if ($device_id === 0) {
+			echo "SKIP: reporter '{$label}' — its identity (".($loc_chassis ?? $mgmt_ip).") belongs to a Device that another host or proxy represents ".
+				"(identity_conflict): none of its snapshots is ingested, no port is written to that Device\n";
+			return ['status' => 'skipped', 'reason' => 'identity_conflict'];
+		}
 		if ($device_id === null) {
 			echo "SKIP: reporter '{$label}' has an identifier (".($loc_chassis ?? $mgmt_ip).") that more than one Device has — ".
 				"not picking one\n";
