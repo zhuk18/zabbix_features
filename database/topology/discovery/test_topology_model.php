@@ -682,4 +682,26 @@ check($r['macs_shared']['count'] === 1 && $r['macs_shared']['list'][0]['kind'] =
 	&& $r['macs_shared']['list'][0]['node_ids'] === [$D2, $D3], 'macs_shared lists the MAC with both node ids');
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 
+// ============================================================================================================
+echo "\n=== step 11: /topo/devices carries the duplicate candidates and the dismissed pairs (topology-1-model.md §6.7.5, §12.2) ===\n";
+// getDevices() joins two more Zabbix tables the other steps do not need: stand-ins for them
+foreach (['ALTER TABLE hosts ADD COLUMN maintenance_status INT NOT NULL DEFAULT 0', 'ALTER TABLE proxy ADD COLUMN name VARCHAR(128) NOT NULL DEFAULT \'\''] as $ddl) {
+	try {
+		$pdo->exec($ddl);
+	}
+	catch (PDOException) {
+	}
+}
+$pdo->exec('CREATE TABLE IF NOT EXISTS proxy_rtdata (proxyid BIGINT UNSIGNED PRIMARY KEY, state INT NOT NULL DEFAULT 0)');
+reset_topology($pdo);
+$Da = node($pdo, 'device', ['sysname' => 'Dev <A>', 'chassis_id' => 'aa', 'duplicate_candidates' => [
+	['device_id' => 0, 'reason' => 'split_identity', 'key' => 'mgmt_ip', 'value' => '<b>1</b>'], ['device_id' => null, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => 'bb']]]);
+$Db = node($pdo, 'device', ['sysname' => 'Dev B', 'chassis_id' => null, 'duplicate_dismissed' => [['device_id' => $Da, 'at' => 5, 'by' => 'Admin']]]);
+$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode(['sysname' => 'Dev <A>', 'chassis_id' => 'aa', 'duplicate_candidates' => [
+	['device_id' => $Db, 'reason' => 'split_identity', 'key' => 'mgmt_ip', 'value' => '<b>1</b>'], ['device_id' => null, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => 'bb']]]), $Da]);
+$devices = array_column(CTopologyPrototype::getDevices([$Da, $Db]), null, 'id');
+check(count($devices[$Da]['duplicates']) === 2 && $devices[$Da]['duplicates'][0]['name'] === 'Dev B' && $devices[$Da]['duplicates'][0]['value'] === '<b>1</b>'
+	&& $devices[$Da]['duplicates'][1]['device_id'] === null, 'duplicates: reason, key, value as stored (the UI escapes), the other Device\'s name, null for "no Device C"');
+check($devices[$Db]['dismissed'][0]['name'] === 'Dev <A>' && $devices[$Db]['dismissed'][0]['by'] === 'Admin' && isset($devices[$Da]['created_at']), 'dismissed pairs with the other name, and created_at (for the proposed K)');
+
 echo "\nAll topology model tests passed.\n";

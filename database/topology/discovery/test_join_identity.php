@@ -281,4 +281,30 @@ $B2 = device($pdo, null, $IP, 'old2');
 $r = run_ingest($dsn, $user, $password);
 check(scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id IN (?, ?, ?)', [$A, $B1, $B2]) == 3 && ($r['summary']['devices_joined']['count'] ?? -1) === 0, 'IP 1 on two other Devices: no join, all three stay');
 
+// ============================================================================================================
+echo "\n=== 4: ports of the removed Device: a pseudo port by normalized name only (§6.7.1) ===\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwH', 'Switch H', $IP);
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $Y]]);
+$A = device($pdo, $Y, null, 'N');
+$B = device($pdo, null, $IP, 'N');
+$add = static function (int $device, int $if, string $name) use ($pdo): int {
+	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+		->execute([$device, json_encode(['if_index' => $if, 'name' => $name, 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	return (int) $pdo->lastInsertId();
+};
+$add($A, -5, 'q1');            // the same allocated if_index as B's pseudo port p1, another name: two ports after the join
+$add($B, -5, 'p1');
+$add($A, -9, 'Uplink-1');      // the same normalized name: one port
+$add($B, -11, 'UPLINK-1');
+$r = run_ingest($dsn, $user, $password);
+check(($r['summary']['devices_joined']['count'] ?? 0) === 1, 'the reporter identity joins B into A');
+$ports = array_map(static fn ($a) => json_decode($a, true), $pdo->query("SELECT attrs FROM topo_nodes WHERE type='port' AND device_id={$A}")->fetchAll(PDO::FETCH_COLUMN));
+$names = array_map(static fn ($p) => $p['name'], $ports);
+sort($names);
+// B's pseudo ports moved to A (by name only), then the leftover pseudo ports of a reporter without links are removed by §6.7.3: only the real port stays.
+// (The two-ports / one-port rule is observable on the operator merge, test_duplicate_candidates.php §3.)
+check($names === ['Gi0/1'] && (int) ($r['summary']['pseudo_ports_removed'] ?? 0) === 3, 'the moved pseudo ports (Uplink-1 and UPLINK-1 are one) are leftovers of a reporter without links: removed, only Gi0/1 stays — '.implode(', ', $names));
+check(count(array_unique(array_column($ports, 'if_index'))) === count($ports), 'no two ports of A share an if_index');
+
 echo "\nAll join checks passed.\n";

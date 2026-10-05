@@ -75,7 +75,7 @@ class CTopologyPrototype {
 	public static function getDevices(?array $node_ids = null): array {
 		$nodes = [];
 		$visible_hostids = self::getVisibleHostIds();
-		$sql = 'SELECT node.id,node.type,node.attrs,node.host_ref,node.proxy_ref,'.
+		$sql = 'SELECT node.id,node.type,node.attrs,node.created_at,node.host_ref,node.proxy_ref,'.
 				'host.name AS host_name,host.status AS host_status,host.maintenance_status AS host_maintenance_status,'.
 				'proxy.name AS proxy_name,proxy_rt.state AS proxy_state'.
 			' FROM topo_nodes node'.
@@ -110,6 +110,10 @@ class CTopologyPrototype {
 			switch ($row['type']) {
 				case 'device':
 					$node['name'] = $attrs['sysname'];
+					$node['created_at'] = (int) $row['created_at'];
+					// topology-1-model.md §6.7.5: possible duplicates (the evidence ingest wrote); resolved below, in one query
+					$node['duplicates'] = $attrs['duplicate_candidates'] ?? [];
+					$node['dismissed'] = $attrs['duplicate_dismissed'] ?? [];
 					$device_ids[] = $row['id'];
 					break;
 
@@ -142,6 +146,32 @@ class CTopologyPrototype {
 
 			$nodes[] = $node;
 		}
+
+		// names of the Devices the duplicate candidates point at (data from the network: the caller escapes them)
+		$other_ids = [];
+		foreach ($nodes as $node) {
+			foreach (array_merge($node['duplicates'] ?? [], $node['dismissed'] ?? []) as $candidate) {
+				if ($candidate['device_id'] !== null) {
+					$other_ids[(int) $candidate['device_id']] = true;
+				}
+			}
+		}
+		$other_names = [];
+		if ($other_ids) {
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', array_keys($other_ids)));
+			while ($row = DBfetch($result)) {
+				$other_names[$row['id']] = self::attrs($row)['sysname'] ?? '';
+			}
+		}
+		foreach ($nodes as &$node) {
+			foreach (['duplicates', 'dismissed'] as $list) {
+				if (isset($node[$list])) {
+					$node[$list] = array_map(static fn (array $candidate): array => $candidate + ['name' => $candidate['device_id'] !== null
+						? ($other_names[$candidate['device_id']] ?? null) : null], $node[$list]);
+				}
+			}
+		}
+		unset($node);
 
 		$represented_ids = self::getRepresentedIds($device_ids);
 		$representing_hostids = self::getRepresentingHostIds($device_ids, $visible_hostids);
@@ -1708,6 +1738,369 @@ class CTopologyPrototype {
 			unset($attrs['shadow_ack']);
 		}
 		DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge_id));
+	}
+
+	// ---- Duplicate candidates and operator merge (topology-1-model.md "Duplicate candidates and operator merge") ----
+	//
+	// Ingest lists possible duplicates in attrs.duplicate_candidates and never merges on weaker evidence than the reporter's own identity.
+	// The operator decides: merge, accept a new chassis, or "not the same device" (attrs.duplicate_dismissed, written only here).
+
+	// The ONE normalization of a port name (long/short vendor forms, case-insensitive): a mirror of $normalize_port_name in
+	// database/topology/discovery/ingest.php; keep the two lists in sync.
+	private static function normalizePortName(string $name): string {
+		$lower = strtolower(trim($name));
+		foreach (['gigabitethernet' => 'gi', 'tengigabitethernet' => 'te', 'fastethernet' => 'fa', 'port-channel' => 'po'] as $long => $short) {
+			if (strncmp($lower, $long, strlen($long)) === 0) {
+				return $short.substr($lower, strlen($long));
+			}
+		}
+
+		return $lower;
+	}
+
+	private static function getDeviceRow(string $device_id): array {
+		$row = DBfetch(DBselect('SELECT id,attrs,represented_by_node_id,represented_by_matched_by,represented_by_at,created_at FROM topo_nodes WHERE id='.
+			zbx_dbstr($device_id).' AND type='.zbx_dbstr('device')), false);
+		if (!$row) {
+			throw new Exception('Device '.$device_id.' does not exist.');
+		}
+
+		return $row;
+	}
+
+	/** The distinct loc_chassis values the reporter host of a Device reports in its stored snapshots (empty: not a reporter). */
+	private static function reportedChassis(array $device_row): array {
+		if ($device_row['represented_by_node_id'] === null) {
+			return [];
+		}
+		$host = DBfetch(DBselect('SELECT host_ref FROM topo_nodes WHERE id='.zbx_dbstr($device_row['represented_by_node_id']).' AND type='.zbx_dbstr('host')), false);
+		if (!$host || $host['host_ref'] === null) {
+			return [];
+		}
+		$values = [];
+		$result = DBselect('SELECT rows_json FROM topo_lld_snapshot WHERE hostid='.zbx_dbstr($host['host_ref']));
+		while ($snapshot = DBfetch($result, false)) {
+			foreach (json_decode($snapshot['rows_json'], true) ?: [] as $row) {
+				if (($row['loc_chassis'] ?? '') !== '') {
+					$values[$row['loc_chassis']] = true;
+				}
+			}
+		}
+
+		return array_keys($values);
+	}
+
+	/**
+	 * Merge: keep K, remove R (any two Devices, with or without a candidate). The merge steps of topology-1-model.md §6.7.1 (the same as the
+	 * automatic join of ingest.php, $join_split_identity), plus the chassis rule of §6.7.5. Refused when both have a represented_by.
+	 * The next full ingest re-resolves the observations from the stored snapshots.
+	 *
+	 * @return array  ['kept' => id, 'removed' => id]
+	 */
+	public static function mergeDevices(string $keep_id, string $remove_id, string $username): array {
+		if ($keep_id === $remove_id) {
+			throw new Exception('A Device cannot be merged into itself.');
+		}
+		$keep = self::getDeviceRow($keep_id);
+		$remove = self::getDeviceRow($remove_id);
+		if ($keep['represented_by_node_id'] !== null && $remove['represented_by_node_id'] !== null) {
+			throw new Exception('Both Devices are represented by a host or proxy: they cannot be merged.');
+		}
+		$k = self::attrs($keep);
+		$r = self::attrs($remove);
+
+		// chassis (§6.7.5): K's own reporter reports R's chassis (RMA) -> K takes it and K's old chassis becomes a replaced one; otherwise K keeps its
+		// keys and R's chassis goes to K's replaced_chassis; a K without a chassis takes R's
+		$replaced = array_values(array_unique(array_merge($k['replaced_chassis'] ?? [], $r['replaced_chassis'] ?? [])));
+		$k_chassis = (string) ($k['chassis_id'] ?? '');
+		$r_chassis = (string) ($r['chassis_id'] ?? '');
+		if ($r_chassis !== '' && $r_chassis !== $k_chassis) {
+			if ($k_chassis === '') {
+				$k['chassis_id'] = $r_chassis;
+				if (($r['mac'] ?? null) !== null && ($k['mac'] ?? null) === null) {
+					$k['mac'] = $r['mac'];
+				}
+			}
+			elseif (in_array($r_chassis, self::reportedChassis($keep), true)) {
+				$k['chassis_id'] = $r_chassis;
+				$k['mac'] = $r['mac'] ?? $k['mac'] ?? null;
+				$replaced[] = $k_chassis;
+			}
+			else {
+				$replaced[] = $r_chassis;
+			}
+		}
+		$replaced = array_values(array_unique(array_diff($replaced, [(string) ($k['chassis_id'] ?? '')])));
+		if ($replaced) {
+			$k['replaced_chassis'] = $replaced;
+		}
+		else {
+			unset($k['replaced_chassis']);
+		}
+
+		DBstart();
+		try {
+			// represented_by moves from R when only R has one
+			if ($remove['represented_by_node_id'] !== null) {
+				DBexecute('UPDATE topo_nodes SET represented_by_node_id=NULL,represented_by_matched_by=NULL,represented_by_at=NULL WHERE id='.zbx_dbstr($remove_id));
+				DBexecute('UPDATE topo_nodes SET represented_by_node_id='.zbx_dbstr($remove['represented_by_node_id']).',represented_by_matched_by='.
+					zbx_dbstr($remove['represented_by_matched_by']).',represented_by_at='.zbx_dbstr($remove['represented_by_at']).' WHERE id='.zbx_dbstr($keep_id));
+			}
+
+			self::moveDevicePorts($keep_id, $remove_id);
+
+			// device-level links that ended at R end at K; observations and shadow_ack that named R name K
+			DBexecute('UPDATE IGNORE topo_edges SET dst_id='.zbx_dbstr($keep_id).' WHERE type='.zbx_dbstr('device_link').' AND dst_id='.zbx_dbstr($remove_id));
+			DBexecute('DELETE FROM topo_edges WHERE type='.zbx_dbstr('device_link').' AND dst_id='.zbx_dbstr($remove_id));
+			DBexecute('UPDATE topo_observations SET device_id='.zbx_dbstr($keep_id).' WHERE device_id='.zbx_dbstr($remove_id));
+			$result = DBselect('SELECT id,attrs FROM topo_edges WHERE type IN ('.zbx_dbstr('physical_link').','.zbx_dbstr('device_link').') AND attrs LIKE '.zbx_dbstr('%shadow_ack%'));
+			while ($edge = DBfetch($result, false)) {
+				$attrs = self::attrs($edge);
+				$changed = false;
+				foreach ($attrs['shadow_ack'] ?? [] as $n => $entry) {
+					if (isset($entry['device_id']) && (string) $entry['device_id'] === $remove_id) {
+						$attrs['shadow_ack'][$n]['device_id'] = is_int($entry['device_id']) ? (int) $keep_id : $keep_id;
+						$changed = true;
+					}
+				}
+				if ($changed) {
+					DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge['id']));
+				}
+			}
+
+			// R's other attributes fill only what K has no value for
+			foreach ($r as $key => $value) {
+				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by'], true)) {
+					continue;
+				}
+				if (($k[$key] ?? null) === null || $k[$key] === '') {
+					if ($value !== null && $value !== '') {
+						$k[$key] = $value;
+					}
+				}
+			}
+			$k['last_seen'] = max((int) ($k['last_seen'] ?? 0), (int) ($r['last_seen'] ?? 0));
+			unset($k['duplicate_candidates']);          // re-derived by the next full ingest
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($k)).',updated_at='.time().' WHERE id='.zbx_dbstr($keep_id));
+
+			// a link whose two ends are both on K now is deleted
+			$result = DBselect('SELECT e.id,e.type,e.src_id,e.dst_id,s.device_id AS src_device,d.device_id AS dst_device FROM topo_edges e'.
+				' JOIN topo_nodes s ON s.id=e.src_id LEFT JOIN topo_nodes d ON d.id=e.dst_id'.
+				' WHERE e.type IN ('.zbx_dbstr('physical_link').','.zbx_dbstr('device_link').')');
+			while ($edge = DBfetch($result, false)) {
+				$dst = $edge['type'] === 'device_link' ? $edge['dst_id'] : $edge['dst_device'];
+				if ((string) $edge['src_device'] === $keep_id && (string) $dst === $keep_id) {
+					DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge['id']));
+				}
+			}
+
+			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($remove_id).' AND type='.zbx_dbstr('device'));
+
+			// §6.7.3 on K: a pseudo port that now has a real counterpart of the same normalized name is merged into it (links move)
+			self::mergePseudoPortsOf($keep_id);
+		}
+		catch (Throwable $exception) {
+			DBend(false);
+			throw $exception;
+		}
+		DBend(true);
+
+		return ['kept' => (int) $keep_id, 'removed' => (int) $remove_id];
+	}
+
+	/** B's Ports -> A: real by if_index into real, pseudo into any Port of A by normalized name only; the rest move. Links and observations follow. */
+	private static function moveDevicePorts(string $a, string $b): void {
+		$a_ports = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE device_id='.zbx_dbstr($a).' AND type='.zbx_dbstr('port'));
+		while ($port = DBfetch($result, false)) {
+			$a_ports[$port['id']] = self::attrs($port);
+		}
+		$b_ports = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE device_id='.zbx_dbstr($b).' AND type='.zbx_dbstr('port'));
+		while ($port = DBfetch($result, false)) {
+			$b_ports[$port['id']] = self::attrs($port);
+		}
+
+		foreach ($b_ports as $id => $attrs) {
+			$target = null;
+			if (!empty($attrs['pseudo'])) {
+				$name = self::normalizePortName((string) ($attrs['name'] ?? ''));
+				foreach ($a_ports as $a_id => $a_attrs) {
+					if ($name !== '' && self::normalizePortName((string) ($a_attrs['name'] ?? '')) === $name) {
+						$target = $a_id;
+						break;
+					}
+				}
+			}
+			else {
+				foreach ($a_ports as $a_id => $a_attrs) {
+					if (empty($a_attrs['pseudo']) && (string) ($a_attrs['if_index'] ?? '') === (string) ($attrs['if_index'] ?? '#')) {
+						$target = $a_id;
+						break;
+					}
+				}
+			}
+
+			if ($target === null) {
+				if (!empty($attrs['pseudo'])) {
+					$taken = array_map(static fn (array $x): string => (string) ($x['if_index'] ?? ''), $a_ports);
+					$index = (int) ($attrs['if_index'] ?? 0);
+					if ($index > 0 || in_array((string) $index, $taken, true)) {
+						$index = -((int) (crc32(self::normalizePortName((string) ($attrs['name'] ?? ''))) % 999999) + 1);
+						while (in_array((string) $index, $taken, true)) {
+							$index--;
+						}
+						$attrs['if_index'] = $index;
+						DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($id));
+					}
+				}
+				DBexecute('UPDATE topo_nodes SET device_id='.zbx_dbstr($a).' WHERE id='.zbx_dbstr($id));
+				$a_ports[$id] = $attrs;
+				continue;
+			}
+
+			$target_attrs = $a_ports[$target];
+			foreach ($attrs as $key => $value) {
+				if (($target_attrs[$key] ?? null) === null || $target_attrs[$key] === '' || $target_attrs[$key] === []) {
+					$target_attrs[$key] = $value;
+				}
+			}
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($target_attrs)).' WHERE id='.zbx_dbstr($target));
+			self::repointPort((string) $id, (string) $target);
+			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($id));
+		}
+	}
+
+	/** Everything that referred to Port $from refers to Port $to: links (a duplicate is dropped), observations, lag members. */
+	private static function repointPort(string $from, string $to): void {
+		$edges = [];
+		$result = DBselect('SELECT id,type,src_id,dst_id FROM topo_edges WHERE src_id='.zbx_dbstr($from).' OR dst_id='.zbx_dbstr($from));
+		while ($edge = DBfetch($result, false)) {
+			$edges[] = $edge;
+		}
+		foreach ($edges as $edge) {
+			$src = (string) $edge['src_id'] === $from ? $to : (string) $edge['src_id'];
+			$dst = (string) $edge['dst_id'] === $from ? $to : (string) $edge['dst_id'];
+			if ($edge['type'] === 'physical_link' && (int) $src > (int) $dst) {
+				[$src, $dst] = [$dst, $src];
+			}
+			$twin = DBfetch(DBselect('SELECT id FROM topo_edges WHERE src_id='.zbx_dbstr($src).' AND dst_id='.zbx_dbstr($dst)), false);
+			if ($twin || $src === $dst) {
+				DBexecute('DELETE FROM topo_edges WHERE id='.zbx_dbstr($edge['id']));
+			}
+			else {
+				DBexecute('UPDATE topo_edges SET src_id='.zbx_dbstr($src).',dst_id='.zbx_dbstr($dst).' WHERE id='.zbx_dbstr($edge['id']));
+			}
+		}
+		DBexecute('UPDATE IGNORE topo_observations SET local_port_id='.zbx_dbstr($to).' WHERE local_port_id='.zbx_dbstr($from));
+		DBexecute('DELETE FROM topo_observations WHERE local_port_id='.zbx_dbstr($from));
+		DBexecute('UPDATE topo_nodes SET lag_id='.zbx_dbstr($to).' WHERE lag_id='.zbx_dbstr($from));
+	}
+
+	/** §6.7.3 after a merge: a pseudo port of $device_id with exactly one real Port of the same normalized name moves its links there and is deleted. */
+	private static function mergePseudoPortsOf(string $device_id): void {
+		$real = [];
+		$pseudo = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE device_id='.zbx_dbstr($device_id).' AND type='.zbx_dbstr('port'));
+		while ($port = DBfetch($result, false)) {
+			$attrs = self::attrs($port);
+			if (!empty($attrs['pseudo'])) {
+				$pseudo[$port['id']] = self::normalizePortName((string) ($attrs['name'] ?? ''));
+			}
+			else {
+				$real[self::normalizePortName((string) ($attrs['name'] ?? ''))][] = $port['id'];
+			}
+		}
+		foreach ($pseudo as $id => $name) {
+			if ($name !== '' && count($real[$name] ?? []) === 1) {
+				self::repointPort((string) $id, (string) $real[$name][0]);
+				DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($id));
+			}
+		}
+	}
+
+	/**
+	 * Accept new chassis: on a reporter's Device S with a `reporter_chassis_change` candidate and no Device C. S takes the host's loc_chassis Y,
+	 * X goes to replaced_chassis.
+	 */
+	public static function acceptChassis(string $device_id, string $username): void {
+		$row = self::getDeviceRow($device_id);
+		$attrs = self::attrs($row);
+		$entry = null;
+		foreach ($attrs['duplicate_candidates'] ?? [] as $candidate) {
+			if ($candidate['reason'] === 'reporter_chassis_change') {
+				if ($candidate['device_id'] !== null) {
+					throw new Exception('Another Device has that chassis: merge it instead.');
+				}
+				$entry = $candidate;
+			}
+		}
+		if ($entry === null) {
+			throw new Exception('This Device has no chassis change to accept.');
+		}
+		$reported = self::reportedChassis($row);
+		if ($reported !== [$entry['value']]) {
+			throw new Exception('The host no longer reports that chassis.');
+		}
+		$old = (string) ($attrs['chassis_id'] ?? '');
+		$replaced = $attrs['replaced_chassis'] ?? [];
+		if ($old !== '' && $old !== $entry['value']) {
+			$replaced[] = $old;
+		}
+		$attrs['chassis_id'] = $entry['value'];
+		$attrs['mac'] = preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $entry['value']) ? strtolower($entry['value']) : null;
+		$attrs['replaced_chassis'] = array_values(array_unique(array_diff($replaced, [$entry['value']])));
+		if (!$attrs['replaced_chassis']) {
+			unset($attrs['replaced_chassis']);
+		}
+		$attrs['duplicate_candidates'] = array_values(array_filter($attrs['duplicate_candidates'] ?? [],
+			static fn (array $c): bool => $c['reason'] !== 'reporter_chassis_change'));
+		if (!$attrs['duplicate_candidates']) {
+			unset($attrs['duplicate_candidates']);
+		}
+		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($device_id));
+	}
+
+	/** Not the same device: the other Device's id goes to attrs.duplicate_dismissed of both (with at and by), and out of both candidate lists. */
+	public static function dismissDuplicate(string $a, string $b, string $username): void {
+		if ($a === $b) {
+			throw new Exception('Choose two different Devices.');
+		}
+		$rows = [$a => self::getDeviceRow($a), $b => self::getDeviceRow($b)];
+		foreach ([$a => $b, $b => $a] as $device_id => $other) {
+			$attrs = self::attrs($rows[$device_id]);
+			$entries = $attrs['duplicate_dismissed'] ?? [];
+			$known = false;
+			foreach ($entries as $entry) {
+				$known = $known || (string) ($entry['device_id'] ?? '') === (string) $other;
+			}
+			if (!$known) {
+				$entries[] = ['device_id' => (int) $other, 'at' => time(), 'by' => $username];
+			}
+			$attrs['duplicate_dismissed'] = $entries;
+			$attrs['duplicate_candidates'] = array_values(array_filter($attrs['duplicate_candidates'] ?? [],
+				static fn (array $c): bool => (string) ($c['device_id'] ?? '') !== (string) $other));
+			if (!$attrs['duplicate_candidates']) {
+				unset($attrs['duplicate_candidates']);
+			}
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($device_id));
+		}
+	}
+
+	/** Revoke "not the same device": the pair is listed again by the next full ingest if the evidence is still there. */
+	public static function revokeDismissal(string $a, string $b): void {
+		foreach ([$a => $b, $b => $a] as $device_id => $other) {
+			$attrs = self::attrs(self::getDeviceRow((string) $device_id));
+			$entries = array_values(array_filter($attrs['duplicate_dismissed'] ?? [],
+				static fn (array $entry): bool => (string) ($entry['device_id'] ?? '') !== (string) $other));
+			if ($entries) {
+				$attrs['duplicate_dismissed'] = $entries;
+			}
+			else {
+				unset($attrs['duplicate_dismissed']);
+			}
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($device_id));
+		}
 	}
 
 	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];

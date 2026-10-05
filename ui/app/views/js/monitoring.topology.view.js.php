@@ -84,6 +84,13 @@ const view = new class {
 				this.guard(() => this.manualAction(button.dataset.topologyManual, button.dataset.edge, button.dataset.device));
 			}
 		});
+		// Duplicate candidates (topology-1-model.md §6.7.5): Merge / Accept new chassis / Not the same device (and revoke), in the Device panel
+		this.details.addEventListener('click', event => {
+			const button = event.target.closest('[data-topology-dup]');
+			if (button) {
+				this.guard(() => this.duplicateAction(button.dataset.topologyDup, button.dataset));
+			}
+		});
 		this.ingest_status_element = document.getElementById('topology-ingest-status');
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
@@ -447,6 +454,64 @@ const view = new class {
 			// revived): started after the delete, and after any run already in progress.
 			await this.startIngest();
 		}
+	}
+
+	// Duplicate candidates of a Device (topology-1-model.md §6.7.5, "Side panels"): every value shown comes from the network or from
+	// the operator and is escaped (§13). Merge asks which Device to keep; the proposal is the one with a represented_by, else the older one.
+	duplicatesFragment(device) {
+		const post_label = {
+			split_identity: <?= json_encode(_('Possible duplicate: a chassis-only and an IP-only Device of one neighbor')) ?>,
+			reporter_chassis_change: <?= json_encode(_('Possible duplicate: the host reports a new chassis')) ?>
+		};
+		const rows = [];
+		(device.duplicates ?? []).forEach(candidate => {
+			const other = candidate.device_id === null ? null : this.nodes.get(String(candidate.device_id));
+			const title = `${this.escape(post_label[candidate.reason] ?? candidate.reason)} (${this.escape(candidate.key)} ${this.escape(candidate.value)})`;
+			if (candidate.device_id === null) {
+				rows.push(`<li>${title}<br><button type="button" class="btn-alt" data-topology-dup="accept" data-device="${this.escape(device.id)}">` +
+					`${this.escape(<?= json_encode(_('Accept new chassis')) ?>)}</button></li>`);
+				return;
+			}
+			const mine_is_kept = Boolean(device.represented) !== Boolean(other?.represented)
+				? Boolean(device.represented)
+				: (device.created_at ?? 0) <= (other?.created_at ?? 0);
+			const keep_button = (keep_id, remove_id, label, proposed) => `<button type="button" class="btn-alt" data-topology-dup="merge" ` +
+				`data-keep="${this.escape(keep_id)}" data-remove="${this.escape(remove_id)}">${this.escape(<?= json_encode(_('Merge, keep')) ?>)} ` +
+				`${this.escape(label ?? '?')}${proposed ? ' ' + this.escape(<?= json_encode(_('(proposed)')) ?>) : ''}</button> `;
+			rows.push(`<li>${title}: ${this.escape(candidate.name ?? candidate.device_id)}<br>` +
+				keep_button(device.id, candidate.device_id, device.name, mine_is_kept) +
+				keep_button(candidate.device_id, device.id, candidate.name, !mine_is_kept) +
+				`<button type="button" class="btn-alt" data-topology-dup="dismiss" data-a="${this.escape(device.id)}" data-b="${this.escape(candidate.device_id)}">` +
+				`${this.escape(<?= json_encode(_('Not the same device')) ?>)}</button></li>`);
+		});
+		(device.dismissed ?? []).forEach(entry => rows.push(`<li>${this.escape(<?= json_encode(_('Not the same device')) ?>)}: ` +
+			`${this.escape(entry.name ?? entry.device_id)} — ${this.escape(entry.by)} ${this.escape(<?= json_encode(_('on')) ?>)} ${this.escape(this.formatDate(entry.at))} ` +
+			`<button type="button" class="btn-alt" data-topology-dup="revoke" data-a="${this.escape(device.id)}" data-b="${this.escape(entry.device_id)}">` +
+			`${this.escape(<?= json_encode(_('Revoke')) ?>)}</button></li>`));
+
+		return rows.length ? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Possible duplicates')) ?>)}</h3><ul>${rows.join('')}</ul></section>` : '';
+	}
+
+	async duplicateAction(action, data) {
+		const post = (name, body) => this.request(name, {
+			method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+		});
+		if (action === 'merge') {
+			if (!confirm(<?= json_encode(_('Merge the two Devices? The removed one is deleted: its ports, links and observations move to the kept one.')) ?>)) {
+				return;
+			}
+			await post('topology.devices.merge', {keep_id: data.keep, remove_id: data.remove});
+		}
+		else if (action === 'accept') {
+			await post('topology.devices.acceptchassis', {id: data.device});
+		}
+		else if (action === 'dismiss') {
+			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b});
+		}
+		else if (action === 'revoke') {
+			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b, revoke: 1});
+		}
+		await this.loadDevices();
 	}
 
 	async selectNode(node) {
@@ -947,7 +1012,7 @@ const view = new class {
 		// invites the reasonable but wrong question "where's the physical link for this port?".
 		const labels = {
 			connected_lldp: 'Connected (LLDP)', connected_mac_only: 'Partial connectivity evidence',
-			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management'
+			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management', virtual: 'Virtual'
 		};
 		const port_action = port => port.device_link_id
 			? `<button type="button" class="btn-alt topology-remove-link-button" data-edge-id="${this.escape(port.device_link_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
@@ -987,7 +1052,7 @@ const view = new class {
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-link-device-button">` +
 				`${this.escape(<?= json_encode(_('Link to this device (port unknown)')) ?>)}</button></div>`
 			: '';
-		return `${hidden_by}${sections}${link_to_device}${promotion}`;
+		return `${hidden_by}${this.duplicatesFragment(device)}${sections}${link_to_device}${promotion}`;
 	}
 
 	// Search-as-you-type picker for the "Promote to host" panel (topology-1-model.md "API", "Side panels"): debounced, queries
@@ -1506,6 +1571,15 @@ const view = new class {
 		hidden_badges.append('text').attr('x', 50).attr('y', 22).attr('text-anchor', 'middle')
 			.style('font-size', '12px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
 		hidden_badges.append('title').text(node => hidden_tooltips.get(String(node.id)).join('\n'));
+
+		// Possible duplicates (topology-1-model.md §12.2): a badge bottom-left (the other corners are taken) with the reasons as its tooltip
+		const duplicate_badges = node_selection.filter(node => node.type === 'device' && (node.duplicates ?? []).length > 0);
+		duplicate_badges.append('circle').attr('class', 'topology-duplicate-badge').attr('cx', -50).attr('cy', 18).attr('r', 10)
+			.style('fill', '#6d28d9').style('stroke', '#4c1d95').style('stroke-width', 2);
+		duplicate_badges.append('text').attr('x', -50).attr('y', 22).attr('text-anchor', 'middle')
+			.style('font-size', '12px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('=');
+		duplicate_badges.append('title').text(node => <?= json_encode(_('Possible duplicate')) ?> + ': ' +
+			node.duplicates.map(candidate => `${candidate.reason} (${candidate.name ?? candidate.value})`).join(', '));
 
 		const describeSubject = subject => {
 			if (subject.type === 'proxy' && subject.unreachable) {

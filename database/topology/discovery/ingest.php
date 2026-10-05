@@ -355,6 +355,16 @@ $resolve_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $
 		if ($ids) {
 			return [$ids[0], $kind];
 		}
+		if ($kind === 'chassis_id') {
+			// topology-1-model.md §6.7.1 "Replaced chassis": a chassis that is in attrs.replaced_chassis of exactly one Device finds that
+			// Device, after the chassis_id lookup found nothing (a neighbor that still advertises the old chassis does not make a ghost Device)
+			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_CONTAINS(IFNULL(JSON_EXTRACT(attrs, '\$.replaced_chassis'), JSON_ARRAY()), JSON_QUOTE(?)) ORDER BY id");
+			$stmt->execute([$value]);
+			$replaced = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+			if (count($replaced) === 1) {
+				return [$replaced[0], 'replaced_chassis'];
+			}
+		}
 		$stronger[] = $kind;
 	}
 	return null;
@@ -1127,6 +1137,42 @@ $snap_port = static function (int $device_id, int $if_index, array $overlay = []
 	return $last_insert_id();
 };
 
+// topology-1-model.md §6.7.5 "Duplicate candidates": evidence of two Devices that may be one, collected in the collect phase and written to
+// attrs.duplicate_candidates at the end of every FULL run (a partial run leaves the list alone). [device id on which it is shown => key => entry].
+$duplicate_candidates = [];
+$note_duplicate = static function (int $on, ?int $other, string $reason, string $key, string $value) use (&$duplicate_candidates): void {
+	$duplicate_candidates[$on][$reason.'|'.($other ?? 0).'|'.$key.'|'.$value] = ['device_id' => $other, 'reason' => $reason, 'key' => $key, 'value' => $value];
+};
+
+// A reporter whose host reports chassis Y while its Device S has another chassis (§6.4 step 1): [S id => Y]. The candidates are derived at the
+// end of the run (below), when every Device that has chassis Y exists.
+$chassis_changes = [];
+$note_chassis_change = static function (int $device_id, string $chassis) use (&$chassis_changes): void {
+	$chassis_changes[$device_id] = $chassis;
+};
+
+// A neighbor row with chassis + IP: Y finds Device A, IP 1 finds exactly one other Device B that has no chassis -> the duplicate candidate
+// `split_identity` on both. Nothing is merged (only the reporter's own identity joins automatically, $join_split_identity).
+$note_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) use ($pdo, $snap_node_attrs, $note_duplicate): void {
+	if (!$chassis_id || !$mgmt_ip) {
+		return;
+	}
+	$by = static function (string $key, string $value) use ($pdo): array {
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\\$.{$key}')) = ? ORDER BY id");
+		$stmt->execute([$value]);
+		return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+	};
+	$with_chassis = $by('chassis_id', $chassis_id);
+	if (count($with_chassis) !== 1) {
+		return;
+	}
+	$others = array_values(array_diff($by('mgmt_ip', $mgmt_ip), [$with_chassis[0]]));
+	if (count($others) === 1 && ($snap_node_attrs($others[0])['chassis_id'] ?? '') === '') {
+		$note_duplicate($with_chassis[0], $others[0], 'split_identity', 'mgmt_ip', $mgmt_ip);
+		$note_duplicate($others[0], $with_chassis[0], 'split_identity', 'mgmt_ip', $mgmt_ip);
+	}
+};
+
 // topology-1-model.md §6.7.1 "Join of a split identity (automatic, reporter only)". One neighbor can first give two Devices: LLDP without a
 // management address gives a chassis only (A), CDP gives an IP only (B). The reporter's own identity (loc_chassis + SNMP interface IP) carries
 // both keys and merges B into A when the chassis finds exactly A, the IP finds exactly one other Device B and
@@ -1134,7 +1180,7 @@ $snap_port = static function (int $device_id, int $if_index, array $overlay = []
 // B is deleted (the only deletion of a Device by ingest). Both with a represented_by: no join, reported. The IP on two or more other
 // Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
 $join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) use (
-	$pdo, $snap_node_attrs, $merge_pseudo_port, $convert_leftover_pseudo_ports, &$link_candidates, &$summary
+	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $convert_leftover_pseudo_ports, &$link_candidates, &$summary
 ): ?int {
 	if (!$chassis_id || !$mgmt_ip) {
 		return null;
@@ -1180,24 +1226,55 @@ $join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) u
 			->execute([$b_rep['represented_by_node_id'], $b_rep['represented_by_matched_by'], $b_rep['represented_by_at'], $a]);
 	}
 
-	// B's Ports -> A. A Port with the same if_index on A absorbs B's: its links and observations move to it.
+	// B's Ports -> A (topology-1-model.md §6.7.1). A real Port of B absorbs into a real Port of A with the same if_index; a pseudo port of B
+	// absorbs into a pseudo or real Port of A only by normalized name, never by its allocated if_index. Ports that match nothing move to A
+	// (a pseudo port whose allocated if_index is taken on A gets another negative one).
 	$port_map = [];
-	$a_ports = [];
+	$a_ports = [];       // id => attrs
 	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'");
 	$stmt->execute([$a]);
 	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
-		$a_ports[(string) (json_decode($port['attrs'], true)['if_index'] ?? '')] = (int) $port['id'];
+		$a_ports[(int) $port['id']] = json_decode($port['attrs'], true) ?: [];
 	}
 	$stmt->execute([$b]);
 	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
 		$id = (int) $port['id'];
 		$attrs = json_decode($port['attrs'], true) ?: [];
-		$key = (string) ($attrs['if_index'] ?? '');
-		if ($key === '' || !isset($a_ports[$key])) {
+		$target = null;
+		if (!empty($attrs['pseudo'])) {
+			$name = $normalize_port_name((string) ($attrs['name'] ?? ''));
+			foreach ($a_ports as $a_id => $a_attrs) {
+				if ($name !== '' && $normalize_port_name((string) ($a_attrs['name'] ?? '')) === $name) {
+					$target = $a_id;
+					break;
+				}
+			}
+		}
+		else {
+			foreach ($a_ports as $a_id => $a_attrs) {
+				if (empty($a_attrs['pseudo']) && (string) ($a_attrs['if_index'] ?? '') === (string) ($attrs['if_index'] ?? '#')) {
+					$target = $a_id;
+					break;
+				}
+			}
+		}
+		if ($target === null) {
+			if (!empty($attrs['pseudo'])) {
+				$taken = array_map(static fn (array $x): string => (string) ($x['if_index'] ?? ''), $a_ports);
+				$index = (int) ($attrs['if_index'] ?? 0);
+				if ($index > 0 || in_array((string) $index, $taken, true)) {
+					$index = -((int) (crc32($normalize_port_name((string) ($attrs['name'] ?? ''))) % 999999) + 1);
+					while (in_array((string) $index, $taken, true)) {
+						$index--;
+					}
+					$attrs['if_index'] = $index;
+					$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+				}
+			}
 			$pdo->prepare('UPDATE topo_nodes SET device_id = ? WHERE id = ?')->execute([$a, $id]);
+			$a_ports[$id] = $attrs;
 			continue;
 		}
-		$target = $a_ports[$key];
 		$port_map[$id] = $target;
 		$target_attrs = $snap_node_attrs($target);
 		foreach ($attrs as $k => $v) {
@@ -1311,10 +1388,11 @@ $join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) u
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
-	$resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+	$note_split_identity, $resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
 	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
 	// reporter's own identity joins automatically (see $snap_ingest_reporter).
+	$note_split_identity($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null);
 	$match = $resolve_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
 		$incoming['sysname'] ?? null);
 	if ($match !== null && $match[0] === 'shared') {
@@ -1725,7 +1803,7 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 $link_candidates = [];
 $neighbor_snapshots = [];
 $snap_ingest_reporter = static function (array $reporter) use (
-	$pdo, $find_device, $snap_device, $join_split_identity, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
@@ -1789,6 +1867,12 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		// a stored chassis id is never replaced by a different value (topology-1-model.md "Far Device")
 		if ($loc_chassis !== null && ($before['chassis_id'] ?? '') === '') {
 			$attrs['chassis_id'] = $loc_chassis;
+		}
+		// Chassis change (RMA, §6.4 step 1): the host reports chassis Y, S keeps X. The duplicate candidate `reporter_chassis_change` on S, and on
+		// each Device C that has chassis Y (typically the Device the neighbors made for the new chassis); the operator decides (§6.7.5).
+		// (the Devices C that have chassis Y are looked up at the end of the run: the neighbors that make them may be processed later)
+		if ($loc_chassis !== null && ($before['chassis_id'] ?? '') !== '' && $before['chassis_id'] !== $loc_chassis) {
+			$note_chassis_change($device_id, $loc_chassis);
 		}
 		if ($mgmt_ip !== null) {
 			$attrs['mgmt_ip'] = $mgmt_ip;
@@ -3192,6 +3276,56 @@ foreach ($reporter_items as $reporter_item) {
 }
 
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
+
+// topology-1-model.md §6.7.5: every FULL run rewrites attrs.duplicate_candidates on every Device from the evidence of this run (an entry whose
+// evidence is gone disappears); a pair that either Device lists in attrs.duplicate_dismissed is not listed. A partial run does not touch the lists.
+// Ingest never writes duplicate_dismissed.
+$summary['duplicate_candidates'] = ['count' => 0];
+if (!$zabbix_host_filter) {
+	foreach ($chassis_changes as $s_id => $chassis) {
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND id <> ? AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ? ORDER BY id");
+		$stmt->execute([$s_id, $chassis]);
+		$found_c = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+		if (!$found_c) {
+			$note_duplicate($s_id, null, 'reporter_chassis_change', 'chassis_id', $chassis);
+		}
+		foreach ($found_c as $c) {
+			$note_duplicate($s_id, $c, 'reporter_chassis_change', 'chassis_id', $chassis);
+			$note_duplicate($c, $s_id, 'reporter_chassis_change', 'chassis_id', $chassis);
+		}
+	}
+	$exists = array_flip(array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_COLUMN)));
+	$dismissed = [];
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%duplicate_dismissed%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		foreach ((json_decode($row['attrs'], true)['duplicate_dismissed'] ?? []) as $entry) {
+			$dismissed[(int) $row['id'].'|'.(int) ($entry['device_id'] ?? 0)] = true;
+			$dismissed[(int) ($entry['device_id'] ?? 0).'|'.(int) $row['id']] = true;
+		}
+	}
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$id = (int) $row['id'];
+		$attrs = json_decode($row['attrs'], true) ?: [];
+		$want = [];
+		foreach ($duplicate_candidates[$id] ?? [] as $entry) {
+			if ($entry['device_id'] !== null && (!isset($exists[$entry['device_id']]) || isset($dismissed[$id.'|'.$entry['device_id']]))) {
+				continue;
+			}
+			$want[] = $entry;
+		}
+		usort($want, static fn (array $a, array $b): int => [$a['reason'], $a['device_id'] ?? 0, $a['value']] <=> [$b['reason'], $b['device_id'] ?? 0, $b['value']]);
+		$summary['duplicate_candidates']['count'] += count($want);
+		if (($attrs['duplicate_candidates'] ?? []) === $want) {
+			continue;
+		}
+		if ($want) {
+			$attrs['duplicate_candidates'] = $want;
+		}
+		else {
+			unset($attrs['duplicate_candidates']);
+		}
+		$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+	}
+}
 
 $summary['manual_links_contradicted'] = $count_contradicted_manual_links();
 $ok = $processed > 0 || $skipped === 0;

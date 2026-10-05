@@ -817,7 +817,7 @@ c('I-09', 'Правило', function () {
 	ex(($summary['identity_keys_shared']['count'] ?? 0) === 1, 'identity_keys_shared lists the IP');
 });
 
-c('I-10', 'Пробел', function () {
+c('I-10', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
 	h_ports('R', [1 => 'Gi0/1']);
 	h_nbrs('R', [NR(1, mac(2), 'N', 'Gi0/1')]);
@@ -825,7 +825,15 @@ c('I-10', 'Пробел', function () {
 	h_ports('N', [1 => 'Gi0/1']);
 	h_nbrs('N', [NR(1, mac(1), 'R', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])]);
 	h_ingest('baseline: R and N see each other');
-	$before = h_state();
+	$by_chassis = static function (string $chassis): ?int {
+		foreach (h_state()['devices'] as $d) {
+			if ($d['chassis'] === $chassis) {
+				return $d['id'];
+			}
+		}
+		return null;
+	};
+	$s = $by_chassis(mac(1));
 	global $H;
 	h_tick();
 	$H['reps']['R']['chassis'] = mac(5);            // the chassis of R was replaced (RMA), the host in Zabbix is the same
@@ -833,18 +841,26 @@ c('I-10', 'Пробел', function () {
 	h_nbrs('R', [NR(1, mac(2), 'N', 'Gi0/1')]);
 	h_nbrs('N', [NR(1, mac(5), 'R', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])]);
 	h_ingest('R reports chassis Y, N advertises Y');
-	$s = h_state();
-	h_note('Devices: '.json_encode(array_map(static fn ($d) => $d['id'].':'.$d['name'].' chassis '.$d['chassis'].' ip '.$d['ip'].' '.($d['represented_by'] ?? ''), $s['devices'])));
-	$r_dev = null;
-	foreach ($s['devices'] as $d) {
-		if ($d['represented_by'] === 'reporter_self' && $d['name'] === 'R') {
-			$r_dev = $d;
-		}
-	}
-	ex($r_dev !== null && $r_dev['chassis'] === mac(1), 'the reporter keeps the stored chassis (008)');
-	ex(count($s['devices']) === count($before['devices']) + 1, 'the neighbor side: N advertises chassis Y -> a NEW Device(Y), not the reporter\'s Device (the device splits in two)');
-	ex(count(array_filter($s['devices'], static fn ($d) => $d['chassis'] === mac(5))) === 1, 'exactly one Device(Y)');
-});
+	$c = $by_chassis(mac(5));
+	global $pdo;
+	$cand = static fn (int $id): array => json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_nodes WHERE id=?', [$id]), true)['duplicate_candidates'] ?? [];
+	ex($by_chassis(mac(1)) === $s && $c !== null && $c !== $s, 'the reporter\'s Device S keeps the stored chassis X; the neighbors made Device C for Y (3 Devices)');
+	ex($cand($s) === [['device_id' => $c, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]]
+		&& $cand($c) === [['device_id' => $s, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]], 'candidate reporter_chassis_change on S and on C');
+	h_note('operator merge: keep S, remove C');
+	CTopologyPrototype::mergeDevices((string) $s, (string) $c, 'Admin');
+	h_tick();
+	h_nbrs('R', [NR(1, mac(2), 'N', 'Gi0/1')]);
+	h_nbrs('N', [NR(1, mac(5), 'R', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])]);
+	h_ingest('after the operator merge (keep S, remove C)');
+	$k = json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_nodes WHERE id=?', [$s]), true);
+	ex(h_dev_count() === 2 && ($k['chassis_id'] ?? null) === mac(5) && ($k['replaced_chassis'] ?? null) === [mac(1)], 'S has chassis Y and replaced_chassis [X]; C is gone (2 Devices)');
+	ex(count(h_links('R:Gi0/1', 'N:Gi0/1', 'physical_link', 'active')) === 1, 'one link between R and N (C\'s link is on S)');
+	h_tick();
+	h_nbrs('N', [NR(1, mac(1), 'R', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])]);          // a stale neighbor row with the OLD chassis
+	h_ingest('N still advertises the old chassis X');
+	ex(h_dev_count() === 2 && count(h_links('R:Gi0/1', 'N:Gi0/1', 'physical_link', 'active')) === 1, 'the stale row finds S by replaced_chassis: no ghost Device');
+}, 'test_duplicate_candidates.php §4');
 
 c('I-11', 'Правило', function () {
 	base_r();
@@ -2400,6 +2416,19 @@ c('N-03', 'Правило', function () {
 // J. Join of a split identity (model §6.7.1; handoff 012)
 // ============================================================================================================
 
+/** The duplicate candidates written on every Device: [sysname|chassis => list of "reason->other"]. */
+function dup_candidates_of(): array {
+	global $pdo;
+	$out = [];
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type='device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$a = json_decode($row['attrs'], true);
+		foreach ($a['duplicate_candidates'] ?? [] as $c) {
+			$out[$row['id']][] = $c['reason'].'->'.($c['device_id'] ?? 'none');
+		}
+	}
+	return $out;
+}
+
 c('J-01', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1')], 'lldp');                                        // LLDP without a management address: chassis only
@@ -2428,6 +2457,8 @@ c('J-02', 'Правило', function () {
 	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
 	$summary = h_ingest('LLDP now carries the management address: a row with chassis + IP');
 	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'a neighbor row with both keys never merges (devices_joined = 0, both Devices stay)');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => $l === [$l[0]] && str_starts_with($l[0], 'split_identity->'))) === 2, 'the candidate split_identity is on both Devices');
 }, 'test_join_identity.php §2');
 
 c('J-03', 'Правило', function () {
@@ -2442,6 +2473,8 @@ c('J-03', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'NA', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
 	$summary = h_ingest('a row names the chassis of A and the IP of B');
 	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no merge from a neighbor row: all Devices stay (R, A, B)');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => str_starts_with($l[0], 'split_identity->'))) === 2, 'the candidate is on both Devices (a merge would be refused: two associations)');
 }, 'test_join_identity.php §3');
 
 // ============================================================================================================

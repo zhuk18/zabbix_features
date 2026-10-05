@@ -707,22 +707,22 @@
         },
         {
             "id": "I-10",
-            "rating": "Пробел",
+            "rating": "Правило",
             "first_pass": true,
             "verdict": "match",
             "failed": [],
             "idempotent": true,
             "order_independent": true,
-            "covered_by": null,
+            "covered_by": "test_duplicate_candidates.php §4",
             "notes": [
-                "Devices: [\"111:R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"114:N chassis a0:00:00:00:00:02 ip 10.0.0.2 reporter_self\",\"117:R chassis a0:00:00:00:00:05 ip 10.0.0.1 \"]"
+                "operator merge: keep S, remove C"
             ],
             "actual": {
                 "devices": [
                     {
                         "id": 111,
                         "name": "R",
-                        "chassis": "a0:00:00:00:00:01",
+                        "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.1",
                         "matched_by": null,
                         "represented_by": "reporter_self"
@@ -734,20 +734,11 @@
                         "ip": "10.0.0.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
-                    },
-                    {
-                        "id": 117,
-                        "name": "R",
-                        "chassis": "a0:00:00:00:00:05",
-                        "ip": "10.0.0.1",
-                        "matched_by": null,
-                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#113/if1",
-                        "Gi0/1*#118/if-563193"
+                        "Gi0/1#113/if1"
                     ],
                     "N": [
                         "Gi0/1#116/if1"
@@ -758,7 +749,7 @@
                 ],
                 "observations": [
                     "R:Gi0/1 -> N applied edge#18 port",
-                    "N:Gi0/1 -> R conflict edge#18 port"
+                    "N:Gi0/1 -> R applied edge#18 port"
                 ]
             },
             "steps": [
@@ -782,6 +773,28 @@
                     "obs": [
                         "R:Gi0/1 -> N applied edge#18 port",
                         "N:Gi0/1 -> R conflict edge#18 port"
+                    ]
+                },
+                {
+                    "step": "after the operator merge (keep S, remove C)",
+                    "devices": 2,
+                    "links": [
+                        "physical_link N:Gi0/1 ~ R:Gi0/1 active #18"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> N applied edge#18 port",
+                        "N:Gi0/1 -> R applied edge#18 port"
+                    ]
+                },
+                {
+                    "step": "N still advertises the old chassis X",
+                    "devices": 2,
+                    "links": [
+                        "physical_link N:Gi0/1 ~ R:Gi0/1 active #18"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> N applied edge#18 port",
+                        "N:Gi0/1 -> R applied edge#18 port"
                     ]
                 }
             ]
@@ -8057,7 +8070,7 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "R observation: {\"id\":310,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:macAddress:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":204,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #204\"]"
+                "R observation: {\"id\":316,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:macAddress:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":204,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #204\"]"
             ],
             "actual": {
                 "devices": [
@@ -9197,7 +9210,7 @@
         },
         "rating": {
             "Правило": {
-                "match": 97,
+                "match": 98,
                 "out of harness": 9
             },
             "Ограничение": {
@@ -9209,7 +9222,7 @@
                 "out of harness": 2
             },
             "Пробел": {
-                "match": 10,
+                "match": 9,
                 "out of harness": 2,
                 "differs": 1
             }
