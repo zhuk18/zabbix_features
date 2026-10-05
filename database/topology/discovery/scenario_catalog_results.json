@@ -9042,10 +9042,12 @@
             "id": "J-03",
             "rating": "Правило",
             "first_pass": true,
-            "verdict": "match",
-            "failed": [],
+            "verdict": "differs",
+            "failed": [
+                "the reverse reporter order gives a different natural state; only with the forward order: [\"devices: NA|a0:00:00:00:00:0a|10.0.0.30||reporter_self\"]; only with the reverse order: [\"devices: NA|a0:00:00:00:00:0a|10.5.5.5||reporter_self\"]; forward: {\"devices\":[\"NA|a0:00:00:00:00:0a|10.0.0.30||reporter_self\",\"NB||10.5.5.5||reporter_self\",\"R|a0:00:00:00:00:01|10.0.0.1||reporter_self\"],\"ports\":{\"NA\":[\"Gi0\\/11\"],\"NB\":[\"Gi0\\/11\"],\"R\":[\"Gi0\\/11\",\"Gi0\\/22\",\"Gi0\\/33\",\"Gi0\\/44\"]},\"links\":[\"physical_link NA:Gi0\\/1 ~ R:Gi0\\/1 active\"],\"obs\":[\"R:Gi0\\/1 -> NA applied port\"]}; reverse: {\"devices\":[\"NA|a0:00:00:00:00:0a|10.5.5.5||reporter_self\",\"NB||10.5.5.5||reporter_self\",\"R|a0:00:00:00:00:01|10.0.0.1||reporter_self\"],\"ports\":{\"NA\":[\"Gi0\\/11\"],\"NB\":[\"Gi0\\/11\"],\"R\":[\"Gi0\\/11\",\"Gi0\\/22\",\"Gi0\\/33\",\"Gi0\\/44\"]},\"links\":[\"physical_link NA:Gi0\\/1 ~ R:Gi0\\/1 active\"],\"obs\":[\"R:Gi0\\/1 -> NA applied port\"]}"
+            ],
             "idempotent": true,
-            "order_independent": true,
+            "order_independent": false,
             "covered_by": "test_join_identity.php §3",
             "notes": [],
             "actual": {
@@ -9114,17 +9116,83 @@
                     ]
                 }
             ]
+        },
+        {
+            "id": "X-01",
+            "rating": "Пробел",
+            "first_pass": false,
+            "verdict": "differs",
+            "failed": [
+                "catalog: the result does not depend on the order of the reporters (actual: {\"R,H1,H2\":[\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"H1,R,H2\":[\"H2 chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"H2,R,H1\":[\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"H2,H1,R\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"BOX chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"]})"
+            ],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [
+                "{\"order\":\"R,H1,H2\",\"devices\":[\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H1,R,H2\",\"devices\":[\"H2 chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H2,R,H1\",\"devices\":[\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H2,H1,R\",\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"BOX chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":1,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[{\"kept\":1649,\"removed\":1646,\"key\":\"mgmt_ip\",\"value\":\"10.5.5.5\",\"kept_target\":1650,\"removed_target\":1647}]}"
+            ],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1646,
+                        "name": "H2",
+                        "chassis": null,
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1649,
+                        "name": "BOX",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1652,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "H2": [
+                        "Gi0/1#1648/if1"
+                    ],
+                    "BOX": [
+                        "Gi0/1#1651/if1"
+                    ],
+                    "R": [
+                        "Gi0/1#1654/if1"
+                    ]
+                },
+                "links": [
+                    "physical_link BOX:Gi0/1 ~ R:Gi0/1 active #232"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> BOX applied edge#232 port"
+                ]
+            },
+            "steps": []
         }
     ],
     "counts": {
         "verdict": {
-            "match": 124,
-            "out of harness": 18
+            "match": 123,
+            "out of harness": 18,
+            "differs": 2
         },
         "rating": {
             "Правило": {
-                "match": 97,
-                "out of harness": 9
+                "match": 96,
+                "out of harness": 9,
+                "differs": 1
             },
             "Ограничение": {
                 "match": 5,
@@ -9136,7 +9204,8 @@
             },
             "Пробел": {
                 "match": 10,
-                "out of harness": 2
+                "out of harness": 2,
+                "differs": 1
             }
         }
     }

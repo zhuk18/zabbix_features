@@ -90,10 +90,13 @@ function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, arr
 		count($rows), count($rows)]);
 }
 
-function run_ingest(string $dsn, string $user, string $password, array $extra = []): array {
+function run_ingest(string $dsn, string $user, string $password, array $extra = [], ?string $order = null): array {
 	$cmd = [PHP_BINARY, __DIR__.'/ingest.php', '--pdo-dsn', $dsn, '--pdo-user', $user, '--pdo-password', $password];
 	foreach ($extra as $host) {
 		array_push($cmd, '--zabbix-host', $host);
+	}
+	if ($order !== null) {
+		array_push($cmd, '--reporter-order', $order);
 	}
 	// A private temp dir keeps the run lock and status file away from any real ingest's.
 	$tmp = sys_get_temp_dir().'/topology-snapshot-ingest-test';
@@ -2442,6 +2445,48 @@ c('J-03', 'Правило', function () {
 	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no join: both Devices stay (R, A, B)');
 	ex((int) ($summary['devices_join_refused']['count'] ?? 0) === 1, 'devices_join_refused = 1 (both have a represented_by)');
 }, 'test_join_identity.php §3');
+
+// ============================================================================================================
+// X. Order dependence found while building J-03 (handoff 013 section 1): characterization, never fails
+// ============================================================================================================
+
+/** One run of the "two hosts of one box" scenario with the reporters walked in $order (names). Returns the picture. */
+function x01_run(array $order): array {
+	global $dsn, $user, $password, $H;
+	h_reset();
+	h_rep('R', mac(1), '10.0.0.1');
+	h_rep('H1', mac(10), '10.0.0.30');
+	h_rep('H2', null, '10.5.5.5');                          // SNMP IP 1, reports no loc_chassis
+	h_ports('R', [1 => 'Gi0/1']);
+	h_ports('H1', [1 => 'Gi0/1']);
+	h_snap('H2', ROLE_PORTS, PR([1 => 'Gi0/1']));
+	h_nbrs('R', [NR(1, mac(10), 'BOX', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
+	$ids = implode(',', array_map(static fn ($n) => $H['reps'][$n]['id'], $order));
+	$r = run_ingest($dsn, $user, $password, [], $ids);
+	if (getenv('X01_DEBUG')) {
+		echo "--- order {$ids}\n".$r['out'].$r['err'];       // the ingest log of each order
+	}
+	$state = h_state();
+	return ['order' => implode(',', $order), 'devices' => array_map(static fn ($d) => $d['name'].' chassis '.($d['chassis'] ?? '-').' ip '.($d['ip'] ?? '-').' '.($d['represented_by'] ?? 'unrepresented'), $state['devices']),
+		'skipped' => $r['summary']['reporters_skipped'] ?? [], 'join_refused' => $r['summary']['devices_join_refused']['count'] ?? null,
+		'joined' => $r['summary']['devices_joined']['count'] ?? null, 'shared' => $r['summary']['identity_keys_shared']['count'] ?? null,
+		'exit' => $r['code'], 'refused_list' => $r['summary']['devices_join_refused']['list'] ?? null];
+}
+
+c('X-01', 'Пробел', function () {
+	$runs = [x01_run(['R', 'H1', 'H2']), x01_run(['H1', 'R', 'H2']), x01_run(['H2', 'R', 'H1']), x01_run(['H2', 'H1', 'R'])];
+	foreach ($runs as $run) {
+		h_note(json_encode($run, JSON_UNESCAPED_UNICODE));
+	}
+	$natural = array_map(static fn ($r) => $r['devices'], $runs);
+	sort($natural[0]);
+	$same = true;
+	foreach ($natural as $n) {
+		sort($n);
+		$same = $same && $n === $natural[0];
+	}
+	ex($same, 'catalog: the result does not depend on the order of the reporters (actual: '.json_encode(array_column($runs, 'devices', 'order'), JSON_UNESCAPED_UNICODE).')');
+});
 
 // ============================================================================================================
 // Run
