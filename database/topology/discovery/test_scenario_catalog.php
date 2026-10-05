@@ -2521,6 +2521,62 @@ c('X-01', 'Пробел', function () {
 });
 
 // ============================================================================================================
+// S. Segments (topology-5-access-control.md §6, handoff 014 section 4): characterization, never fails.
+// The ingest knows no proxy: a reporter's proxy or proxy group is not an input of any identity key today, so the
+// "different proxies" of the scenarios cannot be expressed; each case runs the scenario as it is and records what
+// the global mgmt_ip / sysname keys do. The ex() lines state what a segment-scoped identity would give.
+// ============================================================================================================
+
+function s_picture(string $label): array {
+	$state = h_state();
+	$pic = ['devices' => array_map(static fn ($d) => $d['name'].' chassis '.($d['chassis'] ?? '-').' ip '.($d['ip'] ?? '-').' '.($d['represented_by'] ?? 'unrepresented'), $state['devices']),
+		'links' => $state['links'], 'obs' => array_map(static fn ($o) => $o['reporter'].':'.$o['port'].' '.$o['outcome'], $state['obs_full'])];
+	h_note($label.': '.json_encode($pic, JSON_UNESCAPED_UNICODE));
+	return $pic;
+}
+
+c('S-01', 'Пробел', function () {
+	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1 (not expressible)
+	h_rep('R2', mac(2), '10.1.1.2');                       // behind proxy P2
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, null, 'PRINTER-A', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_nbrs('R2', [NR(1, null, 'PRINTER-B', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	$summary = h_ingest('two reporters, each sees a CDP-only neighbor with IP 10.0.0.1');
+	$pic = s_picture('S-01');
+	h_note('S-01 summary: identity_keys_shared='.json_encode($summary['identity_keys_shared'] ?? null).' observations='.json_encode($summary['observations'] ?? null));
+	ex(h_dev_count() === 4, 'catalog: the two neighbors with the same private IP behind different proxies are two Devices (actual: '.h_dev_count().')');
+	ex(!in_array('ambiguous', array_map(static fn ($o) => substr(strrchr($o, ' '), 1), $pic['obs']), true), 'catalog: no observation is ambiguous because of the other segment (actual: '.json_encode($pic['obs'], JSON_UNESCAPED_UNICODE).')');
+});
+
+c('S-02', 'Пробел', function () {
+	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, null, 'CDP-ONLY', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_ingest('a CDP-only Device with IP 10.0.0.1 seen from P1');
+	h_tick();
+	h_rep('R2', mac(20), '10.0.0.1');                      // behind proxy P2: SNMP IP 10.0.0.1 and its own chassis
+	h_ports('R2', [1 => 'Gi0/1']);
+	$summary = h_ingest('a reporter behind P2 with SNMP IP 10.0.0.1 and its own chassis');
+	$pic = s_picture('S-02');
+	h_note('S-02 summary: devices_joined='.json_encode($summary['devices_joined'] ?? null).' duplicate_candidates='.json_encode($summary['duplicate_candidates'] ?? null));
+	ex((int) ($summary['devices_joined']['count'] ?? 0) === 0 && h_dev_count() === 3, 'catalog: no join across proxies, three Devices (R1, CDP-only, R2) (actual joined='.(int) ($summary['devices_joined']['count'] ?? 0).', devices='.h_dev_count().')');
+});
+
+c('S-03', 'Пробел', function () {
+	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
+	h_rep('R2', mac(2), '10.1.1.2');                       // behind proxy P2
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, mac(30), 'PROVIDER', 'Gi0/7')], 'lldp');
+	h_nbrs('R2', [NR(1, mac(30), 'PROVIDER', 'Gi0/8')], 'lldp');
+	h_ingest('the same chassis seen by reporters behind two proxies');
+	s_picture('S-03');
+	$links = array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active');
+	ex(h_dev_count() === 3 && count($links) === 2, 'catalog: one Device for the chassis, one link per cable (actual: devices='.h_dev_count().', active links='.count($links).')');
+});
+
+// ============================================================================================================
 // Run
 // ============================================================================================================
 
