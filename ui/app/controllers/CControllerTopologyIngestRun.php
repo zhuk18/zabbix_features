@@ -12,18 +12,10 @@
  * one always go through the same lock regardless of which process gets there first — nothing extra is
  * needed here beyond spawning the script.
  *
- * Arg sourcing (flagged rather than hardcoded silently, per the coding-agent rule of topology-1-model.md ("flag rather than expand scope")):
- *  - --api-url / --api-token: this controller runs inside an authenticated Zabbix web session, so rather
- *    than minting a new API token it reuses the current session id (CWebUser::$data['sessionid']) as the
- *    bearer credential against this same frontend's api_jsonrpc.php — the JSON-RPC layer
- *    (CLocalApiClient::authenticate()) already accepts either a 64-char API token or a session id under
- *    the same Bearer header, so no new credential-management surface is needed.
- *  - --pdo-dsn/--pdo-user/--pdo-password: read from the frontend's own $DB global (populated from
- *    ui/conf/zabbix.conf.php), which is the same database ingest.php needs to reach directly via PDO.
- *  - No reporters argument is passed: ingest.php discovers its reporters itself, dynamically, via
- *    item.get on the topology.discovery.raw key (topology-1-model.md "Reporters and usable snapshots") —
- *    every host onboarded with the template is automatically picked up. Reporter selection is not this
- *    controller's concern at all; there is nothing here to source or flag.
+ * Identity (topology-5-access-control.md §2.1): the run is a system process. It gets no session id and no API credential; the database
+ * settings reach it through its environment (CTopologyIngest::start()), never through the command line, and it finds the reporters in the
+ * database itself, so the result does not depend on who pressed the button. Until the role rule "Run topology ingest" exists the button
+ * is for Super admin only.
  */
 class CControllerTopologyIngestRun extends CController {
 	protected function init(): void {
@@ -31,7 +23,7 @@ class CControllerTopologyIngestRun extends CController {
 	}
 
 	protected function checkInput(): bool { return true; }
-	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
+	protected function checkPermissions(): bool { return CWebUser::getType() == USER_TYPE_SUPER_ADMIN; }
 
 	protected function doAction() {
 		try {

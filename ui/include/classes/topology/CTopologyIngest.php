@@ -40,14 +40,6 @@ class CTopologyIngest {
 		// PHP process — flock() itself is always released by the OS on process death, but a stale status
 		// read here wouldn't know that, whereas always attempting a fresh spawn self-heals it).
 
-		$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-		$host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1';
-		$base_path = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
-		$api_url = $scheme.'://'.$host.$base_path.'/api_jsonrpc.php';
-
-		// Reuse the current session's own credential rather than minting an API token — see file header.
-		$api_token = CWebUser::$data['sessionid'];
-
 		$pdo_dsn = 'mysql:host='.$DB['SERVER'].';port='.$DB['PORT'].';dbname='.$DB['DATABASE'];
 		if ($DB['TYPE'] === ZBX_DB_POSTGRESQL) {
 			$pdo_dsn = 'pgsql:host='.$DB['SERVER'].';port='.$DB['PORT'].';dbname='.$DB['DATABASE'];
@@ -55,14 +47,9 @@ class CTopologyIngest {
 
 		$php_bin = defined('PHP_BINARY') && PHP_BINARY !== '' ? PHP_BINARY : 'php';
 
-		$command = implode(' ', array_map('escapeshellarg', [
-			$php_bin, $ingest_script,
-			'--api-url', $api_url,
-			'--api-token', $api_token,
-			'--pdo-dsn', $pdo_dsn,
-			'--pdo-user', $DB['USER'],
-			'--pdo-password', $DB['PASSWORD']
-		]));
+		// The run is a system process (topology-5-access-control.md §2.1): no session id, no API credential, and no password on the command line
+		// (visible in `ps`). The database settings go through the environment of the child; it finds its reporters in the database itself.
+		$command = implode(' ', array_map('escapeshellarg', [$php_bin, $ingest_script]));
 
 		// Detached background process: stdout/stderr redirected to a log file (not left connected to
 		// this short-lived web request), backgrounded with '&', and the shell itself detached via
@@ -70,7 +57,9 @@ class CTopologyIngest {
 		// there) so it keeps running after this PHP-FPM/php-built-in-server request returns.
 		$full_command = $command.' > '.escapeshellarg($log_file).' 2>&1 &';
 
-		$process = proc_open($full_command, [], $pipes);
+		$process = proc_open($full_command, [], $pipes, null, array_merge(getenv(), [
+			'TOPOLOGY_PDO_DSN' => $pdo_dsn, 'TOPOLOGY_PDO_USER' => (string) $DB['USER'], 'TOPOLOGY_PDO_PASSWORD' => (string) $DB['PASSWORD']
+		]));
 		if (!is_resource($process)) {
 			throw new Exception('The ingest process could not be started (proc_open failed; is it disabled for the web server?)');
 		}

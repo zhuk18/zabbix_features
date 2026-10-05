@@ -34,8 +34,9 @@ declare(strict_types=1);
  * registry, and omitting it (the default, no-args case) is what runs full dynamic discovery.
  *
  * Usage:
- *   ingest.php --api-url <url> --api-token <token> --pdo-dsn <dsn> --pdo-user <user> \
- *       [--pdo-password <password>] [--zabbix-host <host> ...]
+ *   ingest.php --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] [--zabbix-host <host> ...]
+ *   (the same settings may come from TOPOLOGY_PDO_DSN / _USER / _PASSWORD: a run started by the web server passes them that way, so nothing
+ *   secret is on the command line. --api-url / --api-token are optional and no longer used by default: the reporters are read from the database.)
  *
  * Env vars (fallbacks for the flags above): ZABBIX_API_URL, ZABBIX_API_TOKEN,
  * TOPOLOGY_PDO_DSN, TOPOLOGY_PDO_USER, TOPOLOGY_PDO_PASSWORD.
@@ -218,6 +219,34 @@ final class ZabbixApi {
 		$history = $this->call('history.get', ['output' => 'extend', 'itemids' => [$itemid],
 			'history' => 4, 'sortfield' => 'clock', 'sortorder' => 'DESC', 'limit' => 1]);
 		return $history ? $history[0]['value'] : null;
+	}
+}
+
+/** The same two reads as ZabbixApi, straight from the Zabbix database: no API call, no user, no session. A run (from the UI or the
+ * CLI) always finds its reporters this way, so it does not depend on who started it (topology-5-access-control.md §2.1). A database without
+ * the Zabbix tables (a test stand-in) has no legacy reporters. */
+final class ZabbixDb {
+	public function __construct(private PDO $pdo) {
+	}
+
+	public function findAllReporterItems(): array {
+		try {
+			// status 3 = a template: only items of real hosts count (what 'templated' => false did for item.get)
+			$stmt = $this->pdo->query("SELECT i.itemid, i.hostid, h.host FROM items i JOIN hosts h ON h.hostid = i.hostid".
+				" WHERE i.key_ = 'topology.discovery.raw' AND h.status <> 3 ORDER BY i.itemid");
+		}
+		catch (PDOException $exception) {
+			return [];
+		}
+		return array_map(static fn (array $row): array => ['host' => $row['host'], 'hostid' => (string) $row['hostid'], 'itemid' => (string) $row['itemid']],
+			$stmt->fetchAll(PDO::FETCH_ASSOC));
+	}
+
+	public function latestValue(string|int $itemid): ?string {
+		$stmt = $this->pdo->prepare('SELECT value FROM history_text WHERE itemid = ? ORDER BY clock DESC, ns DESC LIMIT 1');
+		$stmt->execute([$itemid]);
+		$value = $stmt->fetchColumn();
+		return $value === false ? null : (string) $value;
 	}
 }
 
@@ -2978,7 +3007,8 @@ if (defined('TOPOLOGY_INGEST_TEST_HOOK')) {
 	return;
 }
 
-$api = ($api_url && $api_token) ? new ZabbixApi($api_url, $api_token) : null;
+// The API is optional (an explicit CLI choice); by default the legacy reporters are read from the database, never with a user's rights.
+$api = ($api_url && $api_token) ? new ZabbixApi($api_url, $api_token) : new ZabbixDb($pdo);
 $processed = 0;
 $skipped = 0;
 
@@ -3143,7 +3173,7 @@ if ($phase_2_done && !$zabbix_host_filter) {
 }
 
 // ---- Legacy Trapper-blob reporters. A host that has LLD snapshots is ingested from them only. ----
-$reporter_items = $api ? $api->findAllReporterItems() : [];
+$reporter_items = $api->findAllReporterItems();
 if ($zabbix_host_filter) {
 	$reporter_items = array_values(array_filter($reporter_items,
 		static fn (array $row): bool => in_array($row['host'], $zabbix_host_filter, true)));
