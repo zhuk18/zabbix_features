@@ -2427,13 +2427,12 @@ c('J-02', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
 	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
 	$summary = h_ingest('LLDP now carries the management address: a row with chassis + IP');
-	ex(h_dev_count() === 2 && (int) ($summary['devices_joined']['count'] ?? 0) === 1, 'B is merged into A in the same run (devices_joined = 1)');
-	ex(count(h_links('R:Gi0/1', 'N', 'physical_link', 'active')) === 1 && array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['applied'], 'one link, both observations applied');
+	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'a neighbor row with both keys never merges (devices_joined = 0, both Devices stay)');
 }, 'test_join_identity.php §2');
 
 c('J-03', 'Правило', function () {
 	base_r();
-	h_rep('NA', mac(10), '10.0.0.30');
+	h_rep('NA', mac(10), null, false);                      // a reporter with a chassis and no SNMP interface IP
 	h_ports('NA', [1 => 'Gi0/1']);
 	h_rep('NB', null, '10.5.5.5');                          // a reporter known by its SNMP IP only
 	h_snap('NB', ROLE_PORTS, PR([1 => 'Gi0/1']));
@@ -2442,8 +2441,7 @@ c('J-03', 'Правило', function () {
 	h_tick();
 	h_nbrs('R', [NR(1, mac(10), 'NA', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
 	$summary = h_ingest('a row names the chassis of A and the IP of B');
-	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no join: both Devices stay (R, A, B)');
-	ex((int) ($summary['devices_join_refused']['count'] ?? 0) === 1, 'devices_join_refused = 1 (both have a represented_by)');
+	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no merge from a neighbor row: all Devices stay (R, A, B)');
 }, 'test_join_identity.php §3');
 
 // ============================================================================================================

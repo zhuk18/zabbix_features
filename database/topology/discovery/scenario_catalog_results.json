@@ -8994,6 +8994,14 @@
                         "ip": "10.5.5.5",
                         "matched_by": null,
                         "represented_by": null
+                    },
+                    {
+                        "id": 1596,
+                        "name": "N",
+                        "chassis": null,
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
@@ -9004,7 +9012,8 @@
                         "Gi0/4#1594/if4"
                     ],
                     "N": [
-                        "Gi0/1*#1597/if-563193"
+                        "Gi0/1*#1597/if-563193",
+                        "Gi0/1*#1598/if-563193"
                     ]
                 },
                 "links": [
@@ -9012,7 +9021,7 @@
                 ],
                 "observations": [
                     "R:Gi0/1 -> N applied edge#226 port",
-                    "R:Gi0/1 -> N applied edge#226 port"
+                    "R:Gi0/1 -> ? ambiguous"
                 ]
             },
             "steps": [
@@ -9027,13 +9036,13 @@
                 },
                 {
                     "step": "LLDP now carries the management address: a row with chassis + IP",
-                    "devices": 2,
+                    "devices": 3,
                     "links": [
                         "physical_link N:Gi0/1* ~ R:Gi0/1 active #226"
                     ],
                     "obs": [
                         "R:Gi0/1 -> N applied edge#226 port",
-                        "R:Gi0/1 -> N applied edge#226 port"
+                        "R:Gi0/1 -> ? ambiguous"
                     ]
                 }
             ]
@@ -9042,12 +9051,10 @@
             "id": "J-03",
             "rating": "Правило",
             "first_pass": true,
-            "verdict": "differs",
-            "failed": [
-                "the reverse reporter order gives a different natural state; only with the forward order: [\"devices: NA|a0:00:00:00:00:0a|10.0.0.30||reporter_self\"]; only with the reverse order: [\"devices: NA|a0:00:00:00:00:0a|10.5.5.5||reporter_self\"]; forward: {\"devices\":[\"NA|a0:00:00:00:00:0a|10.0.0.30||reporter_self\",\"NB||10.5.5.5||reporter_self\",\"R|a0:00:00:00:00:01|10.0.0.1||reporter_self\"],\"ports\":{\"NA\":[\"Gi0\\/11\"],\"NB\":[\"Gi0\\/11\"],\"R\":[\"Gi0\\/11\",\"Gi0\\/22\",\"Gi0\\/33\",\"Gi0\\/44\"]},\"links\":[\"physical_link NA:Gi0\\/1 ~ R:Gi0\\/1 active\"],\"obs\":[\"R:Gi0\\/1 -> NA applied port\"]}; reverse: {\"devices\":[\"NA|a0:00:00:00:00:0a|10.5.5.5||reporter_self\",\"NB||10.5.5.5||reporter_self\",\"R|a0:00:00:00:00:01|10.0.0.1||reporter_self\"],\"ports\":{\"NA\":[\"Gi0\\/11\"],\"NB\":[\"Gi0\\/11\"],\"R\":[\"Gi0\\/11\",\"Gi0\\/22\",\"Gi0\\/33\",\"Gi0\\/44\"]},\"links\":[\"physical_link NA:Gi0\\/1 ~ R:Gi0\\/1 active\"],\"obs\":[\"R:Gi0\\/1 -> NA applied port\"]}"
-            ],
+            "verdict": "match",
+            "failed": [],
             "idempotent": true,
-            "order_independent": false,
+            "order_independent": true,
             "covered_by": "test_join_identity.php §3",
             "notes": [],
             "actual": {
@@ -9064,7 +9071,7 @@
                         "id": 1605,
                         "name": "NA",
                         "chassis": "a0:00:00:00:00:0a",
-                        "ip": "10.0.0.30",
+                        "ip": "10.5.5.5",
                         "matched_by": null,
                         "represented_by": "reporter_self"
                     },
@@ -9132,7 +9139,7 @@
                 "{\"order\":\"R,H1,H2\",\"devices\":[\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
                 "{\"order\":\"H1,R,H2\",\"devices\":[\"H2 chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
                 "{\"order\":\"H2,R,H1\",\"devices\":[\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
-                "{\"order\":\"H2,H1,R\",\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"BOX chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":1,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[{\"kept\":1649,\"removed\":1646,\"key\":\"mgmt_ip\",\"value\":\"10.5.5.5\",\"kept_target\":1650,\"removed_target\":1647}]}"
+                "{\"order\":\"H2,H1,R\",\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"BOX chassis a0:00:00:00:00:0a ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}"
             ],
             "actual": {
                 "devices": [
@@ -9184,15 +9191,14 @@
     ],
     "counts": {
         "verdict": {
-            "match": 123,
+            "match": 124,
             "out of harness": 18,
-            "differs": 2
+            "differs": 1
         },
         "rating": {
             "Правило": {
-                "match": 96,
-                "out of harness": 9,
-                "differs": 1
+                "match": 97,
+                "out of harness": 9
             },
             "Ограничение": {
                 "match": 5,

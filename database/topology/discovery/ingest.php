@@ -1127,9 +1127,9 @@ $snap_port = static function (int $device_id, int $if_index, array $overlay = []
 	return $last_insert_id();
 };
 
-// topology-1-model.md §6.7.1 "Join of a split identity". One neighbor can first give two Devices: LLDP without a management address
-// gives a chassis only (A), CDP gives an IP only (B). A row that carries both keys (a neighbor row with chassis + IP, or a reporter's own
-// identity: loc_chassis + SNMP interface IP) merges B into A when the chassis finds exactly A, the IP finds exactly one other Device B and
+// topology-1-model.md §6.7.1 "Join of a split identity (automatic, reporter only)". One neighbor can first give two Devices: LLDP without a
+// management address gives a chassis only (A), CDP gives an IP only (B). The reporter's own identity (loc_chassis + SNMP interface IP) carries
+// both keys and merges B into A when the chassis finds exactly A, the IP finds exactly one other Device B and
 // B has no chassis. B's Ports, links, observations, shadow_ack entries and represented_by move to A, B's attributes fill A's empty ones,
 // B is deleted (the only deletion of a Device by ingest). Both with a represented_by: no join, reported. The IP on two or more other
 // Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
@@ -1311,10 +1311,10 @@ $join_split_identity = static function (?string $chassis_id, ?string $mgmt_ip) u
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at) use (
-	$join_split_identity, $resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
+	$resolve_device, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
-	// a row with both keys may join a split identity (§6.7.1); sysname never does
-	$join_split_identity($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null);
+	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
+	// reporter's own identity joins automatically (see $snap_ingest_reporter).
 	$match = $resolve_device($incoming['chassis_id'] ?? null, $incoming['mgmt_ip'] ?? null, $local_port_id,
 		$incoming['sysname'] ?? null);
 	if ($match !== null && $match[0] === 'shared') {
