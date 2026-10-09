@@ -1192,7 +1192,18 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 
 	now = time(NULL);
 
-	/* rows are stored only after successful processing; problems are reported, the rule stays supported */
+	if (SUCCEED != lld_update_items(hostid, item->itemid, &lld_rows, error, &lifetime, &enabled_lifetime, now,
+			ZBX_FLAG_DISCOVERY_NORMAL, NULL, NULL, cfg.auditlog_enabled, cfg.auditlog_mode))
+	{
+		zabbix_log(LOG_LEVEL_DEBUG, "cannot update/add items because parent host was removed while"
+				" processing lld rule");
+		goto out;
+	}
+
+	lld_item_links_sort(&lld_rows);
+
+	/* rows are stored only after successful processing; problems are reported, the rule stays supported. After the items: the PORTS rows */
+	/* carry the ids of the items made from them (topology-2-lld-delivery.md §3.4), known only when lld_update_items() has saved them */
 	if (0 != topology_role)
 	{
 		char	*topology_info = NULL;
@@ -1208,16 +1219,6 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 			zbx_free(topology_info);
 		}
 	}
-
-	if (SUCCEED != lld_update_items(hostid, item->itemid, &lld_rows, error, &lifetime, &enabled_lifetime, now,
-			ZBX_FLAG_DISCOVERY_NORMAL, NULL, NULL, cfg.auditlog_enabled, cfg.auditlog_mode))
-	{
-		zabbix_log(LOG_LEVEL_DEBUG, "cannot update/add items because parent host was removed while"
-				" processing lld rule");
-		goto out;
-	}
-
-	lld_item_links_sort(&lld_rows);
 
 	if (SUCCEED != lld_update_triggers(hostid, item->itemid, &lld_rows, error, &lifetime, &enabled_lifetime, now,
 			ZBX_FLAG_DISCOVERY_NORMAL, NULL, cfg.auditlog_enabled, cfg.auditlog_mode))
