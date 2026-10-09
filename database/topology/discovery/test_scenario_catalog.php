@@ -2539,7 +2539,15 @@ function x01_run(array $order): array {
 		echo "--- order {$ids}\n".$r['out'].$r['err'];       // the ingest log of each order
 	}
 	$state = h_state();
-	return ['order' => implode(',', $order), 'devices' => array_map(static fn ($d) => $d['name'].' chassis '.($d['chassis'] ?? '-').' ip '.($d['ip'] ?? '-').' '.($d['represented_by'] ?? 'unrepresented'), $state['devices']),
+	$cands = [];
+	foreach (dup_candidates_of() as $id => $list) {
+		foreach ($state['devices'] as $d) {
+			if ((int) $d['id'] === (int) $id) {
+				$cands[$d['name']] = $list;
+			}
+		}
+	}
+	return ['order' => implode(',', $order), 'cands' => $cands, 'devices' => array_map(static fn ($d) => $d['name'].' chassis '.($d['chassis'] ?? '-').' ip '.($d['ip'] ?? '-').' '.($d['represented_by'] ?? 'unrepresented'), $state['devices']),
 		'skipped' => $r['summary']['reporters_skipped'] ?? [], 'join_refused' => $r['summary']['devices_join_refused']['count'] ?? null,
 		'joined' => $r['summary']['devices_joined']['count'] ?? null, 'shared' => $r['summary']['identity_keys_shared']['count'] ?? null,
 		'exit' => $r['code'], 'refused_list' => $r['summary']['devices_join_refused']['list'] ?? null];
@@ -2557,7 +2565,16 @@ c('X-01', 'Правило', function () {
 		sort($n);
 		$same = $same && $n === $natural[0];
 	}
-	ex($same, 'catalog: the result does not depend on the order of the reporters (actual: '.json_encode(array_column($runs, 'devices', 'order'), JSON_UNESCAPED_UNICODE).')');
+	ex($same, 'the result does not depend on the order of the reporters (actual: '.json_encode(array_column($runs, 'devices', 'order'), JSON_UNESCAPED_UNICODE).')');
+	foreach ($runs as $run) {
+		$names = array_map(static fn ($d) => strstr($d, ' ', true), $run['devices']);
+		sort($names);
+		ex($names === ['H1', 'H2', 'R'] && !$run['skipped'], 'order '.$run['order'].': R, H1 and H2 keep their own Devices, nothing is skipped (actual: '.json_encode($run['devices'], JSON_UNESCAPED_UNICODE).')');
+		ex(isset($run['cands']['H1'], $run['cands']['H2']) && preg_grep('/^split_identity->/', $run['cands']['H1']) && preg_grep('/^split_identity->/', $run['cands']['H2']),
+			'order '.$run['order'].': split_identity on both reporters\' Devices (actual: '.json_encode($run['cands'], JSON_UNESCAPED_UNICODE).')');
+		$h1 = array_values(array_filter($run['devices'], static fn ($d) => str_starts_with($d, 'H1 ')));
+		ex(($h1[0] ?? '') === 'H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self', 'order '.$run['order'].': no key or attribute of the reporter\'s Device changed by the row (actual: '.($h1[0] ?? '-').')');
+	}
 });
 
 c('X-02', 'Правило', function () {
@@ -2565,13 +2582,13 @@ c('X-02', 'Правило', function () {
 	h_rep('H2', mac(20), '10.5.5.5');                       // H2 has the same SNMP IP (a second host of the same box) and its own chassis
 	h_ports('H1', [1 => 'Gi0/1', 2 => 'Gi0/2']);
 	h_ports('H2', [7 => 'Gi0/7']);
-	$summary = h_ingest('two hosts with one SNMP IP: the second one finds a Device that another host represents');
-	ex(($summary['reporters_skipped']['identity_conflict'] ?? 0) === 1, 'the second reporter is skipped as identity_conflict (actual: '.json_encode($summary['reporters_skipped'] ?? null).')');
+	$summary = h_ingest('two hosts with one SNMP IP: the IP is claimed by both reporters');
+	ex(!($summary['reporters_skipped'] ?? []) && (int) ($summary['reporters_processed'] ?? 0) === 2, 'both reporters are processed, none is skipped (actual: '.json_encode($summary['reporters_skipped'] ?? null).')');
 	$ports = h_state()['ports'];
-	ex(!isset($ports['H2']) && array_key_exists('H1', $ports) && count($ports['H1']) === 2, 'no port of the skipped host lands on the other host\'s Device (actual: '.json_encode($ports).')');
-	ex(h_dev_count() === 1, 'no Device is created for the skipped host');
-	global $H;
-	$H['multi'] = false;    // which of two hosts claiming one identity is skipped depends on the order by design: the first one keeps it (model §6.4 step 5)
+	ex(h_dev_count() === 2 && count($ports['H1'] ?? []) === 2 && count($ports['H2'] ?? []) === 1, 'each reporter has its own Device and its own ports (actual: '.json_encode($ports).')');
+	ex((int) ($summary['identity_keys_shared']['count'] ?? 0) === 1 && ($summary['identity_keys_shared']['list'][0]['key'] ?? '') === 'mgmt_ip', 'the IP key is shared: '.json_encode($summary['identity_keys_shared'] ?? null));
+	$cand = dup_candidates_of();
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => count($l) === 1 && str_starts_with($l[0], 'reporters_share_key->'))) === 2, 'reporters_share_key on both Devices (actual: '.json_encode($cand).')');
 });
 
 // ============================================================================================================

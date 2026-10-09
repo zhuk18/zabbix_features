@@ -213,20 +213,20 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 31,
-                        "name": "S-only",
-                        "chassis": null,
-                        "ip": null,
-                        "matched_by": "sysname",
-                        "represented_by": null
-                    },
-                    {
-                        "id": 32,
+                        "id": 27,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.102",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 34,
+                        "name": "S-only",
+                        "chassis": null,
+                        "ip": null,
+                        "matched_by": "sysname",
+                        "represented_by": null
                     },
                     {
                         "id": 36,
@@ -239,13 +239,13 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#27/if1",
-                        "Gi0/2#28/if2",
-                        "Gi0/3#29/if3",
-                        "Gi0/4#30/if4"
+                        "Gi0/1#29/if1",
+                        "Gi0/2#30/if2",
+                        "Gi0/3#31/if3",
+                        "Gi0/4#32/if4"
                     ],
                     "R2": [
-                        "Gi0/1#34/if1"
+                        "Gi0/1#33/if1"
                     ],
                     "S-only": [
                         "Gi0/24*#35/if-682742",
@@ -728,7 +728,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 114,
+                        "id": 113,
                         "name": "N",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -738,7 +738,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#113/if1"
+                        "Gi0/1#115/if1"
                     ],
                     "N": [
                         "Gi0/1#116/if1"
@@ -1856,7 +1856,7 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "ports of R: [\"Gi0\\/1#250\\/if1\",\"Gi0\\/2#251\\/if2\",\"Gi0\\/1#257\\/if11\",\"Gi0\\/2#258\\/if12\"]"
+                "ports of R: [\"Gi0\\/1#252\\/if1\",\"Gi0\\/2#253\\/if2\",\"Gi0\\/1#257\\/if11\",\"Gi0\\/2#258\\/if12\"]"
             ],
             "actual": {
                 "devices": [
@@ -1869,31 +1869,31 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 252,
-                        "name": "X",
-                        "chassis": "a0:00:00:00:00:0a",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 253,
+                        "id": 250,
                         "name": "S",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 255,
+                        "name": "X",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#250/if1",
-                        "Gi0/2#251/if2",
+                        "Gi0/1#252/if1",
+                        "Gi0/2#253/if2",
                         "Gi0/1#257/if11",
                         "Gi0/2#258/if12"
                     ],
                     "S": [
-                        "Gi0/24#255/if1"
+                        "Gi0/24#254/if1"
                     ],
                     "X": [
                         "Gi0/24*#256/if-682742"
@@ -2626,7 +2626,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 356,
+                        "id": 352,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.50",
@@ -2636,10 +2636,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#352/if1",
-                        "Gi0/2#353/if2",
-                        "Gi0/3#354/if3",
-                        "Gi0/4#355/if4"
+                        "Gi0/1#354/if1",
+                        "Gi0/2#355/if2",
+                        "Gi0/3#356/if3",
+                        "Gi0/4#357/if4"
                     ],
                     "X": [
                         "Gi0/24#358/if24"
@@ -2686,7 +2686,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 374,
+                        "id": 370,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.50",
@@ -2696,10 +2696,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#370/if1",
-                        "Gi0/2#371/if2",
-                        "Gi0/3#372/if3",
-                        "Gi0/4#373/if4"
+                        "Gi0/1#372/if1",
+                        "Gi0/2#373/if2",
+                        "Gi0/3#374/if3",
+                        "Gi0/4#375/if4"
                     ],
                     "X": [
                         "Gi0/1#376/if1"
@@ -3018,7 +3018,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 428,
+                        "id": 424,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -3028,10 +3028,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#424/if1",
-                        "Gi0/2#425/if2",
-                        "Gi0/3#426/if3",
-                        "Gi0/4#427/if4"
+                        "Gi0/1#426/if1",
+                        "Gi0/2#427/if2",
+                        "Gi0/3#428/if3",
+                        "Gi0/4#429/if4"
                     ],
                     "B": [
                         "Gi0/24#430/if24",
@@ -3153,7 +3153,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 456,
+                        "id": 452,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -3163,10 +3163,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#452/if1",
-                        "Gi0/2#453/if2",
-                        "Gi0/3#454/if3",
-                        "Gi0/4#455/if4"
+                        "Gi0/1#454/if1",
+                        "Gi0/2#455/if2",
+                        "Gi0/3#456/if3",
+                        "Gi0/4#457/if4"
                     ],
                     "B": [
                         "Gi0/24#458/if24",
@@ -3240,7 +3240,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 476,
+                        "id": 472,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -3250,10 +3250,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#472/if1",
-                        "Gi0/2#473/if2",
-                        "Gi0/3#474/if3",
-                        "Gi0/4#475/if4"
+                        "Gi0/1#474/if1",
+                        "Gi0/2#475/if2",
+                        "Gi0/3#476/if3",
+                        "Gi0/4#477/if4"
                     ],
                     "B": [
                         "Gi0/24#478/if24",
@@ -3604,7 +3604,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 520,
+                        "id": 516,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -3612,7 +3612,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 524,
+                        "id": 518,
                         "name": "C",
                         "chassis": "a0:00:00:00:00:03",
                         "ip": "10.0.0.3",
@@ -3630,14 +3630,14 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#516/if1",
-                        "Gi0/2#517/if2",
-                        "Gi0/3#518/if3",
-                        "Gi0/4#519/if4"
+                        "Gi0/1#520/if1",
+                        "Gi0/2#521/if2",
+                        "Gi0/3#522/if3",
+                        "Gi0/4#523/if4"
                     ],
                     "B": [
-                        "Gi0/24#522/if24",
-                        "Gi0/23#523/if23"
+                        "Gi0/24#524/if24",
+                        "Gi0/23#525/if23"
                     ],
                     "C": [
                         "eth0#526/if1"
@@ -4481,8 +4481,8 @@
                 ],
                 "observations": [
                     "R:Gi0/1 -> X applied edge#89 port",
-                    "R:Gi0/2 -> Y applied edge#90 port",
                     "R:Gi0/1 -> X applied edge#89 port",
+                    "R:Gi0/2 -> Y applied edge#90 port",
                     "R:Gi0/2 -> Y applied edge#90 port"
                 ]
             },
@@ -4496,8 +4496,8 @@
                     ],
                     "obs": [
                         "R:Gi0/1 -> X applied edge#89 port",
-                        "R:Gi0/2 -> Y applied edge#90 port",
                         "R:Gi0/1 -> X applied edge#89 port",
+                        "R:Gi0/2 -> Y applied edge#90 port",
                         "R:Gi0/2 -> Y applied edge#90 port"
                     ]
                 }
@@ -4524,7 +4524,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 650,
+                        "id": 646,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -4534,10 +4534,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#646/if1",
-                        "Gi0/2#647/if2",
-                        "Gi0/3#648/if3",
-                        "Gi0/4#649/if4"
+                        "Gi0/1#648/if1",
+                        "Gi0/2#649/if2",
+                        "Gi0/3#650/if3",
+                        "Gi0/4#651/if4"
                     ],
                     "B": [
                         "Gi0/24#652/if24",
@@ -4585,7 +4585,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 670,
+                        "id": 666,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -4595,10 +4595,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#666/if1",
-                        "Gi0/2#667/if2",
-                        "Gi0/3#668/if3",
-                        "Gi0/4#669/if4"
+                        "Gi0/1#668/if1",
+                        "Gi0/2#669/if2",
+                        "Gi0/3#670/if3",
+                        "Gi0/4#671/if4"
                     ],
                     "B": [
                         "Gi0/24#672/if24",
@@ -4650,28 +4650,28 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 687,
-                        "name": "host",
-                        "chassis": "a0:00:00:00:00:0a",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 688,
+                        "id": 686,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 690,
+                        "name": "host",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#686/if1"
+                        "Gi0/1#688/if1"
                     ],
                     "R2": [
-                        "Gi0/1#690/if1"
+                        "Gi0/1#689/if1"
                     ],
                     "host": [
                         "eth0*#691/if-597821",
@@ -4742,28 +4742,28 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 705,
-                        "name": "D",
-                        "chassis": "a0:00:00:00:00:14",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 706,
+                        "id": 704,
                         "name": "Y",
                         "chassis": "a0:00:00:00:00:0b",
                         "ip": "10.0.0.11",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 708,
+                        "name": "D",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "X": [
-                        "e1#704/if1"
+                        "e1#706/if1"
                     ],
                     "Y": [
-                        "e1#708/if1"
+                        "e1#707/if1"
                     ],
                     "D": [
                         "Gi0/5*#709/if-129908"
@@ -4808,20 +4808,20 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 721,
-                        "name": "X",
-                        "chassis": "a0:00:00:00:00:0a",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 722,
+                        "id": 720,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 724,
+                        "name": "X",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     },
                     {
                         "id": 726,
@@ -4834,10 +4834,10 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#720/if1"
+                        "Gi0/1#722/if1"
                     ],
                     "R2": [
-                        "Gi0/2#724/if2"
+                        "Gi0/2#723/if2"
                     ],
                     "X": [
                         "eth0*#725/if-597821",
@@ -4994,7 +4994,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 757,
+                        "id": 753,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5004,10 +5004,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#753/if1",
-                        "Gi0/2#754/if2",
-                        "Gi0/3#755/if3",
-                        "Gi0/4#756/if4"
+                        "Gi0/1#755/if1",
+                        "Gi0/2#756/if2",
+                        "Gi0/3#757/if3",
+                        "Gi0/4#758/if4"
                     ],
                     "B": [
                         "Gi0/24#759/if24",
@@ -5084,7 +5084,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 775,
+                        "id": 773,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5094,8 +5094,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#773/if1",
-                        "Gi0/2#774/if2"
+                        "Gi0/1#775/if1",
+                        "Gi0/2#776/if2"
                     ],
                     "B": [
                         "Gi0/24#777/if24",
@@ -5138,29 +5138,29 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 790,
-                        "name": "X",
-                        "chassis": "a0:00:00:00:00:0a",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 791,
+                        "id": 789,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 794,
+                        "name": "X",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#789/if1"
+                        "Gi0/1#791/if1"
                     ],
                     "B": [
-                        "Gi0/24#793/if24",
-                        "Gi0/23#794/if23"
+                        "Gi0/24#792/if24",
+                        "Gi0/23#793/if23"
                     ],
                     "X": [
                         "eth0*#795/if-597821"
@@ -5208,7 +5208,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 808,
+                        "id": 807,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5218,7 +5218,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#807/if1"
+                        "Gi0/1#809/if1"
                     ],
                     "B": [
                         "Gi0/24#810/if24",
@@ -5260,7 +5260,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 822,
+                        "id": 821,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5270,7 +5270,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#821/if1"
+                        "Gi0/1#823/if1"
                     ],
                     "B": [
                         "Gi0/24#824/if24"
@@ -5317,7 +5317,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 834,
+                        "id": 833,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5327,7 +5327,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#833/if1"
+                        "Gi0/1#835/if1"
                     ],
                     "B": [
                         "Gi0/24#836/if24"
@@ -5375,7 +5375,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 846,
+                        "id": 845,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5385,7 +5385,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#845/if1"
+                        "Gi0/1#847/if1"
                     ],
                     "B": [
                         "Gi0/24#848/if24"
@@ -5426,7 +5426,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 858,
+                        "id": 857,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5436,7 +5436,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#857/if1"
+                        "Gi0/1#859/if1"
                     ],
                     "B": [
                         "Gi0/24#860/if24"
@@ -5489,7 +5489,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 870,
+                        "id": 869,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5499,7 +5499,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#869/if1"
+                        "Gi0/1#871/if1"
                     ],
                     "B": [
                         "Gi0/24#872/if24"
@@ -5562,7 +5562,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 882,
+                        "id": 881,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -5572,7 +5572,7 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#881/if1"
+                        "Gi0/1#883/if1"
                     ],
                     "B": [
                         "Gi0/24#884/if24"
@@ -5625,7 +5625,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 895,
+                        "id": 893,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -5643,8 +5643,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#893/if1",
-                        "Gi0/2#894/if2"
+                        "Gi0/1#895/if1",
+                        "Gi0/2#896/if2"
                     ],
                     "U": [
                         "eth0#897/if1"
@@ -5700,7 +5700,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 913,
+                        "id": 911,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -5718,8 +5718,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#911/if1",
-                        "Gi0/2#912/if2"
+                        "Gi0/1#913/if1",
+                        "Gi0/2#914/if2"
                     ],
                     "U": [
                         "eth0#915/if1"
@@ -5783,7 +5783,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 933,
+                        "id": 931,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -5801,8 +5801,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#931/if1",
-                        "Gi0/2#932/if2"
+                        "Gi0/1#933/if1",
+                        "Gi0/2#934/if2"
                     ],
                     "U": [
                         "eth0#935/if1"
@@ -5868,7 +5868,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 951,
+                        "id": 949,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -5894,8 +5894,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#949/if1",
-                        "Gi0/2#950/if2"
+                        "Gi0/1#951/if1",
+                        "Gi0/2#952/if2"
                     ],
                     "U": [
                         "eth0#953/if1"
@@ -5964,7 +5964,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 973,
+                        "id": 971,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -5982,8 +5982,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#971/if1",
-                        "Gi0/2#972/if2"
+                        "Gi0/1#973/if1",
+                        "Gi0/2#974/if2"
                     ],
                     "U": [
                         "eth0#975/if1"
@@ -6057,7 +6057,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 991,
+                        "id": 989,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6075,8 +6075,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#989/if1",
-                        "Gi0/2#990/if2"
+                        "Gi0/1#991/if1",
+                        "Gi0/2#992/if2"
                     ],
                     "U": [
                         "eth0#993/if1"
@@ -6152,7 +6152,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1009,
+                        "id": 1007,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6170,8 +6170,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1007/if1",
-                        "Gi0/2#1008/if2"
+                        "Gi0/1#1009/if1",
+                        "Gi0/2#1010/if2"
                     ],
                     "U": [
                         "eth0#1011/if1"
@@ -6237,7 +6237,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1027,
+                        "id": 1025,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6255,8 +6255,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1025/if1",
-                        "Gi0/2#1026/if2"
+                        "Gi0/1#1027/if1",
+                        "Gi0/2#1028/if2"
                     ],
                     "U": [
                         "eth0#1029/if1"
@@ -6324,7 +6324,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1045,
+                        "id": 1043,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6342,8 +6342,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1043/if1",
-                        "Gi0/2#1044/if2"
+                        "Gi0/1#1045/if1",
+                        "Gi0/2#1046/if2"
                     ],
                     "U": [
                         "eth0#1047/if1"
@@ -6409,7 +6409,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1063,
+                        "id": 1061,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6419,8 +6419,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1061/if1",
-                        "Gi0/2#1062/if2"
+                        "Gi0/1#1063/if1",
+                        "Gi0/2#1064/if2"
                     ],
                     "U": [
                         "eth0#1065/if1"
@@ -6466,7 +6466,7 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "ports of R: [\"Gi0\\/1#1075\\/if1\",\"Gi0\\/2#1076\\/if2\",\"Gi0\\/1#1080\\/if11\",\"Gi0\\/2#1081\\/if12\"] links: [\"physical_link R:Gi0\\/1 ~ U:eth0 active (manual) #155\"] obs: [\"R:Gi0\\/1 -> U shadowed edge#155 port\"]"
+                "ports of R: [\"Gi0\\/1#1077\\/if1\",\"Gi0\\/2#1078\\/if2\",\"Gi0\\/1#1080\\/if11\",\"Gi0\\/2#1081\\/if12\"] links: [\"physical_link R:Gi0\\/1 ~ U:eth0 active (manual) #155\"] obs: [\"R:Gi0\\/1 -> U shadowed edge#155 port\"]"
             ],
             "actual": {
                 "devices": [
@@ -6479,7 +6479,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1077,
+                        "id": 1075,
                         "name": "U",
                         "chassis": "a0:00:00:00:00:05",
                         "ip": "10.0.0.5",
@@ -6489,8 +6489,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1075/if1",
-                        "Gi0/2#1076/if2",
+                        "Gi0/1#1077/if1",
+                        "Gi0/2#1078/if2",
                         "Gi0/1#1080/if11",
                         "Gi0/2#1081/if12"
                     ],
@@ -6717,7 +6717,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1133,
+                        "id": 1131,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6727,8 +6727,8 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1131/if1",
-                        "Gi0/2#1132/if2"
+                        "Gi0/1#1133/if1",
+                        "Gi0/2#1134/if2"
                     ],
                     "B": [
                         "Gi0/24#1135/if24"
@@ -6794,7 +6794,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1149,
+                        "id": 1145,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6804,10 +6804,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1145/if1",
-                        "Gi0/2#1146/if2",
-                        "Gi0/3#1147/if3",
-                        "Gi0/4#1148/if4"
+                        "Gi0/1#1147/if1",
+                        "Gi0/2#1148/if2",
+                        "Gi0/3#1149/if3",
+                        "Gi0/4#1150/if4"
                     ],
                     "B": [
                         "Gi0/1#1151/if1"
@@ -6915,7 +6915,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1174,
+                        "id": 1170,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6925,10 +6925,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1170/if1",
-                        "Gi0/2#1171/if2",
-                        "Gi0/3#1172/if3",
-                        "Gi0/4#1173/if4"
+                        "Gi0/1#1172/if1",
+                        "Gi0/2#1173/if2",
+                        "Gi0/3#1174/if3",
+                        "Gi0/4#1175/if4"
                     ],
                     "B": [
                         "Gi0/24#1176/if24",
@@ -6980,7 +6980,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1194,
+                        "id": 1190,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -6990,10 +6990,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1190/if1",
-                        "Gi0/2#1191/if2",
-                        "Gi0/3#1192/if3",
-                        "Gi0/4#1193/if4"
+                        "Gi0/1#1192/if1",
+                        "Gi0/2#1193/if2",
+                        "Gi0/3#1194/if3",
+                        "Gi0/4#1195/if4"
                     ],
                     "B": [
                         "Gi0/1#1196/if1",
@@ -7050,7 +7050,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1216,
+                        "id": 1212,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7060,10 +7060,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1212/if1",
-                        "Gi0/2#1213/if2",
-                        "Gi0/3#1214/if3",
-                        "Gi0/4#1215/if4"
+                        "Gi0/1#1214/if1",
+                        "Gi0/2#1215/if2",
+                        "Gi0/3#1216/if3",
+                        "Gi0/4#1217/if4"
                     ],
                     "B": [
                         "Gi0/24#1218/if24"
@@ -7122,7 +7122,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1234,
+                        "id": 1230,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7130,7 +7130,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1237,
+                        "id": 1232,
                         "name": "C",
                         "chassis": "a0:00:00:00:00:03",
                         "ip": "10.0.0.3",
@@ -7140,13 +7140,13 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1230/if1",
-                        "Gi0/2#1231/if2",
-                        "Gi0/3#1232/if3",
-                        "Gi0/4#1233/if4"
+                        "Gi0/1#1234/if1",
+                        "Gi0/2#1235/if2",
+                        "Gi0/3#1236/if3",
+                        "Gi0/4#1237/if4"
                     ],
                     "B": [
-                        "Gi0/24#1236/if24"
+                        "Gi0/24#1238/if24"
                     ],
                     "C": [
                         "Gi0/1#1239/if1"
@@ -7212,7 +7212,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1258,
+                        "id": 1254,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7222,10 +7222,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1254/if1",
-                        "Gi0/2#1255/if2",
-                        "Gi0/3#1256/if3",
-                        "Gi0/4#1257/if4"
+                        "Gi0/1#1256/if1",
+                        "Gi0/2#1257/if2",
+                        "Gi0/3#1258/if3",
+                        "Gi0/4#1259/if4"
                     ],
                     "B": [
                         "Gi0/24#1260/if24"
@@ -7282,7 +7282,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1276,
+                        "id": 1272,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7292,10 +7292,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1272/if1",
-                        "Gi0/2#1273/if2",
-                        "Gi0/3#1274/if3",
-                        "Gi0/4#1275/if4"
+                        "Gi0/1#1274/if1",
+                        "Gi0/2#1275/if2",
+                        "Gi0/3#1276/if3",
+                        "Gi0/4#1277/if4"
                     ],
                     "B": [
                         "Gi0/24#1278/if24"
@@ -7362,7 +7362,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1294,
+                        "id": 1290,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7372,10 +7372,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1290/if1",
-                        "Gi0/2#1291/if2",
-                        "Gi0/3#1292/if3",
-                        "Gi0/4#1293/if4"
+                        "Gi0/1#1292/if1",
+                        "Gi0/2#1293/if2",
+                        "Gi0/3#1294/if3",
+                        "Gi0/4#1295/if4"
                     ],
                     "B": [
                         "Gi0/24#1296/if24"
@@ -7438,7 +7438,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1312,
+                        "id": 1308,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7456,10 +7456,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1308/if1",
-                        "Gi0/2#1309/if2",
-                        "Gi0/3#1310/if3",
-                        "Gi0/4#1311/if4"
+                        "Gi0/1#1310/if1",
+                        "Gi0/2#1311/if2",
+                        "Gi0/3#1312/if3",
+                        "Gi0/4#1313/if4"
                     ],
                     "B": [
                         "Gi0/24#1314/if24"
@@ -7521,7 +7521,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1334,
+                        "id": 1330,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -7531,10 +7531,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1330/if1",
-                        "Gi0/2#1331/if2",
-                        "Gi0/3#1332/if3",
-                        "Gi0/4#1333/if4"
+                        "Gi0/1#1332/if1",
+                        "Gi0/2#1333/if2",
+                        "Gi0/3#1334/if3",
+                        "Gi0/4#1335/if4"
                     ],
                     "B": [
                         "Gi0/24#1336/if24"
@@ -8088,7 +8088,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1414,
+                        "id": 1410,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8098,10 +8098,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1410/if1",
-                        "Gi0/2#1411/if2",
-                        "Gi0/3#1412/if3",
-                        "Gi0/4#1413/if4"
+                        "Gi0/1#1412/if1",
+                        "Gi0/2#1413/if2",
+                        "Gi0/3#1414/if3",
+                        "Gi0/4#1415/if4"
                     ],
                     "B": [
                         "Gi0/24#1416/if24",
@@ -8162,7 +8162,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1434,
+                        "id": 1430,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8180,10 +8180,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1430/if1",
-                        "Gi0/2#1431/if2",
-                        "Gi0/3#1432/if3",
-                        "Gi0/4#1433/if4"
+                        "Gi0/1#1432/if1",
+                        "Gi0/2#1433/if2",
+                        "Gi0/3#1434/if3",
+                        "Gi0/4#1435/if4"
                     ],
                     "B": [
                         "Gi0/24#1436/if24",
@@ -8565,7 +8565,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1495,
+                        "id": 1491,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8573,7 +8573,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1496,
+                        "id": 1499,
                         "name": "X",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": null,
@@ -8583,14 +8583,14 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1491/if1",
-                        "Gi0/2#1492/if2",
-                        "Gi0/3#1493/if3",
-                        "Gi0/4#1494/if4"
+                        "Gi0/1#1493/if1",
+                        "Gi0/2#1494/if2",
+                        "Gi0/3#1495/if3",
+                        "Gi0/4#1496/if4"
                     ],
                     "B": [
-                        "Gi0/24#1498/if24",
-                        "Gi0/23#1499/if23"
+                        "Gi0/24#1497/if24",
+                        "Gi0/23#1498/if23"
                     ],
                     "X": [
                         "eth0*#1500/if-597821"
@@ -8810,7 +8810,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1527,
+                        "id": 1523,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8820,10 +8820,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1523/if1",
-                        "Gi0/2#1524/if2",
-                        "Gi0/3#1525/if3",
-                        "Gi0/4#1526/if4"
+                        "Gi0/1#1525/if1",
+                        "Gi0/2#1526/if2",
+                        "Gi0/3#1527/if3",
+                        "Gi0/4#1528/if4"
                     ],
                     "B": [
                         "Gi0/1#1529/if10",
@@ -8873,7 +8873,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1547,
+                        "id": 1543,
                         "name": "B",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.0.0.2",
@@ -8883,10 +8883,10 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1543/if1",
-                        "Gi0/2#1544/if2",
-                        "Gi0/3#1545/if3",
-                        "Gi0/4#1546/if4"
+                        "Gi0/1#1545/if1",
+                        "Gi0/2#1546/if2",
+                        "Gi0/3#1547/if3",
+                        "Gi0/4#1548/if4"
                     ],
                     "B": [
                         "Gi0/1#1549/if10",
@@ -9156,7 +9156,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1623,
+                        "id": 1619,
                         "name": "NA",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.5.5.5",
@@ -9164,7 +9164,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1626,
+                        "id": 1621,
                         "name": "NB",
                         "chassis": null,
                         "ip": "10.5.5.5",
@@ -9174,13 +9174,13 @@
                 ],
                 "ports": {
                     "R": [
-                        "Gi0/1#1619/if1",
-                        "Gi0/2#1620/if2",
-                        "Gi0/3#1621/if3",
-                        "Gi0/4#1622/if4"
+                        "Gi0/1#1623/if1",
+                        "Gi0/2#1624/if2",
+                        "Gi0/3#1625/if3",
+                        "Gi0/4#1626/if4"
                     ],
                     "NA": [
-                        "Gi0/1#1625/if1"
+                        "Gi0/1#1627/if1"
                     ],
                     "NB": [
                         "Gi0/1#1628/if1"
@@ -9222,10 +9222,10 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "{\"order\":\"R,H1,H2\",\"devices\":[\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
-                "{\"order\":\"H1,R,H2\",\"devices\":[\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
-                "{\"order\":\"H2,R,H1\",\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
-                "{\"order\":\"H2,H1,R\",\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}"
+                "{\"order\":\"R,H1,H2\",\"cands\":{\"H1\":[\"split_identity->1645\"],\"H2\":[\"split_identity->1643\"]},\"devices\":[\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H1,R,H2\",\"cands\":{\"H1\":[\"split_identity->1654\"],\"H2\":[\"split_identity->1650\"]},\"devices\":[\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H2 chassis - ip 10.5.5.5 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H2,R,H1\",\"cands\":{\"H2\":[\"split_identity->1663\"],\"H1\":[\"split_identity->1659\"]},\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}",
+                "{\"order\":\"H2,H1,R\",\"cands\":{\"H2\":[\"split_identity->1670\"],\"H1\":[\"split_identity->1668\"]},\"devices\":[\"H2 chassis - ip 10.5.5.5 reporter_self\",\"H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self\",\"R chassis a0:00:00:00:00:01 ip 10.0.0.1 reporter_self\"],\"skipped\":[],\"join_refused\":0,\"joined\":0,\"shared\":0,\"exit\":0,\"refused_list\":[]}"
             ],
             "actual": {
                 "devices": [
@@ -9238,7 +9238,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1671,
+                        "id": 1670,
                         "name": "H1",
                         "chassis": "a0:00:00:00:00:0a",
                         "ip": "10.0.0.30",
@@ -9246,7 +9246,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1674,
+                        "id": 1672,
                         "name": "R",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.0.0.1",
@@ -9256,10 +9256,10 @@
                 ],
                 "ports": {
                     "H2": [
-                        "Gi0/1#1670/if1"
+                        "Gi0/1#1674/if1"
                     ],
                     "H1": [
-                        "Gi0/1#1673/if1"
+                        "Gi0/1#1675/if1"
                     ],
                     "R": [
                         "Gi0/1#1676/if1"
@@ -9281,7 +9281,7 @@
             "verdict": "match",
             "failed": [],
             "idempotent": true,
-            "order_independent": null,
+            "order_independent": true,
             "covered_by": null,
             "notes": [],
             "actual": {
@@ -9293,12 +9293,23 @@
                         "ip": "10.5.5.5",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1715,
+                        "name": "H2",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
                     }
                 ],
                 "ports": {
                     "H1": [
-                        "Gi0/1#1715/if1",
-                        "Gi0/2#1716/if2"
+                        "Gi0/1#1717/if1",
+                        "Gi0/2#1718/if2"
+                    ],
+                    "H2": [
+                        "Gi0/7#1719/if7"
                     ]
                 },
                 "links": [],
@@ -9306,8 +9317,8 @@
             },
             "steps": [
                 {
-                    "step": "two hosts with one SNMP IP: the second one finds a Device that another host represents",
-                    "devices": 1,
+                    "step": "two hosts with one SNMP IP: the IP is claimed by both reporters",
+                    "devices": 2,
                     "links": [],
                     "obs": []
                 }
@@ -9323,13 +9334,13 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-01: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PRINTER-A chassis - ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"PRINTER-B chassis - ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link PRINTER-A:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #240\",\"physical_link PRINTER-B:Gi0\\/1* ~ R2:Gi0\\/1 active (cdp) #241\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
+                "S-01: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"PRINTER-A chassis - ip 10.0.0.1 unrepresented\",\"PRINTER-B chassis - ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link PRINTER-A:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #240\",\"physical_link PRINTER-B:Gi0\\/1* ~ R2:Gi0\\/1 active (cdp) #241\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
                 "S-01 summary: identity_keys_shared={\"count\":0,\"list\":[]} observations={\"applied\":2,\"device_only\":0,\"shadowed\":0,\"conflict\":0,\"ambiguous\":0}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1717,
+                        "id": 1727,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9337,15 +9348,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1720,
-                        "name": "PRINTER-A",
-                        "chassis": null,
-                        "ip": "10.0.0.1",
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 1721,
+                        "id": 1729,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9353,7 +9356,15 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1724,
+                        "id": 1733,
+                        "name": "PRINTER-A",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1734,
                         "name": "PRINTER-B",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9363,16 +9374,16 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1719/if1"
+                        "Gi0/1#1731/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1723/if1"
+                        "Gi0/1#1732/if1"
                     ],
                     "PRINTER-A": [
-                        "Gi0/1*#1725/if-563193"
+                        "Gi0/1*#1735/if-563193"
                     ],
                     "PRINTER-B": [
-                        "Gi0/1*#1726/if-563193"
+                        "Gi0/1*#1736/if-563193"
                     ]
                 },
                 "links": [
@@ -9415,7 +9426,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1737,
+                        "id": 1747,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9423,7 +9434,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1740,
+                        "id": 1750,
                         "name": "CDP-ONLY",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9431,7 +9442,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1742,
+                        "id": 1752,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:14",
                         "ip": "10.0.0.1",
@@ -9441,13 +9452,13 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1739/if1"
+                        "Gi0/1#1749/if1"
                     ],
                     "CDP-ONLY": [
-                        "Gi0/1*#1741/if-563193"
+                        "Gi0/1*#1751/if-563193"
                     ],
                     "R2": [
-                        "Gi0/1#1744/if1"
+                        "Gi0/1#1754/if1"
                     ]
                 },
                 "links": [
@@ -9490,12 +9501,12 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #246\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #247\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
+                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #246\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #247\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1753,
+                        "id": 1763,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9503,32 +9514,32 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1756,
-                        "name": "PROVIDER",
-                        "chassis": "a0:00:00:00:00:1e",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 1757,
+                        "id": 1765,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1769,
+                        "name": "PROVIDER",
+                        "chassis": "a0:00:00:00:00:1e",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1755/if1"
+                        "Gi0/1#1767/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1759/if1"
+                        "Gi0/1#1768/if1"
                     ],
                     "PROVIDER": [
-                        "Gi0/7*#1760/if-691254",
-                        "Gi0/8*#1761/if-724686"
+                        "Gi0/7*#1770/if-691254",
+                        "Gi0/8*#1771/if-724686"
                     ]
                 },
                 "links": [
@@ -9570,7 +9581,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1771,
+                        "id": 1781,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9578,7 +9589,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1774,
+                        "id": 1784,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9586,7 +9597,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1776,
+                        "id": 1786,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9596,11 +9607,11 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1773/if1"
+                        "Gi0/1#1783/if1"
                     ],
                     "PRINTER": [
-                        "Gi0/1*#1775/if-563193",
-                        "Gi0/1*#1777/if-563193"
+                        "Gi0/1*#1785/if-563193",
+                        "Gi0/1*#1787/if-563193"
                     ]
                 },
                 "links": [
@@ -9645,13 +9656,13 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-05: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"CORE chassis a0:00:00:00:00:1e ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #252\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #253\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
-                "S-05 CORE devices: [{\"id\":1781,\"name\":\"CORE\",\"chassis\":\"a0:00:00:00:00:1e\",\"ip\":\"10.0.0.1\",\"matched_by\":null,\"represented_by\":null}]"
+                "S-05: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"CORE chassis a0:00:00:00:00:1e ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #252\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #253\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
+                "S-05 CORE devices: [{\"id\":1794,\"name\":\"CORE\",\"chassis\":\"a0:00:00:00:00:1e\",\"ip\":\"10.0.0.1\",\"matched_by\":null,\"represented_by\":null}]"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1778,
+                        "id": 1788,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9659,32 +9670,32 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1781,
-                        "name": "CORE",
-                        "chassis": "a0:00:00:00:00:1e",
-                        "ip": "10.0.0.1",
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 1782,
+                        "id": 1790,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1794,
+                        "name": "CORE",
+                        "chassis": "a0:00:00:00:00:1e",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1780/if1"
+                        "Gi0/1#1792/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1784/if1"
+                        "Gi0/1#1793/if1"
                     ],
                     "CORE": [
-                        "Gi0/7*#1785/if-691254",
-                        "Gi0/8*#1786/if-724686"
+                        "Gi0/7*#1795/if-691254",
+                        "Gi0/8*#1796/if-724686"
                     ]
                 },
                 "links": [
@@ -9721,12 +9732,12 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-06: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"CORE chassis sw-local-7 ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"CORE chassis sw-local-7 ip - unrepresented\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #256\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #257\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
+                "S-06: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"CORE chassis sw-local-7 ip - unrepresented\",\"CORE chassis sw-local-7 ip - unrepresented\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #256\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #257\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1796,
+                        "id": 1806,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9734,15 +9745,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1799,
-                        "name": "CORE",
-                        "chassis": "sw-local-7",
-                        "ip": null,
-                        "matched_by": null,
-                        "represented_by": null
-                    },
-                    {
-                        "id": 1800,
+                        "id": 1808,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9750,7 +9753,15 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1803,
+                        "id": 1812,
+                        "name": "CORE",
+                        "chassis": "sw-local-7",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1813,
                         "name": "CORE",
                         "chassis": "sw-local-7",
                         "ip": null,
@@ -9760,14 +9771,14 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1798/if1"
+                        "Gi0/1#1810/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1802/if1"
+                        "Gi0/1#1811/if1"
                     ],
                     "CORE": [
-                        "Gi0/7*#1804/if-691254",
-                        "Gi0/8*#1805/if-724686"
+                        "Gi0/7*#1814/if-691254",
+                        "Gi0/8*#1815/if-724686"
                     ]
                 },
                 "links": [
@@ -9809,7 +9820,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1816,
+                        "id": 1826,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9817,7 +9828,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1819,
+                        "id": 1829,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9827,10 +9838,10 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1818/if1"
+                        "Gi0/1#1828/if1"
                     ],
                     "PRINTER": [
-                        "Gi0/1*#1820/if-563193"
+                        "Gi0/1*#1830/if-563193"
                     ]
                 },
                 "links": [

@@ -371,6 +371,14 @@ $insert_key = static function (int $device_id, string $key, string $kind, int $s
 // The keys a row or a reporter gives to the Device it found or created. A Device keeps the chassis it has (a stored stronger key is never replaced by a
 // different value); a key another Device holds is not copied (it would make the value shared; the duplicate candidate is recorded elsewhere).
 $register_keys = static function (int $device_id, array $incoming, int $seen_at, bool $by_reporter = false) use ($pdo, $q_key, $key_holders, $device_has_kind, $device_holds_key, $insert_key): void {
+	if (!$by_reporter) {
+		// §6.4 step 6, §6.7.1: a neighbor row never adds a key to a reporter's Device, in any segment; the reporter writes its own keys
+		$reporter = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
+		$reporter->execute([$device_id]);
+		if ($reporter->fetchColumn() !== false) {
+			return;
+		}
+	}
 	foreach (['chassis', 'ip'] as $kind) {
 		$key = $incoming[$kind.'_key'] ?? null;
 		if ($key === null || $device_holds_key($device_id, $key)) {
@@ -379,20 +387,8 @@ $register_keys = static function (int $device_id, array $incoming, int $seen_at,
 		if ($kind === 'chassis' && $device_has_kind($device_id, 'chassis')) {
 			continue;
 		}
-		if ($kind === 'ip' && !$by_reporter) {
-			// The reporter's own data wins (§6.7.1): a neighbor row adds no address in a segment where the reporter of this Device already has its own
-			$reporter = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
-			$reporter->execute([$device_id]);
-			if ($reporter->fetchColumn() !== false) {
-				$segment_prefix = substr($key, 0, strlen($key) - strlen((string) ($incoming['ip_raw'] ?? '')));
-				$same_segment = $pdo->prepare("SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND kind = 'ip' AND {$q_key} LIKE ? LIMIT 1");
-				$same_segment->execute([$device_id, str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $segment_prefix).'%']);
-				if ($same_segment->fetchColumn() !== false) {
-					continue;
-				}
-			}
-		}
-		if (array_diff($key_holders($key), [$device_id])) {
+		// the reporter's own key is always on its Device, even when another Device holds it (then the key is shared, §6.4 step 5)
+		if (!$by_reporter && array_diff($key_holders($key), [$device_id])) {
 			continue;
 		}
 		$insert_key($device_id, $key, $kind, $seen_at);
@@ -477,7 +473,7 @@ $note_shared = static function (string $kind, string $value, array $node_ids) us
 	}
 };
 
-$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false) use ($pdo, $key_holders, $device_has_kind): ?array {
+$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind): ?array {
 	$keys = [];       // [kind => [key, raw]], in the order of strength, only the keys the row has
 	if (!empty($identity['chassis'])) {
 		$keys['chassis'] = $identity['chassis'];
@@ -510,6 +506,22 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 		}
 		else {
 			$ids = $key_holders($value);
+		}
+		if ($for_reporter || $exclude) {
+			// §6.4 step 5: a reporter never takes a Device that has another representation, nor one that another reporter takes
+			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $for_reporter, $exclude): bool {
+				if (in_array($id, $exclude, true)) {
+					return false;
+				}
+				if ($for_reporter) {
+					$rep = $pdo->prepare('SELECT represented_by_node_id FROM topo_nodes WHERE id = ?');
+					$rep->execute([$id]);
+					if ($rep->fetchColumn() !== null) {
+						return false;
+					}
+				}
+				return true;
+			}));
 		}
 		if ($stronger) {
 			// a weaker key may only take a Device that has no key of a stronger kind the row has (in any scope)
@@ -1374,7 +1386,7 @@ $note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 		return;
 	}
 	$others = array_values(array_diff($key_holders($ip_key), [$with_chassis[0]]));
-	if (count($others) === 1 && !$device_has_kind($others[0], 'chassis')) {
+	if (count($others) === 1) {
 		$note_duplicate($with_chassis[0], $others[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
 		$note_duplicate($others[0], $with_chassis[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
 	}
@@ -1598,18 +1610,20 @@ $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
-$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false) use (
+$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = []) use (
 	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
 	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity keys of the row: chassis_key / chassis_raw,
 	// ip_key / ip_raw (§6.7.0).
 	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
 	// reporter's own identity joins automatically (see $snap_ingest_reporter).
-	$note_split_identity($incoming['chassis_key'] ?? null, $incoming['ip_key'] ?? null, $incoming['ip_raw'] ?? null);
+	if (!$for_reporter) {      // `split_identity` is evidence of a neighbor row (§6.7.5); a reporter's own identity is not a row
+		$note_split_identity($incoming['chassis_key'] ?? null, $incoming['ip_key'] ?? null, $incoming['ip_raw'] ?? null);
+	}
 	$match = $resolve_device([
 		'chassis' => isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']] : null,
 		'ip' => isset($incoming['ip_key']) ? [$incoming['ip_key'], $incoming['ip_raw'] ?? $incoming['ip_key']] : null,
-	], $local_port_id, $incoming['sysname'] ?? null, $for_reporter);
+	], $local_port_id, $incoming['sysname'] ?? null, $for_reporter, $exclude);
 	if ($match !== null && $match[0] === 'shared') {
 		$note_shared($match[1], $match[2], $match[3]);
 		return null;            // topology-1-model.md "Shared identifier": nothing is created or changed
@@ -1619,9 +1633,6 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		$owner = $pdo->prepare('SELECT represented_by_node_id, represented_by_matched_by FROM topo_nodes WHERE id = ?');
 		$owner->execute([$device_id]);
 		$owner = $owner->fetch(PDO::FETCH_ASSOC);
-		if ($for_reporter && $owner['represented_by_node_id'] !== null) {
-			return 0;           // the reporter's own identity found a Device that belongs to another host or proxy (§6.4 step 5): nothing is written
-		}
 		// The reporter's own data wins (topology-1-model.md §6.7.1, §6.4 step 6): a neighbor row refreshes a Device without a reporter, and on a
 		// reporter's Device it only fills what is empty. The reporter writes its own values itself ($snap_ingest_reporter).
 		$has_reporter = $owner['represented_by_matched_by'] === 'reporter_self' && $owner['represented_by_node_id'] !== null;
@@ -2032,26 +2043,18 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 	return $reporters;
 };
 
-// Ingests one reporter from its snapshots. Order (topology-1-model.md "Processing order inside one reporter"): self Device -> PORTS -> LAG -> NEIGHBORS ->
-// LEARNED_MACS. Returns ['status' => 'ok'] or ['status' => 'skipped', 'reason' => ...]; the caller owns the
-// transaction. Nothing is written for a skipped reporter.
+// ---- Reporters: identity in two passes (topology-1-model.md §6.4, §6.5, §6.8) ----
+// Pass A: the own identity of every reporter ($snap_reporter_identity), then per reporter PORTS -> LAG -> LEARNED_MACS ($snap_reporter_tables).
+// Pass B: the NEIGHBORS rows of all reporters ($snap_reporter_neighbors), reporters in hostid order, rows sorted. So the result does not
+// depend on the order in which the reporters happen to be listed. Each step returns ['status' => 'ok', ...] or ['status' => 'skipped', 'reason' => ...];
+// the caller owns the transaction of each step. Nothing is written for a skipped reporter.
 $link_candidates = [];
 $neighbor_snapshots = [];
-$snap_ingest_reporter = static function (array $reporter) use (
-	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
-	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
-): array {
-	$snapshots = $reporter['snapshots'];
-	$label = $reporter['host'];
-	$clocks = array_merge(...array_map(static fn (array $list): array => array_column($list, 'clock'),
-		array_values($snapshots)));
-	$reporter_seen = max($clocks);
 
-	// ---- identity (topology-1-model.md "Reporter identity (`reporter_self`)") ----
+/** The own identity a reporter's snapshots and host give (§6.4 steps 2-4, 6, 7): no database write. */
+$reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chassis_key, $ip_key): array {
 	$chassis_values = [];
-	foreach ($snapshots as $list) {
+	foreach ($reporter['snapshots'] as $list) {
 		foreach ($list as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				if (($row['loc_chassis'] ?? '') !== '') {
@@ -2060,59 +2063,87 @@ $snap_ingest_reporter = static function (array $reporter) use (
 			}
 		}
 	}
+	$clocks = array_merge(...array_map(static fn (array $list): array => array_column($list, 'clock'), array_values($reporter['snapshots'])));
+	$own = ['skip' => null, 'chassis_values' => array_keys($chassis_values), 'seen' => max($clocks), 'loc_chassis' => null, 'mgmt_ip' => null,
+		'segment' => $segment_of($reporter['hostid']), 'loc_key' => null, 'ip_key' => null];
 	if (count($chassis_values) > 1) {
-		echo "SKIP: reporter '{$label}' reports more than one loc_chassis (".implode(', ', array_keys($chassis_values)).
-			") — identity is ambiguous, not picking one\n";
-		return ['status' => 'skipped', 'reason' => 'identity_ambiguous'];
+		$own['skip'] = 'identity_ambiguous';
+		return $own;
 	}
-	$loc_chassis = $chassis_values ? (string) array_key_first($chassis_values) : null;
-
+	$own['loc_chassis'] = $chassis_values ? (string) array_key_first($chassis_values) : null;
 	$interface = $pdo->prepare(
 		'SELECT ip FROM interface WHERE hostid = ? AND type = 2 AND useip = 1 AND ip <> \'\' ORDER BY main DESC, interfaceid LIMIT 1');
 	$interface->execute([$reporter['hostid']]);
-	$mgmt_ip = $interface->fetchColumn() ?: null;
+	$own['mgmt_ip'] = $interface->fetchColumn() ?: null;
+	$own['loc_key'] = $chassis_key($own['loc_chassis'], null, $own['segment']);
+	$own['ip_key'] = $ip_key($own['mgmt_ip'], $own['segment']);
+	if ($own['loc_chassis'] === null && $own['mgmt_ip'] === null) {
+		$own['skip'] = 'identity_missing';
+	}
+	return $own;
+};
 
-	// identity keys of the reporter (§6.7.0): a MAC chassis is global, an IP is scoped to the segment of this host
-	$segment = $segment_of($reporter['hostid']);
-	$loc_key = $chassis_key($loc_chassis, null, $segment);
-	$self_ip_key = $ip_key($mgmt_ip, $segment);
+/**
+ * Pass A, step 1: the reporter's Device (§6.4). $claimed = the key strings that two or more reporters claim by their own data: this reporter does
+ * not look for its Device by them, but its Device carries them (the key is then shared, §6.7.4). $exclude = Devices that another reporter takes
+ * (the lowest hostid wins), so the choice does not depend on the order.
+ */
+$snap_reporter_identity = static function (array $reporter, array $own, array $claimed, array $exclude) use (
+
+	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
+): array {
+	$label = $reporter['host'];
+	$loc_chassis = $own['loc_chassis'];
+	$mgmt_ip = $own['mgmt_ip'];
+	$loc_key = $own['loc_key'];
+	$self_ip_key = $own['ip_key'];
+	$segment = $own['segment'];
+	$reporter_seen = $own['seen'];
+	if ($own['skip'] === 'identity_ambiguous') {
+		echo "SKIP: reporter '{$label}' reports more than one loc_chassis (".implode(', ', $own['chassis_values']).
+			") — identity is ambiguous, not picking one\n";
+		return ['status' => 'skipped', 'reason' => 'identity_ambiguous'];
+	}
+	// the keys this reporter looks its Device up by: its own, except the ones another reporter claims too
+	$look_chassis = $loc_key !== null && !isset($claimed[$loc_key]) ? $loc_key : null;
+	$look_ip = $self_ip_key !== null && !isset($claimed[$self_ip_key]) ? $self_ip_key : null;
 
 	// the reporter's own identity carries both keys: it may join a split identity (§6.7.1), before its Device is looked up
-	$join_split_identity($loc_key, $self_ip_key, $mgmt_ip);
+	$join_split_identity($look_chassis, $look_ip, $mgmt_ip);
 
 	$existing = $pdo->prepare(
 		"SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id".
 		" WHERE d.type = 'device' AND h.host_ref = ? AND d.represented_by_matched_by = 'reporter_self'");
 	$existing->execute([$reporter['hostid']]);
 	$device_id = $existing->fetchColumn();
+	if ($device_id === false) {
+		// the host is already the representation of a Device that an operator or a MAC match chose: that is the Device of this reporter
+		$by_host = $pdo->prepare("SELECT d.id FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id".
+			" WHERE h.type = 'host' AND h.host_ref = ? LIMIT 1");
+		$by_host->execute([$reporter['hostid']]);
+		$device_id = $by_host->fetchColumn();
+	}
 
 	if ($device_id === false) {
-		// The host node already represents a Device that is not this reporter's own (an operator promotion, a MAC match): identity_conflict, §6.4 step 5
-		$host_owner = $pdo->prepare("SELECT d.id FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id".
-			" WHERE h.type = 'host' AND h.host_ref = ? LIMIT 1");
-		$host_owner->execute([$reporter['hostid']]);
-		if ($host_owner->fetchColumn() !== false) {
-			echo "SKIP: reporter '{$label}' — its host already represents another Device (identity_conflict): none of its snapshots is ingested\n";
-			return ['status' => 'skipped', 'reason' => 'identity_conflict'];
-		}
-		if ($loc_chassis === null && $mgmt_ip === null) {
+		if ($own['skip'] === 'identity_missing') {
 			echo "SKIP: reporter '{$label}' has neither a loc_chassis nor an SNMP interface IP — no identity key, ".
 				"not creating a keyless Device\n";
 			return ['status' => 'skipped', 'reason' => 'identity_missing'];
 		}
+		// §6.4 step 2 and 5: found by its own unclaimed keys among Devices that have no representation, else created; the Device carries all
+		// the reporter's own keys, the claimed ones too
 		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
-			'chassis_key' => $loc_key, 'chassis_raw' => $loc_chassis, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip,
-			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true);
-		if ($device_id === 0) {
-			echo "SKIP: reporter '{$label}' — its identity (".($loc_chassis ?? $mgmt_ip).") belongs to a Device that another host or proxy represents ".
-				"(identity_conflict): none of its snapshots is ingested, no port is written to that Device\n";
-			return ['status' => 'skipped', 'reason' => 'identity_conflict'];
-		}
+			'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis, 'ip_key' => $look_ip, 'ip_raw' => $mgmt_ip,
+			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, $exclude);
 		if ($device_id === null) {
 			echo "SKIP: reporter '{$label}' has an identifier (".($loc_chassis ?? $mgmt_ip).") that more than one Device has — ".
 				"not picking one\n";
 			return ['status' => 'skipped', 'reason' => 'identity_key_shared'];
 		}
+		$register_keys((int) $device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
 	}
 	else {
 		$device_id = (int) $device_id;
@@ -2126,12 +2157,12 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		// each Device C that has chassis Y (typically the Device the neighbors made for the new chassis); the operator decides (§6.7.5).
 		// (the Devices C that have chassis Y are looked up at the end of the run: the neighbors that make them may be processed later)
 		// S has a chassis when it holds a key of the chassis kind; the reported one is another when S does not hold that key.
-		if ($loc_key !== null && $device_has_kind((int) $device_id, 'chassis') && !$device_holds_key((int) $device_id, $loc_key)) {
-			$note_chassis_change((int) $device_id, (string) $loc_chassis, $loc_key);
+		if ($loc_key !== null && $device_has_kind($device_id, 'chassis') && !$device_holds_key($device_id, $loc_key)) {
+			$note_chassis_change($device_id, (string) $loc_chassis, $loc_key);
 		}
 		// the keys the reporter gives its own Device: its SNMP IP in this segment (a host moved to another segment adds the key of the new
 		// one; nothing is rewritten, §6.7.0) and, when S has no chassis yet, the reported one
-		$register_keys((int) $device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
+		$register_keys($device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
 		if ($mgmt_ip !== null) {
 			$attrs['mgmt_ip'] = $mgmt_ip;
 		}
@@ -2148,6 +2179,19 @@ $snap_ingest_reporter = static function (array $reporter) use (
 			->execute([$device_id, str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $own_prefix).'%', $self_ip_key]);
 	}
 	$snap_link_reporter_self($device_id, (string) $reporter['hostid'], $label);
+
+	return ['status' => 'ok', 'device_id' => $device_id, 'segment' => $segment];
+};
+
+/** Pass A, step 2: PORTS, LAG and LEARNED_MACS of one reporter (§6.5). */
+$snap_reporter_tables = static function (array $reporter, int $device_id) use (
+
+	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
+): array {
+	$snapshots = $reporter['snapshots'];
 
 	// ---- PORTS ----
 	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
@@ -2221,65 +2265,6 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		$pdo->prepare($sql)->execute($params);
 	}
 
-	// ---- NEIGHBORS: phase 1 "collect" (topology-1-model.md "Two phases") ----
-	// Devices and remote ports are resolved and created exactly as before, but no link and no observation is
-	// written here: whether a candidate link may take its port depends on what EVERY reporter's latest snapshot
-	// says, so the decision is made once, after all reporters, by $snap_resolve_links().
-	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
-		$itemid = $snapshot['itemid'];
-		$clock = $snapshot['clock'];
-		$neighbor_snapshots[$itemid] = ['itemid' => $itemid, 'clock' => $clock, 'hostid' => $reporter['hostid']];
-
-		foreach ($snapshot['rows'] as $row) {
-			$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
-				'pseudo' => false], ['name' => $row['if_name'] ?? null]);
-
-			$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
-			$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
-			$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
-				'rem_mgmt_ip', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
-				static fn ($value): bool => $value !== '' && $value !== null);
-			$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
-
-			$row_ip = ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null;
-			$remote_device_id = $snap_device([
-				'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-				'chassis_id' => $chassis_id,
-				'mgmt_ip' => $row_ip,
-				'chassis_key' => $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment),
-				'chassis_raw' => $chassis_id,
-				'ip_key' => $ip_key($row_ip, $segment),
-				'ip_raw' => $row_ip,
-				'sysname' => $row['rem_sysname'] ?? null,
-				'vendor' => 'unknown',
-			], $local_port_id, $clock);
-			// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
-			if ($remote_device_id !== null) {
-				$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
-			}
-
-			$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
-			// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
-			// whether the advertisement names a real port, a pseudo one, or none (topology-1-model.md "Port-level or device-level").
-			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
-				'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
-				'remote_key' => $snap_remote_key($row, $segment), 'remote_attrs' => $remote_attrs,
-				'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
-				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
-				'port_label' => $has_remote_port ? $far_pseudo_name($row + ['source' => $source]) : null,
-				'rem_port_desc' => (string) ($row['rem_port_desc'] ?? ''),
-				'pseudo_index' => $has_remote_port ? $pseudo_local_if_index($row['rem_port'] ?? null,
-					$row['rem_port_type'] ?? null) : null,
-				'pseudo_key' => $has_remote_port ? $normalize_port_name($far_pseudo_name($row + ['source' => $source])) : null,
-				'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
-				'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
-					'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
-				'pseudo_mac' => $looks_like_mac ? strtolower($chassis_id) : null];
-
-			$link_candidates[] = $candidate;
-		}
-	}
-
 	// ---- LEARNED_MACS (only when the reporter has such a snapshot) ----
 	if (!empty($snapshots[TOPO_ROLE_LEARNED_MACS])) {
 		$per_port = [];
@@ -2321,7 +2306,82 @@ $snap_ingest_reporter = static function (array $reporter) use (
 		}
 	}
 
-	return ['status' => 'ok', 'device_id' => $device_id];
+
+	return ['status' => 'ok'];
+};
+
+/** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). */
+$snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
+
+	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
+): array {
+	$snapshots = $reporter['snapshots'];
+
+	// ---- NEIGHBORS, pass B (topology-1-model.md §6.5, §6.8 "Collect"): the rows of this reporter in the sorted order (if_index, remote_key, itemid);
+	// the reporters come in hostid order, so all rows of all reporters are processed in one sorted order ----
+	// Devices and remote ports are resolved and created, but no link and no observation is written here: whether a candidate link may take its
+	// port depends on what EVERY reporter's latest snapshot says, so the decision is made once, after all reporters, by $snap_resolve_links().
+	$sorted_rows = [];
+	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
+		$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
+		foreach ($snapshot['rows'] as $row) {
+			$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
+		}
+	}
+	usort($sorted_rows, static fn (array $a, array $b): int => [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
+	foreach ($sorted_rows as [, , $itemid, $clock, $row]) {
+		$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
+			'pseudo' => false], ['name' => $row['if_name'] ?? null]);
+
+		$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
+		$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
+		$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
+			'rem_mgmt_ip', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
+			static fn ($value): bool => $value !== '' && $value !== null);
+		$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
+
+		$row_ip = ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null;
+		$remote_device_id = $snap_device([
+			'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
+			'chassis_id' => $chassis_id,
+			'mgmt_ip' => $row_ip,
+			'chassis_key' => $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment),
+			'chassis_raw' => $chassis_id,
+			'ip_key' => $ip_key($row_ip, $segment),
+			'ip_raw' => $row_ip,
+			'sysname' => $row['rem_sysname'] ?? null,
+			'vendor' => 'unknown',
+		], $local_port_id, $clock);
+		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
+		if ($remote_device_id !== null) {
+			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
+		}
+
+		$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
+		// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
+		// whether the advertisement names a real port, a pseudo one, or none (topology-1-model.md "Port-level or device-level").
+		$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
+			'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
+			'remote_key' => $snap_remote_key($row, $segment), 'remote_attrs' => $remote_attrs,
+			'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
+			'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
+			'port_label' => $has_remote_port ? $far_pseudo_name($row + ['source' => $source]) : null,
+			'rem_port_desc' => (string) ($row['rem_port_desc'] ?? ''),
+			'pseudo_index' => $has_remote_port ? $pseudo_local_if_index($row['rem_port'] ?? null,
+				$row['rem_port_type'] ?? null) : null,
+			'pseudo_key' => $has_remote_port ? $normalize_port_name($far_pseudo_name($row + ['source' => $source])) : null,
+			'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
+			'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
+				'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
+			'pseudo_mac' => $looks_like_mac ? strtolower($chassis_id) : null];
+
+		$link_candidates[] = $candidate;
+	}
+
+	return ['status' => 'ok'];
 };
 
 // ============================================================================================================
@@ -3290,26 +3350,73 @@ if (isset($options['reporter-order'])) {
 		return ($px === false ? PHP_INT_MAX : $px) <=> ($py === false ? PHP_INT_MAX : $py) ?: $x <=> $y;
 	});
 }
+else {
+	ksort($snapshot_reporters);       // §6.5: the reporters are processed in hostid order
+}
 
 $link_candidates = [];
 $neighbor_snapshots = [];
-foreach ($snapshot_reporters as $reporter) {
+// ---- the claims: a key that two reporters claim by their own data identifies neither (§6.4 step 5) ----
+$reporter_own_of = [];
+$claimants = [];
+foreach ($snapshot_reporters as $hostid => $reporter) {
+	$reporter_own_of[$hostid] = $reporter_own($reporter);
+	if ($reporter_own_of[$hostid]['skip'] !== null) {
+		continue;
+	}
+	foreach ([$reporter_own_of[$hostid]['loc_key'], $reporter_own_of[$hostid]['ip_key']] as $claimed_key) {
+		if ($claimed_key !== null) {
+			$claimants[$claimed_key][$hostid] = true;
+		}
+	}
+}
+$claimed_keys = [];
+foreach ($claimants as $claimed_key => $hosts) {
+	if (count($hosts) > 1) {
+		$claimed_keys[$claimed_key] = array_keys($hosts);
+	}
+}
+// A Device that several reporters would take by their other keys goes to the lowest hostid, whatever order the reporters come in.
+$would_take = [];
+foreach ($snapshot_reporters as $hostid => $reporter) {
+	$own = $reporter_own_of[$hostid];
+	if ($own['skip'] !== null) {
+		continue;
+	}
+	$has_device = $pdo->prepare("SELECT 1 FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id WHERE h.type = 'host' AND h.host_ref = ?");
+	$has_device->execute([$hostid]);
+	if ($has_device->fetchColumn() !== false) {
+		continue;
+	}
+	$match = $resolve_device([
+		'chassis' => $own['loc_key'] !== null && !isset($claimed_keys[$own['loc_key']]) ? [$own['loc_key'], (string) $own['loc_chassis']] : null,
+		'ip' => $own['ip_key'] !== null && !isset($claimed_keys[$own['ip_key']]) ? [$own['ip_key'], (string) $own['mgmt_ip']] : null,
+	], null, null, true);
+	if ($match !== null && $match[0] !== 'shared') {
+		$would_take[(int) $match[0]][] = (int) $hostid;
+	}
+}
+$exclude_of = [];
+foreach ($would_take as $taken_device => $hosts) {
+	sort($hosts);
+	foreach (array_slice($hosts, 1) as $loser) {
+		$exclude_of[$loser][] = $taken_device;
+	}
+}
+
+// ---- pass A, step 1: the own identity of every reporter ----
+$identified = [];
+foreach ($snapshot_reporters as $hostid => $reporter) {
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
-	$mark = [count($link_candidates), $neighbor_snapshots];
 	try {
 		$pdo->beginTransaction();
-		$result = $snap_ingest_reporter($reporter);
+		$result = $snap_reporter_identity($reporter, $reporter_own_of[$hostid], $claimed_keys, $exclude_of[$hostid] ?? []);
 		if ($result['status'] === 'ok') {
 			$pdo->commit();
-			$summary['reporters_processed']++;
-			$processed++;
-			echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, roles: ".
-				implode(',', array_keys($reporter['snapshots']))."\n";
+			$identified[$hostid] = $result;
 		}
 		else {
 			$pdo->rollBack();
-			$link_candidates = array_slice($link_candidates, 0, $mark[0]);
-			$neighbor_snapshots = $mark[1];
 			$summary['reporters_skipped'][$result['reason']] = ($summary['reporters_skipped'][$result['reason']] ?? 0) + 1;
 			$skipped++;
 		}
@@ -3318,9 +3425,73 @@ foreach ($snapshot_reporters as $reporter) {
 		if ($pdo->inTransaction()) {
 			$pdo->rollBack();
 		}
+		fwrite(STDERR, "ERROR: failed to ingest the identity of '{$reporter['host']}': {$exception->getMessage()}\n");
+		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
+		$skipped++;
+	}
+}
+// `reporters_share_key` (§6.7.5): the reporters that claim one key get the candidate on their Devices, and the key is reported as shared (§6.7.4)
+foreach ($claimed_keys as $claimed_key => $hosts) {
+	$devices = [];
+	foreach ($hosts as $hostid) {
+		if (isset($identified[$hostid])) {
+			$devices[$hostid] = (int) $identified[$hostid]['device_id'];
+		}
+	}
+	$is_chassis = str_starts_with($claimed_key, 'chassis:');
+	$first_own = $reporter_own_of[array_key_first($devices) ?? $hosts[0]];
+	$raw_value = (string) ($is_chassis ? $first_own['loc_chassis'] : $first_own['mgmt_ip']);
+	$kind_name = $is_chassis ? 'chassis_id' : 'mgmt_ip';
+	$device_ids = array_values(array_unique($devices));
+	foreach ($device_ids as $one) {
+		foreach ($device_ids as $other) {
+			if ($one !== $other) {
+				$note_duplicate($one, $other, 'reporters_share_key', $kind_name, $raw_value);
+			}
+		}
+	}
+	if (count($device_ids) > 1) {
+		$note_shared($kind_name, $raw_value, $device_ids);
+	}
+}
+// ---- pass A, step 2: PORTS, LAG, LEARNED_MACS of every identified reporter ----
+foreach ($identified as $hostid => $result) {
+	$reporter = $snapshot_reporters[$hostid];
+	try {
+		$pdo->beginTransaction();
+		$snap_reporter_tables($reporter, (int) $result['device_id']);
+		$pdo->commit();
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
+		fwrite(STDERR, "ERROR: failed to ingest the ports of '{$reporter['host']}': {$exception->getMessage()}\n");
+		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
+		$skipped++;
+		unset($identified[$hostid]);
+	}
+}
+// ---- pass B: the NEIGHBORS rows of all reporters (reporters in hostid order, rows sorted) ----
+foreach ($identified as $hostid => $result) {
+	$reporter = $snapshot_reporters[$hostid];
+	$mark = [count($link_candidates), $neighbor_snapshots];
+	try {
+		$pdo->beginTransaction();
+		$snap_reporter_neighbors($reporter, (int) $result['device_id'], (string) $result['segment']);
+		$pdo->commit();
+		$summary['reporters_processed']++;
+		$processed++;
+		echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, roles: ".
+			implode(',', array_keys($reporter['snapshots']))."\n";
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
 		$link_candidates = array_slice($link_candidates, 0, $mark[0]);
 		$neighbor_snapshots = $mark[1];
-		fwrite(STDERR, "ERROR: failed to ingest LLD snapshots of '{$reporter['host']}': {$exception->getMessage()}\n");
+		fwrite(STDERR, "ERROR: failed to ingest the neighbors of '{$reporter['host']}': {$exception->getMessage()}\n");
 		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
 		$skipped++;
 	}
