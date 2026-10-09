@@ -420,6 +420,7 @@ final class CRouter {
 		'topology.manual.keep'						=> [CControllerTopologyManualKeep::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.manual.revoke'					=> [CControllerTopologyManualRevoke::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.devices.merge'					=> [CControllerTopologyDevicesMerge::class,						ZBX_LAYOUT_JSON,		null],
+		'topology.devices.mergegroup'				=> [CControllerTopologyDevicesMergeGroup::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.devices.acceptchassis'			=> [CControllerTopologyDevicesAcceptChassis::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.devices.dismissduplicate'			=> [CControllerTopologyDevicesDismissDuplicate::class,			ZBX_LAYOUT_JSON,		null],
 		'topology.problems.get'						=> [CControllerTopologyProblemsGet::class,						ZBX_LAYOUT_JSON,		null],

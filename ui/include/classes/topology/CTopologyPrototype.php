@@ -110,6 +110,8 @@ class CTopologyPrototype {
 			switch ($row['type']) {
 				case 'device':
 					$node['name'] = $attrs['sysname'];
+					$node['chassis_id'] = $attrs['chassis_id'] ?? null;      // shown next to the name where two Devices have one name (§6.7.5)
+					$node['mgmt_ip'] = $attrs['mgmt_ip'] ?? null;
 					$node['created_at'] = (int) $row['created_at'];
 					// topology-1-model.md §6.7.5: possible duplicates (the evidence ingest wrote); resolved below, in one query
 					$node['duplicates'] = $attrs['duplicate_candidates'] ?? [];
@@ -169,6 +171,15 @@ class CTopologyPrototype {
 					$node[$list] = array_map(static fn (array $candidate): array => $candidate + ['name' => $candidate['device_id'] !== null
 						? ($other_names[$candidate['device_id']] ?? null) : null], $node[$list]);
 				}
+			}
+		}
+		unset($node);
+
+		// topology-1-model.md §6.7.5 "Merge a group": every member of a group of Devices linked by candidates lists the whole group
+		$groups = self::duplicateGroups($nodes);
+		foreach ($nodes as &$node) {
+			if (isset($groups[$node['id']])) {
+				$node['duplicate_group'] = $groups[$node['id']];
 			}
 		}
 		unset($node);
@@ -1946,6 +1957,71 @@ class CTopologyPrototype {
 		DBend(true);
 
 		return ['kept' => (int) $keep_id, 'removed' => (int) $remove_id];
+	}
+
+	/**
+	 * The groups of Devices linked by duplicate candidates, directly or through others (§6.7.5): [device id => sorted ids of its group, itself included].
+	 * Only Devices that have a candidate pointing at a Device are in a group. Dismissed pairs are not candidates, so they do not link.
+	 *
+	 * @param array $nodes  nodes as getDevices() builds them (id, duplicates)
+	 */
+	public static function duplicateGroups(array $nodes): array {
+		$parent = [];
+		$find = static function (int $id) use (&$parent, &$find): int {
+			$parent[$id] ??= $id;
+			return $parent[$id] === $id ? $id : ($parent[$id] = $find($parent[$id]));
+		};
+		foreach ($nodes as $node) {
+			foreach ($node['duplicates'] ?? [] as $candidate) {
+				if ($candidate['device_id'] !== null) {
+					$parent[$find((int) $node['id'])] = $find((int) $candidate['device_id']);
+				}
+			}
+		}
+		$members = [];
+		foreach (array_keys($parent) as $id) {
+			$members[$find($id)][] = $id;
+		}
+		$result = [];
+		foreach ($members as $list) {
+			sort($list);
+			foreach ($list as $id) {
+				$result[$id] = $list;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Merge a group (topology-1-model.md §6.7.5): keep K, remove R1..Rn, applied in a fixed order (by id), so the result does not depend on the order
+	 * the caller lists them in. Refused before anything is written when more than one of the Devices has a represented_by.
+	 *
+	 * @param string[] $remove_ids
+	 */
+	public static function mergeGroup(string $keep_id, array $remove_ids, string $username): array {
+		$remove_ids = array_values(array_unique(array_map('strval', $remove_ids)));
+		$remove_ids = array_values(array_diff($remove_ids, [$keep_id]));
+		if (!$remove_ids) {
+			throw new Exception('Choose the Devices to merge.');
+		}
+		usort($remove_ids, static fn (string $a, string $b): int => (int) $a <=> (int) $b);
+
+		$represented = 0;
+		foreach (array_merge([$keep_id], $remove_ids) as $id) {
+			$row = self::getDeviceRow($id);
+			$represented += $row['represented_by_node_id'] !== null ? 1 : 0;
+		}
+		if ($represented > 1) {
+			throw new Exception('More than one Device of the group is represented by a host or proxy: they cannot all be merged.');
+		}
+
+		$removed = [];
+		foreach ($remove_ids as $id) {
+			$removed[] = self::mergeDevices($keep_id, $id, $username)['removed'];
+		}
+
+		return ['kept' => (int) $keep_id, 'removed' => $removed];
 	}
 
 	/** B's Ports -> A: real by if_index into real, pseudo into any Port of A by normalized name only; the rest move. Links and observations follow. */

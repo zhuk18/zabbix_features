@@ -514,4 +514,63 @@ $r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => (string) $A, 're
 check(($r['success'] ?? false) === true && $r['kept'] === $A && $r['removed'] === $B && !exists($pdo, $B), 'merge: success, answers kept and removed');
 check(call(CControllerTopologyDevicesMerge::class, ['keep_id' => 'x', 'remove_id' => '1']) === null, 'a malformed id is rejected (the input validation, no answer)');
 
+// ============================================================================================================
+echo "\n=== 6: merge a group (keep K, remove R1..Rn): any order inside gives the same result ===\n";
+$nodes = [['id' => '1', 'duplicates' => [['device_id' => 2]]], ['id' => '2', 'duplicates' => [['device_id' => 1], ['device_id' => 3]]],
+	['id' => '3', 'duplicates' => [['device_id' => 2]]], ['id' => '9', 'duplicates' => []], ['id' => '10', 'duplicates' => [['device_id' => 11]]], ['id' => '11', 'duplicates' => []]];
+$g = CTopologyPrototype::duplicateGroups($nodes);
+check($g[1] === [1, 2, 3] && $g[2] === [1, 2, 3] && $g[3] === [1, 2, 3] && $g[10] === [10, 11] && $g[11] === [10, 11] && !isset($g[9]),
+	'the group listing: A-B and B-C are one group of three, a pair is a group of two, a Device without a candidate is in none');
+
+function group_setup(PDO $pdo, string $X, string $IP): array {
+	reset_all($pdo);
+	$A = device($pdo, $X, null, 'A');
+	$B = device($pdo, null, $IP, 'B');
+	$C = device($pdo, null, '10.9.9.9', 'C');
+	foreach ([[$B, 'lb', 'p1', 1], [$C, 'lc', 'p2', 2]] as [$dev, $location, $port, $if_index]) {
+		$attrs = dev_attrs($pdo, $dev);
+		$attrs['location'] = $location;
+		$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs), $dev]);
+		$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+			->execute([$dev, json_encode(['if_index' => $if_index, 'pseudo' => false, 'name' => $port, 'if_type' => 'physical'])]);
+	}
+	return [$A, $B, $C];
+}
+function group_state(PDO $pdo, int $kept): array {
+	$names = $pdo->query("SELECT JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) FROM topo_nodes WHERE type = 'port' ORDER BY 1")->fetchAll(PDO::FETCH_COLUMN);
+	$attrs = dev_attrs($pdo, $kept);
+	unset($attrs['last_seen']);
+	return ['devices' => dev_count($pdo), 'attrs' => $attrs, 'keys' => keys_of($pdo, $kept), 'ports' => $names];
+}
+$states = [];
+foreach (['B,C', 'C,B'] as $order) {
+	[$A, $B, $C] = group_setup($pdo, $X, $IP);
+	$ids = $order === 'B,C' ? [(string) $B, (string) $C] : [(string) $C, (string) $B];
+	$result = CTopologyPrototype::mergeGroup((string) $A, $ids, 'Admin');
+	check($result['kept'] === $A && !exists($pdo, $B) && !exists($pdo, $C), "order {$order}: both Devices are merged into A");
+	$states[$order] = group_state($pdo, $A);
+}
+check($states['B,C'] === $states['C,B'], 'the two orders give the same state: '.json_encode($states['B,C']));
+$want_keys = ['chassis:mac:'.$X => 0, 'ip:server:10.9.9.9' => 0, 'ip:server:'.$IP => 0];
+ksort($want_keys);
+check($states['B,C']['keys'] === $want_keys && $states['B,C']['ports'] === ['p1', 'p2']
+	&& ($states['B,C']['attrs']['location'] ?? null) === 'lb', 'A holds the keys and the ports of all three; the empty attribute is filled from the lowest id (B)');
+
+[$A, $B, $C] = group_setup($pdo, $X, $IP);
+foreach ([[$B, 111], [$C, 112]] as [$dev, $hostid]) {
+	add_host($pdo, $hostid, 'H'.$hostid, 'H'.$hostid, null);
+	$pdo->prepare("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', ?, '{}', 1, 1)")->execute([$hostid]);
+	$pdo->prepare("UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = 'manual', represented_by_at = 1 WHERE id = ?")->execute([(int) $pdo->lastInsertId(), $dev]);
+}
+try {
+	CTopologyPrototype::mergeGroup((string) $A, [(string) $B, (string) $C], 'Admin');
+	check(false, 'a group with two represented Devices is refused');
+}
+catch (Exception $e) {
+	check(exists($pdo, $A) && exists($pdo, $B) && exists($pdo, $C), 'a group with two represented Devices is refused before anything is written ('.$e->getMessage().')');
+}
+login();
+$r = call(CControllerTopologyDevicesMergeGroup::class, ['keep_id' => (string) $A, 'remove_ids' => []]);
+check(is_array($r) && isset($r['error']) || $r === null, 'the endpoint answers an empty list with an error');
+
 echo "\nAll duplicate candidate checks passed.\n";
