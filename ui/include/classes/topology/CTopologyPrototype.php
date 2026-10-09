@@ -1933,6 +1933,7 @@ class CTopologyPrototype {
 				}
 			}
 
+			self::mergeIdentityKeys($keep_id, $remove_id, $replaced, (string) ($k['chassis_id'] ?? ''));
 			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($remove_id).' AND type='.zbx_dbstr('device'));
 
 			// §6.7.3 on K: a pseudo port that now has a real counterpart of the same normalized name is merged into it (links move)
@@ -2098,6 +2099,82 @@ class CTopologyPrototype {
 			unset($attrs['duplicate_candidates']);
 		}
 		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($device_id));
+
+		// the keys (§6.7.0): the chassis the host reports is the Device's chassis key now; the old chassis keys stay, marked replaced
+		$col = self::keyColumn();
+		$host = DBfetch(DBselect('SELECT host_ref FROM topo_nodes WHERE id='.zbx_dbstr($row['represented_by_node_id']).' AND type='.zbx_dbstr('host')), false);
+		$new_key = self::chassisKeyOf((string) $entry['value'], $host ? (string) $host['host_ref'] : null);
+		DBexecute('UPDATE topo_identity_keys SET replaced=1 WHERE device_id='.zbx_dbstr($device_id).' AND kind='.zbx_dbstr('chassis').' AND '.$col.'<>'.zbx_dbstr($new_key));
+		if (DBfetch(DBselect('SELECT device_id FROM topo_identity_keys WHERE device_id='.zbx_dbstr($device_id).' AND '.$col.'='.zbx_dbstr($new_key), 1), false)) {
+			DBexecute('UPDATE topo_identity_keys SET replaced=0 WHERE device_id='.zbx_dbstr($device_id).' AND '.$col.'='.zbx_dbstr($new_key));
+		}
+		else {
+			DBexecute('INSERT INTO topo_identity_keys (device_id,'.$col.',kind,first_seen,replaced) VALUES ('.zbx_dbstr($device_id).','.zbx_dbstr($new_key).','.
+				zbx_dbstr('chassis').','.time().',0)');
+		}
+	}
+
+	// ---- identity keys (topology-1-model.md §6.7.0) ----
+	private static function keyColumn(): string {
+		global $DB;
+
+		return $DB['TYPE'] === ZBX_DB_POSTGRESQL ? '"key"' : '`key`';
+	}
+
+	/** The chassis value of a chassis key string: `chassis:mac:<mac>` or `chassis:<type>:<segment>:<value>`; null for another kind of key. */
+	private static function chassisOfKey(string $key): ?string {
+		if (str_starts_with($key, 'chassis:mac:')) {
+			return substr($key, strlen('chassis:mac:'));
+		}
+
+		return preg_match('/^chassis:[^:]+:(?:server|pg:\d+|proxy:\d+):(.*)$/s', $key, $m) === 1 ? $m[1] : null;
+	}
+
+	/** The key string of a chassis value reported by a host (`loc_chassis`): a MAC is global, any other value is scoped to the segment of the host. */
+	private static function chassisKeyOf(string $value, ?string $hostid): string {
+		if (preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $value) === 1) {
+			return 'chassis:mac:'.strtolower($value);
+		}
+		$segment = 'server';
+		if ($hostid !== null) {
+			$host = DBfetch(DBselect('SELECT monitored_by,proxyid,proxy_groupid FROM hosts WHERE hostid='.zbx_dbstr($hostid)), false);
+			if ($host && (int) $host['monitored_by'] === ZBX_MONITORED_BY_PROXY_GROUP && $host['proxy_groupid'] !== null) {
+				$segment = 'pg:'.$host['proxy_groupid'];
+			}
+			elseif ($host && (int) $host['monitored_by'] === ZBX_MONITORED_BY_PROXY && $host['proxyid'] !== null) {
+				$segment = 'proxy:'.$host['proxyid'];
+			}
+		}
+
+		return substr('chassis:local:'.$segment.':'.$value, 0, 300);
+	}
+
+	/**
+	 * Merge: R's keys become K's (the ones K does not hold yet); the chassis keys whose chassis is in $replaced get replaced = 1, the one K ends with
+	 * ($chosen) does not (§6.7.5). R's own rows go with the Device (ON DELETE CASCADE).
+	 */
+	private static function mergeIdentityKeys(string $keep_id, string $remove_id, array $replaced, string $chosen): void {
+		$col = self::keyColumn();
+		$have = [];
+		$result = DBselect('SELECT '.$col.' AS k FROM topo_identity_keys WHERE device_id='.zbx_dbstr($keep_id));
+		while ($row = DBfetch($result, false)) {
+			$have[$row['k']] = true;
+		}
+		$result = DBselect('SELECT '.$col.' AS k,kind,first_seen,replaced FROM topo_identity_keys WHERE device_id='.zbx_dbstr($remove_id));
+		while ($row = DBfetch($result, false)) {
+			if (!isset($have[$row['k']])) {
+				DBexecute('INSERT INTO topo_identity_keys (device_id,'.$col.',kind,first_seen,replaced) VALUES ('.zbx_dbstr($keep_id).','.
+					zbx_dbstr($row['k']).','.zbx_dbstr($row['kind']).','.(int) $row['first_seen'].','.(int) $row['replaced'].')');
+			}
+		}
+		$result = DBselect('SELECT '.$col.' AS k,replaced FROM topo_identity_keys WHERE device_id='.zbx_dbstr($keep_id).' AND kind='.zbx_dbstr('chassis'));
+		while ($row = DBfetch($result, false)) {
+			$value = self::chassisOfKey($row['k']);
+			$want = $value !== null && $value !== $chosen && in_array($value, $replaced, true) ? 1 : 0;
+			if ((int) $row['replaced'] !== $want) {
+				DBexecute('UPDATE topo_identity_keys SET replaced='.$want.' WHERE device_id='.zbx_dbstr($keep_id).' AND '.$col.'='.zbx_dbstr($row['k']));
+			}
+		}
 	}
 
 	/** Not the same device: the other Device's id goes to attrs.duplicate_dismissed of both (with at and by), and out of both candidate lists. */

@@ -41,7 +41,7 @@ $password = $args[2] ?? '';
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
 		'items', 'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -137,7 +137,7 @@ $MAC2 = '02:00:00:0a:00:02';
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

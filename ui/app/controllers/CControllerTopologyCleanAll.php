@@ -30,6 +30,7 @@ class CControllerTopologyCleanAll extends CController {
 		$nodes_before = (int) DBfetch(DBselect('SELECT COUNT(*) AS cnt FROM topo_nodes'))['cnt'];
 
 		DBexecute('DELETE FROM topo_edges');
+		DBexecute('DELETE FROM topo_identity_keys');
 		DBexecute('DELETE FROM topo_nodes');
 
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode([

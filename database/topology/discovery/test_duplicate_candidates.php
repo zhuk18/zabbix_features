@@ -46,7 +46,7 @@ $dbname = $dbm[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
 		'items', 'globalmacro', 'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -243,7 +243,7 @@ $IP = '10.5.5.5';
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -253,7 +253,23 @@ function reset_all(PDO $pdo): void {
 function device(PDO $pdo, ?string $chassis, ?string $ip, string $sysname = ''): int {
 	$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
 		->execute([json_encode(['mac' => null, 'chassis_id' => $chassis, 'mgmt_ip' => $ip, 'sysname' => $sysname, 'vendor' => 'unknown', 'last_seen' => 1])]);
-	return (int) $pdo->lastInsertId();
+	$id = (int) $pdo->lastInsertId();
+	// the identity keys of a Device made earlier in segment `server` (topology-1-model.md section 6.7.0)
+	if ($chassis !== null && $chassis !== '') {
+		$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'chassis', 1, 0)")
+			->execute([$id, preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis) ? 'chassis:mac:'.strtolower($chassis) : 'chassis:local:server:'.$chassis]);
+	}
+	if ($ip !== null && $ip !== '') {
+		$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'ip', 1, 0)")->execute([$id, 'ip:server:'.$ip]);
+	}
+	return $id;
+}
+
+/** The identity keys of a Device: key => replaced (0/1). */
+function keys_of(PDO $pdo, int $id): array {
+	$stmt = $pdo->prepare('SELECT `key`, replaced FROM topo_identity_keys WHERE device_id = ? ORDER BY `key`');
+	$stmt->execute([$id]);
+	return array_map('intval', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
 }
 
 function dev_attrs(PDO $pdo, int $id): ?array {
@@ -385,6 +401,7 @@ check($attrs['shadow_ack'][0]['device_id'] === $A && $attrs['shadow_ack'][0]['re
 	&& $attrs['shadow_ack'][1] === $ack[1], 'the shadow_ack that named B names A; every other byte is the same');
 $k = dev_attrs($pdo, $A);
 check($k['chassis_id'] === $X && $k['mgmt_ip'] === $IP && !isset($k['duplicate_candidates']) && !isset($k['replaced_chassis']), 'A keeps its chassis, B\'s IP fills A\'s empty mgmt_ip, no stale candidate, no replaced chassis');
+check(keys_of($pdo, $A) === ['chassis:mac:'.$X => 0, 'ip:server:'.$IP => 0], 'keys: B\'s keys moved to A (the chassis of A and the address of B)');
 $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(!exists($pdo, $B) && candidates($pdo, $A) === [], 'the next ingest finds no candidate and does not bring B back');
@@ -442,6 +459,8 @@ $fp_before = null;
 $result = CTopologyPrototype::mergeDevices((string) $S, (string) $C, 'Admin');
 $k = dev_attrs($pdo, $S);
 check($k['chassis_id'] === $Y && ($k['replaced_chassis'] ?? null) === [$X] && !exists($pdo, $C), 'S has chassis Y, replaced_chassis [X], C is deleted (K\'s own reporter reports Y)');
+check(keys_of($pdo, $S)['chassis:mac:'.$X] === 1 && keys_of($pdo, $S)['chassis:mac:'.$Y] === 0,
+	'keys: the chassis key of X is replaced, the one of Y is not');
 run_ingest($dsn, $user, $password);
 check(dev_count($pdo) === 2 && count(array_filter(candidates($pdo, $S))) === 0, 'after the next ingest: C\'s link is on S, no candidate');
 $s_link = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type='physical_link' AND JSON_EXTRACT(attrs,'\$.superseded_at') IS NULL");
@@ -466,6 +485,7 @@ check(candidates($pdo, $S) === [['device_id' => null, 'reason' => 'reporter_chas
 CTopologyPrototype::acceptChassis((string) $S, 'Admin');
 $k = dev_attrs($pdo, $S);
 check($k['chassis_id'] === $Y && $k['replaced_chassis'] === [$X], 'S has chassis Y, replaced_chassis [X]');
+check(keys_of($pdo, $S)['chassis:mac:'.$X] === 1 && keys_of($pdo, $S)['chassis:mac:'.$Y] === 0, 'keys: accept new chassis marks the old chassis key replaced and adds the new one');
 run_ingest($dsn, $user, $password);
 check(candidates($pdo, $S) === [] && dev_count($pdo) === 2, 'no candidate after the next ingest, no new Device');
 

@@ -43,7 +43,7 @@ $dbname = $m[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'globalmacro',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'globalmacro',
 		'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -152,7 +152,7 @@ function edge(PDO $pdo, string $type, int $src, int $dst, array $attrs): int {
 
 function reset_topology(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
+	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
 		$pdo->exec("TRUNCATE TABLE {$table}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

@@ -41,7 +41,7 @@ $password = $args[2] ?? '';
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
 		'items', 'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -133,7 +133,7 @@ const CLOCK = 1_800_000_000;
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -144,7 +144,16 @@ function device(PDO $pdo, ?string $chassis, ?string $ip, string $sysname = ''): 
 	$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
 		->execute([json_encode(['mac' => null, 'chassis_id' => $chassis, 'mgmt_ip' => $ip, 'sysname' => $sysname, 'vendor' => 'unknown',
 			'last_seen' => 1])]);
-	return (int) $pdo->lastInsertId();
+	$id = (int) $pdo->lastInsertId();
+	// the identity keys of a Device made earlier in segment `server` (topology-1-model.md section 6.7.0)
+	if ($chassis !== null && $chassis !== '') {
+		$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'chassis', 1, 0)")
+			->execute([$id, preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis) ? 'chassis:mac:'.strtolower($chassis) : 'chassis:local:server:'.$chassis]);
+	}
+	if ($ip !== null && $ip !== '') {
+		$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'ip', 1, 0)")->execute([$id, 'ip:server:'.$ip]);
+	}
+	return $id;
 }
 
 function dev_count(PDO $pdo): int {

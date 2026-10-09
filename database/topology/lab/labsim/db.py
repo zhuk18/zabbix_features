@@ -135,7 +135,7 @@ def reset_topo(conn):
     """topology-4-lab-simulator.md "Reset": clear topo_* state (the same as the 'clean topo_* state' of the equivalence tests)."""
     cur = conn.cursor()
     cur.execute('SET FOREIGN_KEY_CHECKS = 0')
-    for t in ('topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot'):
+    for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot'):
         cur.execute('DELETE FROM %s' % t)
     cur.execute('SET FOREIGN_KEY_CHECKS = 1')
 

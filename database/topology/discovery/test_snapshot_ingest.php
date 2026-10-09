@@ -39,7 +39,7 @@ $password = $args[2] ?? '';
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
 		'items', 'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -427,7 +427,7 @@ check($obs_of(8001) >= 1, 'the host is enabled again: its last snapshot is used 
 // ============================================================================================================
 echo "\n=== 13: pseudo port identity is the normalized name (topology-1-model.md \"Far port\") ===\n";
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
 	$pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -485,7 +485,7 @@ check(count($x_ports()) === $ports_before && (int) scalar($pdo, "SELECT COUNT(*)
 // ============================================================================================================
 echo "\n=== 14: a Device created by sysname has matched_by sysname at once (topology-1-model.md \"Far Device\") ===\n";
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
 	$pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -502,7 +502,7 @@ check(fingerprint($pdo) === $before, 'the first repeat run changes no attribute'
 // ============================================================================================================
 echo "\n=== 15: port class (topology-1-model.md §6.6): IANA types and the management names ===\n";
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
 	$pdo->exec("DELETE FROM {$t}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS topo_observations (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	itemid BIGINT UNSIGNED NOT NULL,
 	local_port_id BIGINT UNSIGNED NOT NULL,
-	remote_key VARCHAR(255) NOT NULL,
+	remote_key VARCHAR(300) NOT NULL,
 	remote_attrs JSON NOT NULL,
 	outcome VARCHAR(16) NOT NULL,
 	edge_id BIGINT UNSIGNED NULL,
@@ -94,4 +94,19 @@ CREATE TABLE IF NOT EXISTS topo_observations (
 	CONSTRAINT topo_observations_2 FOREIGN KEY (local_port_id) REFERENCES topo_nodes (id) ON DELETE CASCADE,
 	CONSTRAINT topo_observations_3 FOREIGN KEY (edge_id) REFERENCES topo_edges (id) ON DELETE SET NULL,
 	CONSTRAINT topo_observations_4 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- topo_identity_keys: the identity keys of a Device (topology-1-model.md "Identity keys and segments"). One Device holds a set of keys; the scope belongs to
+-- the key: `chassis:mac:<mac>` (global), `chassis:<type>:<segment>:<value>`, `ip:<segment>:<addr>`. Not unique on the key itself, so a value that
+-- several Devices already hold (old data) stays representable. `replaced` = 1: a chassis the Device had before an operator merge or
+-- "accept new chassis"; it finds the Device only when no other key does. Rows go with the Device (ON DELETE CASCADE).
+CREATE TABLE IF NOT EXISTS topo_identity_keys (
+	device_id BIGINT UNSIGNED NOT NULL,
+	`key` VARCHAR(300) NOT NULL,
+	kind VARCHAR(16) NOT NULL,
+	first_seen INT UNSIGNED NOT NULL DEFAULT 0,
+	replaced TINYINT NOT NULL DEFAULT 0,
+	PRIMARY KEY (device_id, `key`),
+	KEY topo_identity_keys_1 (`key`),
+	CONSTRAINT topo_identity_keys_1 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
