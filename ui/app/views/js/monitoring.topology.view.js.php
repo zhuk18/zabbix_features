@@ -290,6 +290,8 @@ const view = new class {
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
+			// colour of the line (§12.3): severity of the problems on the items of the end ports
+			severity: relation.severity ?? null, severity_name: relation.severity_name ?? null, color: relation.color ?? null,
 			replaced_by_device: relation.replaced_by_device ?? null, edge_id: relation.edge_id ?? null,
 			// physical_link only (topology-1-model.md "Lost precision"): sides that see only the far Device.
 			lost_precision: relation.lost_precision ?? null, last_seen_port: relation.last_seen_port ?? null,
@@ -633,6 +635,9 @@ const view = new class {
 			link.discovered_via = neighbor.discovered_via;
 			link.stale = neighbor.stale;
 			link.superseded_at = neighbor.superseded_at ?? null;
+			link.severity = neighbor.severity ?? null;
+			link.severity_name = neighbor.severity_name ?? null;
+			link.color = neighbor.color ?? null;
 			// neighbor.local_*/remote_* are from the CLICKED device's (node's) point of view —
 			// map them onto whichever of link.source/link.target actually IS node_id, same
 			// orientation concern as the undirected match above.
@@ -645,6 +650,8 @@ const view = new class {
 				link.target_status = neighbor.remote_status;
 				link.source_speed = neighbor.local_speed;
 				link.target_speed = neighbor.remote_speed;
+				link.source_load = neighbor.load?.local ?? null;
+				link.target_load = neighbor.load?.remote ?? null;
 			}
 			else {
 				link.source_port = neighbor.remote_port;
@@ -655,6 +662,8 @@ const view = new class {
 				link.target_status = neighbor.local_status;
 				link.source_speed = neighbor.remote_speed;
 				link.target_speed = neighbor.local_speed;
+				link.source_load = neighbor.load?.remote ?? null;
+				link.target_load = neighbor.load?.local ?? null;
 			}
 		});
 	}
@@ -714,6 +723,16 @@ const view = new class {
 			}
 			if (speed_mismatch) {
 				rows.push([<?= json_encode(_('Note')) ?>, <?= json_encode(_('Speed mismatch between the two ends.')) ?>]);
+			}
+			// load of each side: numbers and the graphs of the port items; no colour (§4.8)
+			[[link.source, link.source_load], [link.target, link.target_load]].forEach(([node, load]) => {
+				const text = this.loadText(load);
+				if (text !== '') {
+					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, `${this.escape(text)} ${this.loadGraphLinks(load)}`, true]);
+				}
+			});
+			if (link.severity !== null && link.severity !== undefined) {
+				rows.push([<?= json_encode(_('Severity')) ?>, `<span class="topology-severity-badge" style="background:${this.cssColor(link.color)}">${this.escape(link.severity_name)}</span>`, true]);
 			}
 			if (link.superseded_at) {
 				rows.push([<?= json_encode(_('Replaced')) ?>, this.replacedNote(link)]);
@@ -926,6 +945,21 @@ const view = new class {
 	statusCell(status, status_labels) {
 		return `<span class="topology-status-dot topology-status-${this.escape(status)}"></span>` +
 			this.escape(status_labels[status] ?? status);
+	}
+
+	// Load of one side of a link (topology-1-model.md §4.8): in, out, speed and %, as text, with links to the graphs of the items. Display only.
+	loadText(load) {
+		if (!load || (load.in === null && load.out === null && load.speed === null)) {
+			return '';
+		}
+		const part = (label, value) => value === null || value === undefined ? '' : `${label} ${value === 0 ? '0 bps' : this.formatSpeed(value)}`;
+		return [part(<?= json_encode(_('in')) ?>, load.in), part(<?= json_encode(_('out')) ?>, load.out), part(<?= json_encode(_('speed')) ?>, load.speed)]
+			.filter(Boolean).join(', ') + (load.percent !== null && load.percent !== undefined ? ` (${load.percent} %)` : '');
+	}
+
+	loadGraphLinks(load) {
+		return [[<?= json_encode(_('in')) ?>, load?.items?.in], [<?= json_encode(_('out')) ?>, load?.items?.out]].filter(([, id]) => id)
+			.map(([label, id]) => `<a href="history.php?action=showgraph&amp;itemids%5B%5D=${encodeURIComponent(id)}" target="_blank" rel="noopener">${this.escape(label)}</a>`).join(' · ');
 	}
 
 	formatSpeed(bps) {
@@ -1380,15 +1414,16 @@ const view = new class {
 				if (link.type === 'monitored_by') {
 					return '#6b46c1';
 				}
-				const down = link.source_status === 'down' || link.target_status === 'down';
 				if (link.type === 'device_link') {
 					return link.discovered_via === 'manual' ? '#334155' : '#64748b';
 				}
-				return (link.type === 'physical_link' && down) ? '#dc2626' : '#64748b';
+				// colour = severity of the problems on the port items (topology-1-model.md §4.8, §12.3), overload included through the template's
+				// trigger; the port status is NOT a colour (it is in the tooltip and the panel)
+				return link.type === 'physical_link' && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
 			})
 			.attr('stroke-width', link => {
-				const down = link.source_status === 'down' || link.target_status === 'down';
-				return link.type === 'device_link' ? 3 : ((link.type === 'physical_link' && down) ? 4 : 2);
+				const severe = link.type === 'physical_link' && link.severity !== null && link.severity !== undefined;
+				return link.type === 'device_link' ? 3 : (severe ? 4 : 2);
 			})
 			.attr('stroke-dasharray', link => {
 				// represented_by and monitored_by both connect monitoring-related nodes and are easy to
@@ -1429,7 +1464,12 @@ const view = new class {
 				if (link.target_status) {
 					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
 				}
-				const lost = this.lostPrecisionNotes(link).map(note => ` ${note}`).join('');
+				const loads = [[link.source, link.source_load], [link.target, link.target_load]].map(([node, load]) => {
+					const text = this.loadText(load);
+					return text === '' ? '' : ` ${node.name} ${<?= json_encode(_('load')) ?>}: ${text}.`;
+				}).join('');
+				const severity_note = link.severity !== null && link.severity !== undefined ? ` ${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.` : '';
+				const lost = this.lostPrecisionNotes(link).map(note => ` ${note}`).join('') + loads + severity_note;
 				const stale_note = (link.superseded_at
 					? ` ${this.replacedNote(link)}`
 					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '')) + lost;
