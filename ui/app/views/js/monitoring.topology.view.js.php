@@ -91,6 +91,15 @@ const view = new class {
 				this.guard(() => this.duplicateAction(button.dataset.topologyDup, button.dataset));
 			}
 		});
+		// A hint that more sections follow below in the panel (the panel scrolls, nothing else shows it)
+		const panel = document.getElementById('topology-panel');
+		const hint = document.getElementById('topology-more-hint');
+		const update_hint = () => {
+			hint.hidden = !(panel.scrollHeight - panel.scrollTop - panel.clientHeight > 8);
+		};
+		panel.addEventListener('scroll', update_hint);
+		new ResizeObserver(update_hint).observe(this.details);
+		hint.addEventListener('click', () => panel.scrollBy({top: panel.clientHeight * 0.8, behavior: 'smooth'}));
 		this.ingest_status_element = document.getElementById('topology-ingest-status');
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
@@ -256,7 +265,7 @@ const view = new class {
 		return groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
 	}
 
-	async loadDevices({reselect_edge = null} = {}) {
+	async loadDevices({reselect_edge = null, reselect_device = null} = {}) {
 		const {devices = [], relations = [], contradictions = []} =
 			await this.request(`topology.devices.get${this.filterQuery()}`);
 		this.contradictions = contradictions;
@@ -303,6 +312,16 @@ const view = new class {
 			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(reselect_edge));
 			if (link) {
 				this.selectLink(this.resolvedLink(link));
+				return;
+			}
+		}
+		// the panel stays on the Device the operator acted on (a merge keeps K, §6.7.5), shown through its host when it has one
+		if (reselect_device !== null) {
+			const device = this.nodes.get(String(reselect_device));
+			if (device && device.type === 'device') {
+				const host = device.represented_hostid
+					? devices.find(node => node.type === 'host' && String(node.hostid) === String(device.represented_hostid)) : null;
+				await this.selectNode(host ?? device);
 				return;
 			}
 		}
@@ -479,8 +498,8 @@ const view = new class {
 				`data-keep="${this.escape(keep_id)}" data-remove="${this.escape(remove_id)}">${this.escape(<?= json_encode(_('Merge, keep')) ?>)} ` +
 				`${this.escape(label ?? '?')}${proposed ? ' ' + this.escape(<?= json_encode(_('(proposed)')) ?>) : ''}</button> `;
 			rows.push(`<li>${title}: ${this.escape(candidate.name ?? candidate.device_id)}<br>` +
-				keep_button(device.id, candidate.device_id, device.name, mine_is_kept) +
-				keep_button(candidate.device_id, device.id, candidate.name, !mine_is_kept) +
+				keep_button(device.id, candidate.device_id, this.deviceLabel(device), mine_is_kept) +
+				keep_button(candidate.device_id, device.id, this.deviceLabel(other ?? {id: candidate.device_id, name: candidate.name}), !mine_is_kept) +
 				`<button type="button" class="btn-alt" data-topology-dup="dismiss" data-a="${this.escape(device.id)}" data-b="${this.escape(candidate.device_id)}">` +
 				`${this.escape(<?= json_encode(_('Not the same device')) ?>)}</button></li>`);
 		});
@@ -489,29 +508,61 @@ const view = new class {
 			`<button type="button" class="btn-alt" data-topology-dup="revoke" data-a="${this.escape(device.id)}" data-b="${this.escape(entry.device_id)}">` +
 			`${this.escape(<?= json_encode(_('Revoke')) ?>)}</button></li>`));
 
+		// A group (§6.7.5 "Merge a group"): three or more Devices linked by candidates. One action merges all of them into the chosen Device; the proposal
+		// is the Device with a represented_by, else the oldest.
+		const group = (device.duplicate_group ?? []).map(id => this.nodes.get(String(id))).filter(Boolean);
+		if (group.length >= 3) {
+			const proposed = group.slice().sort((a, b) => (Boolean(b.represented) - Boolean(a.represented)) || ((a.created_at ?? 0) - (b.created_at ?? 0)) || (a.id - b.id))[0];
+			rows.push(`<li>${this.escape(<?= json_encode(_('A group of Devices linked by candidates')) ?>)} (${group.length}):<br>` +
+				`<select class="topology-group-keep">${group.map(member => `<option value="${this.escape(member.id)}"${member.id === proposed.id ? ' selected' : ''}>` +
+					`${this.escape(this.deviceLabel(member))}</option>`).join('')}</select> ` +
+				`<button type="button" class="btn-alt" data-topology-dup="mergegroup" data-ids="${this.escape(group.map(member => member.id).join(','))}">` +
+				`${this.escape(<?= json_encode(_('Merge all into the selected Device')) ?>)}</button></li>`);
+		}
+
 		return rows.length ? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Possible duplicates')) ?>)}</h3><ul>${rows.join('')}</ul></section>` : '';
+	}
+
+	// A Device named so that two Devices with one name can be told apart: name, chassis or address, id.
+	deviceLabel(node) {
+		const identity = node.chassis_id || node.mgmt_ip || '';
+		return `${node.name ?? '?'} (${identity ? identity + ', ' : ''}#${node.id})`;
 	}
 
 	async duplicateAction(action, data) {
 		const post = (name, body) => this.request(name, {
 			method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
 		});
+		let stay = null;
 		if (action === 'merge') {
 			if (!confirm(<?= json_encode(_('Merge the two Devices? The removed one is deleted: its ports, links and observations move to the kept one.')) ?>)) {
 				return;
 			}
 			await post('topology.devices.merge', {keep_id: data.keep, remove_id: data.remove});
+			stay = data.keep;
+		}
+		else if (action === 'mergegroup') {
+			const keep = this.details.querySelector('.topology-group-keep').value;
+			const ids = data.ids.split(',').filter(id => id !== keep);
+			if (!confirm(<?= json_encode(_('Merge all Devices of the group into the selected one? The others are deleted: their ports, links and observations move to the kept one.')) ?>)) {
+				return;
+			}
+			await post('topology.devices.mergegroup', {keep_id: keep, remove_ids: ids});
+			stay = keep;
 		}
 		else if (action === 'accept') {
 			await post('topology.devices.acceptchassis', {id: data.device});
+			stay = data.device;
 		}
 		else if (action === 'dismiss') {
 			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b});
+			stay = data.a;
 		}
 		else if (action === 'revoke') {
 			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b, revoke: 1});
+			stay = data.a;
 		}
-		await this.loadDevices();
+		await this.loadDevices({reselect_device: stay});
 	}
 
 	async selectNode(node) {

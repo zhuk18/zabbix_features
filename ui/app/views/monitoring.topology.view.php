@@ -20,7 +20,9 @@ $page_styles = '
 #topology-canvas{grid-column:1;grid-row:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
-.topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;line-height:1.4;font-size:13px;cursor:pointer;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
+.topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;font-size:12px;color:#1f5a8a;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
+.topology-more[hidden]{display:none}
+.topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;line-height:1.4;font-size:13px;cursor:pointer;color:#1f2c33;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
 .topology-workspace.topology-panel-collapsed{grid-template-columns:minmax(0,1fr) 34px}
 .topology-workspace.topology-panel-collapsed .topology-panel{padding:10px 4px;overflow:hidden}
 .topology-workspace.topology-panel-collapsed .topology-panel h2,
@@ -149,7 +151,8 @@ $page_styles = '
 						->addClass('topology-panel-toggle')
 						->setAttribute('title', _('Collapse')),
 					(new CTag('h2', true, _('Device details')))->setId('topology-details-title'),
-					(new CDiv(_('Select a device to inspect its ports, a host to see its active problems, or a link to see its details.')))->setId('topology-details')
+					(new CDiv(_('Select a device to inspect its ports, a host to see its active problems, or a link to see its details.')))->setId('topology-details'),
+					(new CDiv('▾ '._('more below')))->setId('topology-more-hint')->addClass('topology-more')->setAttribute('hidden', 'hidden')
 				]))
 					->setId('topology-panel')
 					->addClass('topology-panel')
