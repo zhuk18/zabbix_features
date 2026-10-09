@@ -63,6 +63,17 @@ chdir($ui);
 set_include_path($ui);
 require_once 'include/classes/core/CAutoloader.php';
 
+/** Stub: the real helper reads the severity names and colours from the Zabbix `config` table, which the test database does not have. */
+class CSeverityHelper {
+	public static function getName(int $severity): string {
+		return 'Severity '.$severity;
+	}
+
+	public static function getColor(int $severity): string {
+		return 'AA00'.sprintf('%02X', $severity);
+	}
+}
+
 /** Stub of the API facade: only the visible hosts matter to the topology classes. */
 class API {
 	public static array $visible = [];
@@ -75,11 +86,46 @@ class API {
 			public function get($options) {
 				API::$trigger_calls++;
 				$out = [];
-				foreach (API::$triggers as $trigger) {
+				foreach (API::$triggers as $n => $trigger) {
 					$hit = array_values(array_intersect($trigger['itemids'], $options['itemids']));
 					if ($hit) {
-						$out[] = ['priority' => (string) $trigger['priority'],
+						$out[] = ['triggerid' => (string) ($n + 1), 'priority' => (string) $trigger['priority'],
 							'items' => array_map(static fn ($id): array => ['itemid' => (string) $id], $hit)];
+					}
+				}
+				return $out;
+			}
+		};
+	}
+
+	/** Problems of the active triggers above (the severity of a link comes from them, so that the tag-based permissions apply): a trigger
+	 * with 'tag_hidden' => true is one the user may not see (a tag filter of the user group). */
+	public static function Problem() {
+		return new class {
+			public function get($options) {
+				$out = [];
+				foreach (API::$triggers as $n => $trigger) {
+					if (in_array((string) ($n + 1), array_map('strval', $options['objectids'] ?? []), true) && empty($trigger['tag_hidden'])) {
+						$out[] = ['objectid' => (string) ($n + 1), 'severity' => (string) $trigger['priority']];
+					}
+				}
+				return $out;
+			}
+		};
+	}
+
+	/** @var array[] items: itemid => ['key_', 'lastvalue', 'lastclock'] (the load of a port) */
+	public static array $items = [];
+	public static int $item_calls = 0;
+
+	public static function Item() {
+		return new class {
+			public function get($options) {
+				API::$item_calls++;
+				$out = [];
+				foreach ($options['itemids'] as $id) {
+					if (isset(API::$items[$id])) {
+						$out[] = ['itemid' => (string) $id] + API::$items[$id];
 					}
 				}
 				return $out;
@@ -642,6 +688,33 @@ check(neighbor($n, $far['Switch C'])['link_type'] === 'physical_link', 'oper_sta
 check(neighbor($n, $far['Switch A'])['local_status'] === 'up', 'local_status stays the port status, not the severity');
 API::$triggers = [];
 check(neighbor(CTopologyPrototype::getNeighbors((string) $R), $far['Switch A'])['severity'] === null, 'a resolved trigger: severity null again');
+// the severity is the severity of the user's PROBLEMS (access spec section 3.5): a problem that a tag filter hides gives no severity
+API::$triggers = [['priority' => 4, 'itemids' => [1000], 'tag_hidden' => true], ['priority' => 3, 'itemids' => [1001]]];
+$n = CTopologyPrototype::getNeighbors((string) $R);
+check(neighbor($n, $far['Switch A'])['severity'] === null && neighbor($n, $far['Switch B'])['severity'] === 3, 'a trigger whose problem the user may not see gives no severity; another one still does');
+API::$triggers = [];
+
+// load of each side (model section 4.8): bits in, bits out, speed, percent, from net.if.in[...], net.if.out[...], net.if.speed[...]; one item lookup
+$now = time();
+API::$items = [
+	1000 => ['key_' => 'net.if.in[ifInOctets.10]', 'lastvalue' => '300000000', 'lastclock' => (string) $now],
+	1100 => ['key_' => 'net.if.out[ifOutOctets.10]', 'lastvalue' => '100000000', 'lastclock' => (string) $now],
+	3000 => ['key_' => 'net.if.in[ifInOctets.1]', 'lastvalue' => '5', 'lastclock' => (string) ($now - 5000)],      // an old value: no load
+	3001 => ['key_' => 'net.if.speed[ifSpeed.1]', 'lastvalue' => '1000000000', 'lastclock' => (string) $now],
+];
+$pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JSON_ARRAY(1000, 1100, 1102)) WHERE id = ".(int) $near_ports['Switch A']);
+$pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JSON_ARRAY(3000, 3001)) WHERE device_id = ".(int) $far['Switch A']." AND type = 'port'");
+API::$items[1102] = ['key_' => 'net.if.speed[ifSpeed.10]', 'lastvalue' => '1000000000', 'lastclock' => (string) $now];
+API::$item_calls = 0;
+$n = CTopologyPrototype::getNeighbors((string) $R);
+$load = neighbor($n, $far['Switch A'])['load'];
+check(API::$item_calls === 1, 'four neighbors, ONE item lookup for the whole response');
+check($load['local']['in'] === 300000000.0 && $load['local']['out'] === 100000000.0 && $load['local']['speed'] === 1000000000.0 && $load['local']['percent'] === 30.0,
+	'load of the near side: in, out, speed and max(in, out) / speed in percent: '.json_encode($load['local']));
+check($load['local']['items']['in'] === '1000' && $load['local']['items']['out'] === '1100', 'the item ids of in and out ride along (the links to the graphs)');
+check($load['remote']['in'] === null && $load['remote']['speed'] === 1000000000.0 && $load['remote']['percent'] === null, 'a value older than 15 minutes is no load; no in/out, no percent: '.json_encode($load['remote']));
+check(neighbor($n, $far['Switch B'])['load'] === ['local' => null, 'remote' => null], 'a port without items has no load: '.json_encode(neighbor($n, $far['Switch B'])['load']));
+API::$items = [];
 
 // ============================================================================================================
 echo "\n=== step 10: the Host pull — a shared MAC matches nothing (topology-1-model.md \"Automatic MAC match\", \"Shared identifier\") ===\n";

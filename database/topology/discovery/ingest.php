@@ -1121,6 +1121,8 @@ $summary += [
 	// identity keys built from the attributes of Devices that had none (data written before the key table; topology-1-model.md §6.7.0): the Devices
 	// done, the keys written, and the Devices whose scoped keys could not be built because no segment is known (no reporter, no observation)
 	'identity_keys_built' => ['devices' => 0, 'keys' => 0, 'skipped' => []],
+	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the role PORTS): their links cannot be coloured (model §3.2)
+	'hosts_ports_without_items' => ['count' => 0, 'list' => []],
 	'snapshots_ignored_role_mismatch' => 0,
 	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
 	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
@@ -2194,10 +2196,27 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 	$snapshots = $reporter['snapshots'];
 
 	// ---- PORTS ----
+	// zabbix_itemids (topology-1-model.md §3.2): the items the rule's own LLD run made from the row (`itemids`, set by the server). A host can have two
+	// PORTS rules (the topology template and the standard interface discovery): their rows join by if_index, the ids come from the one with item
+	// prototypes (the other has []). The list is replaced by every run; a row without the field (an older snapshot) has none.
+	$port_items = [];
+	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+		foreach ($snapshot['rows'] as $row) {
+			$port_items[(int) $row['if_index']] = array_values(array_unique(array_merge($port_items[(int) $row['if_index']] ?? [],
+				array_map('intval', is_array($row['itemids'] ?? null) ? $row['itemids'] : []))));
+			sort($port_items[(int) $row['if_index']]);
+		}
+	}
+	if ($port_items && !array_filter($port_items)) {
+		$summary['hosts_ports_without_items']['count']++;
+		if (count($summary['hosts_ports_without_items']['list']) < 200) {
+			$summary['hosts_ports_without_items']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
+		}
+	}
 	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
 		foreach ($snapshot['rows'] as $row) {
 			$if_index = (int) $row['if_index'];
-			$overlay = ['if_index' => $if_index, 'pseudo' => false];
+			$overlay = ['if_index' => $if_index, 'pseudo' => false, 'zabbix_itemids' => $port_items[$if_index] ?? []];
 			foreach (['name', 'mac', 'speed'] as $key) {
 				if (($row[$key] ?? '') !== '') {
 					$overlay[$key] = $row[$key];

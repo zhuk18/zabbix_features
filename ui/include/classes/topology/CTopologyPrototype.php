@@ -12,6 +12,9 @@ class CTopologyPrototype {
 	public const LINK_TYPES = ['physical_link', 'device_link'];
 
 
+	/** A load value older than this many seconds is not shown (topology-1-model.md §4.8). */
+	private const LOAD_RECENT = 900;
+
 	private static function attrs(array $row): array {
 		return json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR);
 	}
@@ -476,8 +479,15 @@ class CTopologyPrototype {
 					'edge_id' => $row['link_id']];
 			}
 		}
-		foreach ($device_links as $relation) {
-			$relations[] = $relation;
+		// Link colour = severity of the problems on the items of the end ports (§4.8, §12.3): ONE lookup for all the links
+		$itemids_by_link = [];
+		foreach ($device_links as $key => $relation) {
+			$itemids_by_link[$key] = array_merge($port_details[$relation['source_port_id']]['zabbix_itemids'] ?? [],
+				$port_details[$relation['target_port_id']]['zabbix_itemids'] ?? []);
+		}
+		$severity_by_link = self::getMaxActiveSeverityByItemIds($itemids_by_link);
+		foreach ($device_links as $key => $relation) {
+			$relations[] = $relation + self::describeSeverity($severity_by_link[$key] ?? null);
 		}
 		foreach (self::getDeviceLevelRelations($node_ids, $own_line, $hidden_edges) as $relation) {
 			$relations[] = $relation;
@@ -864,6 +874,14 @@ class CTopologyPrototype {
 				$port_details[$ends['remote']]['zabbix_itemids'] ?? []);
 		}
 		$link_severity = self::getMaxActiveSeverityByItemIds($link_itemids);
+		// Load of each side (§4.8): one item lookup for the ports of every shown link
+		$port_itemids = [];
+		foreach ($link_ports as $ends) {
+			foreach ([$ends['local'], $ends['remote']] as $port_id) {
+				$port_itemids[$port_id] = $port_details[$port_id]['zabbix_itemids'] ?? [];
+			}
+		}
+		$port_loads = self::getPortLoads($port_itemids);
 
 		foreach ($neighbors as $id => &$neighbor) {
 			// 'physical_link', or 'device_link' for a neighbor reached only through a link that ends at a Device (its
@@ -879,7 +897,8 @@ class CTopologyPrototype {
 			$link = $shown[$id];
 			$link_attrs = $link['attrs'];
 			$neighbor['edge_id'] = $link['edge_id'];
-			$neighbor['severity'] = $link_severity[$id] ?? null;
+			$neighbor = array_merge($neighbor, self::describeSeverity($link_severity[$id] ?? null));
+			$neighbor['load'] = ['local' => $port_loads[$link_ports[$id]['local']] ?? null, 'remote' => $port_loads[$link_ports[$id]['remote']] ?? null];
 			$neighbor['last_seen'] = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
 				: $neighbor['last_seen'];
@@ -2501,15 +2520,30 @@ class CTopologyPrototype {
 			return [];
 		}
 
-		$by_item = [];
+		// The triggers of these items (as the user may read them), then THEIR PROBLEMS: Problem.get applies the tag-based permissions of the user
+		// group too (access spec §3.5), a trigger lookup alone would not. The severity is the problem's own.
+		$items_of_trigger = [];
 		foreach (API::Trigger()->get([
-			'output' => ['priority'],
+			'output' => ['triggerid'],
 			'itemids' => $all,
 			'selectItems' => ['itemid'],
 			'filter' => ['value' => TRIGGER_VALUE_TRUE]
 		]) as $trigger) {
-			foreach ($trigger['items'] as $item) {
-				$by_item[$item['itemid']] = max($by_item[$item['itemid']] ?? 0, (int) $trigger['priority']);
+			$items_of_trigger[$trigger['triggerid']] = array_column($trigger['items'], 'itemid');
+		}
+		if (!$items_of_trigger) {
+			return [];
+		}
+
+		$by_item = [];
+		foreach (API::Problem()->get([
+			'output' => ['objectid', 'severity'],
+			'source' => EVENT_SOURCE_TRIGGERS,
+			'object' => EVENT_OBJECT_TRIGGER,
+			'objectids' => array_keys($items_of_trigger)
+		]) as $problem) {
+			foreach ($items_of_trigger[$problem['objectid']] ?? [] as $itemid) {
+				$by_item[$itemid] = max($by_item[$itemid] ?? 0, (int) $problem['severity']);
 			}
 		}
 
@@ -2520,6 +2554,55 @@ class CTopologyPrototype {
 					$result[$key] = max($result[$key] ?? 0, $by_item[$itemid]);
 				}
 			}
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Load of ports (topology-1-model.md §4.8), display only: bits in, bits out, speed and max(in, out) / speed in %, from the items of the port with
+	 * the keys net.if.in[...], net.if.out[...], net.if.speed[...] (the keys of the standard SNMP interface template, verified in "Network Generic Device by
+	 * SNMP"). ONE item lookup for all the ports. A port without a speed, or with no value newer than LOAD_RECENT seconds, has no load.
+	 *
+	 * @param array $itemids_by_port  port id => item ids
+	 *
+	 * @return array  port id => ['in', 'out', 'speed', 'percent', 'items' => ['in' => itemid, 'out' => itemid, 'speed' => itemid]]
+	 */
+	private static function getPortLoads(array $itemids_by_port): array {
+		$all = array_values(array_unique(array_merge(...array_values($itemids_by_port ?: [[]]))));
+		if (!$all) {
+			return [];
+		}
+
+		$items = [];
+		foreach (API::Item()->get(['output' => ['itemid', 'key_', 'lastvalue', 'lastclock'], 'itemids' => $all]) as $item) {
+			$items[$item['itemid']] = $item;
+		}
+
+		$result = [];
+		foreach ($itemids_by_port as $port_id => $itemids) {
+			$load = ['in' => null, 'out' => null, 'speed' => null, 'percent' => null, 'items' => ['in' => null, 'out' => null, 'speed' => null]];
+			foreach ($itemids as $itemid) {
+				$item = $items[$itemid] ?? null;
+				if ($item === null) {
+					continue;
+				}
+				foreach (['in' => 'net.if.in[', 'out' => 'net.if.out[', 'speed' => 'net.if.speed['] as $name => $prefix) {
+					if (str_starts_with($item['key_'], $prefix)) {
+						$load['items'][$name] = $item['itemid'];
+						if ((int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
+							$load[$name] = (float) $item['lastvalue'];
+						}
+					}
+				}
+			}
+			if ($load['items'] === ['in' => null, 'out' => null, 'speed' => null]) {
+				continue;
+			}
+			if ($load['speed'] !== null && $load['speed'] > 0 && ($load['in'] !== null || $load['out'] !== null)) {
+				$load['percent'] = round(100 * max($load['in'] ?? 0, $load['out'] ?? 0) / $load['speed'], 1);
+			}
+			$result[$port_id] = $load;
 		}
 
 		return $result;
