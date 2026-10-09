@@ -8149,7 +8149,7 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "R observation: {\"id\":318,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:macAddress:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":208,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #208\"]"
+                "R observation: {\"id\":318,\"itemid\":10102,\"reporter\":\"R\",\"port\":\"Gi0\\/1\",\"remote\":\"chassis:mac:a0:00:00:00:00:03\",\"outcome\":\"conflict\",\"edge_id\":208,\"device\":\"C\",\"precision\":\"port\",\"reason\":null,\"lower\":false} links: [\"physical_link B:Gi0\\/24 ~ R:Gi0\\/1 active #208\"]"
             ],
             "actual": {
                 "devices": [
@@ -9108,12 +9108,10 @@
                         "Gi0/1*#1616/if-563193"
                     ]
                 },
-                "links": [
-                    "physical_link N:Gi0/1* ~ R:Gi0/1 active #230"
-                ],
+                "links": [],
                 "observations": [
-                    "R:Gi0/1 -> N applied edge#230 port",
-                    "R:Gi0/1 -> ? ambiguous"
+                    "R:Gi0/1 -> N ambiguous port",
+                    "R:Gi0/1 -> N ambiguous port"
                 ]
             },
             "steps": [
@@ -9129,12 +9127,10 @@
                 {
                     "step": "LLDP now carries the management address: a row with chassis + IP",
                     "devices": 3,
-                    "links": [
-                        "physical_link N:Gi0/1* ~ R:Gi0/1 active #230"
-                    ],
+                    "links": [],
                     "obs": [
-                        "R:Gi0/1 -> N applied edge#230 port",
-                        "R:Gi0/1 -> ? ambiguous"
+                        "R:Gi0/1 -> N ambiguous port",
+                        "R:Gi0/1 -> N ambiguous port"
                     ]
                 }
             ]
@@ -9191,10 +9187,10 @@
                     ]
                 },
                 "links": [
-                    "physical_link NA:Gi0/1 ~ R:Gi0/1 active #231"
+                    "physical_link NA:Gi0/1 ~ R:Gi0/1 active #230"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> NA applied edge#231 port"
+                    "R:Gi0/1 -> NA applied edge#230 port"
                 ]
             },
             "steps": [
@@ -9208,10 +9204,10 @@
                     "step": "a row names the chassis of A and the IP of B",
                     "devices": 3,
                     "links": [
-                        "physical_link NA:Gi0/1 ~ R:Gi0/1 active #231"
+                        "physical_link NA:Gi0/1 ~ R:Gi0/1 active #230"
                     ],
                     "obs": [
-                        "R:Gi0/1 -> NA applied edge#231 port"
+                        "R:Gi0/1 -> NA applied edge#230 port"
                     ]
                 }
             ]
@@ -9270,10 +9266,10 @@
                     ]
                 },
                 "links": [
-                    "physical_link H1:Gi0/1 ~ R:Gi0/1 active #236"
+                    "physical_link H1:Gi0/1 ~ R:Gi0/1 active #235"
                 ],
                 "observations": [
-                    "R:Gi0/1 -> H1 applied edge#236 port"
+                    "R:Gi0/1 -> H1 applied edge#235 port"
                 ]
             },
             "steps": []
@@ -9319,20 +9315,16 @@
         },
         {
             "id": "S-01",
-            "rating": "Пробел",
-            "first_pass": false,
-            "verdict": "differs",
-            "failed": [
-                "catalog: the two neighbors with the same private IP behind different proxies are two Devices (actual: 3)",
-                "catalog: no observation is ambiguous because of the other segment (actual: [\"R1:Gi0\\/1 ambiguous\",\"R2:Gi0\\/1 ambiguous\"])",
-                "the reverse reporter order gives a different natural state; only with the forward order: [\"devices: PRINTER-B||10.0.0.1||\",\"ports: PRINTER-B => Gi0\\/1*-563193\",\"obs: R1:Gi0\\/1 -> PRINTER-B ambiguous port\",\"obs: R2:Gi0\\/1 -> PRINTER-B ambiguous port\"]; only with the reverse order: [\"devices: PRINTER-A||10.0.0.1||\",\"ports: PRINTER-A => Gi0\\/1*-563193\",\"obs: R1:Gi0\\/1 -> PRINTER-A ambiguous port\",\"obs: R2:Gi0\\/1 -> PRINTER-A ambiguous port\"]; forward: {\"devices\":[\"PRINTER-B||10.0.0.1||\",\"R1|a0:00:00:00:00:01|10.1.1.1||reporter_self\",\"R2|a0:00:00:00:00:02|10.1.1.2||reporter_self\"],\"ports\":{\"PRINTER-B\":[\"Gi0\\/1*-563193\"],\"R1\":[\"Gi0\\/11\"],\"R2\":[\"Gi0\\/11\"]},\"links\":[],\"obs\":[\"R1:Gi0\\/1 -> PRINTER-B ambiguous port\",\"R2:Gi0\\/1 -> PRINTER-B ambiguous port\"]}; reverse: {\"devices\":[\"PRINTER-A||10.0.0.1||\",\"R1|a0:00:00:00:00:01|10.1.1.1||reporter_self\",\"R2|a0:00:00:00:00:02|10.1.1.2||reporter_self\"],\"ports\":{\"PRINTER-A\":[\"Gi0\\/1*-563193\"],\"R1\":[\"Gi0\\/11\"],\"R2\":[\"Gi0\\/11\"]},\"links\":[],\"obs\":[\"R1:Gi0\\/1 -> PRINTER-A ambiguous port\",\"R2:Gi0\\/1 -> PRINTER-A ambiguous port\"]}"
-            ],
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
             "idempotent": true,
-            "order_independent": false,
+            "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-01: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PRINTER-B chassis - ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[],\"obs\":[\"R1:Gi0\\/1 ambiguous\",\"R2:Gi0\\/1 ambiguous\"]}",
-                "S-01 summary: identity_keys_shared={\"count\":0,\"list\":[]} observations={\"applied\":0,\"device_only\":0,\"shadowed\":0,\"conflict\":0,\"ambiguous\":2}"
+                "S-01: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PRINTER-A chassis - ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"PRINTER-B chassis - ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link PRINTER-A:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #240\",\"physical_link PRINTER-B:Gi0\\/1* ~ R2:Gi0\\/1 active (cdp) #241\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
+                "S-01 summary: identity_keys_shared={\"count\":0,\"list\":[]} observations={\"applied\":2,\"device_only\":0,\"shadowed\":0,\"conflict\":0,\"ambiguous\":0}"
             ],
             "actual": {
                 "devices": [
@@ -9346,7 +9338,7 @@
                     },
                     {
                         "id": 1720,
-                        "name": "PRINTER-B",
+                        "name": "PRINTER-A",
                         "chassis": null,
                         "ip": "10.0.0.1",
                         "matched_by": null,
@@ -9359,6 +9351,14 @@
                         "ip": "10.1.1.2",
                         "matched_by": null,
                         "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1724,
+                        "name": "PRINTER-B",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
                     }
                 ],
                 "ports": {
@@ -9368,47 +9368,54 @@
                     "R2": [
                         "Gi0/1#1723/if1"
                     ],
+                    "PRINTER-A": [
+                        "Gi0/1*#1725/if-563193"
+                    ],
                     "PRINTER-B": [
-                        "Gi0/1*#1724/if-563193"
+                        "Gi0/1*#1726/if-563193"
                     ]
                 },
-                "links": [],
+                "links": [
+                    "physical_link PRINTER-A:Gi0/1* ~ R1:Gi0/1 active (cdp) #240",
+                    "physical_link PRINTER-B:Gi0/1* ~ R2:Gi0/1 active (cdp) #241"
+                ],
                 "observations": [
-                    "R1:Gi0/1 -> PRINTER-B ambiguous port",
-                    "R2:Gi0/1 -> PRINTER-B ambiguous port"
+                    "R1:Gi0/1 -> PRINTER-A applied edge#240 port",
+                    "R2:Gi0/1 -> PRINTER-B applied edge#241 port"
                 ]
             },
             "steps": [
                 {
                     "step": "two reporters, each sees a CDP-only neighbor with IP 10.0.0.1",
-                    "devices": 3,
-                    "links": [],
+                    "devices": 4,
+                    "links": [
+                        "physical_link PRINTER-A:Gi0/1* ~ R1:Gi0/1 active (cdp) #240",
+                        "physical_link PRINTER-B:Gi0/1* ~ R2:Gi0/1 active (cdp) #241"
+                    ],
                     "obs": [
-                        "R1:Gi0/1 -> PRINTER-B ambiguous port",
-                        "R2:Gi0/1 -> PRINTER-B ambiguous port"
+                        "R1:Gi0/1 -> PRINTER-A applied edge#240 port",
+                        "R2:Gi0/1 -> PRINTER-B applied edge#241 port"
                     ]
                 }
             ]
         },
         {
             "id": "S-02",
-            "rating": "Пробел",
-            "first_pass": false,
-            "verdict": "differs",
-            "failed": [
-                "catalog: no join across proxies, three Devices (R1, CDP-only, R2) (actual joined=0, devices=2)"
-            ],
+            "rating": "Правило",
+            "first_pass": true,
+            "verdict": "match",
+            "failed": [],
             "idempotent": true,
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-02: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:14 ip 10.0.0.1 reporter_self\"],\"links\":[\"physical_link R1:Gi0\\/1 ~ R2:Gi0\\/1 active (cdp) #241\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}",
+                "S-02: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"CDP-ONLY chassis - ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:14 ip 10.0.0.1 reporter_self\"],\"links\":[\"physical_link CDP-ONLY:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #244\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}",
                 "S-02 summary: devices_joined={\"count\":0,\"list\":[]} duplicate_candidates={\"count\":0}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1733,
+                        "id": 1737,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9416,7 +9423,15 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1736,
+                        "id": 1740,
+                        "name": "CDP-ONLY",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1742,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:14",
                         "ip": "10.0.0.1",
@@ -9426,17 +9441,20 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1735/if1"
+                        "Gi0/1#1739/if1"
+                    ],
+                    "CDP-ONLY": [
+                        "Gi0/1*#1741/if-563193"
                     ],
                     "R2": [
-                        "Gi0/1#1739/if1"
+                        "Gi0/1#1744/if1"
                     ]
                 },
                 "links": [
-                    "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #241"
+                    "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #244"
                 ],
                 "observations": [
-                    "R1:Gi0/1 -> R2 applied edge#241 port"
+                    "R1:Gi0/1 -> CDP-ONLY applied edge#244 port"
                 ]
             },
             "steps": [
@@ -9444,20 +9462,20 @@
                     "step": "a CDP-only Device with IP 10.0.0.1 seen from P1",
                     "devices": 2,
                     "links": [
-                        "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #241"
+                        "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #244"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> CDP-ONLY applied edge#241 port"
+                        "R1:Gi0/1 -> CDP-ONLY applied edge#244 port"
                     ]
                 },
                 {
                     "step": "a reporter behind P2 with SNMP IP 10.0.0.1 and its own chassis",
-                    "devices": 2,
+                    "devices": 3,
                     "links": [
-                        "physical_link R1:Gi0/1 ~ R2:Gi0/1 active (cdp) #241"
+                        "physical_link CDP-ONLY:Gi0/1* ~ R1:Gi0/1 active (cdp) #244"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> R2 applied edge#241 port"
+                        "R1:Gi0/1 -> CDP-ONLY applied edge#244 port"
                     ]
                 }
             ]
@@ -9472,12 +9490,12 @@
             "order_independent": true,
             "covered_by": null,
             "notes": [
-                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #243\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #244\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
+                "S-03: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PROVIDER chassis a0:00:00:00:00:1e ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link PROVIDER:Gi0\\/7* ~ R1:Gi0\\/1 active #246\",\"physical_link PROVIDER:Gi0\\/8* ~ R2:Gi0\\/1 active #247\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1747,
+                        "id": 1753,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9485,7 +9503,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1750,
+                        "id": 1756,
                         "name": "PROVIDER",
                         "chassis": "a0:00:00:00:00:1e",
                         "ip": null,
@@ -9493,7 +9511,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1751,
+                        "id": 1757,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9503,23 +9521,23 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1749/if1"
+                        "Gi0/1#1755/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1753/if1"
+                        "Gi0/1#1759/if1"
                     ],
                     "PROVIDER": [
-                        "Gi0/7*#1754/if-691254",
-                        "Gi0/8*#1755/if-724686"
+                        "Gi0/7*#1760/if-691254",
+                        "Gi0/8*#1761/if-724686"
                     ]
                 },
                 "links": [
-                    "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #243",
-                    "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #244"
+                    "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #246",
+                    "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #247"
                 ],
                 "observations": [
-                    "R1:Gi0/1 -> PROVIDER applied edge#243 port",
-                    "R2:Gi0/1 -> PROVIDER applied edge#244 port"
+                    "R1:Gi0/1 -> PROVIDER applied edge#246 port",
+                    "R2:Gi0/1 -> PROVIDER applied edge#247 port"
                 ]
             },
             "steps": [
@@ -9527,12 +9545,320 @@
                     "step": "the same chassis seen by reporters behind two proxies",
                     "devices": 3,
                     "links": [
-                        "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #243",
-                        "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #244"
+                        "physical_link PROVIDER:Gi0/7* ~ R1:Gi0/1 active #246",
+                        "physical_link PROVIDER:Gi0/8* ~ R2:Gi0/1 active #247"
                     ],
                     "obs": [
-                        "R1:Gi0/1 -> PROVIDER applied edge#243 port",
-                        "R2:Gi0/1 -> PROVIDER applied edge#244 port"
+                        "R1:Gi0/1 -> PROVIDER applied edge#246 port",
+                        "R2:Gi0/1 -> PROVIDER applied edge#247 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "S-04",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [
+                "S-04: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PRINTER chassis - ip 10.0.0.1 unrepresented\",\"PRINTER chassis - ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link PRINTER:Gi0\\/1* ~ R1:Gi0\\/1 superseded (cdp) #250\",\"physical_link PRINTER:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #251\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}"
+            ],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1771,
+                        "name": "R1",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.1.1.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1774,
+                        "name": "PRINTER",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1776,
+                        "name": "PRINTER",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R1": [
+                        "Gi0/1#1773/if1"
+                    ],
+                    "PRINTER": [
+                        "Gi0/1*#1775/if-563193",
+                        "Gi0/1*#1777/if-563193"
+                    ]
+                },
+                "links": [
+                    "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 superseded (cdp) #250",
+                    "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #251"
+                ],
+                "observations": [
+                    "R1:Gi0/1 -> PRINTER applied edge#251 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "R1 behind proxy A sees a CDP-only neighbor with IP 10.0.0.1",
+                    "devices": 2,
+                    "links": [
+                        "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #250"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> PRINTER applied edge#250 port"
+                    ]
+                },
+                {
+                    "step": "the same host, now behind proxy B, reports the same neighbor",
+                    "devices": 3,
+                    "links": [
+                        "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 superseded (cdp) #250",
+                        "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #251"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> PRINTER applied edge#251 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "S-05",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [
+                "S-05: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"CORE chassis a0:00:00:00:00:1e ip 10.0.0.1 unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #252\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #253\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
+                "S-05 CORE devices: [{\"id\":1781,\"name\":\"CORE\",\"chassis\":\"a0:00:00:00:00:1e\",\"ip\":\"10.0.0.1\",\"matched_by\":null,\"represented_by\":null}]"
+            ],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1778,
+                        "name": "R1",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.1.1.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1781,
+                        "name": "CORE",
+                        "chassis": "a0:00:00:00:00:1e",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1782,
+                        "name": "R2",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.1.1.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R1": [
+                        "Gi0/1#1780/if1"
+                    ],
+                    "R2": [
+                        "Gi0/1#1784/if1"
+                    ],
+                    "CORE": [
+                        "Gi0/7*#1785/if-691254",
+                        "Gi0/8*#1786/if-724686"
+                    ]
+                },
+                "links": [
+                    "physical_link CORE:Gi0/7* ~ R1:Gi0/1 active #252",
+                    "physical_link CORE:Gi0/8* ~ R2:Gi0/1 active #253"
+                ],
+                "observations": [
+                    "R1:Gi0/1 -> CORE applied edge#252 port",
+                    "R2:Gi0/1 -> CORE applied edge#253 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a MAC chassis seen from two segments, with two different management IPs",
+                    "devices": 3,
+                    "links": [
+                        "physical_link CORE:Gi0/7* ~ R1:Gi0/1 active #252",
+                        "physical_link CORE:Gi0/8* ~ R2:Gi0/1 active #253"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> CORE applied edge#252 port",
+                        "R2:Gi0/1 -> CORE applied edge#253 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "S-06",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [
+                "S-06: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"CORE chassis sw-local-7 ip - unrepresented\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"CORE chassis sw-local-7 ip - unrepresented\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #256\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #257\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}"
+            ],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1796,
+                        "name": "R1",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.1.1.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1799,
+                        "name": "CORE",
+                        "chassis": "sw-local-7",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    },
+                    {
+                        "id": 1800,
+                        "name": "R2",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.1.1.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1803,
+                        "name": "CORE",
+                        "chassis": "sw-local-7",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R1": [
+                        "Gi0/1#1798/if1"
+                    ],
+                    "R2": [
+                        "Gi0/1#1802/if1"
+                    ],
+                    "CORE": [
+                        "Gi0/7*#1804/if-691254",
+                        "Gi0/8*#1805/if-724686"
+                    ]
+                },
+                "links": [
+                    "physical_link CORE:Gi0/7* ~ R1:Gi0/1 active #256",
+                    "physical_link CORE:Gi0/8* ~ R2:Gi0/1 active #257"
+                ],
+                "observations": [
+                    "R1:Gi0/1 -> CORE applied edge#256 port",
+                    "R2:Gi0/1 -> CORE applied edge#257 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a chassis of subtype local seen from two segments",
+                    "devices": 4,
+                    "links": [
+                        "physical_link CORE:Gi0/7* ~ R1:Gi0/1 active #256",
+                        "physical_link CORE:Gi0/8* ~ R2:Gi0/1 active #257"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> CORE applied edge#256 port",
+                        "R2:Gi0/1 -> CORE applied edge#257 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "S-07",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [
+                "S-07: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"PRINTER chassis - ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link PRINTER:Gi0\\/1* ~ R1:Gi0\\/1 active (cdp) #260\"],\"obs\":[\"R1:Gi0\\/1 applied\"]}"
+            ],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1816,
+                        "name": "R1",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.1.1.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1819,
+                        "name": "PRINTER",
+                        "chassis": null,
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R1": [
+                        "Gi0/1#1818/if1"
+                    ],
+                    "PRINTER": [
+                        "Gi0/1*#1820/if-563193"
+                    ]
+                },
+                "links": [
+                    "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #260"
+                ],
+                "observations": [
+                    "R1:Gi0/1 -> PRINTER applied edge#260 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "R1 is monitored by proxy group 1, polled by its proxy 1",
+                    "devices": 2,
+                    "links": [
+                        "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #260"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> PRINTER applied edge#260 port"
+                    ]
+                },
+                {
+                    "step": "the group fails over to proxy 2",
+                    "devices": 2,
+                    "links": [
+                        "physical_link PRINTER:Gi0/1* ~ R1:Gi0/1 active (cdp) #260"
+                    ],
+                    "obs": [
+                        "R1:Gi0/1 -> PRINTER applied edge#260 port"
                     ]
                 }
             ]
@@ -9540,13 +9866,12 @@
     ],
     "counts": {
         "verdict": {
-            "match": 128,
-            "out of harness": 18,
-            "differs": 2
+            "match": 134,
+            "out of harness": 18
         },
         "rating": {
             "Правило": {
-                "match": 102,
+                "match": 108,
                 "out of harness": 9
             },
             "Ограничение": {
@@ -9559,8 +9884,7 @@
             },
             "Пробел": {
                 "match": 9,
-                "out of harness": 2,
-                "differs": 2
+                "out of harness": 2
             }
         }
     }

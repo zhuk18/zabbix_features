@@ -54,7 +54,7 @@ $dbname = $dbm[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface',
 		'items', 'globalmacro', 'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -237,7 +237,7 @@ function mac(int $n): string {
 function h_reset(string $order = 'forward'): void {
 	global $pdo, $H;
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -562,7 +562,7 @@ $CASES = [];
 /** The reviewer's first pass (handoff 011): a merged row of the catalog is all of its IDs. `--first-pass` runs only these. */
 const FIRST_PASS = ['I-01', 'I-07', 'I-08', 'I-10', 'I-23', 'P-01', 'P-07', 'M-20', 'P-08', 'P-18', 'P-09', 'P-10', 'P-13', 'L-17', 'L-01', 'L-02',
 	'L-03', 'L-04', 'L-06', 'L-07', 'C-06', 'L-08', 'L-11', 'L-12', 'L-13', 'L-13b', 'L-20', 'M-02', 'M-07', 'M-10', 'M-11', 'M-12', 'M-16', 'D-04',
-	'D-01', 'D-05', 'D-07', 'C-01', 'C-14', 'C-17', 'C-13', 'J-01', 'J-02', 'J-03'];
+	'D-01', 'D-05', 'D-07', 'C-01', 'C-14', 'C-17', 'C-13', 'J-01', 'J-02', 'J-03', 'S-01', 'S-02'];
 
 /** A case of the catalog. $multi = run again with the reporters walked in the reverse order. */
 function c(string $id, string $rating, callable $fn, ?string $covered = null): void {
@@ -2365,7 +2365,7 @@ c('C-17', 'Вывод', function () {
 	h_tick();
 	h_nbrs('R', [NR(1, mac(11), 'Y', 'eth0')], 'lldp', h_clock(0));
 	$summary = h_ingest('the fresh SNMP snapshot says Y on Gi0/1, the stale push snapshot still says X');
-	$o = h_obs('R', 'Gi0/1', 'chassis:macAddress:'.mac(11));
+	$o = h_obs('R', 'Gi0/1', 'chassis:mac:'.mac(11));
 	ex(($o['outcome'] ?? null) === 'conflict' && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'the stale snapshot supports the old link and blocks the replacement: conflict');
 });
 
@@ -2575,10 +2575,8 @@ c('X-02', 'Правило', function () {
 });
 
 // ============================================================================================================
-// S. Segments (topology-5-access-control.md §6, handoff 014 section 4): characterization, never fails.
-// The ingest knows no proxy: a reporter's proxy or proxy group is not an input of any identity key today, so the
-// "different proxies" of the scenarios cannot be expressed; each case runs the scenario as it is and records what
-// the global mgmt_ip / sysname keys do. The ex() lines state what a segment-scoped identity would give.
+// S. Segments (model §6.7.0, handoff 014 section 4, 017): the segment of a reporter (proxy group, proxy, server) comes from the monitoring
+// assignment of the test host (h_segment). An address and a non-MAC chassis are scoped to the segment of the reporter that saw them; a MAC chassis is global.
 // ============================================================================================================
 
 function s_picture(string $label): array {
@@ -2589,7 +2587,7 @@ function s_picture(string $label): array {
 	return $pic;
 }
 
-c('S-01', 'Пробел', function () {
+c('S-01', 'Правило', function () {
 	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
 	h_rep('R2', mac(2), '10.1.1.2');                       // behind proxy P2
 	h_segment('R1', 'proxy:1');
@@ -2601,11 +2599,13 @@ c('S-01', 'Пробел', function () {
 	$summary = h_ingest('two reporters, each sees a CDP-only neighbor with IP 10.0.0.1');
 	$pic = s_picture('S-01');
 	h_note('S-01 summary: identity_keys_shared='.json_encode($summary['identity_keys_shared'] ?? null).' observations='.json_encode($summary['observations'] ?? null));
-	ex(h_dev_count() === 4, 'catalog: the two neighbors with the same private IP behind different proxies are two Devices (actual: '.h_dev_count().')');
-	ex(!in_array('ambiguous', array_map(static fn ($o) => substr(strrchr($o, ' '), 1), $pic['obs']), true), 'catalog: no observation is ambiguous because of the other segment (actual: '.json_encode($pic['obs'], JSON_UNESCAPED_UNICODE).')');
+	ex(h_dev_count() === 4, 'the two neighbors with the same private IP behind different proxies are two Devices (actual: '.h_dev_count().')');
+	ex(!in_array('ambiguous', array_map(static fn ($o) => substr(strrchr($o, ' '), 1), $pic['obs']), true), 'no observation is ambiguous because of the other segment (actual: '.json_encode($pic['obs'], JSON_UNESCAPED_UNICODE).')');
+	ex(count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 2, 'one link per reporter');
+	ex((int) ($summary['identity_keys_shared']['count'] ?? 0) === 0, 'nothing is reported as shared');
 });
 
-c('S-02', 'Пробел', function () {
+c('S-02', 'Правило', function () {
 	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
 	h_segment('R1', 'proxy:1');
 	h_ports('R1', [1 => 'Gi0/1']);
@@ -2618,7 +2618,7 @@ c('S-02', 'Пробел', function () {
 	$summary = h_ingest('a reporter behind P2 with SNMP IP 10.0.0.1 and its own chassis');
 	$pic = s_picture('S-02');
 	h_note('S-02 summary: devices_joined='.json_encode($summary['devices_joined'] ?? null).' duplicate_candidates='.json_encode($summary['duplicate_candidates'] ?? null));
-	ex((int) ($summary['devices_joined']['count'] ?? 0) === 0 && h_dev_count() === 3, 'catalog: no join across proxies, three Devices (R1, CDP-only, R2) (actual joined='.(int) ($summary['devices_joined']['count'] ?? 0).', devices='.h_dev_count().')');
+	ex((int) ($summary['devices_joined']['count'] ?? 0) === 0 && h_dev_count() === 3, 'no join across proxies, three Devices (R1, CDP-only, R2) (actual joined='.(int) ($summary['devices_joined']['count'] ?? 0).', devices='.h_dev_count().')');
 });
 
 c('S-03', 'Пробел', function () {
@@ -2636,7 +2636,7 @@ c('S-03', 'Пробел', function () {
 	ex(h_dev_count() === 3 && count($links) === 2, 'catalog: one Device for the chassis, one link per cable (actual: devices='.h_dev_count().', active links='.count($links).')');
 });
 
-c('S-04', 'Пробел', function () {
+c('S-04', 'Правило', function () {
 	h_rep('R1', mac(1), '10.1.1.1');
 	h_segment('R1', 'proxy:1');                            // proxy A
 	h_ports('R1', [1 => 'Gi0/1']);
@@ -2647,10 +2647,16 @@ c('S-04', 'Пробел', function () {
 	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
 	h_ingest('the same host, now behind proxy B, reports the same neighbor');
 	s_picture('S-04');
-	ex(h_dev_count() === 3, 'catalog: no re-keying: the Device made in segment A stays, the same row in segment B makes another one (actual: '.h_dev_count().')');
+	ex(h_dev_count() === 3, 'no re-keying: the Device made in segment A stays, the same row in segment B makes another one (actual: '.h_dev_count().')');
+	global $pdo;
+	$keys = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
+	ex($keys === ['ip:proxy:1:10.0.0.1', 'ip:proxy:2:10.0.0.1'], 'the key of segment A is not rewritten, the key of segment B is new, on two Devices (actual: '.json_encode($keys).')');
+	$own = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NOT NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
+	ex($own === ['ip:proxy:1:10.1.1.1', 'ip:proxy:2:10.1.1.1'], 'the host that moved keeps its address of segment A and adds the one of segment B (actual: '.json_encode($own).')');
+	ex(count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')) === 1, 'the port has one active link, to the Device of the new segment; the old one is superseded by the normal rule (actual: '.count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')).')');
 });
 
-c('S-05', 'Пробел', function () {
+c('S-05', 'Правило', function () {
 	h_rep('R1', mac(1), '10.1.1.1');
 	h_rep('R2', mac(2), '10.1.1.2');
 	h_segment('R1', 'proxy:1');
@@ -2663,8 +2669,41 @@ c('S-05', 'Пробел', function () {
 	$pic = s_picture('S-05');
 	$core = array_values(array_filter(h_state()['devices'], static fn ($d) => $d['name'] === 'CORE'));
 	h_note('S-05 CORE devices: '.json_encode($core, JSON_UNESCAPED_UNICODE));
-	ex(h_dev_count() === 3 && count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 2, 'catalog: one Device, one link per cable (actual: devices='.h_dev_count().')');
-	ex(count($core) === 1 && ($core[0]['ip'] ?? null) === null, 'catalog: the Device holds both management addresses as keys of their segments; attrs.mgmt_ip is not the identity (actual ip: '.json_encode($core[0]['ip'] ?? null).')');
+	ex(h_dev_count() === 3 && count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 2, 'one Device, one link per cable (actual: devices='.h_dev_count().')');
+	global $pdo;
+	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE device_id = ".(int) ($core[0]['id'] ?? 0)." ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
+	ex($keys === ['chassis:mac:'.mac(30), 'ip:proxy:1:10.0.0.1', 'ip:proxy:2:10.0.0.9'], 'the Device holds the MAC chassis and both addresses, each in its segment (actual: '.json_encode($keys).')');
+});
+
+c('S-06', 'Правило', function () {
+	h_rep('R1', mac(1), '10.1.1.1');
+	h_rep('R2', mac(2), '10.1.1.2');
+	h_segment('R1', 'proxy:1');
+	h_segment('R2', 'proxy:2');
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, 'sw-local-7', 'CORE', 'Gi0/7', ['rem_chassis_type' => 'local'])], 'lldp');
+	h_nbrs('R2', [NR(1, 'sw-local-7', 'CORE', 'Gi0/8', ['rem_chassis_type' => 'local'])], 'lldp');
+	h_ingest('a chassis of subtype local seen from two segments');
+	s_picture('S-06');
+	ex(h_dev_count() === 4, 'a non-MAC chassis is scoped to the segment: two Devices (actual: '.h_dev_count().')');
+});
+
+c('S-07', 'Правило', function () {
+	global $pdo;
+	h_rep('R1', mac(1), '10.1.1.1');
+	h_segment('R1', 'pg:1');
+	$pdo->exec('UPDATE hosts SET proxyid = 1');                  // the group's proxy that polls the host
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_ingest('R1 is monitored by proxy group 1, polled by its proxy 1');
+	$pdo->exec('UPDATE hosts SET proxyid = 2');                  // a failover inside the group
+	h_tick();
+	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_ingest('the group fails over to proxy 2');
+	s_picture('S-07');
+	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind = 'ip' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
+	ex(h_dev_count() === 2 && $keys === ['ip:pg:1:10.0.0.1', 'ip:pg:1:10.1.1.1'], 'a failover inside a proxy group changes nothing: one neighbor Device, the keys of the group (actual: '.json_encode($keys).')');
 });
 
 // ============================================================================================================
