@@ -59,7 +59,8 @@ foreach (['topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
-$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
+$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0,".
+	" monitored_by INT NOT NULL DEFAULT 0, proxyid BIGINT UNSIGNED NULL, proxy_groupid BIGINT UNSIGNED NULL)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
 $pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
@@ -281,6 +282,14 @@ function h_rep(string $name, ?string $chassis, ?string $ip = null, bool $with_ip
 		$H['multi'] = true;
 	}
 	return $id;
+}
+
+/** The monitoring assignment of a test host, as Zabbix stores it: 'server', 'proxy:<id>' or 'pg:<id>' (the segment of model §6.7.0). */
+function h_segment(string $name, string $segment): void {
+	global $pdo, $H;
+	[$kind, $id] = array_pad(explode(':', $segment, 2), 2, null);
+	$pdo->prepare('UPDATE hosts SET monitored_by = ?, proxyid = ?, proxy_groupid = ? WHERE hostid = ?')->execute([
+		['server' => 0, 'proxy' => 1, 'pg' => 2][$kind], $kind === 'proxy' ? (int) $id : null, $kind === 'pg' ? (int) $id : null, $H['reps'][$name]['id']]);
 }
 
 function h_clock(int $offset = 0): int {
@@ -2581,8 +2590,10 @@ function s_picture(string $label): array {
 }
 
 c('S-01', 'Пробел', function () {
-	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1 (not expressible)
+	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
 	h_rep('R2', mac(2), '10.1.1.2');                       // behind proxy P2
+	h_segment('R1', 'proxy:1');
+	h_segment('R2', 'proxy:2');
 	h_ports('R1', [1 => 'Gi0/1']);
 	h_ports('R2', [1 => 'Gi0/1']);
 	h_nbrs('R1', [NR(1, null, 'PRINTER-A', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
@@ -2596,11 +2607,13 @@ c('S-01', 'Пробел', function () {
 
 c('S-02', 'Пробел', function () {
 	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
+	h_segment('R1', 'proxy:1');
 	h_ports('R1', [1 => 'Gi0/1']);
 	h_nbrs('R1', [NR(1, null, 'CDP-ONLY', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
 	h_ingest('a CDP-only Device with IP 10.0.0.1 seen from P1');
 	h_tick();
 	h_rep('R2', mac(20), '10.0.0.1');                      // behind proxy P2: SNMP IP 10.0.0.1 and its own chassis
+	h_segment('R2', 'proxy:2');
 	h_ports('R2', [1 => 'Gi0/1']);
 	$summary = h_ingest('a reporter behind P2 with SNMP IP 10.0.0.1 and its own chassis');
 	$pic = s_picture('S-02');
@@ -2611,6 +2624,8 @@ c('S-02', 'Пробел', function () {
 c('S-03', 'Пробел', function () {
 	h_rep('R1', mac(1), '10.1.1.1');                       // behind proxy P1
 	h_rep('R2', mac(2), '10.1.1.2');                       // behind proxy P2
+	h_segment('R1', 'proxy:1');
+	h_segment('R2', 'proxy:2');
 	h_ports('R1', [1 => 'Gi0/1']);
 	h_ports('R2', [1 => 'Gi0/1']);
 	h_nbrs('R1', [NR(1, mac(30), 'PROVIDER', 'Gi0/7')], 'lldp');
@@ -2619,6 +2634,37 @@ c('S-03', 'Пробел', function () {
 	s_picture('S-03');
 	$links = array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active');
 	ex(h_dev_count() === 3 && count($links) === 2, 'catalog: one Device for the chassis, one link per cable (actual: devices='.h_dev_count().', active links='.count($links).')');
+});
+
+c('S-04', 'Пробел', function () {
+	h_rep('R1', mac(1), '10.1.1.1');
+	h_segment('R1', 'proxy:1');                            // proxy A
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_ingest('R1 behind proxy A sees a CDP-only neighbor with IP 10.0.0.1');
+	h_segment('R1', 'proxy:2');                            // the host is moved to proxy B between two runs
+	h_tick();
+	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
+	h_ingest('the same host, now behind proxy B, reports the same neighbor');
+	s_picture('S-04');
+	ex(h_dev_count() === 3, 'catalog: no re-keying: the Device made in segment A stays, the same row in segment B makes another one (actual: '.h_dev_count().')');
+});
+
+c('S-05', 'Пробел', function () {
+	h_rep('R1', mac(1), '10.1.1.1');
+	h_rep('R2', mac(2), '10.1.1.2');
+	h_segment('R1', 'proxy:1');
+	h_segment('R2', 'proxy:2');
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, mac(30), 'CORE', 'Gi0/7', ['rem_mgmt_ip' => '10.0.0.1'])], 'lldp');
+	h_nbrs('R2', [NR(1, mac(30), 'CORE', 'Gi0/8', ['rem_mgmt_ip' => '10.0.0.9'])], 'lldp');
+	h_ingest('a MAC chassis seen from two segments, with two different management IPs');
+	$pic = s_picture('S-05');
+	$core = array_values(array_filter(h_state()['devices'], static fn ($d) => $d['name'] === 'CORE'));
+	h_note('S-05 CORE devices: '.json_encode($core, JSON_UNESCAPED_UNICODE));
+	ex(h_dev_count() === 3 && count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 2, 'catalog: one Device, one link per cable (actual: devices='.h_dev_count().')');
+	ex(count($core) === 1 && ($core[0]['ip'] ?? null) === null, 'catalog: the Device holds both management addresses as keys of their segments; attrs.mgmt_ip is not the identity (actual ip: '.json_encode($core[0]['ip'] ?? null).')');
 });
 
 // ============================================================================================================
