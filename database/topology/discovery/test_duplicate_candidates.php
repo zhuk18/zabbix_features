@@ -512,7 +512,8 @@ $r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => (string) $A, 're
 check(isset($r['error']), 'merge of a Device into itself: an error message');
 $r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => (string) $A, 'remove_id' => (string) $B]);
 check(($r['success'] ?? false) === true && $r['kept'] === $A && $r['removed'] === $B && !exists($pdo, $B), 'merge: success, answers kept and removed');
-check(call(CControllerTopologyDevicesMerge::class, ['keep_id' => 'x', 'remove_id' => '1']) === null, 'a malformed id is rejected (the input validation, no answer)');
+$r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => 'x', 'remove_id' => '1']);
+check(is_array($r) && isset($r['error']['messages']), 'a malformed id is refused with an answer in JSON (the input validation)');
 
 // ============================================================================================================
 echo "\n=== 6: merge a group (keep K, remove R1..Rn): any order inside gives the same result ===\n";

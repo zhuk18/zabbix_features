@@ -12,12 +12,14 @@
  * are not a substitute for escaping at render time.
  */
 class CControllerTopologyObservationsGet extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->disableCsrfValidation();
 	}
 
 	protected function checkInput(): bool {
-		$ret = $this->validateInput([
+		$ret = $this->validateJsonInput([
 			'outcome' => 'array',
 			'device_id' => 'id',
 			'contradicted' => 'in 0,1',

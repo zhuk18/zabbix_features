@@ -4,13 +4,15 @@
  * POST topology.devices.dismissduplicate {a, b, revoke?} — "Not the same device" for a pair of Devices, or its revocation (topology-1-model.md §6.7.5).
  */
 class CControllerTopologyDevicesDismissDuplicate extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		// POST with a JSON body that carries the page's CSRF token, like every other topology write endpoint
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
 
 	protected function checkInput(): bool {
-		return $this->validateInput(['a' => 'required|id', 'b' => 'required|id', 'revoke' => 'in 0,1']);
+		return $this->validateJsonInput(['a' => 'required|id', 'b' => 'required|id', 'revoke' => 'in 0,1']);
 	}
 
 	// the same permission as manual link editing

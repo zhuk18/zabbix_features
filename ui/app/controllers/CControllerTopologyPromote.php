@@ -1,11 +1,13 @@
 <?php
 
 class CControllerTopologyPromote extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}	
 	protected function checkInput(): bool {
-		return $this->validateInput([
+		return $this->validateJsonInput([
 			'id' => 'required|id',
 			'target_type' => 'required|string',
 			'target_id' => 'required|id'

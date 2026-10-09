@@ -12,6 +12,35 @@ class CTopologyIngest {
 	 * @throws Exception when the run cannot even be spawned. A run that starts and then fails or loses the run lock
 	 *                   is not seen here: callers find out from topology.ingest.status (run_id / started_at).
 	 */
+	/**
+	 * Starts a run for an action of an ordinary user (accept discovery): the same system process, after a run that is already in progress (the lock
+	 * would make a second one exit at once, and the running one may have read the data before the action). Waits at most $wait seconds.
+	 *
+	 * @return string  'started' | 'busy' (a run was still going after the wait; it will not see the change) | 'failed'
+	 */
+	public static function startWhenIdle(int $wait = 60): string {
+		$status_file = sys_get_temp_dir().'/topology-ingest-status.json';
+		for ($i = 0; $i < $wait; $i++) {
+			$status = is_file($status_file) ? json_decode((string) file_get_contents($status_file), true) : null;
+			if (!is_array($status) || ($status['status'] ?? '') !== 'running') {
+				break;
+			}
+			sleep(1);
+		}
+		$status = is_file($status_file) ? json_decode((string) file_get_contents($status_file), true) : null;
+		if (is_array($status) && ($status['status'] ?? '') === 'running') {
+			return 'busy';
+		}
+		try {
+			self::start();
+		}
+		catch (Exception $exception) {
+			return 'failed';
+		}
+
+		return 'started';
+	}
+
 	public static function start(): void {
 		global $DB;
 

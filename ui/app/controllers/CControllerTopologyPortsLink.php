@@ -1,10 +1,12 @@
 <?php
 
 class CControllerTopologyPortsLink extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
-	protected function checkInput(): bool { return $this->validateInput(['id' => 'required|id', 'dst_id' => 'required|id']); }
+	protected function checkInput(): bool { return $this->validateJsonInput(['id' => 'required|id', 'dst_id' => 'required|id']); }
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 	protected function doAction() {
 		try {

@@ -5,12 +5,14 @@
  * (topology-1-model.md "Manual links": creation). Same permission as a manual port-to-port link.
  */
 class CControllerTopologyDeviceLinkCreate extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
 
 	protected function checkInput(): bool {
-		return $this->validateInput(['port_id' => 'required|id', 'device_id' => 'required|id']);
+		return $this->validateJsonInput(['port_id' => 'required|id', 'device_id' => 'required|id']);
 	}
 
 	protected function checkPermissions(): bool {

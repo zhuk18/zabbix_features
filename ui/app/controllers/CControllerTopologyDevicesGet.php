@@ -1,11 +1,13 @@
 <?php
 
 class CControllerTopologyDevicesGet extends CController {
+	use CTopologyJsonInput;
+
     protected function init() {
 		$this->disableCsrfValidation();
 	}
 	protected function checkInput(): bool {
-		return $this->validateInput([
+		return $this->validateJsonInput([
 			// Hostgroup filter mode, ignored when 'hostid' is also set — a selected host
 			// overrides the group selection, same precedence as the community network_topology
 			// module's own filter.

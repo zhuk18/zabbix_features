@@ -5,12 +5,14 @@
  * if it is reported again (FR Lifecycle 5c).
  */
 class CControllerTopologyLinkRemove extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
 
 	protected function checkInput(): bool {
-		return $this->validateInput(['id' => 'required|id']);
+		return $this->validateJsonInput(['id' => 'required|id']);
 	}
 
 	protected function checkPermissions(): bool {

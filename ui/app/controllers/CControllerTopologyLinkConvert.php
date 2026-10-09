@@ -5,12 +5,14 @@
  * far_port_id turns a device_link into a physical_link, keep_port_id turns a physical_link into a device_link.
  */
 class CControllerTopologyLinkConvert extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
 
 	protected function checkInput(): bool {
-		return $this->validateInput(['id' => 'required|id', 'far_port_id' => 'id', 'keep_port_id' => 'id']);
+		return $this->validateJsonInput(['id' => 'required|id', 'far_port_id' => 'id', 'keep_port_id' => 'id']);
 	}
 
 	protected function checkPermissions(): bool {

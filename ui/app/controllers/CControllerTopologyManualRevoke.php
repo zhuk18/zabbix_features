@@ -5,6 +5,8 @@
  * (topology-1-model.md "Operator actions": revoke). If that neighbor still shadows the link it is contradicted again.
  */
 class CControllerTopologyManualRevoke extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		// POST with a JSON body that carries the page's CSRF token (_csrf_token, the one for the `topology` section):
 		// a GET, a cross-site form or a text/plain fetch does not have it and is rejected by CController.
@@ -12,7 +14,7 @@ class CControllerTopologyManualRevoke extends CController {
 	}
 
 	protected function checkInput(): bool {
-		return $this->validateInput(['edge_id' => 'required|id', 'device_id' => 'required|id']);
+		return $this->validateJsonInput(['edge_id' => 'required|id', 'device_id' => 'required|id']);
 	}
 
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }

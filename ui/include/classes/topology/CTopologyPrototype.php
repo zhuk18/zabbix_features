@@ -217,6 +217,40 @@ class CTopologyPrototype {
 		}
 		unset($node);
 
+		// topology-5-access-control.md §3.6: a user who cannot see the proxy (or the proxy group) gets none of its ids and no monitoring assignment of the
+		// host; `blind_spot` is the state of the host and stays. The proxies are read through the API, so the permissions of the user decide.
+		$proxyids = $groupids = [];
+		foreach ($nodes as $node) {
+			if ($node['type'] === 'host') {
+				foreach (['proxyid', 'assigned_proxyid'] as $field) {
+					if (($node[$field] ?? null) !== null) {
+						$proxyids[$node[$field]] = true;
+					}
+				}
+				if (($node['proxy_groupid'] ?? null) !== null) {
+					$groupids[$node['proxy_groupid']] = true;
+				}
+			}
+		}
+		if ($proxyids || $groupids) {
+			$visible_proxies = $proxyids ? array_column(API::Proxy()->get(['output' => ['proxyid'], 'proxyids' => array_keys($proxyids)]), 'proxyid') : [];
+			$visible_groups = $groupids ? array_column(API::ProxyGroup()->get(['output' => ['proxy_groupid'],
+				'proxy_groupids' => array_keys($groupids)]), 'proxy_groupid') : [];
+			foreach ($nodes as &$node) {
+				if ($node['type'] !== 'host') {
+					continue;
+				}
+				$hidden = (($node['proxyid'] ?? null) !== null && !in_array($node['proxyid'], $visible_proxies))
+					|| (($node['assigned_proxyid'] ?? null) !== null && !in_array($node['assigned_proxyid'], $visible_proxies))
+					|| (($node['proxy_groupid'] ?? null) !== null && !in_array($node['proxy_groupid'], $visible_groups));
+				if ($hidden) {
+					$node['monitored_by'] = null;
+					$node['proxyid'] = $node['proxy_groupid'] = $node['assigned_proxyid'] = $node['target_node_id'] = null;
+				}
+			}
+			unset($node);
+		}
+
 		return $nodes;
 	}
 

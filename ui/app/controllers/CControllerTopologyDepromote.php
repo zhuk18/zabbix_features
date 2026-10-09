@@ -1,10 +1,12 @@
 <?php
 
 class CControllerTopologyDepromote extends CController {
+	use CTopologyJsonInput;
+
 	protected function init(): void {
 		$this->setPostContentType(self::POST_CONTENT_TYPE_JSON);
 	}
-	protected function checkInput(): bool { return $this->validateInput(['id' => 'required|id']); }
+	protected function checkInput(): bool { return $this->validateJsonInput(['id' => 'required|id']); }
 	// A Device represented by a proxy: Super admin only, as the promotion to it
 	protected function checkPermissions(): bool {
 		return !CWebUser::isGuest()

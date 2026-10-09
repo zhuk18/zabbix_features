@@ -188,6 +188,27 @@ const view = new class {
 		this.pollIngestStatus();
 	}
 
+	// Waits for the run the server started after "Accept discovery" and reloads the picture. The status of an ordinary user has no run id, only the
+	// state: a short pause lets the run appear, then the page waits while it runs.
+	async waitSystemIngest(started) {
+		if (started === 'failed') {
+			throw new Error(<?= json_encode(_('The manual link was deleted, but the ingest could not be started. A Super admin can run it.')) ?>);
+		}
+		if (started === 'busy') {
+			throw new Error(<?= json_encode(_('The manual link was deleted, but another ingest was still running: run the ingest again later.')) ?>);
+		}
+		this.ingest_status_element.textContent = <?= json_encode(_('Ingest running…')) ?>;
+		await new Promise(resolve => setTimeout(resolve, 1500));
+		const deadline = Date.now() + 120000;
+		let status = await this.request('topology.ingest.status');
+		while (status.status === 'running' && Date.now() < deadline) {
+			await new Promise(resolve => setTimeout(resolve, 1000));
+			status = await this.request('topology.ingest.status');
+		}
+		this.ingest_status_element.textContent = '';
+		await this.loadDevices();
+	}
+
 	async pollIngestStatus({ignore_idle = false} = {}) {
 		if (this.ingest_polling) {
 			return;
@@ -470,10 +491,10 @@ const view = new class {
 			if (!confirm(<?= json_encode(_('Delete this manual link and let discovery take the port?')) ?>)) {
 				return;
 			}
-			await post('topology.manual.accept', {edge_id});
-			// The discovered link is decided by a full ingest from the stored snapshots (a superseded one is
-			// revived): started after the delete, and after any run already in progress.
-			await this.startIngest();
+			const answer = await post('topology.manual.accept', {edge_id});
+			// The discovered link is decided by a full ingest from the stored snapshots (a superseded one is revived): the server starts it as the
+			// system process after the delete (and after any run already in progress); this page only waits for it and reloads.
+			await this.waitSystemIngest(answer.ingest);
 		}
 	}
 
