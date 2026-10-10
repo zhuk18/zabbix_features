@@ -749,7 +749,7 @@ const view = new class {
 			[[link.source, link.source_load], [link.target, link.target_load]].forEach(([node, load]) => {
 				const text = this.loadText(load);
 				if (text !== '') {
-					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, `${this.escape(text)} ${this.loadGraphLinks(load)}`, true]);
+					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, `<span class="topology-wrap">${this.escape(text)} ${this.loadGraphLinks(load)}</span>`, true]);
 				}
 			});
 			if (link.severity !== null && link.severity !== undefined) {
@@ -1428,7 +1428,8 @@ const view = new class {
 			.style('cursor', 'pointer')
 			.style('pointer-events', 'stroke')
 			.on('click', (event, link) => this.selectLink(link))
-			.attr('stroke', link => {
+			// style, not attribute: the stylesheet rule .topology-link{stroke:...} would override a presentation attribute
+			.style('stroke', link => {
 				if (link.type === 'represented_by') {
 					return '#2b7dbc';
 				}
@@ -1442,7 +1443,7 @@ const view = new class {
 				// trigger; the port status is NOT a colour (it is in the tooltip and the panel)
 				return link.type === 'physical_link' && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
 			})
-			.attr('stroke-width', link => {
+			.style('stroke-width', link => {
 				const severe = link.type === 'physical_link' && link.severity !== null && link.severity !== undefined;
 				return link.type === 'device_link' ? 3 : (severe ? 4 : 2);
 			})
