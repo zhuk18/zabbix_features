@@ -340,6 +340,23 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             # clock: all snapshot clocks of a step are then distinct and ordered the same way in every run. Ingest counts
             # a device as updated when its attrs change, and last_seen (= snapshot clock) is one of them, so two clocks
             # landing in the same second (or not) would change `devices_updated` from run to run.
+            # The standard interface discovery rule (role PORTS, model §3.2): the item ids of the ports. Once, at step 0 (a --reset clears the snapshots),
+            # all rules at the same time with a wait of their own: a rule that is slow must not eat the time of the step. A rule that does not answer is
+            # only reported; the scenarios do not assert item ids.
+            if i == 0:
+                ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc')}
+                if ifdisc:
+                    before = db.snapshot_clocks(conn)
+                    zbx.check_now(api, list(ifdisc))
+                    end = time.time() + 45
+                    while time.time() < end:
+                        now_clocks = db.snapshot_clocks(conn)
+                        if all(now_clocks.get(int(r), 0) > before.get(int(r), 0) for r in ifdisc):
+                            break
+                        time.sleep(1)
+                    missing = sorted(dev for r, dev in ifdisc.items() if db.snapshot_clocks(conn).get(int(r), 0) <= before.get(int(r), 0))
+                    if missing:
+                        log('  note: no snapshot of the interface discovery rule yet for %s (the item ids of their ports come later)' % ', '.join(missing))
             pending, waited_for = {}, []
             last_clock = max(db.snapshot_clocks(conn).values(), default=0)
             for dev in sorted(polled):
@@ -349,7 +366,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                 # kind (core, fdb) that "check now" runs.
                 kinds = ['push'] if transport[dev] == 'push' else sorted(polled[dev])
                 for m in kinds:
-                    if m != 'push' and not ms[dev][m]:
+                    if m != 'push' and not ms[dev].get(m):
                         continue
                     while time.time() < last_clock + 1.05:
                         time.sleep(0.1)

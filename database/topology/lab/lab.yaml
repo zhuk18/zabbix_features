@@ -13,6 +13,7 @@ settings:
     group: Test
     template_lld: Topology by SNMP
     template_push: Topology by push
+    template_interfaces: Network Generic Device by SNMP   # the standard interface discovery (net.if.discovery) with the role PORTS: port items (model §3.2)
 
 devices:
   Router1:

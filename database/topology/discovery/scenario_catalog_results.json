@@ -9325,6 +9325,139 @@
             ]
         },
         {
+            "id": "K-01",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1727,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1729/if1",
+                        "Gi0/2#1730/if2"
+                    ]
+                },
+                "links": [],
+                "observations": []
+            },
+            "steps": [
+                {
+                    "step": "PORTS rows with item ids",
+                    "devices": 1,
+                    "links": [],
+                    "obs": []
+                },
+                {
+                    "step": "the item ids of the port change",
+                    "devices": 1,
+                    "links": [],
+                    "obs": []
+                }
+            ]
+        },
+        {
+            "id": "K-02",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1731,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1733/if1",
+                        "Gi0/2#1734/if2"
+                    ]
+                },
+                "links": [],
+                "observations": []
+            },
+            "steps": [
+                {
+                    "step": "two PORTS rules on one host: their rows join by if_index",
+                    "devices": 1,
+                    "links": [],
+                    "obs": []
+                }
+            ]
+        },
+        {
+            "id": "K-03",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1735,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1737,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#1739/if1"
+                    ],
+                    "B": [
+                        "Gi0/1#1740/if1"
+                    ]
+                },
+                "links": [],
+                "observations": []
+            },
+            "steps": [
+                {
+                    "step": "R has no port items, B has",
+                    "devices": 2,
+                    "links": [],
+                    "obs": []
+                }
+            ]
+        },
+        {
             "id": "S-01",
             "rating": "Правило",
             "first_pass": true,
@@ -9340,7 +9473,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1727,
+                        "id": 1747,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9348,7 +9481,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1729,
+                        "id": 1749,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9356,7 +9489,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1733,
+                        "id": 1753,
                         "name": "PRINTER-A",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9364,7 +9497,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1734,
+                        "id": 1754,
                         "name": "PRINTER-B",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9374,16 +9507,16 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1731/if1"
+                        "Gi0/1#1751/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1732/if1"
+                        "Gi0/1#1752/if1"
                     ],
                     "PRINTER-A": [
-                        "Gi0/1*#1735/if-563193"
+                        "Gi0/1*#1755/if-563193"
                     ],
                     "PRINTER-B": [
-                        "Gi0/1*#1736/if-563193"
+                        "Gi0/1*#1756/if-563193"
                     ]
                 },
                 "links": [
@@ -9426,7 +9559,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1747,
+                        "id": 1767,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9434,7 +9567,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1750,
+                        "id": 1770,
                         "name": "CDP-ONLY",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9442,7 +9575,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1752,
+                        "id": 1772,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:14",
                         "ip": "10.0.0.1",
@@ -9452,13 +9585,13 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1749/if1"
+                        "Gi0/1#1769/if1"
                     ],
                     "CDP-ONLY": [
-                        "Gi0/1*#1751/if-563193"
+                        "Gi0/1*#1771/if-563193"
                     ],
                     "R2": [
-                        "Gi0/1#1754/if1"
+                        "Gi0/1#1774/if1"
                     ]
                 },
                 "links": [
@@ -9506,7 +9639,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1763,
+                        "id": 1783,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9514,7 +9647,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1765,
+                        "id": 1785,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9522,7 +9655,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1769,
+                        "id": 1789,
                         "name": "PROVIDER",
                         "chassis": "a0:00:00:00:00:1e",
                         "ip": null,
@@ -9532,14 +9665,14 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1767/if1"
+                        "Gi0/1#1787/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1768/if1"
+                        "Gi0/1#1788/if1"
                     ],
                     "PROVIDER": [
-                        "Gi0/7*#1770/if-691254",
-                        "Gi0/8*#1771/if-724686"
+                        "Gi0/7*#1790/if-691254",
+                        "Gi0/8*#1791/if-724686"
                     ]
                 },
                 "links": [
@@ -9581,7 +9714,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1781,
+                        "id": 1801,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9589,7 +9722,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1784,
+                        "id": 1804,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9597,7 +9730,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1786,
+                        "id": 1806,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9607,11 +9740,11 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1783/if1"
+                        "Gi0/1#1803/if1"
                     ],
                     "PRINTER": [
-                        "Gi0/1*#1785/if-563193",
-                        "Gi0/1*#1787/if-563193"
+                        "Gi0/1*#1805/if-563193",
+                        "Gi0/1*#1807/if-563193"
                     ]
                 },
                 "links": [
@@ -9657,12 +9790,12 @@
             "covered_by": null,
             "notes": [
                 "S-05: {\"devices\":[\"R1 chassis a0:00:00:00:00:01 ip 10.1.1.1 reporter_self\",\"R2 chassis a0:00:00:00:00:02 ip 10.1.1.2 reporter_self\",\"CORE chassis a0:00:00:00:00:1e ip 10.0.0.1 unrepresented\"],\"links\":[\"physical_link CORE:Gi0\\/7* ~ R1:Gi0\\/1 active #252\",\"physical_link CORE:Gi0\\/8* ~ R2:Gi0\\/1 active #253\"],\"obs\":[\"R1:Gi0\\/1 applied\",\"R2:Gi0\\/1 applied\"]}",
-                "S-05 CORE devices: [{\"id\":1794,\"name\":\"CORE\",\"chassis\":\"a0:00:00:00:00:1e\",\"ip\":\"10.0.0.1\",\"matched_by\":null,\"represented_by\":null}]"
+                "S-05 CORE devices: [{\"id\":1814,\"name\":\"CORE\",\"chassis\":\"a0:00:00:00:00:1e\",\"ip\":\"10.0.0.1\",\"matched_by\":null,\"represented_by\":null}]"
             ],
             "actual": {
                 "devices": [
                     {
-                        "id": 1788,
+                        "id": 1808,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9670,7 +9803,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1790,
+                        "id": 1810,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9678,7 +9811,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1794,
+                        "id": 1814,
                         "name": "CORE",
                         "chassis": "a0:00:00:00:00:1e",
                         "ip": "10.0.0.1",
@@ -9688,14 +9821,14 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1792/if1"
+                        "Gi0/1#1812/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1793/if1"
+                        "Gi0/1#1813/if1"
                     ],
                     "CORE": [
-                        "Gi0/7*#1795/if-691254",
-                        "Gi0/8*#1796/if-724686"
+                        "Gi0/7*#1815/if-691254",
+                        "Gi0/8*#1816/if-724686"
                     ]
                 },
                 "links": [
@@ -9737,7 +9870,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1806,
+                        "id": 1826,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9745,7 +9878,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1808,
+                        "id": 1828,
                         "name": "R2",
                         "chassis": "a0:00:00:00:00:02",
                         "ip": "10.1.1.2",
@@ -9753,7 +9886,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1812,
+                        "id": 1832,
                         "name": "CORE",
                         "chassis": "sw-local-7",
                         "ip": null,
@@ -9761,7 +9894,7 @@
                         "represented_by": null
                     },
                     {
-                        "id": 1813,
+                        "id": 1833,
                         "name": "CORE",
                         "chassis": "sw-local-7",
                         "ip": null,
@@ -9771,14 +9904,14 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1810/if1"
+                        "Gi0/1#1830/if1"
                     ],
                     "R2": [
-                        "Gi0/1#1811/if1"
+                        "Gi0/1#1831/if1"
                     ],
                     "CORE": [
-                        "Gi0/7*#1814/if-691254",
-                        "Gi0/8*#1815/if-724686"
+                        "Gi0/7*#1834/if-691254",
+                        "Gi0/8*#1835/if-724686"
                     ]
                 },
                 "links": [
@@ -9820,7 +9953,7 @@
             "actual": {
                 "devices": [
                     {
-                        "id": 1826,
+                        "id": 1846,
                         "name": "R1",
                         "chassis": "a0:00:00:00:00:01",
                         "ip": "10.1.1.1",
@@ -9828,7 +9961,7 @@
                         "represented_by": "reporter_self"
                     },
                     {
-                        "id": 1829,
+                        "id": 1849,
                         "name": "PRINTER",
                         "chassis": null,
                         "ip": "10.0.0.1",
@@ -9838,10 +9971,10 @@
                 ],
                 "ports": {
                     "R1": [
-                        "Gi0/1#1828/if1"
+                        "Gi0/1#1848/if1"
                     ],
                     "PRINTER": [
-                        "Gi0/1*#1830/if-563193"
+                        "Gi0/1*#1850/if-563193"
                     ]
                 },
                 "links": [
@@ -9877,12 +10010,12 @@
     ],
     "counts": {
         "verdict": {
-            "match": 134,
+            "match": 137,
             "out of harness": 18
         },
         "rating": {
             "Правило": {
-                "match": 108,
+                "match": 111,
                 "out of harness": 9
             },
             "Ограничение": {

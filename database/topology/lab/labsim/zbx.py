@@ -36,6 +36,18 @@ def _has_tag(h):
     return any(t['tag'] == TAG and t['value'] == '1' for t in h.get('tags', []))
 
 
+def _ensure_ports_role(api, templateid, name, log):
+    """The role PORTS on the interface discovery rule of the standard interface template (topology-4-lab-simulator.md §7), so that the ports of the
+    hosts get items (model §3.2). Changes the template once; a template rule that has the role is left alone."""
+    rules = api.call('discoveryrule.get', {'hostids': [templateid], 'output': ['itemid', 'key_', 'topology_role'],
+                                           'filter': {'key_': 'net.if.discovery'}})
+    if not rules:
+        raise LabError('template %r has no interface discovery rule (net.if.discovery)' % name)
+    if str(rules[0]['topology_role']) != '1':
+        api.call('discoveryrule.update', {'itemid': rules[0]['itemid'], 'topology_role': 1})
+        log('  set the role PORTS on the interface discovery rule of template %r' % name)
+
+
 def provision(api, scenario, prune=False, log=print):
     lab = scenario.states[0]
     s = lab.settings
@@ -49,9 +61,13 @@ def provision(api, scenario, prune=False, log=print):
         raise LabError('host group %r does not exist' % z['group'])
     groupid = groups[0]['groupid']
     tmpl = {}
-    for key in ('template_lld', 'template_push'):
+    for key in ('template_lld', 'template_push') + (('template_interfaces',) if z.get('template_interfaces') else ()):
         r = api.call('template.get', {'filter': {'host': [z[key]]}, 'output': ['templateid', 'host']})
         tmpl[key] = r[0]['templateid'] if r else None
+    if z.get('template_interfaces'):
+        if not tmpl['template_interfaces']:
+            raise LabError('template %r does not exist' % z['template_interfaces'])
+        _ensure_ports_role(api, tmpl['template_interfaces'], z['template_interfaces'], log)
     proxies = {p['name']: p['proxyid'] for p in api.call('proxy.get', {'output': ['proxyid', 'name']})}
 
     existing = {h['host']: h for h in api.call('host.get', {
@@ -95,7 +111,8 @@ def provision(api, scenario, prune=False, log=print):
             raise LabError('proxy %r does not exist' % w['proxy'])
         if kind == 'create':
             r = api.call('host.create', dict({'host': w['host'], 'groups': [{'groupid': groupid}],
-                                              'tags': [{'tag': TAG, 'value': '1'}], 'templates': [{'templateid': tmpl[tkey]}],
+                                              'tags': [{'tag': TAG, 'value': '1'}],
+                                              'templates': [{'templateid': t} for t in [tmpl[tkey]] + ([tmpl['template_interfaces']] if tmpl.get('template_interfaces') else [])],
                                               'interfaces': [want_if]}, **proxy_params))
             log('  created host %s (%s)' % (name, r['hostids'][0]))
             changed = True
@@ -106,7 +123,7 @@ def provision(api, scenario, prune=False, log=print):
         linked = {t['templateid'] for t in h['parentTemplates']}
         # one transport per host: the other lab template is unlinked (and cleared), so a transport override moves the host over
         other = tmpl['template_push' if tkey == 'template_lld' else 'template_lld']
-        keep = (linked - {other}) | {tmpl[tkey]}
+        keep = (linked - {other}) | {tmpl[tkey]} | ({tmpl['template_interfaces']} if tmpl.get('template_interfaces') else set())
         if keep != linked:
             changes['templates'] = [{'templateid': t} for t in sorted(keep)]
             if other in linked:
@@ -151,15 +168,19 @@ def masters(api, hostnames):
     hosts = api.call('host.get', {'filter': {'host': list(hostnames)}, 'output': ['hostid', 'host']})
     for h in hosts:
         items = api.call('item.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'state', 'error', 'status', 'lastclock']})
-        rules = api.call('discoveryrule.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'master_itemid', 'status']})
+        rules = api.call('discoveryrule.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'master_itemid', 'status', 'topology_role']})
         core = next((i for i in items if i['key_'] == 'topology.walk.core'), None)
         fdb = next((i for i in items if i['key_'] == 'topology.walk.fdb'), None)
         # "Topology by push": the trapper discovery rules (topology.push.ports, topology.push.lldp, ...), by key
         push = {i['key_']: i['itemid'] for i in rules if i['key_'].startswith(PUSH_RULE_PREFIX)}
         info = {i['itemid']: {'key': i['key_'], 'status': i['status']} for i in rules}
+        # the standard interface discovery rule with the role PORTS (its snapshot carries the item ids of the ports): "check now" runs the rule itself
+        ifdisc = next((i for i in rules if i['key_'] == 'net.if.discovery' and i['status'] == '0' and str(i['topology_role']) == '1'), None)
         out[h['host']] = {'hostid': h['hostid'], 'core': core, 'fdb': fdb, 'push': push, 'rule_info': info,
+                          'ifdisc': {'itemid': ifdisc['itemid']} if ifdisc else None,
                           'rules': {'core': [i['itemid'] for i in rules if core and i['master_itemid'] == core['itemid'] and i['status'] == '0'],
-                                    'fdb': [i['itemid'] for i in rules if fdb and i['master_itemid'] == fdb['itemid'] and i['status'] == '0']}}
+                                    'fdb': [i['itemid'] for i in rules if fdb and i['master_itemid'] == fdb['itemid'] and i['status'] == '0'],
+                                    'ifdisc': [ifdisc['itemid']] if ifdisc else []}}
     return out
 
 
