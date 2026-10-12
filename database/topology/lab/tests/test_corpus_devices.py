@@ -94,6 +94,23 @@ class TestCorpusDevices(unittest.TestCase):
             small = corpus.plan_batches([a, c], {}, size=1)
             self.assertEqual(len(small), 2)
 
+    def test_ifindex_option_adds_the_index_column(self):
+        text = '1.3.6.1.2.1.2.2.1.2.7|4|eth7\n1.3.6.1.2.1.31.1.1.1.1.9|4|eth9\n1.3.6.1.2.1.2.2.1.1.5|2|5\n1.3.6.1.2.1.2.2.1.2.5|4|eth5\n'
+        with tempfile.TemporaryDirectory() as d:
+            path = write(d, 'c', text)
+            plain = gen.corpus_records(path)
+            added = gen.corpus_records(path, ifindex=True)
+            lab = lab_with(path, ifindex=True)
+            self.assertTrue(lab.devices['c1']['corpus_ifindex'])
+            self.assertEqual(gen.device_records(lab, 'c1'), added)
+            with self.assertRaises(model.LabError):
+                lab_with(path, ifindex='yes')
+        if_index = (1, 3, 6, 1, 2, 1, 2, 2, 1, 1)
+        self.assertNotIn(if_index + (7,), plain)
+        self.assertEqual(added[if_index + (7,)], ('2', '7'))
+        self.assertEqual(added[if_index + (9,)], ('2', '9'))            # a row of ifXTable only
+        self.assertEqual(sum(1 for o in added if o[:len(if_index)] == if_index), 3)       # the recorded 5 stays, 7 and 9 are added
+
     def test_step_cannot_change_a_corpus_device(self):
         with tempfile.TemporaryDirectory() as d:
             lab = lab_with(write(d, 'c1'))

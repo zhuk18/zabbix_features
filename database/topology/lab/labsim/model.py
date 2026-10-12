@@ -65,7 +65,7 @@ class Lab:
         return d
 
     def add_corpus_devices(self, section):
-        """`corpus_devices:` (lab.yaml or a scenario patch): name -> {snmprec, ip, transport, proxy}. A device whose walk is a file of the vendor corpus,
+        """`corpus_devices:` (lab.yaml or a scenario patch): name -> {snmprec, ip, transport, proxy, ifindex}. `ifindex: true` adds ifIndex.N = N for every row N of ifTable/ifXTable (the corpus has no such column; IF-MIB defines its value as N). A device whose walk is a file of the vendor corpus,
         served as it is (plus the end record): no ports, no cables, no deviations, no changes in a step."""
         if section is None:
             return
@@ -73,16 +73,18 @@ class Lab:
             raise LabError('corpus_devices must be a mapping name -> {snmprec, ip, transport, proxy}')
         for name, c in section.items():
             c = c or {}
-            bad = set(c) - {'snmprec', 'ip', 'transport', 'proxy'}
+            bad = set(c) - {'snmprec', 'ip', 'transport', 'proxy', 'ifindex'}
             if bad:
-                raise LabError('corpus device %s: unknown field %s (allowed: snmprec, ip, transport, proxy)' % (name, sorted(bad)))
+                raise LabError('corpus device %s: unknown field %s (allowed: snmprec, ip, transport, proxy, ifindex)' % (name, sorted(bad)))
+            if not isinstance(c.get('ifindex', False), bool):
+                raise LabError('corpus device %s: ifindex must be true or false' % name)
             if name in self.devices:
                 raise LabError('corpus device %s has the name of another device' % name)
             if not c.get('snmprec') or not c.get('ip'):
                 raise LabError('corpus device %s needs snmprec and ip' % name)
             if c.get('transport', 'lld') not in TRANSPORTS:
                 raise LabError('corpus device %s: transport must be one of %s' % (name, list(TRANSPORTS)))
-            d = self._device(name, {'snmprec': c['snmprec'], 'ip': c['ip'], 'chassis': None,
+            d = self._device(name, {'snmprec': c['snmprec'], 'ip': c['ip'], 'chassis': None, 'corpus_ifindex': bool(c.get('ifindex', False)),
                                     'zabbix': {'monitored': True, 'transport': c.get('transport', 'lld'), 'proxy': c.get('proxy')}})
             d['lldp'] = d['cdp'] = False                 # the file decides what the device answers
             self.devices[name] = d

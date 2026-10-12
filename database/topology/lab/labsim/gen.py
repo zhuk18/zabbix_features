@@ -120,7 +120,11 @@ def _port_id(dev, p):
 SNMPREC_LINE = re.compile(r'^(\d+(?:\.\d+)*)\|(\d+[xe]?)\|(.*)$')
 
 
-def corpus_records(path):
+IF_ENTRY = (1, 3, 6, 1, 2, 1, 2, 2, 1)           # ifEntry: column, ifIndex
+IFX_ENTRY = (1, 3, 6, 1, 2, 1, 31, 1, 1, 1)      # ifXEntry: column, ifIndex
+
+
+def corpus_records(path, ifindex=False):
     """The records of a corpus file (snmprec) plus the end record of "Generator" (lab spec §5.2). A line that does not parse stops the
     generator: nothing is written. The OIDs are sorted numerically when the lines are written (see lines())."""
     r = Records()
@@ -138,6 +142,12 @@ def corpus_records(path):
         r[parse_oid(m.group(1))] = (m.group(2), m.group(3))
     if not r:
         raise LabError('corpus file %s has no records' % path)
+    if ifindex:
+        # ifIndex of IF-MIB is the index of the row by definition (ifIndex.N = N); the corpus does not record that column
+        for oid in list(r):
+            for entry in (IF_ENTRY, IFX_ENTRY):
+                if len(oid) == len(entry) + 2 and oid[:len(entry)] == entry and not (entry is IF_ENTRY and oid[len(entry)] == 1):
+                    r.setdefault(IF_ENTRY + (1, oid[-1]), ('2', str(oid[-1])))
     r.put_str(LAB_TAIL + (0,), 'end of lab data')
     return r
 
@@ -146,7 +156,7 @@ def device_records(lab, name):
     """All SNMP records of one monitored device in one lab state."""
     dev = lab.devices[name]
     if dev.get('snmprec'):
-        return corpus_records(dev['snmprec'])
+        return corpus_records(dev['snmprec'], dev.get('corpus_ifindex', False))
     s = lab.settings
     omit = {d['mib'] for d in lab.active_deviations('omit_mib') if d['device'] == name}
     renum = {}

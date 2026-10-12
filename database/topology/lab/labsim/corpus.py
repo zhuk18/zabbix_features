@@ -91,13 +91,13 @@ def plan_batches(files, shared, size=BATCH):
     return batches
 
 
-def batch_scenario(batch, transport=None, lab=None, sid='SC'):
+def batch_scenario(batch, transport=None, lab=None, sid='SC', ifindex=False):
     """The scenario of one batch: the base lab without its own devices, plus `corpus_devices` in the patch; one step."""
     lab = lab or model.load_lab()
     lab.devices, lab.cables, lab.deviations = {}, [], {}
     cd = {}
     for i, p in enumerate(batch):
-        cd[host_name(p)] = {'snmprec': p, 'ip': IP_PREFIX + str(i + 1), 'transport': transport or 'lld', 'proxy': None}
+        cd[host_name(p)] = {'snmprec': p, 'ip': IP_PREFIX + str(i + 1), 'transport': transport or 'lld', 'proxy': None, 'ifindex': ifindex}
     data = {'id': sid, 'title': 'corpus smoke', 'steps': [{'note': 'step 0: one poll of every corpus device'}], 'patch': {'corpus_devices': cd}}
     return model.Scenario(data, lab)
 
@@ -257,7 +257,10 @@ def run_batch(sc, settings, api, conn, timeout, log):
             result['devices'][n] = row
             for role in ('ports', 'lldp'):
                 r = row['rules'].get('topology.%s' % role) or row['rules'].get('topology.push.%s' % role)
-                if r and anchors[role] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result'):
+                if r and anchors[role] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result') and 'walk holds no ' in r['error']:
+                    # the corpus lacks an OID the template needs (for example ifType): not a defect, listed on its own
+                    result.setdefault('template_oid_missing', []).append({'device': n, 'rule': role, 'error': r['error'][:200]})
+                elif r and anchors[role] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result'):
                     result.setdefault('rule_failed', []).append(n)
                     result['errors'].append('%s: the %s rule is %s (%s) while its anchor is in the walk' % (n, role, r['state'], r['error'][:150]))
         result['ingest'] = {k: ingest.get(k) for k in ('status', 'error')}
@@ -295,7 +298,7 @@ def table(report):
     return '\n'.join(lines)
 
 
-def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, push_core=True, timeout=150, dry_run=False, log=print):
+def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, push_core=True, timeout=150, dry_run=False, log=print, ifindex=False):
     paths = corpus_files(corpus_dir)
     if files:
         paths = [p for p in paths if host_name(p) in files]
@@ -304,7 +307,7 @@ def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, 
     if push_core:
         core = [p for p in paths if host_name(p) in CORE_SET]
         plan += [('push', b) for b in plan_batches(core, shared, size)]
-    report = {'corpus': corpus_dir, 'files': len(paths), 'shared_chassis_ids': shared,
+    report = {'corpus': corpus_dir, 'ifindex_added': ifindex, 'files': len(paths), 'shared_chassis_ids': shared,
               'plan': [{'transport': t, 'devices': [host_name(p) for p in b]} for t, b in plan], 'batches': [], 'errors': []}
     log('%d file(s), %d chassis id(s) shared between files, %d batch(es)' % (len(paths), len(shared), len(plan)))
     if dry_run:
@@ -313,7 +316,7 @@ def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, 
     try:
         for i, (transport, b) in enumerate(plan):
             log('batch %d/%d: %d device(s), transport %s' % (i + 1, len(plan), len(b), transport))
-            res = run_batch(batch_scenario(b, transport), settings, api, conn, timeout, log)
+            res = run_batch(batch_scenario(b, transport, ifindex=ifindex), settings, api, conn, timeout, log)
             res['transport'] = transport
             report['batches'].append(res)
             report['errors'] += res['errors']
@@ -328,7 +331,7 @@ def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, 
             for n in failed:
                 tr = next(b['transport'] for b in report['batches'] if n in b.get('rule_failed', []))
                 p = next(q for q in paths if host_name(q) == n)
-                res = run_batch(batch_scenario([p], tr), settings, api, conn, timeout, log)
+                res = run_batch(batch_scenario([p], tr, ifindex=ifindex), settings, api, conn, timeout, log)
                 res['transport'] = tr
                 report['batches'].append(res)
                 report['retried'][n] = 'passed alone' if not res['errors'] else 'failed alone'
