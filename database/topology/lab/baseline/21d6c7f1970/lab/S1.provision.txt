@@ -1,0 +1,5 @@
+  host AccessSwitch1 unchanged
+  host Router1 unchanged
+  host Switch1 unchanged
+  host Switch2 unchanged
+  host UPS1 unchanged

@@ -1,0 +1,35 @@
+  AP1 up: pid 82419 127.0.0.7:1611
+  AccessSwitch1 up: pid 82420 127.0.0.6:1611
+  Router1 up: pid 82421 127.0.0.2:1611
+  Switch1 up: pid 82422 127.0.0.3:1611
+  Switch2 up: pid 82423 127.0.0.4:1611
+  UPS1 up: pid 82424 127.0.0.5:1611
+  scheduled polling of 12 master item(s) suspended for the run
+reset: topo_* cleared
+step 0: Switch1:Gi0/6 - AP1:eth0, both monitored
+  step 0 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+step 1: AP1 unreachable; Switch1 still sees AP1 on Gi0/6
+  step 1 set on 1 device(s)
+  AP1 fault: unreachable
+  PASS    snapshot_unchanged {"snapshot_unchanged": {"host": "AP1", "since_step": 0}} 
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+step 2: AP2 (not monitored) on Switch1:Gi0/7
+  step 2 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/7", "AP2"], "type": "physical_link", "state": "active"} 
+step 3: AP2 also on Switch1:Gi0/8; the same MAC is advertised as the port id on both ports
+  step 3 set on 1 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 2, "link": ["Switch1:Gi0/7", "AP2"]}} 
+  PASS    link {"link": ["Switch1:Gi0/7", "AP2"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/7", "remote": "AP2"}, "outcome": "applied", "precision_lo 
+  PASS    link_attr {"link_attr": {"link": ["Switch1:Gi0/7", "AP2"], "attr": "last_seen_port", "vs_step": 2, "is": "eq"}} 
+  PASS    link {"link": ["Switch1:Gi0/8", "AP2"], "type": "device_link", "far_port_reason": "port_shared_id", "state": "activ 
+step 4: shared id removed (AP2 no longer on Switch1:Gi0/8)
+  step 4 set on 1 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 2, "link": ["Switch1:Gi0/7", "AP2"]}} 
+  PASS    link {"link": ["Switch1:Gi0/7", "AP2"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/7", "remote": "AP2"}, "outcome": "applied", "precision_lo 
+  PASS    link_attr {"link_attr": {"link": ["Switch1:Gi0/7", "AP2"], "attr": "last_seen_port", "vs_step": 3, "is": "gt"}} 
+lab down
+  scheduled polling restored on 12 master item(s)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S3.json

@@ -1,0 +1,26 @@
+  AccessSwitch1 up: pid 81591 127.0.0.6:1611
+  Router1 up: pid 81592 127.0.0.2:1611
+  Switch1 up: pid 81593 127.0.0.3:1611
+  Switch2 up: pid 81594 127.0.0.4:1611
+  UPS1 up: pid 81595 127.0.0.5:1611
+  scheduled polling of 10 master item(s) suspended for the run
+reset: topo_* cleared
+step 0: baseline (Switch1:Gi0/5 has nothing behind it)
+  step 0 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/5", "PC1"], "state": "absent"} 
+step 1: PC1 and PC2 both on Switch1:Gi0/5
+  step 1 set on 1 device(s)
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/5", "remote": "PC1"}, "outcome": "ambiguous"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/5", "remote": "PC2"}, "outcome": "ambiguous"} 
+  PASS    link {"link": ["Switch1:Gi0/5", "PC1"], "state": "absent"} 
+  PASS    link {"link": ["Switch1:Gi0/5", "PC2"], "state": "absent"} 
+  PASS    status {"status": {"field": "observations.ambiguous", "equals": 2}} 
+step 2: PC2 removed; PC1 is the only neighbor on Switch1:Gi0/5
+  step 2 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/5", "PC1"], "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/5", "remote": "PC1"}, "outcome": "applied"} 
+  PASS    link {"link": ["Switch1:Gi0/5", "PC2"], "state": "absent"} 
+  PASS    status {"status": {"field": "observations.ambiguous", "equals": 0}} 
+lab down
+  scheduled polling restored on 10 master item(s)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S2.json

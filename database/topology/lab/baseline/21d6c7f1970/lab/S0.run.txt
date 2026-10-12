@@ -1,0 +1,27 @@
+  AccessSwitch1 up: pid 80391 127.0.0.6:1611
+  Router1 up: pid 80392 127.0.0.2:1611
+  Switch1 up: pid 80393 127.0.0.3:1611
+  Switch2 up: pid 80394 127.0.0.4:1611
+  UPS1 up: pid 80395 127.0.0.5:1611
+  scheduled polling of 10 master item(s) suspended for the run
+reset: topo_* cleared
+step 0: baseline - a fresh ingest of the generated data must equal reference-s0.json
+  step 0 set on 1 device(s)
+  PASS    matches_reference {"matches_reference": "reference-s0.json"} 
+step 1: manual Router1:Gi0/1 - UPS1:eth0 added while LLDP still shows Printer1 on Router1:Gi0/1
+  step 1 set on 1 device(s)
+  manual link Router1:Gi0/1 - UPS1:eth0 created through CTopologyPrototype::linkPorts (edge 2173)
+  PASS    link {"link": ["Router1:Gi0/1", "UPS1:eth0"], "discovered_via": "manual", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Router1", "port": "Gi0/1", "remote": "Printer1"}, "outcome": "shadowed"} 
+  PASS    status {"status": {"field": "manual_links_contradicted", "equals": 1}} 
+  PASS    observation_count {"observation_count": {"outcome": "shadowed", "edge": ["Router1:Gi0/1", "UPS1:eth0"], "equals": 3}} 
+  PASS    contradiction {"contradiction": {"link": ["Router1:Gi0/1", "UPS1:eth0"], "hidden_neighbors": ["Printer1", "Switch2"]}} 
+step 2: UPS1 stops reporting LLDP; the manual link stays
+  step 2 set on 1 device(s)
+  PASS    link {"link": ["Router1:Gi0/1", "UPS1:eth0"], "discovered_via": "manual", "state": "active"} 
+  PASS    observation_count {"observation_count": {"outcome": "shadowed", "edge": ["Router1:Gi0/1", "UPS1:eth0"], "equals": 2}} 
+  PASS    status {"status": {"field": "manual_links_contradicted", "equals": 1}} 
+  PASS    badge {"badge": {"node": "UPS1", "present": false}} 
+lab down
+  scheduled polling restored on 10 master item(s)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S0.json

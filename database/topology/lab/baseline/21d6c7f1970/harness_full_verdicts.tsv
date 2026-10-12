@@ -1,0 +1,163 @@
+A-01	Правило	match
+A-02	Правило	match
+A-03	Правило	match
+A-04	Правило	match
+A-05	Правило	match
+A-06	Правило	match
+A-07	Правило	match
+A-08	Правило	match
+C-01	Правило	match
+C-02	Вывод	out of harness
+C-03	Правило	out of harness
+C-04	Правило	match
+C-05	Правило	out of harness
+C-06	Вывод	match
+C-07	Правило	out of harness
+C-08	Пробел	out of harness
+C-09	Правило	out of harness
+C-10	Правило	out of harness
+C-11	Ограничение	out of harness
+C-12	Пробел	out of harness
+C-13	Правило	match
+C-14	Вывод	match
+C-15	Правило	match
+C-16	Правило	match
+C-17	Вывод	match
+C-18	Правило	out of harness
+C-19	Ограничение	out of harness
+C-20	Правило	out of harness
+C-21	Правило	match
+C-22	Правило	match
+C-23	Правило	out of harness
+C-24	Правило	match
+C-25	Вывод	out of harness
+D-01	Правило	match
+D-02	Правило	match
+D-03	Правило	match
+D-04	Правило	match
+D-05	Правило	match
+D-06	Правило	match
+D-07	Правило	match
+D-08	Правило	match
+D-09	Правило	match
+D-10	Правило	match
+D-11	Правило	match
+D-12	Правило	match
+D-13	Ограничение	match
+D-14	Правило	match
+D-15	Правило	match
+I-01	Правило	match
+I-02	Правило	match
+I-03	Правило	match
+I-04	Правило	match
+I-05	Ограничение	match
+I-06	Вывод	match
+I-07	Правило	match
+I-08	Правило	match
+I-09	Правило	match
+I-10	Правило	match
+I-11	Правило	match
+I-12	Правило	match
+I-13	Правило	match
+I-14	Правило	match
+I-15	Пробел	match
+I-16	Правило	match
+I-17	Правило	match
+I-18	Правило	match
+I-19	Правило	match
+I-20	Правило	match
+I-21	Ограничение	match
+I-22	Ограничение	match
+I-23	Правило	match
+I-24	Пробел	match
+I-25	Пробел	match
+I-26	Правило	match
+I-27	Правило	out of harness
+I-28	Пробел	match
+J-01	Правило	match
+J-02	Правило	match
+J-03	Правило	match
+K-01	Правило	match
+K-02	Правило	match
+K-03	Правило	match
+L-01	Правило	match
+L-02	Правило	match
+L-03	Правило	match
+L-04	Правило	match
+L-05	Правило	match
+L-06	Правило	match
+L-07	Правило	match
+L-08	Правило	match
+L-09	Правило	match
+L-10	Вывод	match
+L-11	Правило	match
+L-12	Правило	match
+L-13	Правило	match
+L-13b	Правило	match
+L-14	Правило	match
+L-15	Правило	match
+L-16	Правило	match
+L-17	Правило	match
+L-18	Правило	match
+L-19	Ограничение	match
+L-20	Вывод	match
+L-21	Правило	match
+L-22	Вывод	match
+L-23	Ограничение	out of harness
+L-24	Правило	match
+L-25	Правило	match
+L-26	Ограничение	out of harness
+L-27	Ограничение	out of harness
+M-01	Правило	match
+M-02	Правило	match
+M-03	Правило	match
+M-04	Правило	match
+M-05	Правило	match
+M-06	Правило	match
+M-07	Правило	match
+M-08	Правило	match
+M-09	Правило	match
+M-10	Правило	match
+M-11	Правило	match
+M-12	Правило	match
+M-13	Правило	match
+M-14	Правило	match
+M-15	Правило	match
+M-16	Правило	match
+M-17	Правило	match
+M-18	Правило	match
+M-19	Пробел	match
+M-20	Пробел	match
+M-21	Правило	match
+M-22	Правило	match
+M-23	Правило	match
+N-01	Правило	match
+N-02	Правило	match
+N-03	Правило	match
+P-01	Пробел	match
+P-02	Правило	match
+P-03	Вывод	match
+P-04	Пробел	match
+P-05	Вывод	match
+P-06	Вывод	match
+P-07	Вывод	match
+P-08	Правило	match
+P-09	Правило	match
+P-10	Правило	match
+P-11	Вывод	match
+P-12	Правило	match
+P-13	Правило	match
+P-14	Правило	match
+P-15	Правило	match
+P-16	Правило	match
+P-17	Правило	match
+P-18	Правило	match
+S-01	Правило	match
+S-02	Правило	match
+S-03	Пробел	match
+S-04	Правило	match
+S-05	Правило	match
+S-06	Правило	match
+S-07	Правило	match
+X-01	Правило	match
+X-02	Правило	match

@@ -1,0 +1,14 @@
+suite	seconds	exit
+run_php_tests	377.8	0
+lab_unit_tests	5.4	0
+harness_first_pass	66.6	0
+harness_full	193.8	0
+lab_S0	73.7	0
+lab_S1	90.3	0
+lab_S2	79.3	0
+lab_S3	118.8	0
+lab_S4	170.4	0
+lab_S5	138.6	0
+corpus_as_recorded	16.1	0
+corpus_ifindex_added	55.3	0
+corpus_converter_tests	2.1	0

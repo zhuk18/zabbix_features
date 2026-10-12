@@ -1,0 +1,32 @@
+..................................../home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:131: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpcdl5eec_/A/lab.snmprec' mode='r' encoding='utf-8'>
+  main = open(os.path.join(t, 'A', 'lab.snmprec')).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+./home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/one/B/lab.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/two/B/lab.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/one/A/lab.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/two/A/lab.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/one/A/lldp/00001.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/two/A/lldp/00001.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/one/A/lldp/00000.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+/home/zhuk/work/branches/zabbix/database/topology/lab/tests/test_gen.py:124: ResourceWarning: unclosed file <_io.TextIOWrapper name='/tmp/tmpe_n8gfxw/two/A/lldp/00000.snmprec' mode='r' encoding='utf-8'>
+  a, b = open(p1).read(), open(p2).read()
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.................................
+----------------------------------------------------------------------
+Ran 70 tests in 5.078s
+
+OK

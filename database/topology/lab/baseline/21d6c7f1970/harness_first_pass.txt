@@ -1,0 +1,53 @@
+  I-01  Правило match         
+  I-07  Правило match         
+  I-08  Правило match         
+  I-10  Правило match         
+  I-23  Правило match         
+  P-01  Пробел match         
+  P-07  Вывод   match         
+  P-08  Правило match         
+  P-09  Правило match         
+  P-10  Правило match         
+  P-13  Правило match         
+  P-18  Правило match         
+  L-01  Правило match         
+  L-02  Правило match         
+  L-03  Правило match         
+  L-04  Правило match         
+  L-06  Правило match         
+  L-07  Правило match         
+  L-08  Правило match         
+  L-11  Правило match         
+  L-12  Правило match         
+  L-13  Правило match         
+  L-13b Правило match         
+  L-17  Правило match         
+  L-20  Вывод   match         
+  M-02  Правило match         
+  M-07  Правило match         
+  M-10  Правило match         
+  M-11  Правило match         
+  M-12  Правило match         
+  M-16  Правило match         
+  M-20  Пробел match         
+  D-01  Правило match         
+  D-04  Правило match         
+  D-05  Правило match         
+  D-07  Правило match         
+  C-01  Правило match         
+  C-06  Вывод   match         
+  C-13  Правило match         
+  C-14  Вывод   match         
+  C-17  Вывод   match         
+  J-01  Правило match         
+  J-02  Правило match         
+  J-03  Правило match         
+  S-01  Правило match         
+  S-02  Правило match         
+
+verdicts: {"match":46}
+by rating: {"Правило":{"match":39},"Пробел":{"match":2},"Вывод":{"match":5}}
+
+run time: 65.7 s (46 cases, first pass)
+
+All Правило/Ограничение cases match.

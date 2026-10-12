@@ -1,0 +1,24 @@
+  AccessSwitch1 up: pid 83315 127.0.0.6:1611
+  Router1 up: pid 83316 127.0.0.2:1611
+  Switch1 up: pid 83317 127.0.0.3:1611
+  Switch2 up: pid 83318 127.0.0.4:1611
+  UPS1 up: pid 83319 127.0.0.5:1611
+  scheduled polling of 10 master item(s) suspended for the run
+  freshness macro set to 60 (was absent)
+reset: topo_* cleared
+step 0: baseline, freshness 60 s - Printer1 on Switch1:Gi0/4
+  step 0 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "active", "stale": false} 
+step 1: Printer1 removed from Switch1's LLDP; wait 90 s after the poll
+  step 1 set on 1 device(s)
+  waiting 90 s
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "stale"} 
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "active"} 
+step 2: Printer1 back on Switch1:Gi0/4
+  step 2 set on 1 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/4", "Printer1"]}} 
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "active", "stale": false} 
+lab down
+  scheduled polling restored on 10 master item(s)
+  freshness macro restored (absent)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S4.json

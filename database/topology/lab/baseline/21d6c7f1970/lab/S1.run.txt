@@ -1,0 +1,36 @@
+  AccessSwitch1 up: pid 81002 127.0.0.6:1611
+  Router1 up: pid 81003 127.0.0.2:1611
+  Switch1 up: pid 81004 127.0.0.3:1611
+  Switch2 up: pid 81005 127.0.0.4:1611
+  UPS1 up: pid 81006 127.0.0.5:1611
+  scheduled polling of 10 master item(s) suspended for the run
+reset: topo_* cleared
+step 0: baseline - Printer1 on Switch1:Gi0/4
+  step 0 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "active"} 
+step 1: Printer1 moved from Switch1:Gi0/4 to Switch1:Gi0/5
+  step 1 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "superseded"} 
+  PASS    link {"link": ["Switch1:Gi0/5", "Printer1"], "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/5", "remote": "Printer1"}, "outcome": "applied"} 
+  PASS    status {"status": {"field": "links_superseded", "equals": 1}} 
+step 2: Printer1 absent from LLDP for one poll
+  step 2 set on 1 device(s)
+  PASS    link {"link": ["Switch1:Gi0/5", "Printer1"], "state": "active"} 
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "superseded"} 
+  PASS    status {"status": {"field": "links_superseded", "equals": 0}} 
+step 3: Printer1 back on Switch1:Gi0/5
+  step 3 set on 1 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 1, "link": ["Switch1:Gi0/5", "Printer1"]}} 
+  PASS    link {"link": ["Switch1:Gi0/5", "Printer1"], "state": "active"} 
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "superseded"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/5", "remote": "Printer1"}, "outcome": "applied"} 
+step 4: Printer1 back on Switch1:Gi0/4
+  step 4 set on 1 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/4", "Printer1"]}} 
+  PASS    link {"link": ["Switch1:Gi0/4", "Printer1"], "state": "active"} 
+  PASS    link {"link": ["Switch1:Gi0/5", "Printer1"], "state": "superseded"} 
+  PASS    status {"status": {"field": "links_revived", "equals": 1}} 
+lab down
+  scheduled polling restored on 10 master item(s)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S1.json

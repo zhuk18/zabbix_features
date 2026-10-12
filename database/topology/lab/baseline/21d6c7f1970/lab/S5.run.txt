@@ -1,0 +1,35 @@
+  AP1 up: pid 84472 127.0.0.7:1611
+  AccessSwitch1 up: pid 84473 127.0.0.6:1611
+  Router1 up: pid 84474 127.0.0.2:1611
+  Switch1 up: pid 84475 127.0.0.3:1611
+  Switch2 up: pid 84476 127.0.0.4:1611
+  UPS1 up: pid 84477 127.0.0.5:1611
+  scheduled polling of 12 master item(s) suspended for the run
+reset: topo_* cleared
+step 0: Switch1:Gi0/6 - AP1:eth0 seen by LLDP (interfaceName, free-text description) and by CDP
+  step 0 set on 3 device(s)
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/6", "remote": "AP1"}, "outcome": "applied", "precision_lo 
+step 1: AP1 advertises its port as local, the number is the ifIndex
+  step 1 set on 3 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/6", "AP1:eth0"]}} 
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/6", "remote": "AP1"}, "outcome": "applied", "precision_lo 
+step 2: the local number is not an ifIndex (offset 1000); only CDP identifies the port
+  step 2 set on 3 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/6", "AP1:eth0"]}} 
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/6", "remote": "AP1"}, "outcome": "applied", "precision_lo 
+step 3: as step 2, CDP off on AP1
+  step 3 set on 3 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/6", "AP1:eth0"]}} 
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/6", "remote": "AP1"}, "outcome": "applied", "precision_lo 
+step 4: back to step 0
+  step 4 set on 3 device(s)
+  PASS    edge_id_same_as {"edge_id_same_as": {"step": 0, "link": ["Switch1:Gi0/6", "AP1:eth0"]}} 
+  PASS    link {"link": ["Switch1:Gi0/6", "AP1:eth0"], "type": "physical_link", "state": "active"} 
+  PASS    observation {"observation": {"reporter": "Switch1", "port": "Gi0/6", "remote": "AP1"}, "outcome": "applied", "precision_lo 
+lab down
+  scheduled polling restored on 12 master item(s)
+report: /home/zhuk/work/branches/zabbix/database/topology/lab/baseline/21d6c7f1970/lab/S5.json
