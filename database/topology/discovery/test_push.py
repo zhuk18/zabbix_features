@@ -240,5 +240,12 @@ for code, name, want in ((24, "Loopback0", "virtual"), (53, "Vlan10", "virtual")
 # No guessed chassis (model §6.4 step 7): without lldpLocChassisId there is no chassis, whatever the port MACs are
 check(push._local_chassis({}, {"1": {"mac": "02:00:00:00:00:01"}}) == "", "no lldpLocChassisId: _local_chassis is empty, not a port MAC")
 
+print("\n=== local port (steps 1-4) and management address: the same cases as the native step (step_golden/lldp_cases.json) ===")
+for case in json.load(open(os.path.join(HERE, "step_golden", "lldp_cases.json"), encoding="utf-8")):
+    rows = push.rows_lldp(push.parse_walk(case["walk"]))
+    row = rows[0] if len(rows) == 1 else {}
+    check(len(rows) == 1 and row.get("{#IFINDEX}") == case["expect_ifindex"] and row.get("{#REM_MGMT_IP}") == case["expect_ip"],
+          f"[{case['rule']}] {case['name']}", json.dumps(rows))
+
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)
