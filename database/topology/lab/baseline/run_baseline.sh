@@ -8,6 +8,7 @@
 # ~/work/labenv, database/topology/discovery/step_golden/topo_step built, the corpus in /media/sf_topology-specs/corpus.
 # It writes only to <outdir>, to the databases zabbix and topo_t_*, and restores scenario_catalog_results.json after the full harness run.
 set -u
+export LC_ALL=C      # printf and bc: a decimal point, whatever the locale of the VM
 REPO=$(cd "$(dirname "$0")/../../../.." && pwd)
 COMMIT=$(git -C "$REPO" rev-parse --short=11 HEAD)
 OUT=${1:-$REPO/database/topology/lab/baseline/$COMMIT}
