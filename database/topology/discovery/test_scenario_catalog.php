@@ -83,7 +83,9 @@ function add_host(PDO $pdo, int $hostid, string $host, string $name, ?string $ip
 
 function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, array $rows, int $current_role = null,
 		int $status = 0): void {
-	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_role) VALUES (?, ?, ?, ?)')
+	// an upsert, not REPLACE: REPLACE deletes the items row and the foreign key removes the observations of the rule, which a real item never does
+	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role) VALUES (?, ?, ?, ?)'.
+		' ON DUPLICATE KEY UPDATE hostid = VALUES(hostid), status = VALUES(status), topology_role = VALUES(topology_role)')
 		->execute([$itemid, $hostid, $status, $current_role ?? $role]);
 	$json = json_encode($rows, JSON_THROW_ON_ERROR);
 	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid)'.
@@ -371,6 +373,9 @@ function h_ingest(string $label, array $only_hosts = []): array {
 	// exit 1 = nothing could be ingested (every reporter skipped): a result, not a crash
 	if ($r['code'] > 1 || $r['summary'] === []) {
 		h_fail("ingest failed at '{$label}': ".trim($r['err'].' '.substr($r['out'], -200)));
+	}
+	if (getenv('CATALOG_ECHO')) {
+		echo "--- ingest '{$label}' (exit {$r['code']}) ---\n".$r['out'].$r['err'];
 	}
 	$H['last_summary'] = $r['summary'];
 	$state = h_state();
@@ -818,10 +823,13 @@ c('I-09', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
 	h_ingest('chassis X');
 	h_tick();
-	h_nbrs('R', [NR(1, mac(11), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
-	h_ingest('RMA');
+	// (handoff 021: the old box must still be advertised for its address to stay a key of its Device, §6.7.0 "Address keys follow the current rows";
+	// after a real RMA the old box is gone, its address goes with it, and a row with only the IP finds the new Device)
+	h_nbrs('R', [NR(1, mac(11), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']), NR(3, mac(10), 'DX-old', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
+	h_ingest('RMA, the old box is still on the network');
 	h_tick();
-	h_nbrs('R', [NR(2, null, 'only-ip', null, ['rem_mgmt_ip' => '10.9.9.9'])]);
+	h_nbrs('R', [NR(1, mac(11), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']), NR(3, mac(10), 'DX-old', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']),
+		NR(2, null, 'only-ip', null, ['rem_mgmt_ip' => '10.9.9.9'])]);
 	$summary = h_ingest('a row with only the IP');
 	$o = h_obs('R', 'Gi0/2');
 	ex($o !== null && $o['outcome'] === 'ambiguous' && $o['device'] === null, 'ambiguous, no Device');
@@ -882,6 +890,7 @@ c('I-11', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.2'])]);
 	h_ingest('chassis X, IP 2');
 	ex(h_dev_count() === 2 && (h_dev('DX')['ip'] ?? null) === '10.1.1.2', 'found by chassis, mgmt_ip updated');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.2'], 'the keys after the address change: the chassis and only the new address (§6.7.0)');
 });
 
 c('I-12', 'Правило', function () {
@@ -2710,7 +2719,7 @@ c('S-04', 'Правило', function () {
 	$keys = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
 	ex($keys === ['ip:proxy:1:10.0.0.1', 'ip:proxy:2:10.0.0.1'], 'the key of segment A is not rewritten, the key of segment B is new, on two Devices (actual: '.json_encode($keys).')');
 	$own = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NOT NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex($own === ['ip:proxy:1:10.1.1.1', 'ip:proxy:2:10.1.1.1'], 'the host that moved keeps its address of segment A and adds the one of segment B (actual: '.json_encode($own).')');
+	ex($own === ['ip:proxy:2:10.1.1.1'], 'the host that moved has the address of its segment now; the key of segment A is no current input of its Device and goes (§6.7.0 "Address keys follow the current rows") (actual: '.json_encode($own).')');
 	ex(count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')) === 1, 'the port has one active link, to the Device of the new segment; the old one is superseded by the normal rule (actual: '.count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')).')');
 });
 
@@ -2766,8 +2775,7 @@ c('S-07', 'Правило', function () {
 
 
 // ============================================================================================================
-// A. Address keys and reporter keys (model §6.7.0, §6.4 steps 1 and 5, §6.8; handoff 021). Rated `Вывод` while the code is characterized (021 §1),
-// `Правило` once the rule is implemented.
+// A. Address keys and reporter keys (model §6.7.0, §6.4 steps 1 and 5, §6.8; handoff 021). Characterized first (commit 297a454), rated `Правило` since.
 // ============================================================================================================
 
 /** The keys of the Device called $dev: ['<key>' => replaced]. */
@@ -2808,7 +2816,7 @@ function a_reporter_of($dev): ?string {
 	return $v === false ? null : (string) $v;
 }
 
-c('A-01', 'Вывод', function () {
+c('A-01', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
 	h_ingest('DX: chassis X, IP 1');
@@ -2822,7 +2830,7 @@ c('A-01', 'Вывод', function () {
 	ex(h_dev_count() === 3 && h_dev('OLD-IP') !== null, 'the CDP-only row with the old address makes a new Device, DX is not found (Devices: '.json_encode(h_devices()).')');
 });
 
-c('A-02', 'Вывод', function () {
+c('A-02', 'Правило', function () {
 	h_rep('R1', mac(1), '10.0.0.1');
 	h_rep('R2', mac(2), '10.0.0.2');
 	h_ports('R1', [1 => 'Gi0/1']);
@@ -2836,7 +2844,7 @@ c('A-02', 'Вывод', function () {
 	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.1', 'ip:server:10.1.1.2'], 'both addresses still stay');
 });
 
-c('A-03', 'Вывод', function () {
+c('A-03', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, null, 'IPONLY', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.2'])], 'cdp');
 	h_ingest('an IP-only Device');
@@ -2847,7 +2855,7 @@ c('A-03', 'Вывод', function () {
 	exv(a_key_names('OTHER'), ['ip:server:10.2.2.3'], 'the new Device has its key');
 });
 
-c('A-04', 'Вывод', function () {
+c('A-04', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
 	h_rep('R2', mac(2), '10.0.0.2');
 	h_segment('R2', 'proxy:2');
@@ -2869,7 +2877,7 @@ c('A-04', 'Вывод', function () {
 	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:server:10.9.9.7'], 'nothing comes back with the next run');
 });
 
-c('A-05', 'Вывод', function () {
+c('A-05', 'Правило', function () {
 	global $pdo;
 	base_r();
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
@@ -2885,7 +2893,7 @@ c('A-05', 'Вывод', function () {
 	exv(h_ingest('next run')['identity_keys_orphaned'] ?? null, 0, 'the next run counts none');
 });
 
-c('A-06', 'Вывод', function () {
+c('A-06', 'Правило', function () {
 	global $pdo;
 	h_rep('R2', null, '10.0.0.2');            // the lower hostid, no chassis: only its SNMP IP Y
 	h_rep('R1', mac(1), '10.0.0.1');          // chassis X
@@ -2900,7 +2908,7 @@ c('A-06', 'Вывод', function () {
 	exv(count(array_filter($cand, static fn ($l) => in_array('reporters_share_device->'.($l ? explode('->', $l[0])[1] : ''), $l, true))), 2, 'reporters_share_device on both Devices (actual: '.json_encode($cand).')');
 });
 
-c('A-07', 'Вывод', function () {
+c('A-07', 'Правило', function () {
 	h_rep('H', mac(8), '10.0.0.1');             // Z
 	$d = a_device(mac(7), null, 'D', ['chassis:mac:'.mac(7)]);     // chassis X
 	a_represent($d, 'H', 'manual');
@@ -2912,7 +2920,7 @@ c('A-07', 'Вывод', function () {
 	exv(dup_candidates_of()[$d] ?? null, ['reporter_chassis_change->none'], 'reporter_chassis_change on D');
 });
 
-c('A-08', 'Вывод', function () {
+c('A-08', 'Правило', function () {
 	h_rep('R1', mac(1), '10.0.0.1');
 	h_rep('R2', mac(2), '10.0.0.2');
 	h_ports('R1', [1 => 'Gi0/1', 2 => 'Gi0/2']);

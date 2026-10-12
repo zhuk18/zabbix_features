@@ -193,7 +193,9 @@ echo "\n=== 1: factory IP — Device A (chassis X, IP 192.168.1.1); a row with c
 reset_all($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 $A = device($pdo, $X, $IP, 'A');
-reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox']]);
+// (handoff 021: A is advertised with its factory IP all along; an address stays a key of a Device only while a row gives it, model §6.7.0)
+reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
+	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']]);
 for ($i = 1; $i <= 5; $i++) {
 	$r = run_ingest($dsn, $user, $password);
 	check($r['code'] === 0, "run {$i}: ingest ok");
@@ -206,12 +208,15 @@ check(dev_attr($pdo, $new, 'mgmt_ip') === $IP, 'the new Device carries the IP as
 check(observation_of($pdo, 1)['device_id'] == $new, 'the observation points to the new Device');
 
 echo "  -- a row with chassis X finds A --\n";
-reporter_rows($pdo, $R, [['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'A']], 'lldp', CLOCK + 100);
+reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
+	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']], 'lldp', CLOCK + 100);   // A still advertises its factory IP (handoff 021: an address stays a key only while a row gives it, model §6.7.0)
 run_ingest($dsn, $user, $password);
 check(observation_of($pdo, 2)['device_id'] == $A && dev_count($pdo) === 3, 'chassis X: Device A, nothing created');
 
 echo "  -- a row with only that IP: two Devices have it --\n";
-reporter_rows($pdo, $R, [['if_index' => 3, 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'who']], 'lldp', CLOCK + 200);
+reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
+	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A'],
+	['if_index' => 3, 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'who']], 'lldp', CLOCK + 200);
 $before = dev_count($pdo);
 $r = run_ingest($dsn, $user, $password);
 $o = observation_of($pdo, 3);
