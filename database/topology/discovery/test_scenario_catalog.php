@@ -91,13 +91,16 @@ function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, arr
 		count($rows), count($rows)]);
 }
 
-function run_ingest(string $dsn, string $user, string $password, array $extra = [], ?string $order = null): array {
+function run_ingest(string $dsn, string $user, string $password, array $extra = [], ?string $order = null, ?int $fail_pass_b = null): array {
 	$cmd = [PHP_BINARY, __DIR__.'/ingest.php', '--pdo-dsn', $dsn, '--pdo-user', $user, '--pdo-password', $password];
 	foreach ($extra as $host) {
 		array_push($cmd, '--zabbix-host', $host);
 	}
 	if ($order !== null) {
 		array_push($cmd, '--reporter-order', $order);
+	}
+	if ($fail_pass_b !== null) {
+		array_push($cmd, '--fail-pass-b', (string) $fail_pass_b);      // test hook (handoff 021): the last option, an old ingest stops reading options at its value
 	}
 	// A private temp dir keeps the run lock and status file away from any real ingest's.
 	$tmp = sys_get_temp_dir().'/topology-snapshot-ingest-test';
@@ -364,7 +367,7 @@ function h_ingest(string $label, array $only_hosts = []): array {
 	if ($H['order'] === 'reverse') {
 		$order = implode(',', array_reverse(array_column($H['reps'], 'id')));
 	}
-	$r = run_ingest($dsn, $user, $password, $only_hosts, $order);
+	$r = run_ingest($dsn, $user, $password, $only_hosts, $order, isset($H['fail_b']) ? $H['reps'][$H['fail_b']]['id'] : null);
 	// exit 1 = nothing could be ingested (every reporter skipped): a result, not a crash
 	if ($r['code'] > 1 || $r['summary'] === []) {
 		h_fail("ingest failed at '{$label}': ".trim($r['err'].' '.substr($r['out'], -200)));
@@ -2759,6 +2762,183 @@ c('S-07', 'Правило', function () {
 	s_picture('S-07');
 	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind = 'ip' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
 	ex(h_dev_count() === 2 && $keys === ['ip:pg:1:10.0.0.1', 'ip:pg:1:10.1.1.1'], 'a failover inside a proxy group changes nothing: one neighbor Device, the keys of the group (actual: '.json_encode($keys).')');
+});
+
+
+// ============================================================================================================
+// A. Address keys and reporter keys (model §6.7.0, §6.4 steps 1 and 5, §6.8; handoff 021). Rated `Вывод` while the code is characterized (021 §1),
+// `Правило` once the rule is implemented.
+// ============================================================================================================
+
+/** The keys of the Device called $dev: ['<key>' => replaced]. */
+function a_keys($dev): array {
+	global $pdo;
+	$stmt = $pdo->prepare('SELECT `key`, replaced FROM topo_identity_keys WHERE device_id = ? ORDER BY `key`');
+	$stmt->execute([is_int($dev) ? $dev : (h_device_id($dev) ?? 0)]);
+	return array_map('intval', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
+}
+
+function a_key_names($dev): array {
+	return array_keys(a_keys($dev));
+}
+
+/** A Device made by hand with its keys: old data, or the Device of a case that starts from a given state. */
+function a_device(?string $chassis, ?string $ip, string $sysname, array $keys): int {
+	global $pdo;
+	$id = device($pdo, $chassis, $ip, $sysname);
+	foreach ($keys as $key) {
+		$pdo->prepare('INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, ?, 1, 0)')
+			->execute([$id, $key, str_starts_with($key, 'ip:') ? 'ip' : 'chassis']);
+	}
+	return $id;
+}
+
+/** The host $rep represents Device $device (matched_by: reporter_self, manual, mac). */
+function a_represent(int $device, string $rep, string $by): void {
+	global $pdo, $H;
+	$hostid = $H['reps'][$rep]['id'];
+	$pdo->prepare("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', ?, '{}', 1, 1)")->execute([$hostid]);
+	$host_node = (int) $pdo->lastInsertId();
+	$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ?, represented_by_at = 1 WHERE id = ?')->execute([$host_node, $by, $device]);
+}
+
+function a_reporter_of($dev): ?string {
+	global $pdo;
+	$v = scalar($pdo, "SELECT h.host FROM topo_nodes d JOIN topo_nodes n ON n.id = d.represented_by_node_id JOIN hosts h ON h.hostid = n.host_ref WHERE d.id = ?", [is_int($dev) ? $dev : (h_device_id($dev) ?? 0)]);
+	return $v === false ? null : (string) $v;
+}
+
+c('A-01', 'Вывод', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
+	h_ingest('DX: chassis X, IP 1');
+	h_tick();
+	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.2'])]);
+	h_ingest('DX advertises IP 2 in the same segment');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.2'], 'after the run only the new address is a key');
+	h_tick();
+	h_nbrs('R', [NR(2, null, 'OLD-IP', 'Gi0/1', ['rem_mgmt_ip' => '10.1.1.1'])], 'cdp');
+	h_ingest('a CDP-only row with the old address');
+	ex(h_dev_count() === 3 && h_dev('OLD-IP') !== null, 'the CDP-only row with the old address makes a new Device, DX is not found (Devices: '.json_encode(h_devices()).')');
+});
+
+c('A-02', 'Вывод', function () {
+	h_rep('R1', mac(1), '10.0.0.1');
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
+	h_nbrs('R2', [NR(1, mac(10), 'DX', 'Gi0/25', ['rem_mgmt_ip' => '10.1.1.2'])]);
+	h_ingest('two neighbors advertise two addresses for one Device');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.1', 'ip:server:10.1.1.2'], 'both addresses stay');
+	h_tick();
+	h_ingest('and the next run');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.1', 'ip:server:10.1.1.2'], 'both addresses still stay');
+});
+
+c('A-03', 'Вывод', function () {
+	base_r();
+	h_nbrs('R', [NR(1, null, 'IPONLY', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.2'])], 'cdp');
+	h_ingest('an IP-only Device');
+	h_tick();
+	h_nbrs('R', [NR(2, null, 'OTHER', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.3'])], 'cdp');
+	h_ingest('its row is gone');
+	exv(a_key_names('IPONLY'), ['ip:server:10.2.2.2'], 'the only key of a Device is kept');
+	exv(a_key_names('OTHER'), ['ip:server:10.2.2.3'], 'the new Device has its key');
+});
+
+c('A-04', 'Вывод', function () {
+	h_rep('R', mac(1), '10.0.0.1');
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_segment('R2', 'proxy:2');
+	h_ports('R', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R', [NR(1, mac(40), 'DH', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
+	h_nbrs('R2', [NR(1, mac(40), 'DH', 'Gi0/25', ['rem_mgmt_ip' => '10.9.9.8'])]);
+	h_ingest('neighbor rows give DH a key in the segment server and one in proxy:2');
+	$dh = h_device_id('DH');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:proxy:2:10.9.9.8', 'ip:server:10.9.9.9'], 'before it has a reporter: both addresses');
+	h_tick();
+	h_rep('H', mac(40), '10.9.9.7');
+	h_ports('H', [1 => 'Gi0/1']);
+	h_ingest('DH gets a reporter (its own address 10.9.9.7 in the segment server)');
+	exv(a_reporter_of($dh), 'H', 'DH is the Device of H');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:server:10.9.9.7'], 'the keys neighbor rows gave are gone in every segment; the row of proxy:2 added none');
+	h_tick();
+	h_ingest('and once more');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:server:10.9.9.7'], 'nothing comes back with the next run');
+});
+
+c('A-05', 'Вывод', function () {
+	global $pdo;
+	base_r();
+	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
+	h_ingest('baseline');
+	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+	$pdo->exec("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (999999, 'ip:server:10.5.5.5', 'ip', 1, 0)");
+	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+	h_tick();
+	$summary = h_ingest('a key row without a Device');
+	exv((int) scalar($pdo, 'SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = 999999'), 0, 'the orphan key row is removed');
+	exv($summary['identity_keys_orphaned'] ?? null, 1, 'identity_keys_orphaned');
+	h_tick();
+	exv(h_ingest('next run')['identity_keys_orphaned'] ?? null, 0, 'the next run counts none');
+});
+
+c('A-06', 'Вывод', function () {
+	global $pdo;
+	h_rep('R2', null, '10.0.0.2');            // the lower hostid, no chassis: only its SNMP IP Y
+	h_rep('R1', mac(1), '10.0.0.1');          // chassis X
+	$d = a_device(mac(1), '10.0.0.2', 'D', ['chassis:mac:'.mac(1), 'ip:server:10.0.0.2']);
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_ingest('R1 (chassis X) and R2 (SNMP IP Y, no chassis) both find D');
+	exv(a_reporter_of($d), 'R1', 'D is the Device of the reporter with the stronger key (the chassis), not of the lowest hostid');
+	$r2 = array_values(array_filter(h_state()['devices'], static fn (array $x): bool => $x['represented_by'] === 'reporter_self' && (int) $x['id'] !== $d));
+	ex(count($r2) === 1, 'R2 has its own Device (actual: '.json_encode(h_state()['devices']).')');
+	$cand = dup_candidates_of();
+	exv(count(array_filter($cand, static fn ($l) => in_array('reporters_share_device->'.($l ? explode('->', $l[0])[1] : ''), $l, true))), 2, 'reporters_share_device on both Devices (actual: '.json_encode($cand).')');
+});
+
+c('A-07', 'Вывод', function () {
+	h_rep('H', mac(8), '10.0.0.1');             // Z
+	$d = a_device(mac(7), null, 'D', ['chassis:mac:'.mac(7)]);     // chassis X
+	a_represent($d, 'H', 'manual');
+	h_ports('H', [1 => 'Gi0/1']);
+	h_ingest('H, chosen by the operator for D (chassis X), reports loc_chassis Z');
+	exv(a_reporter_of($d), 'H', 'D stays the Device of H');
+	exv(array_values(array_filter(h_state()['devices'], static fn (array $x): bool => (int) $x['id'] === $d))[0]['chassis'] ?? null, mac(7), 'D keeps chassis X');
+	ex(!in_array('chassis:mac:'.mac(8), a_key_names($d), true), 'no key Z on D (keys: '.json_encode(a_key_names($d)).')');
+	exv(dup_candidates_of()[$d] ?? null, ['reporter_chassis_change->none'], 'reporter_chassis_change on D');
+});
+
+c('A-08', 'Вывод', function () {
+	h_rep('R1', mac(1), '10.0.0.1');
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_ports('R1', [1 => 'Gi0/1', 2 => 'Gi0/2']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, mac(10), 'X', 'Gi0/24')]);
+	h_nbrs('R2', [NR(1, mac(11), 'Z', 'Gi0/24')]);
+	h_ingest('R1 sees X on Gi0/1, R2 sees Z');
+	$before = h_links('R1:Gi0/1', 'X', 'physical_link', 'active');
+	ex(count($before) === 1, 'the link R1 ~ X exists');
+	h_tick();
+	h_nbrs('R1', [NR(1, mac(12), 'Y', 'Gi0/24')]);        // R1 now sees Y on the same port
+	h_nbrs('R2', [NR(1, mac(11), 'Z', 'Gi0/24')]);
+	global $H;
+	$H['fail_b'] = 'R1';
+	$summary = h_ingest('R1 sees Y now, and its pass B fails (forced)');
+	$failed = $summary['reporters_failed']['list'][0] ?? [];
+	ex(($failed['host'] ?? null) === 'R1' && ($summary['reporters_failed']['count'] ?? null) === 1, 'R1 is in reporters_failed (actual: '.json_encode($summary['reporters_failed'] ?? null).')');
+	$after = h_links('R1:Gi0/1', 'X', 'physical_link');
+	ex(count($after) === 1 && $after[0]['state'] === 'active' && $after[0]['last_seen'] === $before[0]['last_seen'] && $after[0]['superseded_at'] === null,
+		'the link R1 ~ X is unchanged: active, same last_seen (actual: '.json_encode($after).')');
+	ex(h_obs('R1', 'Gi0/1', mac(10)) !== null && count(h_links('R1:Gi0/1', 'Y', 'physical_link')) === 0, 'the observation of X stays, no link to Y yet');
+	ex(count(h_links('R2:Gi0/1', 'Z', 'physical_link', 'active')) === 1, 'R2 is processed as usual (its link ~ Z is active)');
+	unset($H['fail_b']);
+	h_tick();
+	h_ingest('the next run, no failure');
+	ex(count(h_links('R1:Gi0/1', 'Y', 'physical_link', 'active')) === 1 && count(h_links('R1:Gi0/1', 'X', 'physical_link', 'active')) === 0, 'now Y is linked and X superseded, as after a run that never failed');
 });
 
 // ============================================================================================================
