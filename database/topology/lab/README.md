@@ -73,3 +73,18 @@ for OIDs under the record's subtree, and the control OID is not in the step file
   applied before step 0.
 - `reference-s0.json` — natural keys of the `topo_*` state the lab produced before this tool existed.
 - `reports/` — run reports (JSON); `data/`, `run/` — generated, not tracked.
+
+## Corpus devices and scenario SC
+
+`corpus_devices:` (in `lab.yaml` or a scenario `patch:`) adds devices whose walk is a file of the vendor corpus (`/media/sf_topology-specs/corpus/`, GPLv3,
+read at run time, never copied here): `name: {snmprec: <path>, ip: ..., transport: lld|push, proxy: ...}`. No ports, cables, deviations or step changes. The generator
+adds the end record, sorts the OIDs and stops on a line that does not parse.
+
+```
+python3 -m labsim corpus-smoke --dry-run      # identity precheck and batch plan only
+python3 -m labsim corpus-smoke                # every file, batches of at most 30, then the core set on push; reports/SC.json (git-ignored)
+python3 -m labsim run S0 --reset              # back to the normal lab state afterwards
+```
+
+Files that share a chassis id (local or remote) never run in one batch; the topo_* state is reset between batches and the corpus hosts are deleted after each one
+(only hosts with the lab tag and the batch's names). Fails only on a PORTS/LLDP rule that is unsupported while its anchor is in the walk, an ingest error or a crash.

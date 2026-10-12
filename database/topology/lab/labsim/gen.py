@@ -117,9 +117,36 @@ def _port_id(dev, p):
     return 7, str(_loc_port_num(dev, p))     # the local port number: an ifIndex only when lldp_loc_port_num is ifindex
 
 
+SNMPREC_LINE = re.compile(r'^(\d+(?:\.\d+)*)\|(\d+[xe]?)\|(.*)$')
+
+
+def corpus_records(path):
+    """The records of a corpus file (snmprec) plus the end record of "Generator" (lab spec §5.2). A line that does not parse stops the
+    generator: nothing is written. The OIDs are sorted numerically when the lines are written (see lines())."""
+    r = Records()
+    try:
+        with open(path, 'rb') as f:
+            raw = f.read()
+    except OSError as e:
+        raise LabError('corpus file %s: %s' % (path, e.strerror))
+    for n, line in enumerate(raw.decode('utf-8', errors='surrogateescape').splitlines(), 1):
+        if line.strip() == '':
+            continue
+        m = SNMPREC_LINE.match(line)
+        if not m:
+            raise LabError('corpus file %s line %d does not parse: %r' % (path, n, line[:60]))
+        r[parse_oid(m.group(1))] = (m.group(2), m.group(3))
+    if not r:
+        raise LabError('corpus file %s has no records' % path)
+    r.put_str(LAB_TAIL + (0,), 'end of lab data')
+    return r
+
+
 def device_records(lab, name):
     """All SNMP records of one monitored device in one lab state."""
     dev = lab.devices[name]
+    if dev.get('snmprec'):
+        return corpus_records(dev['snmprec'])
     s = lab.settings
     omit = {d['mib'] for d in lab.active_deviations('omit_mib') if d['device'] == name}
     renum = {}
@@ -335,6 +362,16 @@ def generate(scenario, out_dir, variation_dir=None):
     manifest = {'scenario': scenario.id, 'devices': {}, 'steps': len(scenario.steps)}
     monitored = sorted(set().union(*[set(l.monitored()) for l in scenario.states]))
     for name in monitored:
+        dev = scenario.states[0].devices[name]
+        if dev.get('snmprec'):
+            # a corpus device is one static file (no step changes it): no subtree is split, no master item is ever "changed"
+            ddir = os.path.join(out_dir, name)
+            os.makedirs(ddir)
+            with open(os.path.join(ddir, '%s.snmprec' % dev['community']), 'w', encoding='utf-8', errors='surrogateescape') as f:
+                f.write(lines(device_records(scenario.states[0], name)))
+            manifest['devices'][name] = {'ip': dev['ip'], 'community': dev['community'], 'dir': ddir, 'mux': {},
+                                         'step_masters': [[] for _ in scenario.states], 'step_hashes': [], 'corpus': dev['snmprec']}
+            continue
         per_step = []
         for lab in scenario.states:
             if name in lab.monitored():
@@ -391,6 +428,8 @@ def hosts_json(scenario):
 
 def export_walk(lab, name):
     """Walk text of a device (net-snmp style, for fixtures: topology-2-lld-delivery.md "Golden fixtures" format), sorted by OID."""
+    if lab.devices[name].get('snmprec'):
+        raise LabError('device %s is a corpus device: its walk text comes from the corpus converter (database/topology/corpus/corpus_walk.py)' % name)
     out = []
     for oid, (tag, v) in sorted(device_records(lab, name).items()):
         if tag == '4x':

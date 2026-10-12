@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from . import ctl, db, gen, model, runner, zbx
+from . import corpus, ctl, db, gen, model, runner, zbx
 from .model import LabError
 
 
@@ -30,6 +30,11 @@ def main(argv=None):
     p.add_argument('--timeout', type=int, default=120); p.add_argument('--report')
     p.add_argument('--transport', choices=model.TRANSPORTS, help='every monitored host on this transport (replaces settings.transport); provision with the same option first')
     p.add_argument('--roles', help='comma-separated roles to collect on LLD hosts (%s); the other rules are disabled for the run' % ','.join(model.RULE_ROLES))
+    p = sub.add_parser('corpus-smoke', help='scenario SC: every file of the vendor corpus as a lab device, in batches, step 0 only')
+    p.add_argument('--corpus', default=corpus.CORPUS_DEFAULT); p.add_argument('--files', help='comma-separated file names (without .snmprec)')
+    p.add_argument('--batch-size', type=int, default=corpus.BATCH); p.add_argument('--no-push', action='store_true', help='skip the push run of the core set')
+    p.add_argument('--timeout', type=int, default=150); p.add_argument('--report', help='write the report here (default: reports/SC.json, git-ignored)')
+    p.add_argument('--dry-run', action='store_true', help='only the identity precheck and the batch plan')
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     p = sub.add_parser('compare-transports', help='compare the reports of one scenario run on lld and on push (equivalence, identity bytes)')
@@ -54,6 +59,18 @@ def main(argv=None):
                 with open(path, 'w') as f:
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)
+        elif a.cmd == 'corpus-smoke':
+            conn = db.connect(settings)
+            rep = corpus.run(settings, None if a.dry_run else zbx.Api(settings['zabbix']['url']), conn, a.corpus,
+                             a.files.split(',') if a.files else None, a.batch_size, not a.no_push, a.timeout, a.dry_run)
+            path = a.report or os.path.join(model.HERE, 'reports', 'SC.json')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w') as f:
+                json.dump(rep, f, indent=1, default=str)
+            if not a.dry_run:
+                print(corpus.table(rep))
+            print('report: %s (%s s, load max %s, %d error(s))' % (path, rep.get('seconds'), rep.get('load_max'), len(rep['errors'])))
+            return 1 if rep['errors'] else 0
         elif a.cmd == 'restore':
             db.connect(settings).close()
             api = zbx.Api(settings['zabbix']['url'])

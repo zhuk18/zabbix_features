@@ -35,6 +35,7 @@ class Lab:
         self.devices = {}
         for name, d in (data.get('devices') or {}).items():
             self.devices[name] = self._device(name, d)
+        self.add_corpus_devices(data.get('corpus_devices'))
         self.cables = [norm_cable(*c) for c in (data.get('cables') or [])]
         self.deviations = {}
         for d in data.get('deviations') or []:
@@ -63,6 +64,29 @@ class Lab:
             raise LabError('monitored device %s has no ip' % name)
         return d
 
+    def add_corpus_devices(self, section):
+        """`corpus_devices:` (lab.yaml or a scenario patch): name -> {snmprec, ip, transport, proxy}. A device whose walk is a file of the vendor corpus,
+        served as it is (plus the end record): no ports, no cables, no deviations, no changes in a step."""
+        if section is None:
+            return
+        if not isinstance(section, dict):
+            raise LabError('corpus_devices must be a mapping name -> {snmprec, ip, transport, proxy}')
+        for name, c in section.items():
+            c = c or {}
+            bad = set(c) - {'snmprec', 'ip', 'transport', 'proxy'}
+            if bad:
+                raise LabError('corpus device %s: unknown field %s (allowed: snmprec, ip, transport, proxy)' % (name, sorted(bad)))
+            if name in self.devices:
+                raise LabError('corpus device %s has the name of another device' % name)
+            if not c.get('snmprec') or not c.get('ip'):
+                raise LabError('corpus device %s needs snmprec and ip' % name)
+            if c.get('transport', 'lld') not in TRANSPORTS:
+                raise LabError('corpus device %s: transport must be one of %s' % (name, list(TRANSPORTS)))
+            d = self._device(name, {'snmprec': c['snmprec'], 'ip': c['ip'], 'chassis': None,
+                                    'zabbix': {'monitored': True, 'transport': c.get('transport', 'lld'), 'proxy': c.get('proxy')}})
+            d['lldp'] = d['cdp'] = False                 # the file decides what the device answers
+            self.devices[name] = d
+
     def add_deviation(self, d):
         if not d.get('id'):
             raise LabError('deviation without id: %r' % (d,))
@@ -87,6 +111,7 @@ class Lab:
                         dev[k] = v
             else:
                 self.devices[name] = self._device(name, d)
+        self.add_corpus_devices((patch or {}).get('corpus_devices'))
         self.apply_cables(((patch or {}).get('cables') or {}))
         for d in (patch or {}).get('deviations') or []:
             self.add_deviation(d)
@@ -109,6 +134,8 @@ class Lab:
         for name, change in (step.get('devices') or {}).items():
             if name not in self.devices:
                 raise LabError('step changes unknown device %r' % name)
+            if self.devices[name].get('snmprec'):
+                raise LabError('step changes corpus device %s: a corpus device does not change' % name)
             bad = set(change) & {'ports', 'zabbix', 'chassis', 'ip', 'sysname'}
             if bad:
                 raise LabError('step changes %s of device %s: only attributes of its LLDP/CDP/FDB behavior can change in a step' % (sorted(bad), name))
