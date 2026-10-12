@@ -531,16 +531,9 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 		}
 		if ($stronger) {
 			// a weaker key may only take a Device that has no key of a stronger kind the row has (in any scope)
-			// A neighbor row never gives its stronger key to a reporter's Device (the reporter's own data wins, §6.7.1): the row does not find it
-			// by the weaker key, so the result does not depend on which host is ingested first.
+			// A reporter's Device that has no chassis key is found by the IP like any other (§6.7.0 "Keys of a reporter's Device"); the row does not give it
+			// its chassis ($register_keys refuses a reporter's Device), so the result does not depend on which host is ingested first.
 			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $device_has_kind, $stronger, $for_reporter): bool {
-				if (!$for_reporter) {
-					$rep = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
-					$rep->execute([$id]);
-					if ($rep->fetchColumn() !== false) {
-						return false;
-					}
-				}
 				foreach ($stronger as $stronger_kind) {
 					if ($device_has_kind($id, $stronger_kind)) {
 						return false;
@@ -2167,6 +2160,10 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 			return ['status' => 'skipped', 'reason' => 'identity_key_shared'];
 		}
 		$register_keys((int) $device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
+		// The Device becomes this reporter's Device (§6.7.0 "Keys of a reporter's Device"): the chassis keys that neighbor rows gave it go, except the
+		// reporter's own and the replaced ones. (A Device that already was somebody's - found by `represented_by` below - keeps its chassis: §6.4 step 1.)
+		$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND kind = 'chassis' AND replaced = 0".($loc_key !== null ? " AND {$q_key} <> ?" : ''))
+			->execute($loc_key !== null ? [(int) $device_id, $loc_key] : [(int) $device_id]);
 	}
 	else {
 		$device_id = (int) $device_id;

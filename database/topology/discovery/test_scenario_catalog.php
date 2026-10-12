@@ -2963,7 +2963,7 @@ function a_chassis_setup(): int {
 	return (int) $dh;
 }
 
-c('A-09', 'Вывод', function () {
+c('A-09', 'Правило', function () {
 	$dh = a_chassis_setup();
 	h_ingest('H finds DH by its SNMP IP');
 	exv(a_reporter_of($dh), 'H', 'DH is the Device of H');
@@ -2973,7 +2973,7 @@ c('A-09', 'Вывод', function () {
 	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'nothing comes back with the next run');
 });
 
-c('A-10', 'Вывод', function () {
+c('A-10', 'Правило', function () {
 	$dh = a_chassis_setup();
 	h_ingest('H finds DH by its SNMP IP');
 	h_tick();
@@ -2984,7 +2984,7 @@ c('A-10', 'Вывод', function () {
 	exv(h_obs('R0', 'Gi0/1')['device'] ?? null, 'H', 'the observation points to DH');
 });
 
-c('A-11', 'Вывод', function () {
+c('A-11', 'Правило', function () {
 	$dh = a_chassis_setup();
 	h_ingest('H finds DH by its SNMP IP');
 	h_tick();
