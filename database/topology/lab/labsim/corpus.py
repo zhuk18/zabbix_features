@@ -154,7 +154,7 @@ def delete_hosts(api, names, log):
     log('  pruned %d corpus host(s)' % len(names))
 
 
-def run_batch(sc, settings, api, conn, timeout, log):
+def run_batch(sc, settings, api, conn, timeout, log, stall=()):
     t0 = time.time()
     names = sorted(sc.states[0].monitored())
     dev = sc.states[0].devices
@@ -183,6 +183,9 @@ def run_batch(sc, settings, api, conn, timeout, log):
             for r in api.call('discoveryrule.get', {'hostids': ms[n]['hostid'], 'output': ['itemid', 'key_', 'status']}):
                 if r['status'] == '0' and (r['key_'].startswith('topology.') or r['key_'] == 'net.if.discovery'):
                     rules[r['itemid']] = (n, r['key_'])
+        for n in names:
+            if n in stall:
+                ctl.fault(n, 'unreachable', settings, log)    # test hook (--stall): this device answers nothing during its batch, so its poll times out (a 'slow' one, ctl.SLOW_SECONDS, was still answered by the server's retries)
         before = db.snapshot_clocks(conn)
         started = int(time.time())
         masters = [ms[n][k]['itemid'] for n in names if transport[n] == 'lld' for k in ('core', 'fdb') if ms[n].get(k)]
@@ -298,7 +301,7 @@ def table(report):
     return '\n'.join(lines)
 
 
-def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, push_core=True, timeout=150, dry_run=False, log=print, ifindex=False):
+def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, push_core=True, timeout=150, dry_run=False, log=print, ifindex=False, stall=()):
     paths = corpus_files(corpus_dir)
     if files:
         paths = [p for p in paths if host_name(p) in files]
@@ -316,7 +319,7 @@ def run(settings, api, conn, corpus_dir=CORPUS_DEFAULT, files=None, size=BATCH, 
     try:
         for i, (transport, b) in enumerate(plan):
             log('batch %d/%d: %d device(s), transport %s' % (i + 1, len(plan), len(b), transport))
-            res = run_batch(batch_scenario(b, transport, ifindex=ifindex), settings, api, conn, timeout, log)
+            res = run_batch(batch_scenario(b, transport, ifindex=ifindex), settings, api, conn, timeout, log, stall)
             res['transport'] = transport
             report['batches'].append(res)
             report['errors'] += res['errors']

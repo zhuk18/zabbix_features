@@ -35,6 +35,7 @@ def main(argv=None):
     p.add_argument('--batch-size', type=int, default=corpus.BATCH); p.add_argument('--no-push', action='store_true', help='skip the push run of the core set')
     p.add_argument('--timeout', type=int, default=150); p.add_argument('--report', help='write the report here (default: reports/SC.json, git-ignored)')
     p.add_argument('--dry-run', action='store_true', help='only the identity precheck and the batch plan')
+    p.add_argument('--stall', help='test hook: comma-separated devices that answer nothing during their batch (SIGSTOP); the retry alone runs without it')
     p.add_argument('--ifindex', action='store_true', help='add ifIndex.N = N for every row N of ifTable/ifXTable (the corpus does not record that column); default: as recorded')
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
@@ -63,7 +64,7 @@ def main(argv=None):
         elif a.cmd == 'corpus-smoke':
             conn = db.connect(settings)
             rep = corpus.run(settings, None if a.dry_run else zbx.Api(settings['zabbix']['url']), conn, a.corpus,
-                             a.files.split(',') if a.files else None, a.batch_size, not a.no_push, a.timeout, a.dry_run, ifindex=a.ifindex)
+                             a.files.split(',') if a.files else None, a.batch_size, not a.no_push, a.timeout, a.dry_run, ifindex=a.ifindex, stall=tuple(a.stall.split(',')) if a.stall else ())
             path = a.report or os.path.join(model.HERE, 'reports', 'SC.json')
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w') as f:

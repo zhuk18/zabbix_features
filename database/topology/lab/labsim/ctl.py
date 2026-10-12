@@ -184,13 +184,16 @@ def step(n, log=print):
     log('  step %d set on %d device(s)' % (n, sum(1 for d in st['devices'].values() if d['mux'])))
 
 
+SLOW_SECONDS = 40         # how long a `slow` device stays silent (the server's Timeout is 4 s with retries)
+
+
 def fault(device, name, settings=None, log=print):
     st = load_state()
     if not st or device not in st['devices']:
         raise LabError('device %s is not running' % device)
     d = st['devices'][device]
     if name in (None, 'none'):
-        if d['fault'] == 'unreachable':
+        if d['fault'] in ('unreachable', 'slow'):
             os.kill(d['pid'], signal.SIGCONT)
         elif d['fault'] == 'wrong_community':
             raise LabError('wrong_community is cleared by restarting the lab')
@@ -199,6 +202,13 @@ def fault(device, name, settings=None, log=print):
         # SIGSTOP: the process keeps its socket and its step, and answers nothing until SIGCONT. topology-4-lab-simulator.md "Faults" says
         # "delay" records; those cannot sit inside a labmultiplex subtree, so the lab uses a stopped process.
         os.kill(d['pid'], signal.SIGSTOP)
+        d['fault'] = name
+    elif name == 'slow':
+        # lab spec §6.3 "slow": the device answers late. The process is stopped and a detached `sleep; kill -CONT` wakes it after SLOW_SECONDS, so a poll made
+        # in between times out and a later one is answered (topology-4-lab-simulator.md "Faults"; same mechanism as `unreachable`, which never wakes up).
+        os.kill(d['pid'], signal.SIGSTOP)
+        subprocess.Popen(['sh', '-c', 'sleep %d; kill -CONT %d 2>/dev/null' % (SLOW_SECONDS, d['pid'])], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         d['fault'] = name
     else:
         raise LabError('fault %r is not implemented in v1 (no v1 scenario uses it)' % name)
