@@ -47,6 +47,8 @@ def contract_rows(role, rows):
                 value = row.get("{#SNMPINDEX}")
             if value is None and field == "source":
                 value = "lldp"
+            if value == "":
+                value = None          # lld_topology_macro_get: an empty value counts as missing (found in 024 section 0)
             if value is None:
                 if required:
                     reason = "missing %s" % macro

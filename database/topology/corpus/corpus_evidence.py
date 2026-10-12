@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""corpus_evidence.py — evidence for findings F1 and F6 of corpus/vendor-quirks.md on the walks with ifIndex added (handoff 023 section 2), plus the
-rows dropped by reason. Reads out/walks-ifindex/*.walk (made by `corpus_run.py --with-ifindex`) and the native step; writes out/evidence.json and prints a summary.
+"""corpus_evidence.py — evidence for finding F6 of corpus/vendor-quirks.md on the walks with ifIndex added (handoff 023 section 2), plus the
+rows dropped by reason. (F1 moved to corpus_f1.py in 024.) Reads out/walks-ifindex/*.walk (made by `corpus_run.py --with-ifindex`) and the native step; writes out/evidence.json and prints a summary.
 Nothing is changed in any implementation; nothing of the corpus is committed (out/ is ignored).
 
   corpus_evidence.py [--topo-step PATH] [file-name-fragment ...]
@@ -77,33 +77,8 @@ def analyse(name, walk, topo_step):
     for _, why in dropped:
         reasons[why] = reasons.get(why, 0) + 1
     out["lldp_rows"] = {"native": len(rows), "kept_by_contract": len(kept), "dropped_by_reason": reasons}
-    if len(suffixes) != len(rows):
-        out["f1_note"] = "rows (%d) and remote indexes (%d) do not pair; F1 not evaluated" % (len(rows), len(suffixes))
-        return out
-    for suffix, row in zip(suffixes, rows):
-        local_num = suffix.split(".")[1]
-        pid, pdesc = loc_id.get(local_num), loc_desc.get(local_num)
-        should = None
-        for ref in (pid, pdesc):
-            if not ref:
-                continue
-            hit = [i for i, n in names.items() if n == ref] or [i for i, n in descrs.items() if n == ref]
-            if len(hit) == 1:
-                should = hit[0]
-                break
-        if should is None:
-            out["f1"]["no_reference"] += 1
-            continue
-        if should == local_num:
-            out["f1"]["same_number"] += 1
-            continue
-        got = row.get("{#IFINDEX}")
-        verdict = "dropped" if got is None else ("correct" if got == should else "wrong")
-        out["f1"][verdict] += 1
-        if len(out["f1_rows"]) < 12:
-            out["f1_rows"].append({"local_port_num": local_num, "rem_chassis": row.get("{#REM_CHASSIS}"), "rem_port": row.get("{#REM_PORT}"),
-                                   "got": None if got is None else [got, names.get(got, descrs.get(got))], "should": [should, names.get(should, descrs.get(should))],
-                                   "verdict": verdict})
+    # F1 (the local port of a row) is measured by corpus_f1.py: the native rows come out sorted by ifIndex, so they cannot be paired with the remote
+    # indexes by position (the F1 part of this tool, used in 023, did that and was wrong)
     return out
 
 
@@ -120,12 +95,6 @@ def main():
         result[name] = analyse(name, walk, a.topo_step)
     with open(os.path.join(corpus_walk.OUT, "evidence.json"), "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=1, ensure_ascii=False)
-    tot = {k: sum(r.get("f1", {}).get(k, 0) for r in result.values()) for k in ("wrong", "dropped", "correct", "no_reference", "same_number")}
-    print("F1 rows, all files:", json.dumps(tot))
-    for name, r in sorted(result.items()):
-        f1 = r.get("f1", {})
-        if f1.get("wrong") or f1.get("dropped") or f1.get("correct"):
-            print("  %-34s wrong %3d dropped %3d correct %3d" % (name, f1["wrong"], f1["dropped"], f1["correct"]))
     f6 = [(n, r["f6"]) for n, r in sorted(result.items()) if r["f6"].get("manaddr_rows_in_walk")]
     print("F6: files with lldpRemManAddr rows: %d; native rows with {#REM_MGMT_IP} in them: %d of %d rows in the walks" % (
         len(f6), sum(f["native_rows_with_mgmt_ip"] or 0 for _, f in f6), sum(f["manaddr_rows_in_walk"] for _, f in f6)))
