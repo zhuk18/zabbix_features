@@ -89,6 +89,11 @@ if (!is_executable($topo_step)) {
 
 $have_js = is_executable($zabbix_js);
 
+/* Expected outputs that follow the spec where it was decided against the temporary JS (the JS stays the reference everywhere else). */
+$decided = [
+	'synthetic-core lldp' => 'LLD 2.1 §4.4 Mgmt IP: an IPv6 address when there is no IPv4 (the JS reads IPv4 only), handoff 024',
+];
+
 if ($generate && !$have_js) {
 	fwrite(STDERR, "--generate needs zabbix_js ({$zabbix_js}).\n");
 	exit(1);
@@ -104,7 +109,7 @@ foreach ($fixtures as $walk_file) {
 		$js_rows = $have_js && $rule !== null ? run_js($zabbix_js, $js_dir, $rule, $walk_file) : null;
 
 		if ($generate) {
-			if ($rule === null) {
+			if ($rule === null || isset($decided["{$name} {$source}"])) {
 				continue;	// hand-reviewed expectation, never overwritten
 			}
 
@@ -150,7 +155,10 @@ foreach ($fixtures as $walk_file) {
 				"\n        JS: ".implode("\n             ", array_diff(canonical($expected), canonical($c['rows']))) : $c['text']
 		);
 
-		if ($js_rows !== null && $rule !== null) {
+		if (isset($decided["{$name} {$source}"])) {
+			echo "  note: {$name} {$source}: the expected output differs from the JS by decision ({$decided["{$name} {$source}"]})\n";
+		}
+		elseif ($js_rows !== null && $rule !== null) {
 			check(canonical($js_rows) === canonical($expected), "{$name} {$source}: the committed expected output is the JS output");
 		}
 	}

@@ -25,6 +25,7 @@
         "{#IFNAME}": "Gi0/3",
         "{#REM_CHASSIS_TYPE}": "local",
         "{#REM_CHASSIS}": "sw-local",
+        "{#REM_MGMT_IP}": "2001:db8::1",
         "{#REM_PORT_TYPE}": "local",
         "{#REM_PORT}": "12",
         "{#REM_SYSNAME}": "edge3",

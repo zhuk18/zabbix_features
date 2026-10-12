@@ -32,7 +32,7 @@ implementing (the first two by the maintainer, the rest are consequences); each 
 | LLDP neighbor whose local port cannot be resolved | dropped and counted (topology-2-lld-delivery.md "Sources") | emitted **without** `{#IFINDEX}`, so the contract check (topology-2-lld-delivery.md "Contract problems") reports it in the rule's info text. This also answers the "dropped rows" open question (topology-2-lld-delivery.md "Open questions") for LLDP. |
 | `{#LOC_CHASSIS}` | added to every row of every source (topology-2-lld-delivery.md "Sources") | rows of PORTS and NEIGHBORS only, not FDB and LAG |
 | local chassis id | `lldpLocChassisId` | `lldpLocChassisId`, else the MAC of the lowest-ifIndex port that has one |
-| management address | "IPv6 only if no IPv4 (as the JS does)" | IPv4 only; the JS does not read IPv6 |
+| management address | "IPv6 only if no IPv4" | **decided in 024, the step follows the spec**: the first IPv4 of the remote index, else the first IPv6; with and without the length octet, length 5 with an extra octet; other families and lengths ignored. The JS reads IPv4 with a length octet only (`compare.php` lists `synthetic-core lldp` as a decided difference) |
 | `{#IFSPEED}` | falls back to `ifSpeed`, converted | `ifHighSpeed` only; nothing when it is absent |
 | ids, MACs | one normalization: lowercase, colon, 6 octets (topology-1-model.md "Identity normalization") | Hex-STRING → lowercase colon hex; a text MAC (`STRING: 0:11:..`) is kept as received; a networkAddress chassis id is decoded only when it is a Hex-STRING IPv4 |
 | quoted strings | trailing spaces trimmed | leading and trailing white space is trimmed (the JS trims before removing quotes) |
@@ -66,7 +66,7 @@ already `aa:bb:cc:dd:ee:ff` (`$looks_like_mac`), and matches `chassis_id` as rec
 | chassis type 5, IPv6, Hex | colon hex with the family byte `02:20:01:..` | no | never matches an IPv6 address written any other way |
 | chassis type 6 / 7 / others (text) | trimmed only, case kept | no | local and remote spell it the same way in practice; not guaranteed |
 | no `lldpLocChassisId` | MAC of the lowest-ifIndex port | no (all lab devices have it) | a port MAC is not the chassis id the neighbors see: two Devices |
-| management address IPv6 (LLDP) | not read | no | none for LLDP (identity is the chassis id) |
+| management address IPv6 (LLDP) | not read | **yes (024)**: when there is no IPv4 | `{#REM_MGMT_IP}` is an IPv6 text |
 | CDP neighbor without IPv4 | no `{#REM_MGMT_IP}` for IPv6 is emitted only when the address type is 20 and 16 octets; nothing else | no | CDP has no chassis id: identity is the management IP and the name, so an IPv6-only CDP neighbor rests on the name |
 
 The lab uses only the first row, so the equivalence result holds for it and says nothing about a mixed fleet. To make

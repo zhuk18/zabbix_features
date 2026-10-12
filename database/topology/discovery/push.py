@@ -63,6 +63,7 @@ Env vars:
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -529,7 +530,8 @@ def _interfaces(rows: dict) -> dict[str, dict]:
         if name == "" and k in descr:
             name = _decode(descr[k])
         result[k] = {"name": name if name != "" else "if" + k,
-                     "mac": _norm_mac(_decode(phys[k])) if k in phys else ""}
+                     "mac": _norm_mac(_decode(phys[k])) if k in phys else "",
+                     "ifname": _decode(names[k]) if k in names else "", "descr": _decode(descr[k]) if k in descr else ""}
     return result
 
 
@@ -579,28 +581,45 @@ def rows_lldp(rows: dict) -> list[dict]:
     rem_chassis_type, rem_chassis = _table(rows, rem + ".4"), _table(rows, rem + ".5")
     rem_port_type, rem_port = _table(rows, rem + ".6"), _table(rows, rem + ".7")
     rem_port_desc, rem_sysname = _table(rows, rem + ".8"), _table(rows, rem + ".9")
-    loc_port_type, loc_port_id = _table(rows, loc + ".2"), _table(rows, loc + ".3")
+    loc_port_type, loc_port_id, loc_port_desc = _table(rows, loc + ".2"), _table(rows, loc + ".3"), _table(rows, loc + ".4")
     man_addr = _table(rows, "1.0.8802.1.1.2.1.4.2.1.3")
-    by_name, by_mac = {}, {}
-    for k, interface in ifs.items():
-        by_name[interface["name"]] = k
-        if interface["mac"] != "":
-            by_mac[interface["mac"]] = k
-
     suffixes = set()
     for col in (rem_chassis, rem_port, rem_port_desc, rem_sysname, rem_chassis_type, rem_port_type):
         suffixes.update(col)
 
+    def name_matches(field: str, text: str) -> list:
+        return [k for k, interface in ifs.items() if text != "" and interface[field] == text]
+
     def local_if_index(port_num: str) -> str:
+        """The local port as an ifIndex, topology-2-lld-delivery.md §4.4 `lldp` steps 1-4 (the same logic as the native step); "" = drop."""
         t = _parse_int(_decode(loc_port_type[port_num])) if port_num in loc_port_type else 0
         ident = _decode(loc_port_id[port_num]) if port_num in loc_port_id else ""
+        desc = _decode(loc_port_desc[port_num]) if port_num in loc_port_desc else ""
+        if t == 3:
+            ident = _norm_mac(ident)
+        # step 1: by the subtype
         if ident != "":
-            if t == 5 and ident in by_name:
-                return by_name[ident]
-            if t == 3 and _norm_mac(ident) in by_mac:
-                return by_mac[_norm_mac(ident)]
-            if t == 7 and ident in ifs:
+            if t == 5:
+                hit = name_matches("ifname", ident)
+                if len(hit) == 1:
+                    return hit[0]
+                if len(hit) > 1:
+                    return ""                                   # step 4: a name on several ports
+            elif t == 3:
+                hit = [k for k, interface in ifs.items() if interface["mac"] != "" and interface["mac"] == ident]
+                if len(hit) == 1:
+                    return hit[0]
+            elif t == 7 and re.match(r"^(0|[1-9][0-9]*)$", ident) and ident in ifs:
                 return ident
+        # step 2: lldpLocPortId, then lldpLocPortDesc, against ifName, then ifDescr
+        for text in (ident, desc):
+            for field in ("ifname", "descr"):
+                hit = name_matches(field, text)
+                if len(hit) == 1:
+                    return hit[0]
+                if len(hit) > 1:
+                    return ""
+        # step 3: no name matched any port: LocalPortNum, if that ifIndex exists
         return port_num if port_num in ifs else ""
 
     def decode_id(row, subtype) -> str:
@@ -612,11 +631,40 @@ def rows_lldp(rows: dict) -> list[dict]:
         return text
 
     def management_ip(suffix: str) -> str:
+        """The first IPv4 of the lldpRemManAddrTable rows of this remote index (by index order), else the first IPv6; the index is
+        <suffix>.<family>.[<length>.]<address octets>, with or without the length octet; other families and lengths are ignored (corpus F6)."""
+        v4, v6 = [], []
         for key in man_addr:
-            if key.startswith(suffix + "."):
-                p = key[len(suffix) + 1:].split(".")
-                if p[0] == "1" and len(p) > 1 and p[1] == "4" and len(p) == 6:
-                    return ".".join(p[2:])
+            if not key.startswith(suffix + "."):
+                continue
+            try:
+                p = [int(x) for x in key[len(suffix) + 1:].split(".")]
+            except ValueError:
+                continue
+            if len(p) < 2 or any(x > 255 for x in p[1:]):
+                continue
+            family, body = p[0], p[1:]
+            if family == 1:
+                if len(body) == 5 and body[0] == 4:
+                    octets = body[1:5]
+                elif len(body) == 4:
+                    octets = body
+                elif len(body) == 6 and body[0] == 5:
+                    octets = body[1:5]
+                else:
+                    continue
+                v4.append((p, ".".join(str(o) for o in octets)))
+            elif family == 2:
+                if len(body) == 17 and body[0] == 16:
+                    octets = body[1:]
+                elif len(body) == 16:
+                    octets = body
+                else:
+                    continue
+                v6.append((p, str(ipaddress.IPv6Address(bytes(octets)))))
+        for found in (v4, v6):
+            if found:
+                return min(found)[1]
         return ""
 
     out = []

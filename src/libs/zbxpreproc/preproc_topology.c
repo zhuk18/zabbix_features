@@ -58,6 +58,7 @@
 #define OID_LLDP_LOC_PORT_TABLE		"1.0.8802.1.1.2.1.3.7.1"
 #define OID_LLDP_LOC_PORT_ID_SUBTYPE	OID_LLDP_LOC_PORT_TABLE ".2"
 #define OID_LLDP_LOC_PORT_ID		OID_LLDP_LOC_PORT_TABLE ".3"
+#define OID_LLDP_LOC_PORT_DESC		OID_LLDP_LOC_PORT_TABLE ".4"
 #define OID_LLDP_REM_TABLE		"1.0.8802.1.1.2.1.4.1.1"
 #define OID_LLDP_REM_CHASSIS_SUBTYPE	OID_LLDP_REM_TABLE ".4"
 #define OID_LLDP_REM_CHASSIS_ID		OID_LLDP_REM_TABLE ".5"
@@ -100,8 +101,10 @@ typedef zbx_vector_topo_cell_t	topo_table_t;
 typedef struct
 {
 	zbx_uint64_t	index;
-	char		*name;
+	char		*name;		/* ifName, else ifDescr, else "if<index>": what a row shows */
 	char		*mac;
+	char		*ifname;	/* ifName as the walk has it ("" when absent), for the local port rule */
+	char		*descr;		/* ifDescr as the walk has it ("" when absent) */
 }
 topo_if_t;
 
@@ -484,7 +487,7 @@ static int	topo_if_compare(const void *d1, const void *d2)
 
 static const topo_if_t	*topo_if_get(const zbx_vector_topo_if_t *ifs, zbx_uint64_t index)
 {
-	topo_if_t	key = {index, NULL, NULL};
+	topo_if_t	key = {index, NULL, NULL, NULL, NULL};
 	int		i;
 
 	if (FAIL == (i = zbx_vector_topo_if_bsearch(ifs, key, topo_if_compare)))
@@ -523,13 +526,9 @@ static void	topo_ifs_load(const zbx_snmp_value_cache_t *cache, zbx_vector_topo_i
 		if (SUCCEED != topo_index_parse(suffix, &item.index))
 			continue;
 
-		item.name = topo_table_text(&names, suffix);
-
-		if ('\0' == *item.name)
-		{
-			zbx_free(item.name);
-			item.name = topo_table_text(&descr, suffix);
-		}
+		item.ifname = topo_table_text(&names, suffix);
+		item.descr = topo_table_text(&descr, suffix);
+		item.name = zbx_strdup(NULL, '\0' != *item.ifname ? item.ifname : item.descr);
 
 		if ('\0' == *item.name)
 			item.name = zbx_dsprintf(item.name, "if" ZBX_FS_UI64, item.index);
@@ -553,6 +552,8 @@ static void	topo_ifs_clear(zbx_vector_topo_if_t *ifs)
 	{
 		zbx_free(ifs->values[i].name);
 		zbx_free(ifs->values[i].mac);
+		zbx_free(ifs->values[i].ifname);
+		zbx_free(ifs->values[i].descr);
 	}
 
 	zbx_vector_topo_if_destroy(ifs);
@@ -814,41 +815,78 @@ static char	*lldp_decode_id(const zbx_snmp_value_pair_t *pair, long long subtype
 	return topo_decode(pair);
 }
 
-/* the local port of an lldpRemTable entry as an ifIndex; NULL when it cannot be resolved (as the JS) */
+/* ports whose ifName (field 0) or ifDescr (field 1) equals the text exactly; *one is the port when there is exactly one */
+static int	lldp_name_matches(const zbx_vector_topo_if_t *ifs, int field, const char *text, const topo_if_t **one)
+{
+	int	num = 0;
+
+	if ('\0' == *text)
+		return 0;
+
+	for (int i = 0; i < ifs->values_num; i++)
+	{
+		const char	*name = 0 == field ? ifs->values[i].ifname : ifs->values[i].descr;
+
+		if (0 == strcmp(name, text))
+		{
+			*one = &ifs->values[i];
+			num++;
+		}
+	}
+
+	return num;
+}
+
+/* The local port of an lldpRemTable entry as an ifIndex, topology-2-lld-delivery.md §4.4 `lldp`, in this order; every match is exact and gives ONE port:
+ *   1. by lldpLocPortIdSubtype: interfaceName -> ifName; macAddress -> an ifPhysAddress that one port has; local -> an ifIndex that exists;
+ *   2. else lldpLocPortId, then lldpLocPortDesc, against ifName, then ifDescr;
+ *   3. only if no name of step 2 matches any port: LocalPortNum, if that ifIndex exists;
+ *   4. else NULL (the neighbor is dropped): a name on several ports, or an ifIndex that does not exist. No guess. */
 static const topo_if_t	*lldp_local_if(const zbx_vector_topo_if_t *ifs, const topo_table_t *loc_type,
-		const topo_table_t *loc_id, const char *port_num)
+		const topo_table_t *loc_id, const topo_table_t *loc_desc, const char *port_num)
 {
 	long long	type = topo_table_int(loc_type, port_num);
-	char		*id = topo_table_text(loc_id, port_num);
-	const topo_if_t	*found = NULL;
+	char		*id = topo_table_text(loc_id, port_num), *desc = topo_table_text(loc_desc, port_num);
+	const topo_if_t	*found = NULL, *one = NULL;
+	const char	*texts[2];
 
 	if (3 == type)
 		id = topo_mac_normalize(id);
 
+	/* step 1 */
 	if ('\0' != *id)
 	{
 		if (5 == type)
 		{
-			/* interfaceName: the last interface with this name wins, as an object key overwritten in the JS */
-			for (int i = ifs->values_num - 1; 0 <= i; i--)
+			int	num = lldp_name_matches(ifs, 0, id, &one);
+
+			if (1 == num)
 			{
-				if (0 == strcmp(ifs->values[i].name, id))
-				{
-					found = &ifs->values[i];
-					break;
-				}
+				found = one;
+			}
+			else if (1 < num)
+			{
+				zbx_free(id);
+				zbx_free(desc);
+
+				return NULL;	/* step 4: a name on several ports */
 			}
 		}
 		else if (3 == type)
 		{
-			for (int i = ifs->values_num - 1; 0 <= i; i--)
+			int	num = 0;
+
+			for (int i = 0; i < ifs->values_num; i++)
 			{
 				if ('\0' != *ifs->values[i].mac && 0 == strcmp(ifs->values[i].mac, id))
 				{
-					found = &ifs->values[i];
-					break;
+					one = &ifs->values[i];
+					num++;
 				}
 			}
+
+			if (1 == num)
+				found = one;
 		}
 		else if (7 == type)
 		{
@@ -856,46 +894,207 @@ static const topo_if_t	*lldp_local_if(const zbx_vector_topo_if_t *ifs, const top
 		}
 	}
 
-	zbx_free(id);
+	/* step 2 */
+	texts[0] = id;
+	texts[1] = desc;
 
+	for (int t = 0; NULL == found && t < 2; t++)
+	{
+		for (int field = 0; NULL == found && field < 2; field++)
+		{
+			int	num = lldp_name_matches(ifs, field, texts[t], &one);
+
+			if (1 == num)
+			{
+				found = one;
+			}
+			else if (1 < num)
+			{
+				zbx_free(id);
+				zbx_free(desc);
+
+				return NULL;	/* step 4: a name on several ports */
+			}
+		}
+	}
+
+	zbx_free(id);
+	zbx_free(desc);
+
+	/* step 3: no name matched any port */
 	if (NULL == found)
 		found = topo_if_get_text(ifs, port_num);
 
 	return found;
 }
 
-/* management IP of an entry: lldpRemManAddrTable index is <suffix>.<addrSubtype>.<len>.<address octets>; the
- * first IPv4 (subtype 1, 4 octets) by OID order (as the JS) */
+/* RFC 5952 text of an IPv6 address: lower-case hex groups without leading zeros, the longest run of two or more zero groups (the first one) as "::".
+ * inet_ntop() would write an IPv4-compatible address as "::a.b.c.d"; push.py and the PHP side write hex only. */
+static void	topo_ipv6_text(const unsigned char *octets, char *out, size_t size)
+{
+	unsigned int	group[8];
+	int		best = -1, best_len = 0, run = -1, run_len = 0;
+	size_t		offset = 0;
+
+	for (int i = 0; i < 8; i++)
+	{
+		group[i] = (unsigned int)octets[2 * i] << 8 | octets[2 * i + 1];
+
+		if (0 == group[i])
+		{
+			if (-1 == run)
+			{
+				run = i;
+				run_len = 0;
+			}
+
+			if (++run_len > best_len)
+			{
+				best = run;
+				best_len = run_len;
+			}
+		}
+		else
+			run = -1;
+	}
+
+	if (2 > best_len)
+		best = -1;
+
+	for (int i = 0; i < 8 && offset + 6 < size; i++)
+	{
+		if (i == best)
+		{
+			offset += zbx_snprintf(out + offset, size - offset, "::");
+			i += best_len - 1;
+			continue;
+		}
+
+		if (0 != i && (best < 0 || i != best + best_len))
+			offset += zbx_snprintf(out + offset, size - offset, ":");
+
+		offset += zbx_snprintf(out + offset, size - offset, "%x", group[i]);
+	}
+
+	out[offset < size ? offset : size - 1] = '\0';
+}
+
+/* One lldpRemManAddrTable index tail: <family>.[<length>.]<address octets>. Returns the text of the address, NULL for what is not a usable address:
+ * family 1 (IPv4): 4 octets with or without a length octet 4, or length 5 with an extra octet (the first 4 are the address);
+ * family 2 (IPv6): 16 octets with or without a length octet 16. Any other family or length is ignored (corpus F6). */
+static char	*lldp_man_addr_text(const char *tail, int *ipv6)
+{
+	unsigned long	part[24];
+	int		num = 0;
+	const char	*p = tail;
+	char		*end, buf[INET6_ADDRSTRLEN];
+	unsigned char	octets[16];
+
+	for (; '\0' != *p && num < 24; num++)
+	{
+		part[num] = strtoul(p, &end, 10);
+
+		if (end == p || (255 < part[num] && 0 < num))
+			return NULL;
+
+		p = end;
+
+		if ('.' == *p)
+			p++;
+		else if ('\0' != *p)
+			return NULL;
+	}
+
+	if ('\0' != *p || 2 > num)
+		return NULL;
+
+	*ipv6 = 0;
+
+	if (1 == part[0])
+	{
+		int	first;
+
+		if (5 == num - 1 && 4 == part[1])
+			first = 2;
+		else if (4 == num - 1)
+			first = 1;
+		else if (6 == num - 1 && 5 == part[1])
+			first = 2;
+		else
+			return NULL;
+
+		return zbx_dsprintf(NULL, "%lu.%lu.%lu.%lu", part[first], part[first + 1], part[first + 2], part[first + 3]);
+	}
+
+	if (2 == part[0])
+	{
+		int	first;
+
+		if (17 == num - 1 && 16 == part[1])
+			first = 2;
+		else if (16 == num - 1)
+			first = 1;
+		else
+			return NULL;
+
+		for (int i = 0; i < 16; i++)
+			octets[i] = (unsigned char)part[first + i];
+
+		topo_ipv6_text(octets, buf, sizeof(buf));
+		*ipv6 = 1;
+
+		return zbx_strdup(NULL, buf);
+	}
+
+	return NULL;
+}
+
+/* management IP of an entry (topology-2-lld-delivery.md §4.4 "Mgmt IP"): the first IPv4 of the lldpRemManAddrTable rows of this remote index (by index
+ * order); an IPv6 address only when there is no IPv4. The index is <suffix>.<family>.[<length>.]<address octets>. */
 static char	*lldp_management_ip(const topo_table_t *man_addr, const char *suffix)
 {
 	size_t		len = strlen(suffix);
-	const char	*best = NULL;
+	const char	*best4 = NULL, *best6 = NULL;
+	char		*ip4 = NULL, *ip6 = NULL;
 
 	for (int i = 0; i < man_addr->values_num; i++)
 	{
-		const char	*key = man_addr->values[i].suffix;
-		const char	*rest;
-		int		num = 1;
+		const char	*key = man_addr->values[i].suffix, *rest;
+		char		*text;
+		int		ipv6;
 
 		if (0 != strncmp(key, suffix, len) || '.' != key[len])
 			continue;
 
 		rest = key + len + 1;
 
-		if (0 != strncmp(rest, "1.4.", 4))
+		if (NULL == (text = lldp_man_addr_text(rest, &ipv6)))
 			continue;
 
-		for (const char *p = rest; '\0' != *p; p++)
-			num += ('.' == *p);
-
-		if (6 != num)
-			continue;
-
-		if (NULL == best || 0 > topo_suffix_compare(rest, best))
-			best = rest;
+		if (0 == ipv6 && (NULL == best4 || 0 > topo_suffix_compare(rest, best4)))
+		{
+			best4 = rest;
+			zbx_free(ip4);
+			ip4 = text;
+		}
+		else if (1 == ipv6 && (NULL == best6 || 0 > topo_suffix_compare(rest, best6)))
+		{
+			best6 = rest;
+			zbx_free(ip6);
+			ip6 = text;
+		}
+		else
+			zbx_free(text);
 	}
 
-	return NULL != best ? zbx_strdup(NULL, best + 4) : zbx_strdup(NULL, "");
+	if (NULL != ip4)
+	{
+		zbx_free(ip6);
+
+		return ip4;
+	}
+
+	return NULL != ip6 ? ip6 : zbx_strdup(NULL, "");
 }
 
 static int	topo_str_ptr_compare(const void *d1, const void *d2)
@@ -907,7 +1106,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		const zbx_vector_topo_if_t *ifs, zbx_vector_topo_row_ptr_t *rows)
 {
 	topo_table_t		rem_chassis_type, rem_chassis, rem_port_type, rem_port, rem_port_desc, rem_sysname,
-				loc_type, loc_id, man_addr;
+				loc_type, loc_id, loc_desc, man_addr;
 	topo_table_t		*columns[6] = {&rem_chassis, &rem_port, &rem_port_desc, &rem_sysname, &rem_chassis_type,
 					&rem_port_type};
 	zbx_vector_ptr_t	suffixes;
@@ -921,6 +1120,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 	topo_table_load(cache, OID_LLDP_REM_SYSNAME, &rem_sysname);
 	topo_table_load(cache, OID_LLDP_LOC_PORT_ID_SUBTYPE, &loc_type);
 	topo_table_load(cache, OID_LLDP_LOC_PORT_ID, &loc_id);
+	topo_table_load(cache, OID_LLDP_LOC_PORT_DESC, &loc_desc);
 	topo_table_load(cache, OID_LLDP_REM_MAN_ADDR, &man_addr);
 
 	/* every column shares the same TimeMark.LocalPortNum.RemIndex suffixes */
@@ -962,7 +1162,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		if (NULL != (dot = strchr(port_num, '.')))
 			*dot = '\0';
 
-		local = lldp_local_if(ifs, &loc_type, &loc_id, port_num);
+		local = lldp_local_if(ifs, &loc_type, &loc_id, &loc_desc, port_num);
 		zbx_free(port_num);
 
 		row = topo_row_create();
@@ -1038,6 +1238,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 	topo_table_clear(&rem_sysname);
 	topo_table_clear(&loc_type);
 	topo_table_clear(&loc_id);
+	topo_table_clear(&loc_desc);
 	topo_table_clear(&man_addr);
 }
 
