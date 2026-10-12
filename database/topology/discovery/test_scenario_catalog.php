@@ -2949,6 +2949,51 @@ c('A-08', 'Правило', function () {
 	ex(count(h_links('R1:Gi0/1', 'Y', 'physical_link', 'active')) === 1 && count(h_links('R1:Gi0/1', 'X', 'physical_link', 'active')) === 0, 'now Y is linked and X superseded, as after a run that never failed');
 });
 
+
+// handoff 023 §1: a Device that neighbor rows gave a chassis, then found by a reporter without loc_chassis through its SNMP IP (model §6.7.0 "Keys of a reporter's Device")
+function a_chassis_setup(): int {
+	h_rep('R0', mac(1), '10.0.0.1');
+	h_ports('R0', [1 => 'Gi0/1']);
+	h_nbrs('R0', [NR(1, mac(40), 'DH', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
+	h_ingest('a neighbor row gives DH the chassis X and the address 10.9.9.9');
+	$dh = h_device_id('DH');
+	h_tick();
+	h_rep('H', null, '10.9.9.9');                     // a reporter that reports no loc_chassis; its SNMP IP is the address of DH
+	h_ports('H', [1 => 'Gi0/1']);
+	return (int) $dh;
+}
+
+c('A-09', 'Вывод', function () {
+	$dh = a_chassis_setup();
+	h_ingest('H finds DH by its SNMP IP');
+	exv(a_reporter_of($dh), 'H', 'DH is the Device of H');
+	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'the chassis key the neighbor row gave DH is gone; only the reporter\'s own address stays');
+	h_tick();
+	h_ingest('and once more');
+	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'nothing comes back with the next run');
+});
+
+c('A-10', 'Вывод', function () {
+	$dh = a_chassis_setup();
+	h_ingest('H finds DH by its SNMP IP');
+	h_tick();
+	h_nbrs('R0', [NR(1, mac(40), 'DH', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
+	h_ingest('a later row with chassis X and the address of H');
+	ex(h_dev_count() === 2, 'the row finds DH by the IP (DH has no chassis key now), no Device is created (Devices: '.json_encode(h_devices()).')');
+	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'the row adds no key to the reporter\'s Device');
+	exv(h_obs('R0', 'Gi0/1')['device'] ?? null, 'H', 'the observation points to DH');
+});
+
+c('A-11', 'Вывод', function () {
+	$dh = a_chassis_setup();
+	h_ingest('H finds DH by its SNMP IP');
+	h_tick();
+	h_nbrs('R0', [NR(1, mac(40), 'DH', 'Gi0/24')]);
+	h_ingest('a later row with only the chassis X');
+	ex(h_dev_count() === 3, 'a row with only chassis X makes a new Device (expected, §6.7.0): Devices '.json_encode(h_devices()));
+	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'DH keeps only its own address');
+});
+
 // ============================================================================================================
 // Run
 // ============================================================================================================
