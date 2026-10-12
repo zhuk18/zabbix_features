@@ -462,24 +462,49 @@ class WalkUnusable(Exception):
 _WALK_LINE = re.compile(r"^\s*\.?([0-9][0-9.]*)\s*=\s*(?:([A-Za-z][\w-]*):\s*)?(.*)$")
 
 
+def _quote_open(value: str) -> bool:
+    """A quoted STRING value whose closing quote is not on this line: the value goes on in the next line (a raw line feed inside the quotes)."""
+    v = value.lstrip()
+    if not v.startswith('"'):
+        return False
+    i = 1
+    while i < len(v):
+        if v[i] == "\\":
+            i += 2
+            continue
+        if v[i] == '"':
+            return False
+        i += 1
+    return True
+
+
 def parse_walk(text: str) -> dict[str, tuple[str, str]]:
-    """{oid (no leading dot): (type, raw)}; lines that are not a variable are ignored."""
+    """{oid (no leading dot): (type, raw)}; lines that are not a variable are ignored. A quoted value with a raw line feed inside is ONE value
+    (the `walk[]` text, topology-2-lld-delivery.md §4.1): the lines up to the closing quote belong to it."""
     rows: dict[str, tuple[str, str]] = {}
-    for line in str(text).splitlines():
+    key = None
+    for line in str(text).split("\n"):
+        if key is not None:
+            row_type, raw = rows[key]
+            if _quote_open(raw):
+                rows[key] = (row_type, raw + "\n" + line)
+                continue
         m = _WALK_LINE.match(line)
         if m is None or re.match(r"^No Such (Object|Instance)", m.group(3)) or "No more variables" in line:
+            key = None
             continue
-        rows[m.group(1)] = (m.group(2) or "STRING", m.group(3))
+        key = m.group(1)
+        rows[key] = (m.group(2) or "STRING", m.group(3))
     return rows
 
 
 def _decode(row: tuple[str, str]) -> str:
-    """Decoded text of a walk row: Hex-STRING -> colon hex, quotes stripped, "name(3)" enums -> "3"."""
+    """Decoded text of a walk row: Hex-STRING -> colon hex, quotes stripped and `\\X` unescaped (`\\\\` and `\\"` in the walk[] text), "name(3)" enums -> "3"."""
     row_type, raw = row[0], row[1].strip()
     if row_type == "Hex-STRING":
         return ":".join(o.lower() for o in raw.split())
     if len(raw) > 1 and raw[0] == '"' and raw[-1] == '"':
-        raw = raw[1:-1]
+        return re.sub(r"\\(.)", r"\1", raw[1:-1], flags=re.S).strip(" \t\r\n")
     elif row_type in ("INTEGER", "Gauge32", "Counter32", "Unsigned32"):
         m = re.search(r"\((-?[0-9]+)\)\s*$", raw)
         if m:

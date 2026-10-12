@@ -158,5 +158,11 @@ foreach (json_decode((string) file_get_contents(__DIR__.'/lldp_cases.json'), tru
 		"[{$case['rule']}] {$case['name']}", $r['text']);
 }
 
+echo "\n=== walk[] text of STRING values (text_cases.json, also run through push.py) ===\n";
+foreach (json_decode((string) file_get_contents(__DIR__.'/text_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
+	$r = step($case['walk'], 'ports', 'error');
+	check($r['ok'] && count($r['rows'] ?? []) === 1 && ($r['rows'][0]['{#IFNAME}'] ?? null) === $case['expect_ifname'], $case['name'], $r['text']);
+}
+
 echo "\n".($failures === 0 ? "OK: {$checks} checks\n" : "FAILED: {$failures} of {$checks} checks\n");
 exit($failures === 0 ? 0 : 1);

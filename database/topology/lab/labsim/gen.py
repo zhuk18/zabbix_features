@@ -436,16 +436,36 @@ def hosts_json(scenario):
     return out
 
 
+def _printable(b):
+    return all(0x20 <= c < 0x7f or c in (9, 10, 11, 12, 13) for c in b)
+
+
+def _walk_string(b):
+    """STRING or Hex-STRING text of an octet string as the Zabbix `walk[]` item writes it (topology-2-lld-delivery.md §4.1; the rule of
+    checks_snmp.c zbx_sprint_asn_octet_str_dyn, measured in task 023): no NUL, not 6 bytes long, ASCII bytes printable or white space and valid UTF-8 ->
+    text, else net-snmp's rule (all bytes printable ASCII or white space -> text, else Hex-STRING). `\\` and `"` are escaped, a line feed stays raw,
+    an empty string is `""` with no type. Same function in database/topology/corpus/corpus_walk.py (walk_string)."""
+    if b == b'':
+        return '""'
+    utf8 = b'\0' not in b and len(b) != 6 and all(c >= 0x80 or 0x20 <= c < 0x7f or c in (9, 10, 11, 12, 13) for c in b)
+    if utf8:
+        try:
+            b.decode('utf-8')
+        except UnicodeDecodeError:
+            utf8 = False
+    if utf8 or _printable(b):
+        return 'STRING: "%s"' % b.decode('utf-8', errors='surrogateescape').replace('\\', '\\\\').replace('"', '\\"')
+    return 'Hex-STRING: ' + ' '.join('%02X' % c for c in b) + ' '
+
+
 def export_walk(lab, name):
-    """Walk text of a device (net-snmp style, for fixtures: topology-2-lld-delivery.md "Golden fixtures" format), sorted by OID."""
+    """Walk text of a device (the text of the `walk[]` item, topology-2-lld-delivery.md §4.1; "Golden fixtures" format), sorted by OID."""
     if lab.devices[name].get('snmprec'):
         raise LabError('device %s is a corpus device: its walk text comes from the corpus converter (database/topology/corpus/corpus_walk.py)' % name)
     out = []
     for oid, (tag, v) in sorted(device_records(lab, name).items()):
-        if tag == '4x':
-            out.append('.%s = Hex-STRING: %s' % (oid_str(oid), ' '.join(v[i:i + 2].upper() for i in range(0, len(v), 2))))
-        elif tag == '4':
-            out.append('.%s = STRING: "%s"' % (oid_str(oid), v))
+        if tag in ('4', '4x'):
+            out.append('.%s = %s' % (oid_str(oid), _walk_string(v.encode('utf-8') if tag == '4' else bytes.fromhex(v))))
         elif tag == '2':
             out.append('.%s = INTEGER: %s' % (oid_str(oid), v))
         elif tag == '66':

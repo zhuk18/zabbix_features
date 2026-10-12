@@ -92,7 +92,32 @@ cases = [
     case("mgmt: two IPv4 addresses: the first by index order", "F6", 1, None, "A",
          man=[("1.4.10.0.0.20", "INTEGER", 2), ("1.4.10.0.0.5", "INTEGER", 2)], expect="1", expect_ip="10.0.0.5"),
 ]
+# The text of the `walk[]` item (topology-2-lld-delivery.md §4.1) for STRING values, as measured in task 023: \ and " escaped, a raw line feed inside the quotes,
+# Hex-STRING for NUL and other non-printable bytes, UTF-8 as STRING. The ifName of port 1 carries the value; both implementations must give the same text.
+def text_case(name, raw, expect):
+    walk = line("1.3.6.1.2.1.2.2.1.1.1", "INTEGER", 1) + line("1.3.6.1.2.1.2.2.1.3.1", "INTEGER", "ethernetCsmacd(6)") + \
+        line("1.3.6.1.2.1.31.1.1.1.1.1", *raw) + line("1.3.6.1.2.1.31.1.1.1.15.1", "Gauge32", 1000)
+    return {"name": name, "walk": walk, "expect_ifname": expect}
+
+
+text_cases = [
+    text_case("plain", ("STRING", '"plain"'), "plain"),
+    text_case("backslash (doubled in the text)", ("STRING", '"a\\\\b"'), "a\\b"),
+    text_case("double quote (escaped)", ("STRING", '"a\\"b"'), 'a"b'),
+    text_case("backslash and quote together", ("STRING", '"x\\\\\\"y"'), 'x\\"y'),
+    text_case("a raw line feed inside the quotes is one value", ("STRING", '"a\nb"'), "a\nb"),
+    text_case("two line feeds, the second line looks like a variable", ("STRING", '"a\n.1.3.6.1 = INTEGER: 5\nb"'), "a\n.1.3.6.1 = INTEGER: 5\nb"),
+    text_case("a value that ends with a line feed and a space (the corpus aos6 ifName), white space around is trimmed", ("STRING", '"Uplink x\n2D 31 00 "'), "Uplink x\n2D 31 00"),
+    text_case("NUL is a Hex-STRING", ("Hex-STRING", "61 00 62 "), "61:00:62"),
+    text_case("a non-printable byte is a Hex-STRING", ("Hex-STRING", "61 01 62 "), "61:01:62"),
+    text_case("UTF-8 is a STRING", ("STRING", '"\u00e4\u20ac"'), "\u00e4\u20ac"),
+    text_case("leading and trailing white space inside the quotes is trimmed", ("STRING", '"  a b  "'), "a b"),
+]
+with open(os.path.join(HERE, "text_cases.json"), "w", encoding="utf-8") as fh:
+    json.dump(text_cases, fh, indent=1, ensure_ascii=False)
+    fh.write("\n")
+
 with open(os.path.join(HERE, "lldp_cases.json"), "w", encoding="utf-8") as fh:
     json.dump(cases, fh, indent=1, ensure_ascii=False)
     fh.write("\n")
-print("%d cases" % len(cases))
+print("%d lldp cases, %d text cases" % (len(cases), len(text_cases)))

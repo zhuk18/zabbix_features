@@ -247,5 +247,10 @@ for case in json.load(open(os.path.join(HERE, "step_golden", "lldp_cases.json"),
     check(len(rows) == 1 and row.get("{#IFINDEX}") == case["expect_ifindex"] and row.get("{#REM_MGMT_IP}") == case["expect_ip"],
           f"[{case['rule']}] {case['name']}", json.dumps(rows))
 
+print("\n=== walk[] text of STRING values: the same cases as the native step (step_golden/text_cases.json) ===")
+for case in json.load(open(os.path.join(HERE, "step_golden", "text_cases.json"), encoding="utf-8")):
+    rows = push.rows_ports(push.parse_walk(case["walk"]))
+    check(len(rows) == 1 and rows[0].get("{#IFNAME}") == case["expect_ifname"], case["name"], json.dumps(rows, ensure_ascii=False))
+
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)

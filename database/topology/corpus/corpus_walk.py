@@ -68,15 +68,33 @@ def printable(b):
     return all(0x20 <= c < 0x7f or c in (9, 10, 11, 12, 13) for c in b)
 
 
+def utf8_text(b):
+    """The `walk[]` rule of the Zabbix poller (checks_snmp.c zbx_sprint_asn_octet_str_dyn): a value with no NUL, not 6 bytes long (the length of a MAC),
+    whose ASCII bytes are all printable or white space, and that is valid UTF-8, is shown as text, non-ASCII characters included. Measured in 023/024."""
+    if b"\0" in b or len(b) == 6:
+        return False
+    if not all(c >= 0x80 or 0x20 <= c < 0x7f or c in (9, 10, 11, 12, 13) for c in b):
+        return False
+    try:
+        b.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def walk_string(b):
+    """STRING or Hex-STRING text of an octet string as the `walk[]` item writes it (topology-2-lld-delivery.md §4.1): text is quoted with `\\` and `"`
+    escaped and a raw line feed kept; an empty string is `""` with no type."""
+    if b == b"":
+        return '""'
+    if utf8_text(b) or printable(b):
+        return 'STRING: "%s"' % b.decode("utf-8", errors="surrogateescape").replace("\\", "\\\\").replace('"', '\\"')
+    return "Hex-STRING: " + " ".join("%02X" % c for c in b) + " "          # a trailing space, as net-snmp and the poller write it
+
+
 def format_value(tag, value):
     if tag in ("4", "4x", "4e"):
-        b = octets(tag, value)
-        shown = b
-        if printable(shown):
-            if shown == b"":
-                return '""'                                  # snmpbulkwalk -On prints an empty string without the type
-            return 'STRING: "%s"' % shown.decode("ascii").replace("\\", "\\\\").replace('"', '\\"')
-        return "Hex-STRING: " + " ".join("%02X" % c for c in b) + " "          # net-snmp ends the hex bytes with a space
+        return walk_string(octets(tag, value))
     if tag == "2":
         return "INTEGER: %s" % value
     if tag == "6":
@@ -147,7 +165,8 @@ def cmd_convert(paths):
 
 
 def cmd_verify(responder, paths):
-    """snmpsim serves the files, snmpbulkwalk records them like record_fixture.sh, and the two texts must be identical."""
+    """snmpsim serves the files, snmpbulkwalk records them like record_fixture.sh, and the two texts must be identical, except where the `walk[]` text differs from net-snmp's
+    on purpose (topology-2-lld-delivery.md §4.1): a UTF-8 value is a STRING here and a Hex-STRING in snmpbulkwalk."""
     ok = True
     with tempfile.TemporaryDirectory() as data:
         for path in paths:

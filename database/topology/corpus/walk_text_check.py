@@ -34,7 +34,9 @@ import push  # noqa: E402
 API_URL = "http://localhost/zabbix/ui/api_jsonrpc.php"
 ROOTS = ["1.3.6.1.2.1.2.2.1.1", "1.3.6.1.2.1.2.2.1.2", "1.3.6.1.2.1.2.2.1.3", "1.3.6.1.2.1.31.1.1.1.1", "1.0.8802.1.1.2.1.4.1.1"]       # ifIndex, ifDescr, ifType, ifName, lldpRemEntry
 VALUES = [("plain", b"plain"), ("backslash", b"a\\b"), ("quote", b'a"b'), ("newline", b"a\nb"), ("nul", b"a\x00b"),
-          ("nonprintable", b"a\x01b"), ("utf8", "ä€".encode("utf-8"))]
+          ("nonprintable", b"a\x01b"), ("utf8", "ä€".encode("utf-8")), ("invalid_utf8", b"a\xffb"), ("tab", b"a\tb"), ("cr", b"a\rb"),
+          ("del", b"a\x7fb"), ("c1_utf8", "a\u0085b".encode("utf-8")), ("high_latin1", b"a\xe4b"), ("trailing_space", b"ab "), ("leading_space", b" ab"), ("empty", b""), ("six_ascii", b"abcdef"), ("six_utf8", "äää".encode("utf-8")),
+          ("vt", b"a\x0bb")]
 SNMPSIM = os.path.join(REPO, ".venv", "bin", "snmpsim-command-responder")
 COMMUNITY = "wt"
 
