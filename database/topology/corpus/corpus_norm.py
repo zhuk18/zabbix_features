@@ -236,6 +236,65 @@ def measure(paths, topo_step):
     return stats
 
 
+def ingest_measure(paths, topo_step, dsn, user):
+    """Section 4, the real decision: step output (ports, lldp) of every walk goes through ingest.php's $snap_normalize_row and $resolve_local_port (measure_ingest.php),
+    per LocalPortNum against the reference (resolve_new) and against the 024 state (out/f1-after.json); and the rows with a management address against 024."""
+    import subprocess
+    table = nr.forms()
+    before = json.load(open(os.path.join(corpus_walk.OUT, "f1-after.json")))
+    data, cells_of = {}, {}
+    for path in paths:
+        name = os.path.basename(path)[:-5]
+        ports, e1 = corpus_run.run_native(topo_step, path, "ports")
+        lldp, e2 = corpus_run.run_native(topo_step, path, "lldp")
+        if ports is None or lldp is None:
+            continue
+        data[name] = {"ports": ports, "lldp": lldp}
+        cells_of[name] = ev.read_walk(path)
+    inp, outp = os.path.join(corpus_walk.OUT, "ingest-in.json"), os.path.join(corpus_walk.OUT, "ingest-out.json")
+    with open(inp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False)
+    r = subprocess.run(["php", os.path.join(HERE, "measure_ingest.php"), inp, outp, dsn, user], capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit("measure_ingest.php: " + r.stderr[-500:] + r.stdout[-500:])
+    got = json.load(open(outp))
+    st = {"rows": 0, "steps": {}, "reasons": {}, "agree": 0, "disagree": [], "transitions": {}, "new_unresolved": [], "mgmt_rows": 0, "mgmt_rows_024": 0, "invalid": 0,
+          "inconsistent_per_local_port": []}
+    for name, res in got.items():
+        st["invalid"] += res["invalid"]
+        per = {}
+        for row in res["rows"]:
+            per.setdefault(str(row["loc_port_num"]), set()).add((row["if_index"], row["reason"]))
+            st["rows"] += 1
+            if row["ip"]:
+                st["mgmt_rows"] += 1
+            if row["if_index"] is None:
+                st["reasons"][row["reason"]] = st["reasons"].get(row["reason"], 0) + 1
+        old = {}
+        for o in before.get(name, {}).get("rows", []):
+            old.setdefault(o["suffix"].split(".")[1], []).append(o)
+            if o.get("native_ip"):
+                st["mgmt_rows_024"] += 1
+        for local_num, outcomes in per.items():
+            if len(outcomes) != 1:
+                st["inconsistent_per_local_port"].append((name, local_num, sorted(map(str, outcomes))))
+            index, reason = next(iter(outcomes))
+            step, want = resolve_new(cells_of[name], local_num, table)
+            want = int(want) if step else None
+            st["agree"] += index == want
+            if index != want:
+                st["disagree"].append((name, local_num, index, reason, step, want))
+            was = [o["native"] for o in old.get(local_num, [])]
+            if was:
+                w = was[0]
+                kind = ("right -> right" if index is not None and str(w) == str(index) else "dropped -> dropped" if index is None and w is None else
+                        "dropped -> right" if w is None else "resolved -> dropped (new unresolved)" if index is None else "other -> other")
+                st["transitions"][kind] = st["transitions"].get(kind, 0) + 1
+                if index is None and w is not None:
+                    st["new_unresolved"].append((name, local_num, w, reason))
+    return st
+
+
 def threeway(path=None):
     """The 020 three-way comparison (out/results-ifindex.json from corpus_run.py --with-ifindex): every difference between the native step, push.py and PHP
     normalization, except the one the spec expects: PHP skips a row whose MAC-typed value has the wrong length (validity only in ingest, normalization §5)."""
@@ -270,6 +329,17 @@ def main():
         print("differences: %d" % len(diff))
         for d in diff:
             print("  ", d)
+    if mode == "ingest":
+        topo_step = os.path.join(HERE, "..", "discovery", "step_golden", "topo_step")
+        r = ingest_measure(paths, topo_step, sys.argv[2], sys.argv[3])
+        with open(os.path.join(corpus_walk.OUT, "norm-ingest.json"), "w", encoding="utf-8") as fh:
+            json.dump(r, fh, indent=1, ensure_ascii=False, default=list)
+        print("LLDP rows %d (invalid skipped: %d); unresolved by reason %s" % (r["rows"], r["invalid"], r["reasons"]))
+        print("ingest = reference on %d local ports; disagreements %d: %s" % (r["agree"], len(r["disagree"]), r["disagree"][:20]))
+        print("against the 024 state (per local port):", json.dumps(r["transitions"]))
+        print("new unresolved:", r["new_unresolved"][:30])
+        print("rows with a management address: now %d, 024 %d" % (r["mgmt_rows"], r["mgmt_rows_024"]))
+        print("local ports whose rows disagree among themselves:", r["inconsistent_per_local_port"][:10])
     if mode == "measure":
         topo_step = os.path.join(HERE, "..", "discovery", "step_golden", "topo_step")
         r = measure(paths, topo_step)
