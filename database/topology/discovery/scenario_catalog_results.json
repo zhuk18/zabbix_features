@@ -3107,7 +3107,7 @@
                         "Gi0/4#447/if4"
                     ],
                     "Printer1": [
-                        "eth0*#449/if-597821"
+                        "eth0*#449/if-105153"
                     ]
                 },
                 "links": [
@@ -3547,7 +3547,7 @@
                         "Gi0/4#511/if4"
                     ],
                     "Printer1": [
-                        "eth0*#513/if-597821"
+                        "eth0*#513/if-105153"
                     ]
                 },
                 "links": [
@@ -3653,7 +3653,7 @@
                         "eth0#526/if1"
                     ],
                     "D": [
-                        "eth1*#528/if-555910"
+                        "eth1*#528/if-565972"
                     ]
                 },
                 "links": [
@@ -3853,16 +3853,16 @@
                         "Gi0/4#557/if4"
                     ],
                     "X": [
-                        "eth0*#559/if-597821"
+                        "eth0*#559/if-105153"
                     ],
                     "Y": [
-                        "eth0*#561/if-597821"
+                        "eth0*#561/if-105153"
                     ],
                     "P": [
-                        "eth0*#564/if-597821"
+                        "eth0*#564/if-105153"
                     ],
                     "Q": [
-                        "eth0*#565/if-597821"
+                        "eth0*#565/if-105153"
                     ]
                 },
                 "links": [
@@ -3953,10 +3953,10 @@
                         "Gi0/4#571/if4"
                     ],
                     "phone": [
-                        "eth0*#574/if-597821"
+                        "eth0*#574/if-105153"
                     ],
                     "pc": [
-                        "eth0*#575/if-597821"
+                        "eth0*#575/if-105153"
                     ]
                 },
                 "links": [],
@@ -4046,13 +4046,13 @@
                         "Gi0/4#581/if4"
                     ],
                     "vm1": [
-                        "eth0*#587/if-597821"
+                        "eth0*#587/if-105153"
                     ],
                     "vm2": [
-                        "eth0*#588/if-597821"
+                        "eth0*#588/if-105153"
                     ],
                     "vm3": [
-                        "eth0*#589/if-597821"
+                        "eth0*#589/if-105153"
                     ],
                     "vsw1": [
                         "vmnic0*#590/if-97014"
@@ -4138,10 +4138,10 @@
                         "Gi0/4#597/if4"
                     ],
                     "X": [
-                        "eth0*#601/if-597821"
+                        "eth0*#601/if-105153"
                     ],
                     "Y": [
-                        "eth0*#602/if-597821"
+                        "eth0*#602/if-105153"
                     ],
                     "Z": [
                         "vmnic0*#603/if-97014"
@@ -4236,10 +4236,10 @@
                         "Gi0/4#609/if4"
                     ],
                     "X": [
-                        "eth0*#612/if-597821"
+                        "eth0*#612/if-105153"
                     ],
                     "Y": [
-                        "eth0*#613/if-597821"
+                        "eth0*#613/if-105153"
                     ]
                 },
                 "links": [
@@ -4316,10 +4316,10 @@
                         "Gi0/4#619/if4"
                     ],
                     "X": [
-                        "eth0*#621/if-597821"
+                        "eth0*#621/if-105153"
                     ],
                     "Y": [
-                        "eth0*#623/if-597821"
+                        "eth0*#623/if-105153"
                     ]
                 },
                 "links": [
@@ -4399,10 +4399,10 @@
                         "Gi0/4#629/if4"
                     ],
                     "X": [
-                        "eth0*#632/if-597821"
+                        "eth0*#632/if-105153"
                     ],
                     "Y": [
-                        "eth0*#633/if-597821"
+                        "eth0*#633/if-105153"
                     ]
                 },
                 "links": [
@@ -4684,8 +4684,8 @@
                         "Gi0/1#689/if1"
                     ],
                     "host": [
-                        "eth0*#691/if-597821",
-                        "eth1*#692/if-555910"
+                        "eth0*#691/if-105153",
+                        "eth1*#692/if-565972"
                     ]
                 },
                 "links": [
@@ -4850,8 +4850,8 @@
                         "Gi0/2#723/if2"
                     ],
                     "X": [
-                        "eth0*#725/if-597821",
-                        "eth9*#729/if-460666"
+                        "eth0*#725/if-105153",
+                        "eth9*#729/if-22709"
                     ],
                     "R3": [
                         "Gi0/3#728/if3"
@@ -5173,7 +5173,7 @@
                         "Gi0/23#793/if23"
                     ],
                     "X": [
-                        "eth0*#795/if-597821"
+                        "eth0*#795/if-105153"
                     ]
                 },
                 "links": [
@@ -5660,7 +5660,7 @@
                         "eth0#897/if1"
                     ],
                     "Printer1": [
-                        "eth0*#899/if-597821"
+                        "eth0*#899/if-105153"
                     ]
                 },
                 "links": [
@@ -5818,7 +5818,7 @@
                         "eth0#935/if1"
                     ],
                     "Printer1": [
-                        "eth0*#937/if-597821"
+                        "eth0*#937/if-105153"
                     ]
                 },
                 "links": [
@@ -5911,10 +5911,10 @@
                         "eth0#953/if1"
                     ],
                     "Printer1": [
-                        "eth0*#955/if-597821"
+                        "eth0*#955/if-105153"
                     ],
                     "Printer2": [
-                        "eth0*#957/if-597821"
+                        "eth0*#957/if-105153"
                     ]
                 },
                 "links": [
@@ -5999,7 +5999,7 @@
                         "eth0#975/if1"
                     ],
                     "Printer1": [
-                        "eth0*#977/if-597821"
+                        "eth0*#977/if-105153"
                     ]
                 },
                 "links": [
@@ -6092,7 +6092,7 @@
                         "eth0#993/if1"
                     ],
                     "Printer1": [
-                        "eth0*#995/if-597821"
+                        "eth0*#995/if-105153"
                     ]
                 },
                 "links": [
@@ -6187,7 +6187,7 @@
                         "eth0#1011/if1"
                     ],
                     "Printer1": [
-                        "eth0*#1013/if-597821"
+                        "eth0*#1013/if-105153"
                     ]
                 },
                 "links": [
@@ -6272,7 +6272,7 @@
                         "eth0#1029/if1"
                     ],
                     "Printer1": [
-                        "eth0*#1031/if-597821"
+                        "eth0*#1031/if-105153"
                     ]
                 },
                 "links": [
@@ -6359,7 +6359,7 @@
                         "eth0#1047/if1"
                     ],
                     "Printer1": [
-                        "eth0*#1049/if-597821"
+                        "eth0*#1049/if-105153"
                     ]
                 },
                 "links": [
@@ -7475,7 +7475,7 @@
                         "Gi0/24#1314/if24"
                     ],
                     "E": [
-                        "eth0*#1316/if-597821"
+                        "eth0*#1316/if-105153"
                     ]
                 },
                 "links": [
@@ -8350,7 +8350,7 @@
                         "Gi0/24*#1469/if-682742"
                     ],
                     "Y": [
-                        "eth0*#1471/if-597821"
+                        "eth0*#1471/if-105153"
                     ]
                 },
                 "links": [
@@ -8436,7 +8436,7 @@
                         "Gi0/24*#1479/if-682742"
                     ],
                     "Y": [
-                        "eth0*#1481/if-597821"
+                        "eth0*#1481/if-105153"
                     ]
                 },
                 "links": [
@@ -8603,7 +8603,7 @@
                         "Gi0/23#1498/if23"
                     ],
                     "X": [
-                        "eth0*#1500/if-597821"
+                        "eth0*#1500/if-105153"
                     ]
                 },
                 "links": [
@@ -8906,11 +8906,11 @@
                 },
                 "links": [
                     "physical_link B:Gi0/1 ~ R:Gi0/1 active #223",
-                    "device_link R:Gi0/2 ~ B active port_shared_id #224"
+                    "device_link R:Gi0/2 ~ B active port_unmatched #224"
                 ],
                 "observations": [
                     "R:Gi0/1 -> B applied edge#223 port",
-                    "R:Gi0/2 -> B applied edge#224 device port_shared_id"
+                    "R:Gi0/2 -> B applied edge#224 device port_unmatched"
                 ]
             },
             "steps": [
@@ -8919,11 +8919,11 @@
                     "devices": 2,
                     "links": [
                         "physical_link B:Gi0/1 ~ R:Gi0/1 active #223",
-                        "device_link R:Gi0/2 ~ B active port_shared_id #224"
+                        "device_link R:Gi0/2 ~ B active port_unmatched #224"
                     ],
                     "obs": [
                         "R:Gi0/1 -> B applied edge#223 port",
-                        "R:Gi0/2 -> B applied edge#224 device port_shared_id"
+                        "R:Gi0/2 -> B applied edge#224 device port_unmatched"
                     ]
                 }
             ]
@@ -10663,16 +10663,1452 @@
                     ]
                 }
             ]
+        },
+        {
+            "id": "A-09",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1962,
+                        "name": "R0",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1965,
+                        "name": "H",
+                        "chassis": "a0:00:00:00:00:28",
+                        "ip": "10.9.9.9",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R0": [
+                        "Gi0/1#1964/if1"
+                    ],
+                    "H": [
+                        "Gi0/1#1968/if1"
+                    ]
+                },
+                "links": [
+                    "device_link R0:Gi0/1 ~ H active port_unmatched #281"
+                ],
+                "observations": [
+                    "R0:Gi0/1 -> H applied edge#281 device port_unmatched"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a neighbor row gives DH the chassis X and the address 10.9.9.9",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DH:Gi0/24* ~ R0:Gi0/1 active #281"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> DH applied edge#281 port"
+                    ]
+                },
+                {
+                    "step": "H finds DH by its SNMP IP",
+                    "devices": 2,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H active port_unmatched #281"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> H applied edge#281 device port_unmatched"
+                    ]
+                },
+                {
+                    "step": "and once more",
+                    "devices": 2,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H active port_unmatched #281"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> H applied edge#281 device port_unmatched"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "A-10",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1976,
+                        "name": "R0",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1979,
+                        "name": "H",
+                        "chassis": "a0:00:00:00:00:28",
+                        "ip": "10.9.9.9",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R0": [
+                        "Gi0/1#1978/if1"
+                    ],
+                    "H": [
+                        "Gi0/1#1982/if1"
+                    ]
+                },
+                "links": [
+                    "device_link R0:Gi0/1 ~ H active port_unmatched #283"
+                ],
+                "observations": [
+                    "R0:Gi0/1 -> H applied edge#283 device port_unmatched"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a neighbor row gives DH the chassis X and the address 10.9.9.9",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DH:Gi0/24* ~ R0:Gi0/1 active #283"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> DH applied edge#283 port"
+                    ]
+                },
+                {
+                    "step": "H finds DH by its SNMP IP",
+                    "devices": 2,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H active port_unmatched #283"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> H applied edge#283 device port_unmatched"
+                    ]
+                },
+                {
+                    "step": "a later row with chassis X and the address of H",
+                    "devices": 2,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H active port_unmatched #283"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> H applied edge#283 device port_unmatched"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "A-11",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 1990,
+                        "name": "R0",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1993,
+                        "name": "H",
+                        "chassis": "a0:00:00:00:00:28",
+                        "ip": "10.9.9.9",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 1997,
+                        "name": "DH",
+                        "chassis": "a0:00:00:00:00:28",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R0": [
+                        "Gi0/1#1992/if1"
+                    ],
+                    "H": [
+                        "Gi0/1#1996/if1"
+                    ],
+                    "DH": [
+                        "Gi0/24*#1998/if-682742"
+                    ]
+                },
+                "links": [
+                    "device_link R0:Gi0/1 ~ H superseded port_unmatched #285",
+                    "physical_link DH:Gi0/24* ~ R0:Gi0/1 active #286"
+                ],
+                "observations": [
+                    "R0:Gi0/1 -> DH applied edge#286 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a neighbor row gives DH the chassis X and the address 10.9.9.9",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DH:Gi0/24* ~ R0:Gi0/1 active #285"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> DH applied edge#285 port"
+                    ]
+                },
+                {
+                    "step": "H finds DH by its SNMP IP",
+                    "devices": 2,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H active port_unmatched #285"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> H applied edge#285 device port_unmatched"
+                    ]
+                },
+                {
+                    "step": "a later row with only the chassis X",
+                    "devices": 3,
+                    "links": [
+                        "device_link R0:Gi0/1 ~ H superseded port_unmatched #285",
+                        "physical_link DH:Gi0/24* ~ R0:Gi0/1 active #286"
+                    ],
+                    "obs": [
+                        "R0:Gi0/1 -> DH applied edge#286 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-01",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2008,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2014,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2010/if1",
+                        "Gi0/2#2011/if2",
+                        "Gi0/3#2012/if3",
+                        "Gi0/4#2013/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2015/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #289"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#289 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a Host whose inventory MAC is the chassis MAC of a neighbor Device (no Host node before)",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #289"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#289 port"
+                    ]
+                },
+                {
+                    "step": "again",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #289"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#289 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-02",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2017,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2023,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    },
+                    {
+                        "id": 2024,
+                        "name": "DY",
+                        "chassis": "a0:00:00:00:00:15",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2019/if1",
+                        "Gi0/2#2020/if2",
+                        "Gi0/3#2021/if3",
+                        "Gi0/4#2022/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2025/if-682742"
+                    ],
+                    "DY": [
+                        "Gi0/1*#2026/if-563193"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #290",
+                    "physical_link DY:Gi0/1* ~ R:Gi0/2 active #291"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#290 port",
+                    "R:Gi0/2 -> DY applied edge#291 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a Host with two inventory MACs, each the MAC of another Device",
+                    "devices": 3,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #290",
+                        "physical_link DY:Gi0/1* ~ R:Gi0/2 active #291"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#290 port",
+                        "R:Gi0/2 -> DY applied edge#291 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-03",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2028,
+                        "name": "R1",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2030,
+                        "name": "R2",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "R1": [
+                        "Gi0/1#2032/if1"
+                    ],
+                    "R2": [
+                        "Gi0/1#2033/if1"
+                    ]
+                },
+                "links": [],
+                "observations": []
+            },
+            "steps": [
+                {
+                    "step": "one MAC on the Ports of two Devices",
+                    "devices": 2,
+                    "links": [],
+                    "obs": []
+                }
+            ]
+        },
+        {
+            "id": "MAC-04",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2040,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2046,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2042/if1",
+                        "Gi0/2#2043/if2",
+                        "Gi0/3#2044/if3",
+                        "Gi0/4#2045/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2047/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #292"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#292 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "one MAC in the inventory of two Hosts",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #292"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#292 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-05",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2048,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2054,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2050/if1",
+                        "Gi0/2#2051/if2",
+                        "Gi0/3#2052/if3",
+                        "Gi0/4#2053/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2055/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #293"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#293 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "baseline: DX is associated with Host 201",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #293"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#293 port"
+                    ]
+                },
+                {
+                    "step": "Host 202 has the MAC now, Host 201 lost it; DX is already associated",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #293"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#293 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-06",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2057,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2063,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    },
+                    {
+                        "id": 2064,
+                        "name": "DY",
+                        "chassis": "a0:00:00:00:00:15",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2059/if1",
+                        "Gi0/2#2060/if2",
+                        "Gi0/3#2061/if3",
+                        "Gi0/4#2062/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2065/if-682742"
+                    ],
+                    "DY": [
+                        "Gi0/1*#2066/if-563193"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #294",
+                    "physical_link DY:Gi0/1* ~ R:Gi0/2 active #295"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#294 port",
+                    "R:Gi0/2 -> DY applied edge#295 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "baseline: DX associated with Host 201",
+                    "devices": 3,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #294",
+                        "physical_link DY:Gi0/1* ~ R:Gi0/2 active #295"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#294 port",
+                        "R:Gi0/2 -> DY applied edge#295 port"
+                    ]
+                },
+                {
+                    "step": "Host 202 holds the MACs of DX (taken) and DY",
+                    "devices": 3,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #294",
+                        "physical_link DY:Gi0/1* ~ R:Gi0/2 active #295"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#294 port",
+                        "R:Gi0/2 -> DY applied edge#295 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-07",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2069,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2071,
+                        "name": "R2",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2078,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": "mac"
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2073/if1",
+                        "Gi0/2#2074/if2",
+                        "Gi0/3#2075/if3",
+                        "Gi0/4#2076/if4"
+                    ],
+                    "R2": [
+                        "Gi0/1#2077/if1"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2079/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #296"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#296 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "baseline, no inventory yet",
+                    "devices": 3,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #296"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#296 port"
+                    ]
+                },
+                {
+                    "step": "a partial run (one reporter named)",
+                    "devices": 3,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #296"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#296 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "MAC-08",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2093,
+                        "name": "R",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2099,
+                        "name": "DX",
+                        "chassis": "a0:00:00:00:00:14",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "R": [
+                        "Gi0/1#2095/if1",
+                        "Gi0/2#2096/if2",
+                        "Gi0/3#2097/if3",
+                        "Gi0/4#2098/if4"
+                    ],
+                    "DX": [
+                        "Gi0/24*#2100/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link DX:Gi0/24* ~ R:Gi0/1 active #298"
+                ],
+                "observations": [
+                    "R:Gi0/1 -> DX applied edge#298 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "zero and malformed inventory MACs",
+                    "devices": 2,
+                    "links": [
+                        "physical_link DX:Gi0/24* ~ R:Gi0/1 active #298"
+                    ],
+                    "obs": [
+                        "R:Gi0/1 -> DX applied edge#298 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-01",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2101,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2103,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2105/if1"
+                    ],
+                    "B": [
+                        "Gi0/5#2106/if5",
+                        "Gi0/7#2107/if7"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/7 active #299"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#299 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a numeric local port id 5 and a description that names the Port Gi0/7",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/7 active #299"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#299 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-02",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2115,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2117,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2119/if1"
+                    ],
+                    "B": [
+                        "Gi0/5#2120/if5",
+                        "Gi0/7#2121/if7"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/5 active #301"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#301 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a numeric local port id with a leading zero",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/5 active #301"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#301 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-03",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2129,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2131,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2133/if1"
+                    ],
+                    "B": [
+                        "Gi0/5#2134/if5",
+                        "Gi0/7#2135/if7"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/7 active #303"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#303 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a numeric id and a description that names no Port",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/7 active #303"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#303 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-04",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2143,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2145,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2147/if1"
+                    ],
+                    "B": [
+                        "Gi0/1#2148/if1",
+                        "Gi0/2#2149/if2",
+                        "Gi0/3#2150/if3"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/3 active #305"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#305 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a port id MAC that every port of the far Device has, and the description Gi0/3",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/3 active #305"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#305 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-05",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2159,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2161,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2163/if1"
+                    ],
+                    "B": [
+                        "Gi0/1#2164/if1",
+                        "Gi0/2#2165/if2"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/2 active #307"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#307 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "an all-zero port id MAC that exactly one port has",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/2 active #307"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#307 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-06",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2173,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2175,
+                        "name": "B",
+                        "chassis": "a0:00:00:00:00:02",
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2177/if1"
+                    ],
+                    "B": [
+                        "Gi0/1#2178/if1",
+                        "Gi0/2#2179/if2"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/2 active #309"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#309 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a port id MAC that exactly one port has",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/2 active #309"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#309 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-07",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2187,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2190,
+                        "name": "X",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": "10.5.5.5",
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2189/if1"
+                    ],
+                    "X": [
+                        "Ethernet 0/1*#2191/if-865468"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ X:Ethernet 0/1* active #311"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> X applied edge#311 port",
+                    "A:Gi0/1 -> X applied edge#311 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "X advertises Ethernet 0/1 by LLDP and Eth0/1 by CDP",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ X:Ethernet 0/1* active #311"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> X applied edge#311 port",
+                        "A:Gi0/1 -> X applied edge#311 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-08",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2192,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2196,
+                        "name": "X-sw",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Mgmt0#2194/if1",
+                        "Gi0/2#2195/if2"
+                    ],
+                    "X-sw": [
+                        "Gi0/24*#2197/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/2 ~ X-sw:Gi0/24* active #312"
+                ],
+                "observations": [
+                    "A:Gi0/2 -> X-sw applied edge#312 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "quoted, padded and NUL-ended names",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/2 ~ X-sw:Gi0/24* active #312"
+                    ],
+                    "obs": [
+                        "A:Gi0/2 -> X-sw applied edge#312 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-09",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2198,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2202,
+                        "name": "X",
+                        "chassis": "a0:00:00:00:00:0a",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2200/if1",
+                        "Gi0/2#2201/if2"
+                    ],
+                    "X": [
+                        "Gi0/24*#2203/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/2 ~ X:Gi0/24* active #313"
+                ],
+                "observations": [
+                    "A:Gi0/2 -> X applied edge#313 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "the LLDP local port number 17 is not an ifIndex; the port id names Gi0/2",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/2 ~ X:Gi0/24* active #313"
+                    ],
+                    "obs": [
+                        "A:Gi0/2 -> X applied edge#313 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-10",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": null,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2204,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2209,
+                        "name": "Z",
+                        "chassis": "a0:00:00:00:00:0c",
+                        "ip": null,
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Eth1#2206/if1",
+                        "eth1#2207/if2",
+                        "Gi0/3#2208/if3"
+                    ],
+                    "Z": [
+                        "Gi0/24*#2210/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/3 ~ Z:Gi0/24* active #314"
+                ],
+                "observations": [
+                    "A:Gi0/3 -> Z applied edge#314 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "a name on several ports, a port number that is no ifIndex, one good row",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/3 ~ Z:Gi0/24* active #314"
+                    ],
+                    "obs": [
+                        "A:Gi0/3 -> Z applied edge#314 port"
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "Q-11",
+            "rating": "Правило",
+            "first_pass": false,
+            "verdict": "match",
+            "failed": [],
+            "idempotent": true,
+            "order_independent": true,
+            "covered_by": null,
+            "notes": [],
+            "actual": {
+                "devices": [
+                    {
+                        "id": 2211,
+                        "name": "A",
+                        "chassis": "a0:00:00:00:00:01",
+                        "ip": "10.0.0.1",
+                        "matched_by": null,
+                        "represented_by": "reporter_self"
+                    },
+                    {
+                        "id": 2214,
+                        "name": "B",
+                        "chassis": null,
+                        "ip": "10.0.0.2",
+                        "matched_by": null,
+                        "represented_by": null
+                    }
+                ],
+                "ports": {
+                    "A": [
+                        "Gi0/1#2213/if1"
+                    ],
+                    "B": [
+                        "Gi0/24*#2215/if-682742"
+                    ]
+                },
+                "links": [
+                    "physical_link A:Gi0/1 ~ B:Gi0/24* active #315"
+                ],
+                "observations": [
+                    "A:Gi0/1 -> B applied edge#315 port"
+                ]
+            },
+            "steps": [
+                {
+                    "step": "only the management address entries name B (the first IPv4 is 10.0.0.2)",
+                    "devices": 2,
+                    "links": [
+                        "physical_link A:Gi0/1 ~ B:Gi0/24* active #315"
+                    ],
+                    "obs": [
+                        "A:Gi0/1 -> B applied edge#315 port"
+                    ]
+                }
+            ]
         }
     ],
     "counts": {
         "verdict": {
-            "match": 145,
+            "match": 167,
             "out of harness": 18
         },
         "rating": {
             "Правило": {
-                "match": 119,
+                "match": 141,
                 "out of harness": 9
             },
             "Ограничение": {

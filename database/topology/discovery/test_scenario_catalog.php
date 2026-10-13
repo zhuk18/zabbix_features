@@ -1001,12 +1001,11 @@ c('I-22', 'Ограничение', function () {
 	}
 	foreach ([301 => mac(31), 302 => mac(32)] as $hid => $m) {
 		add_host($pdo, $hid, "h{$hid}", "h{$hid}", null);
-		API::$visible[] = $hid;
-		API::$inventory[$hid] = ['macaddress_a' => $m, 'macaddress_b' => ''];
+		$pdo->prepare('INSERT INTO host_inventory (hostid, macaddress_a, macaddress_b) VALUES (?, ?, \'\')')->execute([$hid, $m]);
 	}
-	$r = CTopologyPrototype::pullHosts();
+	h_ingest('two hosts whose inventory MACs are the MACs of two Ports of one Device');
 	$n = (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE represented_by_node_id IS NOT NULL');
-	ex($n === 1 && $r['macs_shared']['count'] === 0, 'a Device (OS + BMC as two hosts) is linked to only one host (the pull, 1:1)');
+	ex($n === 1 && $GLOBALS['H']['last_summary']['macs_shared']['count'] === 0, 'a Device (OS + BMC as two hosts) is linked to only one host (the ingest match, 1:1)');
 });
 
 c('I-23', 'Правило', function () {

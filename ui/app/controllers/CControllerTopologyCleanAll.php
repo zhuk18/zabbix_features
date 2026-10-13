@@ -7,7 +7,7 @@
  * `CTopologyPrototype` (the only topology model here — there is no tag/LLD-based T-model on
  * this branch) reads and writes them directly via raw SQL. Clicking this button therefore wipes
  * every device/port/host node and every physical_link edge outright; the topology view will
- * render empty until `ingest.php`/"Pull Zabbix hosts" repopulates it from scratch.
+ * render empty until `ingest.php` repopulates it from scratch.
  *
  * `topo_edges` is deleted before `topo_nodes` for clarity, even though the FKs
  * (topo_edges_1/topo_edges_2 → topo_nodes.id, both ON DELETE CASCADE) would clean it up on their

@@ -1371,8 +1371,7 @@ class CTopologyPrototype {
 	// (represented_by_node_id/represented_by_matched_by/represented_by_at) — not a topo_edges row.
 	// $matched_by defaults to 'manual' for the user-triggered /promote endpoint (no MAC validation
 	// happens here, or ever — promotion is a deliberate user action per topology-1-model.md "Manual `/promote` and `/depromote`", independent of the
-	// automatic reconciliation in reconcileHost()); reconcileHost() passes 'mac' explicitly, and
-	// ingest.php's mirror passes 'reporter_self'. matched_mac is deliberately NOT accepted/stored here
+	// automatic inventory MAC match, which ingest.php does itself with 'mac'); ingest.php's mirror also passes 'reporter_self'. matched_mac is deliberately NOT accepted/stored here
 	// — it has no consumer in the API/UI/acceptance criteria and would be a potentially stale snapshot
 	// (topology-1-model.md "`represented_by` (Device → Host or Proxy)", matched_by). chassis_id is not a valid $matched_by value here — Device<->Host/Proxy
 	// matching is MAC-only per topology-1-model.md "Automatic MAC match (Host only)"; chassis_id remains valid only for the unrelated
@@ -1430,42 +1429,6 @@ class CTopologyPrototype {
 			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($target_nodeid).
 				' AND '.dbConditionString('type', ['host', 'proxy']));
 		}
-	}
-
-	// topology-1-model.md "Automatic MAC match (Host only)": proxy.get is not called by this pull at all — Proxy has no automatic matching path (no MAC
-	// source, reporter_self doesn't apply, topology-1-model.md "Lazy Host/Proxy nodes"), so there's nothing here to reconcile it
-	// against; a Proxy node is only ever created via manual /promote.
-	/**
-	 * @return array  ['hosts' => hosts looked at, 'macs_shared' => ['count' => n, 'list' => [[kind, value, host_ids|node_ids]]]]:
-	 *                a MAC in the inventory of more than one Host, or on more than one Device, matches nothing
-	 *                (topology-1-model.md "Shared identifier (FR 4.h)")
-	 */
-	public static function pullHosts(): array {
-		// topology-1-model.md "Automatic MAC match (Host only)": only on a match does a Host get a topo_nodes row at all — reconcileHost() (via
-		// promote()) upserts the node and sets the representation together, in the same step. No
-		// match → nothing written for that host. This does not reduce Zabbix API traffic versus the
-		// old eager-upsert design — inventory still has to be pulled for every host to know whether
-		// it matches — the savings are in topo_nodes row count and graph size, not API call volume.
-		$hosts = API::Host()->get([
-			'output' => ['hostid'],
-			'selectInventory' => ['macaddress_a', 'macaddress_b']
-		]);
-
-		$hosts_by_mac = [];
-		foreach ($hosts as $host) {
-			foreach (['macaddress_a', 'macaddress_b'] as $field) {
-				if (!empty($host['inventory'][$field])) {
-					$hosts_by_mac[strtolower($host['inventory'][$field])][(string) $host['hostid']] = (int) $host['hostid'];
-				}
-			}
-		}
-
-		$shared = ['count' => 0, 'list' => []];
-		foreach ($hosts as $host) {
-			self::reconcileHost($host['hostid'], $host['inventory'] ?? [], $hosts_by_mac, $shared);
-		}
-
-		return ['hosts' => count($hosts), 'macs_shared' => $shared];
 	}
 
 	// linkPorts()'s whole job is linking, never creating identity — reject a port id that doesn't exist, or
@@ -2648,7 +2611,7 @@ class CTopologyPrototype {
 	// interpolating the proxy's exact name as the key parameter. This is a real, well-defined Zabbix
 	// convention, not a fuzzy/weak-key guess — but it only finds anything if some host in the instance has
 	// actually been set up to monitor this specific proxy via that convention; there's no structural guarantee
-	// one exists, same opportunistic caveat as MAC reconciliation in reconcileHost().
+	// one exists, same opportunistic caveat as the inventory MAC match in ingest.php.
 	private static function getProxyHealthItemIds(string $proxy_name): array {
 		$needle = '['.$proxy_name.']';
 		$itemids = [];
@@ -2814,70 +2777,5 @@ class CTopologyPrototype {
 		}
 
 		return $details;
-	}
-
-	// host.get's selectInterfaces never returns a 'mac' field (the Zabbix interface table only has
-	// hostid/type/ip/dns/port/useip/main) — this can never match against a real Zabbix instance. The actual
-	// MAC source is host_inventory.macaddress_a/macaddress_b (host.get selectInventory), populated only when
-	// the host uses Automatic inventory mode with a system.hw.macaddr item — most hosts on a real instance
-	// won't have it set, and an empty/missing value is a normal non-match, not an error, same as any other
-	// unmatched host. Device<->Host/Proxy matching is MAC-only (topology-1-model.md "Automatic MAC match (Host only)") — there is no generic
-	// Zabbix host field carrying an LLDP chassis ID; host_inventory.chassis is an unrelated free-text
-	// inventory field, not a valid match key here (chassis_id remains valid only for the separate
-	// Device-to-itself upsert match (topology-1-model.md "Far Device"), which this method has nothing to do with). The same MAC gap
-	// applies to Proxy (CProxy::get has no interface/inventory concept at all), so the "run Device
-	// reconciliation for each Proxy" is not implemented, and pullHosts() never calls proxy.get at
-	// all — a Proxy node is only ever created via manual /promote.
-	private static function reconcileHost(string $hostid, array $inventory, array $hosts_by_mac, array &$shared): void {
-		$note = static function (string $kind, string $mac, array $ids) use (&$shared): void {
-			foreach ($shared['list'] as $entry) {
-				if ($entry['kind'] === $kind && $entry['value'] === $mac) {
-					return;
-				}
-			}
-			$shared['count']++;
-			if (count($shared['list']) < 200) {
-				$shared['list'][] = ['kind' => $kind, 'value' => $mac, ($kind === 'host' ? 'host_ids' : 'node_ids') => array_values($ids)];
-			}
-		};
-
-		foreach (['macaddress_a', 'macaddress_b'] as $field) {
-			if (empty($inventory[$field])) {
-				continue;
-			}
-			$mac = strtolower($inventory[$field]);
-
-			// topology-1-model.md "Shared identifier": a MAC in the inventory of several Hosts matches nothing
-			if (count($hosts_by_mac[$mac] ?? []) > 1) {
-				$note('host', $mac, $hosts_by_mac[$mac]);
-				continue;
-			}
-
-			$devices = [];
-			$result = DBselect('SELECT device_id FROM topo_nodes port'.
-				' WHERE port.type='.zbx_dbstr('port').' AND port.device_id IS NOT NULL'.
-				' AND port.attrs LIKE '.zbx_dbstr('%"mac":"'.$mac.'"%'));
-			while ($device = DBfetch($result)) {
-				$devices[(int) $device['device_id']] = (int) $device['device_id'];
-			}
-
-			// a MAC on several Devices matches nothing either
-			if (count($devices) > 1) {
-				$note('device', $mac, $devices);
-				continue;
-			}
-
-			foreach ($devices as $device_id) {
-				try {
-					self::promote((string) $device_id, 'host', $hostid, 'mac');
-				}
-				catch (Exception $exception) {
-					// the 1:1 constraint (topology-1-model.md "`represented_by` (Device → Host or Proxy)") applies here too, not just to the manual endpoint: the device or
-					// this host is already represented elsewhere. Skip this candidate — it's a normal "no
-					// match" outcome for automatic reconciliation, not a failure worth aborting the pull over.
-					continue;
-				}
-			}
-		}
 	}
 }

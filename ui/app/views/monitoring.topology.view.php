@@ -88,7 +88,6 @@ $page_styles = '
 							'manual' => _('Manual only')
 						]))
 				]))->addClass('topology-header-field'),
-				(new CButton('topology-host-pull', _('Pull Zabbix hosts')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
 				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --

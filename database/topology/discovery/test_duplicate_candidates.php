@@ -169,16 +169,9 @@ class API {
 		};
 	}
 
-	/** @var array[] inventory per hostid for the Host pull: [hostid => ['macaddress_a' => .., 'macaddress_b' => ..]] */
-	public static array $inventory = [];
-
 	public static function Host() {
 		return new class {
 			public function get($options) {
-				if (isset($options['selectInventory'])) {
-					return array_map(static fn ($id): array => ['hostid' => (string) $id, 'inventory' => API::$inventory[$id]],
-						array_keys(API::$inventory));
-				}
 				return array_map(static fn ($id): array => ['hostid' => (string) $id], API::$visible);
 			}
 		};

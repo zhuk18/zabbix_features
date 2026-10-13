@@ -70,12 +70,6 @@ const view = new class {
 			// until some unrelated interaction happens to trigger the next render().
 			setTimeout(() => this.render(), 160);
 		});
-		document.getElementById('topology-host-pull').addEventListener('click', () => this.guard(async () => {
-			await this.request('topology.hosts.pull', {
-				method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-			});
-			await this.loadDevices();
-		}));
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
