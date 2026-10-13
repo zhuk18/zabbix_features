@@ -6,9 +6,9 @@ declare(strict_types=1);
 /**
  * test_ingest_identity.php — the ingest is a system process (topology-5-access-control.md §2.1, handoff 016 section 1).
  *
- * Starts the REAL ingest.php the way the web server does: no --api-url, no --api-token, no password on the command line; the database
- * settings come through the environment. A legacy (Trapper blob) reporter is found in the database tables (items, hosts, history_text),
- * not with item.get under some user's rights, so a run does not depend on who started it.
+ * Starts the REAL ingest.php the way the web server does: no API arguments, no password on the command line; the database
+ * settings come through the environment. A reporter is found in the database tables (items, hosts, topo_lld_snapshot), not with an API call
+ * under some user's rights, so a run does not depend on who started it.
  *
  * Usage: test_ingest_identity.php <PDO DSN> <database user> [password]
  * Expects a THROWAWAY database (drops and recreates the topology tables and stand-ins of the Zabbix tables).
@@ -52,14 +52,14 @@ $pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, 
 	' rows_valid INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 
-// a real legacy reporter, and a template that carries the same item (a template is not a reporter)
-$pdo->exec("INSERT INTO hosts (hostid, host, name, status) VALUES (501, 'legacy-sw', 'legacy-sw', 0), (502, 'Topology Discovery Reporter', 'tpl', 3)");
-$pdo->exec("INSERT INTO items (itemid, hostid, key_) VALUES (5001, 501, 'topology.discovery.raw'), (5002, 502, 'topology.discovery.raw')");
-$blob = ['reporter' => ['sysname' => 'legacy-sw', 'chassis_id' => '02:aa:00:00:00:01', 'mgmt_ip' => '10.9.9.1', 'vendor' => 'unknown'],
-	'ports' => [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => 'physical', 'mac' => '02:aa:00:00:00:11', 'admin_status' => 'up', 'oper_status' => 'up']],
-	'neighbors' => []];
-$pdo->prepare('INSERT INTO history_text (itemid, clock, value, ns) VALUES (?, ?, ?, 0)')->execute([5001, time() - 60, '{"stale": true}']);
-$pdo->prepare('INSERT INTO history_text (itemid, clock, value, ns) VALUES (?, ?, ?, 0)')->execute([5001, time(), json_encode($blob)]);
+// a reporter with one PORTS snapshot, and a template that carries a rule (a template is not a reporter)
+$pdo->exec("INSERT INTO hosts (hostid, host, name, status) VALUES (501, 'snap-sw', 'snap-sw', 0), (502, 'A template', 'tpl', 3)");
+$pdo->exec("INSERT INTO items (itemid, hostid, key_, topology_role) VALUES (5001, 501, 'topology.ports', 1), (5002, 502, 'topology.ports', 1)");
+$rows = [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'mac' => '02:aa:00:00:00:11', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => '02:aa:00:00:00:01']];
+foreach ([5001 => 501, 5002 => 502] as $itemid => $hostid) {
+	$pdo->prepare('INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid) VALUES (?, ?, 1, ?, ?, ?, 1, 1)')
+		->execute([$itemid, $hostid, time(), 'h', json_encode($rows)]);
+}
 
 $cmd = [PHP_BINARY, __DIR__.'/ingest.php'];
 check(!preg_grep('/pdo|api|token|password|'.preg_quote($password !== '' ? $password : 'no-password-set', '/').'/', array_slice($cmd, 1)),
@@ -76,7 +76,7 @@ check($code === 0, "the run succeeds with the settings from the environment only
 
 $device = $pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC);
 check(count($device) === 1 && (json_decode($device[0]['attrs'], true)['chassis_id'] ?? null) === '02:aa:00:00:00:01',
-	'the legacy reporter was found in the database (items + hosts) and its latest history_text value was ingested: one Device');
+	'the reporter was found in the database (items + hosts + topo_lld_snapshot) and its snapshot was ingested: one Device');
 check((int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'port'")->fetchColumn() === 1, 'its port was written');
-check(!str_contains($stdout.$stderr, 'Topology Discovery Reporter'), 'the item of a template is not a reporter');
+check(!str_contains($stdout.$stderr, 'A template'), 'the rule of a template is not a reporter');
 echo "\nAll checks passed.\n";

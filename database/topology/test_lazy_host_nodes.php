@@ -19,7 +19,7 @@ declare(strict_types=1);
  *      why "leave it in place when the host is a reporter" has no separate code path to exercise).
  *
  * Runs against this environment's actual configured Zabbix database (ui/conf/zabbix.conf.php) via
- * the real CTopologyPrototype/Zabbix API code paths — unlike test_reconciliation_scenarios.php
+ * the real CTopologyPrototype/Zabbix API code paths — unlike the in-process hook tests
  * (which drives ingest.php's PDO-only closures directly), promote()/depromote() now call
  * API::Host()/API::Proxy() to verify the target exists, so a throwaway PDO-only DB isn't enough
  * here. Picks a real, currently-unused Device/Host pair from whatever's in the DB, promotes and

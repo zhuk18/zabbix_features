@@ -6,40 +6,26 @@ declare(strict_types=1);
 /**
  * ingest.php — topology discovery "ingest" component (topology-1-model.md "Ingest").
  *
- * Reads the latest `topology.discovery.raw` value per reporter (via the Zabbix API's
- * item.get/history.get), applies the reconciliation rules (topology-1-model.md "Far Device": evidence threshold and upsert by natural key; MAC-only Device<->
- * Host/Proxy reconciliation (topology-1-model.md "Automatic MAC match (Host only)"), never-delete-on-unlink,
- * manual-link-never-downgraded (topology-1-model.md "Manual wins")), and writes to topo_nodes/topo_edges.
+ * Reads the LLD snapshots (topo_lld_snapshot: the rows of discovery rules with a topology_role, written by the server, from the native step or from
+ * "Topology by push"), applies the reconciliation rules (topology-1-model.md "Far Device": upsert by identity key; the inventory MAC match
+ * of Devices to Hosts (§10.2); never-delete-on-unlink; manual links are never downgraded (§9.2)), and writes to topo_nodes/topo_edges.
+ * There is no other input (the Trapper blob path was removed, model §5.7).
  *
  * Runs standalone against the topology tables with plain PDO — the same approach as
  * database/topology/seed.php — rather than bootstrapping Zabbix's full DB/API layer
- * (GOTCHAS.md #8) for a one-off CLI script. The upsert helpers below ($device/$port/
- * $ensure_edge) are deliberately a close mirror of seed.php's; $ensure_physical_link() and
- * $promote() are a byte-for-byte-equivalent reimplementation of
- * CTopologyPrototype::upsertPhysicalLink() and ::promote() — see the
- * comments on each for the exact correspondence. Keep it that way: don't let this drift into
- * a second, subtly different set of rules (per the brief's explicit warning).
+ * (GOTCHAS.md #8) for a one-off CLI script. $promote() is a byte-for-byte-equivalent reimplementation of
+ * CTopologyPrototype::promote() — see the comment on it for the exact correspondence. Keep it that way: don't let this drift into
+ * a second, subtly different set of rules.
  *
- * host_inventory (macaddress_a/macaddress_b) is read with a direct SQL join against
- * topo_nodes.host_ref, since ingest already holds a PDO connection to the very same Zabbix
- * database that host_inventory lives in — no second round trip through the Zabbix API is
- * needed for that part (the gotcha of topology-1-model.md "Automatic MAC match (Host only)" about host.get()'s selectInterfaces having no MAC field
- * doesn't apply here, since this never goes through selectInterfaces at all).
+ * host_inventory (macaddress_a/macaddress_b) is read by SQL: a run has no Zabbix API user, only the database.
  *
- * Reporter discovery is dynamic (topology-1-model.md "Reporters and usable snapshots"): by default
- * this script finds every reporter itself via a single item.get filtered on key
- * 'topology.discovery.raw' across all hosts — no config file enumerating reporters by hand.
- * --zabbix-host remains as an optional operator override to scope a run to specific host(s)
- * (e.g. ad-hoc testing) — it is a filter on top of dynamic discovery, not a replacement
- * registry, and omitting it (the default, no-args case) is what runs full dynamic discovery.
+ * Reporters are the hosts that have a usable snapshot (topology-1-model.md "Reporters and usable snapshots"), found in the database.
+ * --zabbix-host is an optional operator filter to scope a run to specific host(s) (e.g. ad-hoc testing); omitting it runs everything.
  *
  * Usage:
  *   ingest.php --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] [--zabbix-host <host> ...]
  *   (the same settings may come from TOPOLOGY_PDO_DSN / _USER / _PASSWORD: a run started by the web server passes them that way, so nothing
- *   secret is on the command line. --api-url / --api-token are optional and no longer used by default: the reporters are read from the database.)
- *
- * Env vars (fallbacks for the flags above): ZABBIX_API_URL, ZABBIX_API_TOKEN,
- * TOPOLOGY_PDO_DSN, TOPOLOGY_PDO_USER, TOPOLOGY_PDO_PASSWORD.
+ *   secret is on the command line.)
  */
 
 function fail(string $message): void {
@@ -47,7 +33,7 @@ function fail(string $message): void {
 	exit(1);
 }
 
-$options = getopt('', ['api-url:', 'api-token:', 'pdo-dsn:', 'pdo-user:', 'pdo-password:',
+$options = getopt('', ['pdo-dsn:', 'pdo-user:', 'pdo-password:',
 	'zabbix-host:', 'reporter-order:', 'fail-pass-b:', 'help']);
 
 if (isset($options['help'])) {
@@ -79,26 +65,19 @@ function write_status(array $status): void {
 	rename($tmp, INGEST_STATUS_FILE);
 }
 
-$api_url = $options['api-url'] ?? getenv('ZABBIX_API_URL') ?: null;
-$api_token = $options['api-token'] ?? getenv('ZABBIX_API_TOKEN') ?: null;
 $pdo_dsn = $options['pdo-dsn'] ?? getenv('TOPOLOGY_PDO_DSN') ?: null;
 $pdo_user = $options['pdo-user'] ?? getenv('TOPOLOGY_PDO_USER') ?: null;
 $pdo_password = $options['pdo-password'] ?? getenv('TOPOLOGY_PDO_PASSWORD') ?: '';
 
 if (!$pdo_dsn || !$pdo_user) {
-	fail("Usage: {$argv[0]} --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] ".
-		"[--api-url <url> --api-token <token>] [--zabbix-host <host> ...]\n\n".
-		"The API arguments are only needed for the legacy Trapper-blob reporters (hosts with the ".
-		"topology.discovery.raw item); hosts with LLD snapshots (topo_lld_snapshot) need only the database.\n\n".
-		"Credentials may also come from ZABBIX_API_URL / ZABBIX_API_TOKEN / TOPOLOGY_PDO_DSN / ".
-		"TOPOLOGY_PDO_USER / TOPOLOGY_PDO_PASSWORD env vars — never hardcode them in a script ".
-		"(see topo-change-sender.sh at the repo root for the anti-pattern this avoids).\n\n".
-		"Reporters are discovered dynamically via item.get (topology-1-model.md, Reporters and usable snapshots) — no reporter list needed. ".
+	fail("Usage: {$argv[0]} --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] [--zabbix-host <host> ...]\n\n".
+		"The settings may also come from the TOPOLOGY_PDO_DSN / TOPOLOGY_PDO_USER / TOPOLOGY_PDO_PASSWORD env vars — never hardcode them in a script.\n\n".
+		"Reporters are the hosts with a usable LLD snapshot (topology-1-model.md, Reporters and usable snapshots) — no reporter list needed. ".
 		"--zabbix-host optionally scopes a run to specific host(s) for ad-hoc testing.");
 }
 
 // Optional operator scoping — a filter on top of dynamic discovery, never a substitute for it (see the
-// file header). Empty means "no filter": every host carrying topology.discovery.raw is a reporter.
+// file header). Empty means "no filter": every host with a usable snapshot is a reporter.
 $zabbix_host_filter = isset($options['zabbix-host']) ? (array) $options['zabbix-host'] : [];
 
 // ---- Connect, then take the run lock (the very first thing a run does with the database) ----
@@ -158,151 +137,10 @@ register_shutdown_function(static function () use ($run_started_at) {
 	}
 });
 
-// ---- Zabbix API (read-only: host.get/item.get/history.get) ----
-
-final class ZabbixApi {
-	private int $request_id = 0;
-
-	public function __construct(private string $url, private string $token) {
-	}
-
-	public function call(string $method, array $params): mixed {
-		$this->request_id++;
-		$payload = json_encode(['jsonrpc' => '2.0', 'method' => $method, 'params' => $params,
-			'id' => $this->request_id], JSON_THROW_ON_ERROR);
-
-		$context = stream_context_create(['http' => [
-			'method' => 'POST',
-			'header' => "Content-Type: application/json-rpc\r\nAuthorization: Bearer {$this->token}\r\n",
-			'content' => $payload,
-			'timeout' => 15,
-			'ignore_errors' => true,
-		]]);
-		$response = file_get_contents($this->url, false, $context);
-		if ($response === false) {
-			throw new RuntimeException("Zabbix API request to {$method} failed (no response).");
-		}
-		$decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
-		if (isset($decoded['error'])) {
-			throw new RuntimeException("Zabbix API {$method} failed: ".json_encode($decoded['error']));
-		}
-		return $decoded['result'];
-	}
-
-	/** topology-1-model.md "Reporters and usable snapshots": finds every reporter by querying item.get for the
-	 * topology.discovery.raw key across ALL hosts — no hostids filter, no config file. Every host carrying
-	 * that item (i.e. every host onboarded with the Topology Discovery Reporter template) is automatically
-	 * a reporter for this run. Returns one row per matching item: ['host' => ..., 'hostid' => ..., 'itemid' => ...]. */
-	public function findAllReporterItems(): array {
-		$items = $this->call('item.get', [
-			'output' => ['itemid', 'hostid'],
-			'filter' => ['key_' => 'topology.discovery.raw'],
-			// templated => false: item.get otherwise also returns the item as defined on the template
-			// itself (a pseudo-"host" row for the template, e.g. "Topology Discovery Reporter") — only
-			// items actually inherited onto a real reporter Host count as reporters.
-			'templated' => false,
-			'selectHosts' => ['host'],
-		]);
-		$rows = [];
-		foreach ($items as $item) {
-			$rows[] = [
-				'host' => $item['hosts'][0]['host'] ?? null,
-				'hostid' => $item['hostid'],
-				'itemid' => $item['itemid'],
-			];
-		}
-		return $rows;
-	}
-
-	/** Latest text history value for an item, or null if it has never received one. */
-	public function latestValue(string $itemid): ?string {
-		$history = $this->call('history.get', ['output' => 'extend', 'itemids' => [$itemid],
-			'history' => 4, 'sortfield' => 'clock', 'sortorder' => 'DESC', 'limit' => 1]);
-		return $history ? $history[0]['value'] : null;
-	}
-}
-
-/** The same two reads as ZabbixApi, straight from the Zabbix database: no API call, no user, no session. A run (from the UI or the
- * CLI) always finds its reporters this way, so it does not depend on who started it (topology-5-access-control.md §2.1). A database without
- * the Zabbix tables (a test stand-in) has no legacy reporters. */
-final class ZabbixDb {
-	public function __construct(private PDO $pdo) {
-	}
-
-	public function findAllReporterItems(): array {
-		try {
-			// status 3 = a template: only items of real hosts count (what 'templated' => false did for item.get)
-			$stmt = $this->pdo->query("SELECT i.itemid, i.hostid, h.host FROM items i JOIN hosts h ON h.hostid = i.hostid".
-				" WHERE i.key_ = 'topology.discovery.raw' AND h.status <> 3 ORDER BY i.itemid");
-		}
-		catch (PDOException $exception) {
-			return [];
-		}
-		return array_map(static fn (array $row): array => ['host' => $row['host'], 'hostid' => (string) $row['hostid'], 'itemid' => (string) $row['itemid']],
-			$stmt->fetchAll(PDO::FETCH_ASSOC));
-	}
-
-	public function latestValue(string|int $itemid): ?string {
-		$stmt = $this->pdo->prepare('SELECT value FROM history_text WHERE itemid = ? ORDER BY clock DESC, ns DESC LIMIT 1');
-		$stmt->execute([$itemid]);
-		$value = $stmt->fetchColumn();
-		return $value === false ? null : (string) $value;
-	}
-}
-
 // ---- DB layer: mirrors seed.php's upsert helpers, plus the two pieces seed.php doesn't need
 // (physical_link's no-downgrade rule, and Device<->Host/Proxy reconciliation) ----
 
 $now = time();
-
-// The third Device-match key of topology-1-model.md "Far Device" (chassis_id -> mgmt_ip -> sysname). The sysname key is deliberately NOT a
-// global "WHERE sysname = ?" scan (that would risk merging two unrelated devices that happen to share a
-// sysname): it only matches a Device that was previously created/matched as the neighbor discovered on this
-// exact (reporter, local_if_index) pair — i.e. a Device already reachable by walking the physical_link edge
-// off $local_port_id (the local reporter Port at that if_index) to its far-side Port, then that Port's
-// owning Device via device_id. $local_port_id/$sysname are only ever passed for neighbor Devices (see the
-// $device() calls below) — the reporter Device itself is never matched this way.
-$find_device = static function (?string $chassis_id, ?string $mgmt_ip, ?int $local_port_id, ?string $sysname) use ($pdo): ?array {
-	if ($chassis_id) {
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?");
-		$stmt->execute([$chassis_id]);
-		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return [(int) $row['id'], 'chassis_id'];
-		}
-	}
-	if ($mgmt_ip) {
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mgmt_ip')) = ?");
-		$stmt->execute([$mgmt_ip]);
-		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return [(int) $row['id'], 'mgmt_ip'];
-		}
-	}
-	if ($local_port_id !== null && $sysname) {
-		$stmt = $pdo->prepare(
-			"SELECT dev.id FROM topo_edges link".
-			" JOIN topo_nodes port ON port.id = (CASE WHEN link.src_id = ? THEN link.dst_id ELSE link.src_id END)".
-			" JOIN topo_nodes dev ON dev.id = port.device_id".
-			" WHERE link.type = 'physical_link' AND (link.src_id = ? OR link.dst_id = ?)".
-			" AND port.type = 'port' AND dev.type = 'device'".
-			" AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ?"
-		);
-		$stmt->execute([$local_port_id, $local_port_id, $local_port_id, $sysname]);
-		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return [(int) $row['id'], 'sysname'];
-		}
-		// A device-level link (topology-1-model.md "`device_link` (Port → Device)") ends at the Device itself: same scoping, no Port hop.
-		$stmt = $pdo->prepare(
-			"SELECT dev.id FROM topo_edges link JOIN topo_nodes dev ON dev.id = link.dst_id".
-			" WHERE link.type = 'device_link' AND link.src_id = ? AND dev.type = 'device'".
-			" AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ?"
-		);
-		$stmt->execute([$local_port_id, $sysname]);
-		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-			return [(int) $row['id'], 'sysname'];
-		}
-	}
-	return null;
-};
 
 // ---- Identity keys and segments (topology-1-model.md §6.7.0) ----
 // A Device holds a set of identity keys (topo_identity_keys). The scope belongs to the key: a MAC chassis is global (`chassis:mac:<mac>`), any other
@@ -628,109 +466,6 @@ $pseudo_note = static function (string $outcome, int $device_id, int $port_id, s
 	$seen[$port_id] = ['outcome' => $outcome, 'index' => $index];
 };
 
-$device = static function (array $attrs, ?int $local_port_id = null) use ($pdo, $insert_node, $update_node, $now, $last_insert_id, $find_device, &$summary): int {
-	$match = $find_device($attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null, $local_port_id, $attrs['sysname'] ?? null);
-	if ($match !== null) {
-		[$existing_id, $matched_by] = $match;
-		// A neighbor sighting carries less than the Device's own report (lldpRemTable has no mgmt IP, vendor is
-		// unknown): merge instead of overwriting, or a later neighbor sighting from another reporter would wipe
-		// the mgmt_ip/vendor/sysname the Device's own push recorded — making the result depend on reporter order.
-		$existing = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
-		$existing->execute([$existing_id]);
-		$before = json_decode((string) $existing->fetchColumn(), true) ?: [];
-		foreach ($attrs as $key => $incoming) {
-			if (($incoming === null || $incoming === '' || ($key === 'vendor' && $incoming === 'unknown'))
-					&& ($before[$key] ?? null) !== null && $before[$key] !== '') {
-				$attrs[$key] = $before[$key];
-			}
-		}
-		if ($matched_by === 'sysname') {
-			$attrs['matched_by'] = 'sysname';
-		}
-		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
-		$summary['devices_updated']++;
-		return $existing_id;
-	}
-	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
-	$summary['devices_created']++;
-	$created_id = $last_insert_id();
-	foreach (['chassis', 'ip'] as $kind) {
-		if (isset($incoming[$kind.'_key'])) {
-			$insert_key($created_id, $incoming[$kind.'_key'], $kind, $seen_at);
-		}
-	}
-	return $created_id;
-};
-
-// topology-1-model.md "PORTS, LAG, LEARNED_MACS": upsert Port by (device_id, if_index), setting device_id directly on insert. Mirrors seed.php's $port().
-$port = static function (int $device_id, array $attrs) use ($insert_port_node, $update_node, $now, $last_insert_id, $find_port, &$summary): int {
-	$existing_id = $find_port($device_id, $attrs['if_index']);
-	if ($existing_id !== null) {
-		$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $existing_id]);
-		return $existing_id;
-	}
-	$insert_port_node->execute(['port', $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
-	$port_id = $last_insert_id();
-	$summary['ports_created']++;
-	return $port_id;
-};
-
-// Byte-for-byte mirror of CTopologyPrototype::upsertPhysicalLink() (ui/include/classes/topology/
-// CTopologyPrototype.php ~line 680): canonicalize direction (smaller Port id -> src_id), never let a
-// repeated 'lldp' call downgrade a 'manual' edge (only lldp->lldp or manual->lldp upgrade is written), and
-// never let a repeated 'manual' call overwrite an existing edge at all. Discovery must never delete a
-// manually-created link (topology-1-model.md "Manual wins") — this function has no delete path, only upsert, satisfying that by
-// construction.
-//
-// $reporter_port_id (topology-1-model.md "`physical_link` (Port ↔ Port)"): the port belonging to the reporter whose blob is being processed right
-// now — always $local_port_id at the one call site below, never the neighbor's (possibly pseudo-) port.
-// Once direction is canonicalized, that tells us which of last_seen_src/last_seen_dst is "this reporter's
-// side" of the edge, so a reporter whose push pipeline goes stale only stops advancing its own side —
-// the other reporter (if any) keeps confirming its side independently, and the aggregate last_seen (used
-// by the staleness indicator (topology-1-model.md "Disappearance and staleness"), unchanged) stays max(last_seen_src, last_seen_dst). Only ever 'lldp' here;
-// CTopologyPrototype::upsertPhysicalLink()'s 'manual' path has no reporter and leaves both fields unset.
-$ensure_physical_link = static function (int $port_a, int $port_b, string $discovered_via, int $reporter_port_id) use ($pdo, $insert_edge, $now, &$summary): void {
-	$reporter_is_a = $reporter_port_id === $port_a;
-	if ($port_a > $port_b) {
-		[$port_a, $port_b] = [$port_b, $port_a];
-		$reporter_is_a = !$reporter_is_a;
-	}
-	$reporter_side = $reporter_is_a ? 'last_seen_src' : 'last_seen_dst';
-
-	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_edges WHERE type = 'physical_link' AND src_id = ? AND dst_id = ?");
-	$stmt->execute([$port_a, $port_b]);
-	if ($existing = $stmt->fetch(PDO::FETCH_ASSOC)) {
-		$attrs = json_decode($existing['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
-		if ($discovered_via === 'lldp' && ($attrs['discovered_via'] ?? null) !== 'lldp') {
-			$attrs['discovered_via'] = 'lldp';
-		}
-		if ($discovered_via === 'lldp') {
-			// Update only this reporter's own side — the other side's last_seen_* is left exactly as
-			// it was, so a dead reporter on the other end shows up as that side going stale even while
-			// this confirmation keeps landing.
-			$attrs[$reporter_side] = $now;
-			$attrs['last_seen'] = max($attrs['last_seen_src'] ?? 0, $attrs['last_seen_dst'] ?? 0);
-			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
-				->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $existing['id']]);
-		}
-		// discovered_via === 'manual' on an existing edge (of either provenance): no-op by design
-		// (never downgrade, never duplicate, never touch the per-side fields).
-		return;
-	}
-	$attrs = ['discovered_via' => $discovered_via];
-	if ($discovered_via === 'lldp') {
-		$attrs[$reporter_side] = $now;
-		$attrs['last_seen'] = $now;
-	}
-	else {
-		// 'manual': no reporter confirmation cycle — last_seen/last_seen_src/last_seen_dst all stay
-		// unset rather than being zero-initialized or defaulted to "now" (topology-1-model.md "`physical_link` (Port ↔ Port)").
-		$attrs['last_seen'] = $now;
-	}
-	$insert_edge->execute(['physical_link', $port_a, $port_b, json_encode($attrs, JSON_THROW_ON_ERROR), $now]);
-	$summary['links_created']++;
-};
-
 // Byte-for-byte mirror of CTopologyPrototype::promote()'s 1:1-guard + write, called only from
 // $associate_hosts_by_mac() below with matched_by='mac' (never 'manual' — manual promotion is the separate
 // /promote endpoint's job (topology-1-model.md "`represented_by` (Device → Host or Proxy)"), not ingest's) and from the reporter_self call in the main loop below
@@ -858,18 +593,6 @@ $associate_hosts_by_mac = static function () use ($pdo, $promote, $find_or_creat
 			}
 		}
 	}
-};
-
-// Mirror of push.py's resolve_port_label() (see that file's docstring for why the rule lives in both
-// places): prefer lldpRemPortDesc; only when empty, branch on lldpRemPortIdSubtype.
-$resolve_port_label = static function (?string $remote_port_desc, ?string $remote_port_id, ?string $remote_port_id_subtype): string {
-	if ($remote_port_desc) {
-		return $remote_port_desc;
-	}
-	if (in_array($remote_port_id_subtype, ['interfaceName', 'macAddress'], true) && $remote_port_id) {
-		return $remote_port_id;
-	}
-	return $remote_port_id ?: 'unknown';
 };
 
 // BEGIN port-name-forms.tsv (generated by database/topology/discovery/gen_port_name_forms.py from normalization/port-name-forms.tsv; do not edit)
@@ -1228,32 +951,6 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		"on device #{$reporter_device_id}\n";
 };
 
-// The symmetric half $merge_pseudo_port() alone doesn't cover: that function only runs while upserting a
-// reporter's OWN real ports, so it only cleans up a pseudo-Port that already existed *before* this pass.
-// It does nothing to stop the neighbor-port-creation code below (unconditional, see topology-1-model.md "Far port") from
-// fabricating a *fresh* pseudo-Port on a neighbor that already has a matching real port from some earlier
-// pass — e.g. Router1 processed first in this run (its own merge already ran and found nothing to do
-// yet), then Switch1 processed later in the same run mentions Router1 as a neighbor and would otherwise
-// mint a brand-new pseudo-Port right next to Router1's real one, every single run, forever (confirmed live:
-// without this, the same duplicate reappears under a new id after every ingest pass, never actually
-// converging). This is the mirror-image check, run *before* fabricating a neighbor pseudo-Port at all: if
-// the neighbor Device already has a real (non-pseudo) Port whose name normalizes to match, use that real
-// Port's id directly and never create a pseudo one in the first place. Returns null when there's no such
-// real port (the ordinary case — proceed with pseudo-Port creation as before).
-$find_matching_real_port = static function (int $device_id, string $name, ?bool &$ambiguous = null) use ($pdo, $normalize_port_name): ?int {
-	$normalized = $normalize_port_name($name);
-	$stmt = $pdo->prepare(
-		"SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
-		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = false");
-	$stmt->execute([$device_id]);
-	$matches = array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC),
-		static fn (array $p): bool => $normalize_port_name((string) $p['name']) === $normalized));
-	// Same "never guess" rule as $merge_pseudo_port(): only act on an unambiguous single match. $ambiguous
-	// tells a caller that cares (the LLD snapshot path records it) apart from "no candidate at all".
-	$ambiguous = count($matches) > 1;
-	return count($matches) === 1 ? (int) $matches[0]['id'] : null;
-};
-
 // topology-1-model.md §6.7.2 "Far port": the far port of a neighbor row is decided by the port id subtype (`rem_port_type`); the LLDP port
 // description (`rem_port_desc`, often free text) is only a fallback. One function for both kinds of far Device:
 //  - reporter (authoritative ports): ['port' => id] when exactly one real Port matches (primary match by subtype, else the description
@@ -1332,9 +1029,8 @@ $far_pseudo_name = static function (array $row) use ($norm_numeric_id): string {
 
 // ============================================================================================================
 // LLD snapshot path (topology-1-model.md "Ingest"). A host with rows in topo_lld_snapshot is a reporter whose
-// data comes from discovery rules with a topology_role instead of the Trapper blob above. Everything below
-// reuses the closures defined earlier (device/port matching, pseudo-port merge, promote, reconcile) — only the
-// input shape and the per-role handling are new. Every last_seen written here comes from the snapshot's own
+// data comes from discovery rules with a topology_role (the only input). It reuses the closures defined earlier
+// (pseudo-port merge, promote, keys). Every last_seen written here comes from the snapshot's own
 // clock, never from $now (topology-1-model.md "Snapshot rules", rule 3): running ingest twice over unchanged snapshots changes nothing.
 // ============================================================================================================
 
@@ -2081,8 +1777,7 @@ $snap_other_links = static function (int $port_a, int $port_b) use ($pdo): array
 	return ['manual' => $manual, 'discovered' => $discovered];
 };
 
-// The reporter's own Device is represented by its own Host (topology-1-model.md "Reporter identity (`reporter_self`)"). Same code path and log lines
-// as the blob path; $promote() itself is untouched.
+// The reporter's own Device is represented by its own Host (topology-1-model.md "Reporter identity (`reporter_self`)"). $promote() itself is untouched.
 $snap_link_reporter_self = static function (int $device_id, string $hostid, string $host_label) use (
 	$pdo, $find_or_create_host_node, $promote
 ): void {
@@ -2375,9 +2070,9 @@ $reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chass
  */
 $snap_reporter_identity = static function (array $reporter, array $own, array $claimed, array $exclude) use (
 	$q_key, &$current_ip_keys,
-	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
+	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$label = $reporter['host'];
@@ -2485,9 +2180,9 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 /** Pass A, step 2: PORTS, LAG and LEARNED_MACS of one reporter (§6.5). */
 $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 
-	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
+	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -2630,9 +2325,9 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 /** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). */
 $snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
 
-	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$resolve_local_port, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
+	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -3588,7 +3283,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 // ---- Testability hook, no effect on a normal CLI invocation (the constant is never defined
 // there) ----
 //
-// test_reconciliation_scenarios.php includes this script with TOPOLOGY_INGEST_TEST_HOOK defined
+// test_normalization.php, test_identity_normalization.php and test_device_link_validation.php include this script with TOPOLOGY_INGEST_TEST_HOOK defined
 // as a callable, so it can exercise the exact upsert/matching closures above ($device, $port,
 // $find_device, $ensure_physical_link, $promote, $merge_pseudo_port, ...) against a throwaway DB
 // without going through the Zabbix API, the file lock, or the per-reporter loop below — none of
@@ -3600,8 +3295,6 @@ if (defined('TOPOLOGY_INGEST_TEST_HOOK')) {
 	return;
 }
 
-// The API is optional (an explicit CLI choice); by default the legacy reporters are read from the database, never with a user's rights.
-$api = ($api_url && $api_token) ? new ZabbixApi($api_url, $api_token) : new ZabbixDb($pdo);
 $processed = 0;
 $skipped = 0;
 
@@ -3936,26 +3629,11 @@ catch (Throwable $exception) {
 	fwrite(STDERR, "ERROR: the inventory MAC match failed: {$exception->getMessage()}\n");
 }
 
-// ---- Legacy Trapper-blob reporters. A host that has LLD snapshots is ingested from them only. ----
-$reporter_items = $api->findAllReporterItems();
-if ($zabbix_host_filter) {
-	$reporter_items = array_values(array_filter($reporter_items,
-		static fn (array $row): bool => in_array($row['host'], $zabbix_host_filter, true)));
-}
-foreach ($reporter_items as $key => $row) {
-	if (isset($snapshot_reporters[(int) $row['hostid']])) {
-		echo "NOTE: '{$row['host']}' has both a topology.discovery.raw item and LLD snapshots — using the ".
-			"snapshots, ignoring the blob\n";
-		unset($reporter_items[$key]);
-	}
-}
-$reporter_items = array_values($reporter_items);
-
-if (!$reporter_items && !$snapshot_reporters) {
+if (!$snapshot_reporters) {
 	// Zero reporters is a normal "nothing onboarded yet" state (topology-1-model.md "Reporters and usable snapshots"), not an error — succeed with
 	// nothing to do rather than failing the run.
-	echo "No reporters found (no host has LLD snapshots or carries the topology.discovery.raw item yet — nothing ".
-		"onboarded, or --zabbix-host didn't match any onboarded reporter). Nothing to ingest.\n";
+	echo "No reporters found (no host has an LLD snapshot yet — nothing onboarded, or --zabbix-host didn't match any onboarded ".
+		"reporter). Nothing to ingest.\n";
 	if (!$zabbix_host_filter) {
 		$clean_stale_observations([]);
 	}
@@ -3964,171 +3642,12 @@ if (!$reporter_items && !$snapshot_reporters) {
 	exit(0);
 }
 
-foreach ($reporter_items as $reporter_item) {
-	$zabbix_host = $reporter_item['host'] ?? "hostid:{$reporter_item['hostid']}";
-	echo "--- {$zabbix_host} ---\n";
-
-	try {
-		$itemid = $reporter_item['itemid'];
-
-		$raw = $api->latestValue($itemid);
-		if ($raw === null) {
-			echo "SKIP: topology.discovery.raw has no history yet for '{$zabbix_host}'\n";
-			$skipped++;
-			continue;
-		}
-
-		$blob = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-
-		$pdo->beginTransaction();
-
-		// Reporter Device + its Ports (upsert, topology-1-model.md "PORTS, LAG, LEARNED_MACS").
-		$reporter_attrs = [
-			'mac' => null,
-			'chassis_id' => $blob['reporter']['chassis_id'] ?? null,
-			'mgmt_ip' => $blob['reporter']['mgmt_ip'] ?? null,
-			'sysname' => $blob['reporter']['sysname'] ?? '',
-			'vendor' => $blob['reporter']['vendor'] ?? 'unknown',
-			'last_seen' => $now,
-		];
-		$reporter_device_id = $device($reporter_attrs);
-
-		$local_ports = []; // if_index => port node id, for wiring neighbors below
-		$reporter_macs = [];
-		foreach ($blob['ports'] as $port_blob) {
-			$attrs = [
-				'if_index' => (int) $port_blob['if_index'],
-				'name' => $port_blob['name'] ?? '',
-				'if_type' => $port_blob['if_type'] ?? 'physical',
-				'mac' => $port_blob['mac'] ?? null,
-				'speed' => $port_blob['speed'] ?? null, // not carried by the blob shape (topology-3-push-delivery.md "Legacy blob path") — see report
-				'admin_status' => $port_blob['admin_status'] ?? 'down',
-				'oper_status' => $port_blob['oper_status'] ?? 'down',
-				'learned_macs' => [], // CAM-table walk is out of scope for this iteration (topology-1-model.md "Scope")
-				'zabbix_itemids' => [],
-				'pseudo' => false, // topology-1-model.md "Nodes: Attributes by type": real port, from this Device's own push.
-			];
-			$local_ports[$attrs['if_index']] = $port($reporter_device_id, $attrs);
-			if ($attrs['mac']) {
-				$reporter_macs[] = $attrs['mac'];
-			}
-
-			// topology-1-model.md "Pseudo-port merge" — real ports only, right after upserting one (see the closure's
-			// own comment for why it must not run anywhere else, e.g. the neighbor pseudo-port path below).
-			$merge_pseudo_port($reporter_device_id, $local_ports[$attrs['if_index']], $attrs['name']);
-		}
-
-		// topology-1-model.md "Far Device": only an LLDP-resolved neighbor becomes a Device — the push component already computed
-		// stats.resolved on this same "chassis_id or sysname present" test; re-derive per-entry here since
-		// that's the actual gate for whether *this* entry creates a Device, not just a count.
-		foreach ($blob['neighbors'] as $neighbor) {
-			$chassis_id = $neighbor['remote_chassis_id'] ?? null;
-			$sysname = $neighbor['remote_sysname'] ?? null;
-			if (!$chassis_id && !$sysname) {
-				continue; // unresolved neighbor: not a Device, and nothing else to do with it in this
-				          // iteration (no CAM-table learned_macs pass here — see report gap notes).
-			}
-
-			$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
-			$neighbor_attrs = [
-				'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-				'chassis_id' => $chassis_id,
-				'mgmt_ip' => null, // lldpRemTable carries no IP; a real mgmt IP needs a separate lookup (report gap)
-				'sysname' => $sysname ?? '',
-				'vendor' => 'unknown',
-				'last_seen' => $now,
-			];
-			// The third match key of topology-1-model.md "Far Device" needs the local reporter Port at this neighbor's local_if_index up
-			// front (it scopes the sysname lookup to "already linked off this exact port") — compute it
-			// before the Device upsert rather than after, unlike the physical_link wiring below which only
-			// needs it once the neighbor Port also exists.
-			$local_if_index = (int) $neighbor['local_if_index'];
-			$local_port_id = $local_ports[$local_if_index] ?? null;
-			$neighbor_device_id = $device($neighbor_attrs, $local_port_id);
-
-			$neighbor_port_label = $resolve_port_label($neighbor['remote_port_desc'] ?? null, $neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
-
-			// topology-1-model.md "Pseudo-port merge": before fabricating a pseudo-Port for this neighbor, check whether it already
-			// has a real one (from its own push, in this run or an earlier one) that's plainly the same
-			// physical port — see $find_matching_real_port()'s comment for why this proactive check is
-			// needed in addition to (not instead of) $merge_pseudo_port() below.
-			$neighbor_port_id = $find_matching_real_port($neighbor_device_id, $neighbor_port_label);
-			if ($neighbor_port_id === null) {
-				$neighbor_if_index = $pseudo_if_index($neighbor['remote_port_id'] ?? null, $neighbor['remote_port_id_subtype'] ?? null);
-				$neighbor_port_attrs = [
-					'if_index' => $neighbor_if_index,
-					'name' => $neighbor_port_label,
-					'if_type' => 'physical',
-					'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-					'speed' => null,
-					'admin_status' => 'up',
-					'oper_status' => 'up',
-					'learned_macs' => [],
-					'zabbix_itemids' => [],
-					'pseudo' => true, // topology-1-model.md "Nodes: Attributes by type": fabricated only from a neighbor's LLDP sighting, not this Device's own push.
-				];
-				$neighbor_port_id = $port($neighbor_device_id, $neighbor_port_attrs);
-			}
-
-			if ($local_port_id !== null) {
-				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp', $local_port_id);
-			}
-		}
-
-		// topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": the reporter's own Device is represented_by its own Host deterministically — this
-		// is a separate path from the opportunistic MAC reconciliation (topology-1-model.md "Automatic MAC match (Host only)"), not a variant of it.
-		// The inventory MAC match ($associate_hosts_by_mac, §10.2) is not used for the reporter itself: ingest
-		// already knows the reporter's exact hostid for certain (from $reporter_item, the very item.get
-		// row that located this reporter in the first place), so there's no ambiguity to resolve via MAC
-		// matching, and no need to wait on a MAC even existing in inventory at all.
-		$reporter_host_nodeid = $find_or_create_host_node((string) $reporter_item['hostid']);
-		if ($promote($reporter_device_id, $reporter_host_nodeid, 'reporter_self')) {
-			echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} represented_by its own host ".
-				"node #{$reporter_host_nodeid} (matched_by: reporter_self)\n";
-		}
-		else {
-			// $promote() returns false both for a genuine conflict (Device/Host already represented_by
-			// something ELSE) and, on a re-run, for the idempotent case where it's already correctly
-			// linked to this exact host node — distinguish the two here purely for clearer logging
-			// ($promote() itself stays untouched, per scope).
-			$already_correct = $pdo->prepare(
-				"SELECT 1 FROM topo_nodes WHERE id = ? AND type = 'device' AND represented_by_node_id = ?");
-			$already_correct->execute([$reporter_device_id, $reporter_host_nodeid]);
-			if ($already_correct->fetch()) {
-				echo "OK: reporter '{$zabbix_host}' device #{$reporter_device_id} already represented_by ".
-					"its own host node #{$reporter_host_nodeid} (matched_by: reporter_self) — no change\n";
-			}
-			else {
-				echo "CONFLICT: reporter '{$zabbix_host}' device #{$reporter_device_id} or its host node ".
-					"#{$reporter_host_nodeid} already has a represented_by edge to something else — leaving ".
-					"the existing edge in place, not overriding it (1:1 constraint)\n";
-			}
-		}
-
-		$pdo->commit();
-		echo "OK: ingested blob for '{$zabbix_host}' — device #{$reporter_device_id}, ".
-			count($blob['ports'])." ports, ".count($blob['neighbors'])." neighbor entries ".
-			"(stats: ".json_encode($blob['stats'] ?? []).")\n";
-		$processed++;
-	}
-	catch (Throwable $exception) {
-		if ($pdo->inTransaction()) {
-			$pdo->rollBack();
-		}
-		// One reporter's bad/unparseable blob must never abort the whole ingest run — same
-		// partial-failure principle as the push component's per-neighbor handling (topology-3-push-delivery.md "Legacy blob path").
-		fwrite(STDERR, "ERROR: failed to ingest '{$zabbix_host}': {$exception->getMessage()}\n");
-		$skipped++;
-	}
-}
-
 // ---- Address keys follow the current rows (topology-1-model.md §6.7.0) ----
 // At the end of a full run an `ip:` key goes when no current input gives it to its Device: a reporter's Device keeps its SNMP interface IP, any other Device
 // the addresses of the current snapshot rows of all reporters (a failed rule keeps its last good snapshot, so its rows are the current ones). The only key
-// of a Device is kept. Chassis keys do not follow this rule. Not touched: a run scoped to some hosts (it cannot see every input), a run that also has
-// legacy blob reporters (they do not feed the keys), the Device of a reporter_self host that has no data in this run, and the Devices that a failed
+// of a Device is kept. Chassis keys do not follow this rule. Not touched: a run scoped to some hosts (it cannot see every input), the Device of a reporter_self host that has no data in this run, and the Devices that a failed
 // reporter's observations point at. One query reads the keys, one statement per chunk removes the stale ones.
-if (!$zabbix_host_filter && !$reporter_items) {
+if (!$zabbix_host_filter) {
 	$protected = [];
 	if ($frozen_itemids) {
 		foreach ($pdo->query('SELECT DISTINCT device_id FROM topo_observations WHERE device_id IS NOT NULL AND itemid IN ('.

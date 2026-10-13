@@ -6,7 +6,7 @@ declare(strict_types=1);
 /**
  * test_device_link_validation.php — topology-1-model.md "Relationships" (type validation, reasons) and its acceptance criteria.
  *
- * Runs ingest.php in-process through TOPOLOGY_INGEST_TEST_HOOK (like test_reconciliation_scenarios.php) to reach the
+ * Runs ingest.php in-process through TOPOLOGY_INGEST_TEST_HOOK to reach the
  * closure that validates every edge write: a physical_link with a Device end, a device_link with a Port dst, and an
  * unknown far_port_reason are rejected; fdb_mac_only (reserved, never produced) is accepted.
  *

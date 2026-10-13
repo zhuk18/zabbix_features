@@ -149,15 +149,14 @@ push.collect_walk = lambda *a, **k: (_ for _ in ()).throw(push.SnmpError("snmpbu
 push.send_role_values = lambda host, values, *a, **k: sent.update(values=values)
 try:
     cfg = push.ReporterConfig(name="R", zabbix_host="R", mgmt_ip="192.0.2.1", snmp_target="127.0.0.1", snmp_port=1611)
-    ok = push.run_reporter(cfg, argparse.Namespace(legacy_blob=False, dry_run=False, sender_server="x", sender_port=1,
+    ok = push.run_reporter_rows(cfg, argparse.Namespace(dry_run=False, sender_server="x", sender_port=1,
                                                    sender_bin="x"))
 finally:
     push.collect_walk, push.send_role_values = real_collect, real_send
 check(ok is False and sent.get("values") == {}, "SNMP failure: no role values, the call still happens (heartbeat), run reports failure")
 
 print("\n=== heartbeat key ===")
-check(push.HEARTBEAT_KEY == "topology.push.heartbeat" and push.HEARTBEAT_KEY != push.HEARTBEAT_ITEM_KEY,
-      "push sends topology.push.heartbeat; the legacy blob keeps topology.discovery.heartbeat")
+check(push.HEARTBEAT_KEY == "topology.push.heartbeat", "push sends topology.push.heartbeat")
 
 
 print("\n=== a truncated walk is a failure (topology-3-push-delivery.md, Design rules: failed is not empty) ===")
@@ -223,19 +222,12 @@ push.collect_walk = lambda *a, **k: run_with({rem: swapped})
 push.send_role_values = lambda host, values, *a, **k: sent.update(values=dict(values))
 try:
     cfg = push.ReporterConfig(name="R", zabbix_host="R", mgmt_ip="192.0.2.1", snmp_target="127.0.0.1", snmp_port=1611)
-    ok = push.run_reporter(cfg, argparse.Namespace(legacy_blob=False, dry_run=False, sender_server="x", sender_port=1,
+    ok = push.run_reporter_rows(cfg, argparse.Namespace(dry_run=False, sender_server="x", sender_port=1,
                                                    sender_bin="x"))
 finally:
     push.collect_walk, push.send_role_values = real_collect, real_send
 check(ok is False and list(sent.get("values", {})) == [push.ROLE_PORTS_KEY],
       "the run sends the ports role (and the heartbeat), not the LLDP role")
-
-# Port class (topology-1-model.md §6.6): the table of ingest.php, for the legacy blob
-for code, name, want in ((24, "Loopback0", "virtual"), (53, "Vlan10", "virtual"), (131, "Tunnel1", "virtual"), (135, "Gi0/1.100", "virtual"),
-                         (136, "Vlan20", "virtual"), (150, "Tu2", "virtual"), (166, "mpls0", "virtual"), (161, "Po1", "lag"),
-                         (6, "mgmt0", "mgmt"), (6, "Management0/0", "mgmt"), (6, "fxp0", "mgmt"), (6, "ME0", "mgmt"), (6, "oob1", "mgmt"),
-                         (6, "Gi0/1", "physical"), (1, "Gi0/2", "physical"), (6, "", "physical"), (24, "mgmt0", "virtual")):
-    check(push.port_class(code, name) == want, f"port class: IANA {code}, {name!r} -> {want}")
 
 # Decoding cases shared with the native step (step_golden/decoding_cases.json; push.py has no CDP)
 print("\n=== decoding (decoding_cases.json) ===")

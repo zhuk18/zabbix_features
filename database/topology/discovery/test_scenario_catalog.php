@@ -2380,8 +2380,6 @@ c('C-17', 'Вывод', function () {
 	ex(($o['outcome'] ?? null) === 'conflict' && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'the stale snapshot supports the old link and blocks the replacement: conflict');
 });
 
-oh('C-18', 'Правило', 'needs the legacy blob item (topology.discovery.raw) read through the Zabbix API, which the harness does not simulate; no existing test found for the "snapshots win" line', null);
-oh('C-19', 'Ограничение', 'the legacy loop reads blobs through the API', 'database/topology/discovery/test_reconciliation_scenarios.php (legacy closures)');
 oh('C-20', 'Правило', 'needs two concurrent processes', 'database/topology/discovery/test_ingest_lock.php');
 
 c('C-21', 'Правило', function () {

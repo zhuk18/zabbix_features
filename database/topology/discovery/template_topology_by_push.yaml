@@ -19,8 +19,7 @@ zabbix_export:
 
         Do not link this template together with "Topology by SNMP" for the same role and protocol (two rules would
         report the same data; ingest reports such a host as hosts_duplicate_transport). Different protocols are fine:
-        LLDP by SNMP and CDP by push on one host. The legacy "Topology Discovery Reporter" may stay linked during a
-        transition: its heartbeat key is topology.discovery.heartbeat, this one's is topology.push.heartbeat.
+        LLDP by SNMP and CDP by push on one host.
         Who may send is set by {$TOPOLOGY.PUSH.ALLOWED_HOSTS} ("Allowed hosts" of the rules; an empty value allows nobody).
       groups:
         - name: 'Templates/Network devices'
