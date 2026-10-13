@@ -1,8 +1,7 @@
 [
     {
-        "{#IFINDEX}": "1",
-        "{#IFNAME}": "eth0",
         "{#LOC_CHASSIS}": "00:11:22:33:44:05",
+        "{#LOC_PORT_NUM}": "1",
         "{#REM_CHASSIS}": "00:11:22:33:44:12",
         "{#REM_PORT_DESC}": "GigabitEthernet0/1",
         "{#REM_PORT}": "Gi0/1",

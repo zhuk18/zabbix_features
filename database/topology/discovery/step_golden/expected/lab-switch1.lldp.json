@@ -1,8 +1,7 @@
 [
     {
-        "{#IFINDEX}": "1",
-        "{#IFNAME}": "Gi0/24",
         "{#LOC_CHASSIS}": "00:11:22:33:44:02",
+        "{#LOC_PORT_NUM}": "1",
         "{#REM_CHASSIS}": "00:11:22:33:44:01",
         "{#REM_PORT_DESC}": "GigabitEthernet0/0",
         "{#REM_PORT}": "Gi0/0",
@@ -10,9 +9,8 @@
         "{#SOURCE}": "lldp"
     },
     {
-        "{#IFINDEX}": "2",
-        "{#IFNAME}": "Gi0/2",
         "{#LOC_CHASSIS}": "00:11:22:33:44:02",
+        "{#LOC_PORT_NUM}": "2",
         "{#REM_CHASSIS}": "00:11:22:33:44:12",
         "{#REM_PORT_DESC}": "GigabitEthernet0/24",
         "{#REM_PORT}": "Gi0/24",

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Writes the code copies of normalization/port-name-forms.tsv (topology-6-normalization.md §4.6) into the three implementations, between the markers
-`BEGIN port-name-forms.tsv` / `END port-name-forms.tsv`:
-  src/libs/zbxpreproc/preproc_topology.c  (a C table)      database/topology/discovery/push.py  (a tuple)      database/topology/discovery/ingest.php  (a constant)
-The table is sorted longest long form first in all three (the first match wins).
+"""Writes the code copies of normalization/port-name-forms.tsv (topology-6-normalization.md §4.6) into ingest.php (the only place that decides), between the markers
+`BEGIN port-name-forms.tsv` / `END port-name-forms.tsv`: database/topology/discovery/ingest.php (a constant).
+The table is sorted longest long form first (the first match wins). The native step and push.py do not use it (handoff 025: the step extracts, ingest decides).
 
   gen_port_name_forms.py [--spec PATH] [--check]
 
@@ -18,8 +17,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 SPEC = os.environ.get("TOPOLOGY_NORMALIZATION_FORMS", "/media/sf_topology-specs/normalization/port-name-forms.tsv")
 FILES = {
-    "c": os.path.join(REPO, "src", "libs", "zbxpreproc", "preproc_topology.c"),
-    "py": os.path.join(HERE, "push.py"),
     "php": os.path.join(HERE, "ingest.php"),
 }
 BEGIN, END = "BEGIN port-name-forms.tsv", "END port-name-forms.tsv"

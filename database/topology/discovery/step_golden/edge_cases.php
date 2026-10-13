@@ -150,18 +150,19 @@ foreach ([['', 'error'], ['bogus', 'error'], ['ports', 'sometimes'], ['fdb', 'em
 	check(!$r['ok'] && str_contains($r['text'], 'invalid'), 'invalid parameters '.json_encode($args).' -> error', $r['text']);
 }
 
-echo "\n=== local port (steps 1-4) and management address (lldp_cases.json, also run through push.py) ===\n";
-foreach (json_decode((string) file_get_contents(__DIR__.'/lldp_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
-	$r = step($case['walk'], 'lldp', 'error');
+echo "\n=== decoding (decoding_cases.json, also run through push.py; the step extracts, ingest decides) ===\n";
+foreach (json_decode((string) file_get_contents(__DIR__.'/decoding_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
+	$r = step($case['walk'], $case['source'], 'error');
 	$row = $r['rows'][0] ?? null;
-	check($r['ok'] && count($r['rows'] ?? []) === 1 && ($row['{#IFINDEX}'] ?? null) === $case['expect_ifindex'] && ($row['{#REM_MGMT_IP}'] ?? null) === $case['expect_ip'],
-		"[{$case['rule']}] {$case['name']}", $r['text']);
-}
+	$bad = [];
 
-echo "\n=== walk[] text of STRING values (text_cases.json, also run through push.py) ===\n";
-foreach (json_decode((string) file_get_contents(__DIR__.'/text_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
-	$r = step($case['walk'], 'ports', 'error');
-	check($r['ok'] && count($r['rows'] ?? []) === 1 && ($r['rows'][0]['{#IFNAME}'] ?? null) === $case['expect_ifname'], $case['name'], $r['text']);
+	foreach ($case['expect'] as $macro => $value) {
+		if (($row[$macro] ?? null) !== $value) {
+			$bad[] = $macro.': '.json_encode($row[$macro] ?? null, JSON_UNESCAPED_UNICODE).' != '.json_encode($value, JSON_UNESCAPED_UNICODE);
+		}
+	}
+
+	check($r['ok'] && count($r['rows'] ?? []) === 1 && !$bad, "[{$case['source']}] {$case['name']}", implode('; ', $bad).' | '.$r['text']);
 }
 
 echo "\n".($failures === 0 ? "OK: {$checks} checks\n" : "FAILED: {$failures} of {$checks} checks\n");

@@ -13,15 +13,20 @@ declare(strict_types=1);
  * expected/<fixture>.<source>.json. --generate rewrites the expected files from the JavaScript (zabbix_js) instead;
  * the JS is the reference, the diff of that rewrite is the review.
  *
+ * Since LLD spec 2.4 ("the step extracts, ingest decides") the rows of ports, lldp and cdp are the raw contract of model §5.2 (new fields, no local port
+ * resolution, no name fallback, no normalization): the JS does not produce them, so those expectations are decided differences from the JS and are
+ * written with --from-step (the diff of that rewrite is the review). fdb and lag stay the JS output.
+ *
  * Rows are compared as sets: the JS and the C step order rows differently, and ingest sorts them again before
  * hashing (topology-1-model.md "Snapshot rules"). Every fixture is also compared live against the JS when zabbix_js is available.
  */
 
 $root = dirname(__DIR__, 4);
-$options = getopt('', ['generate', 'topo-step::', 'zabbix-js::']);
+$options = getopt('', ['generate', 'from-step', 'topo-step::', 'zabbix-js::']);
 $topo_step = $options['topo-step'] ?? __DIR__.'/topo_step';
 $zabbix_js = $options['zabbix-js'] ?? $root.'/src/zabbix_js/zabbix_js';
 $generate = array_key_exists('generate', $options);
+$from_step = array_key_exists('from-step', $options);      // rewrite the decided expectations (ports, lldp, cdp) from the step: the diff is the review
 $js_dir = dirname(__DIR__).'/lld_js';
 $fixtures = array_merge(glob(dirname(__DIR__).'/lld_js/fixtures/*.walk'), glob(__DIR__.'/fixtures/*.walk'));
 sort($fixtures);
@@ -90,11 +95,10 @@ if (!is_executable($topo_step)) {
 $have_js = is_executable($zabbix_js);
 
 /* Expected outputs that follow the spec where it was decided against the temporary JS (the JS stays the reference everywhere else). */
-$decided = [
-	'synthetic-core lldp' => 'LLD 2.1 §4.4 Mgmt IP: an IPv6 address when there is no IPv4 (the JS reads IPv4 only), handoff 024',
-];
+$decided_sources = ['ports', 'lldp', 'cdp'];
+$decided_note = 'LLD 2.4 §4.4: the raw contract of model §5.2; the JS has the old rows (handoff 025)';
 
-if ($generate && !$have_js) {
+if ($generate && !$from_step && !$have_js) {
 	fwrite(STDERR, "--generate needs zabbix_js ({$zabbix_js}).\n");
 	exit(1);
 }
@@ -108,8 +112,30 @@ foreach ($fixtures as $walk_file) {
 		$expected_file = __DIR__.'/expected/'.$name.'.'.$source.'.json';
 		$js_rows = $have_js && $rule !== null ? run_js($zabbix_js, $js_dir, $rule, $walk_file) : null;
 
+		if ($generate && $from_step) {
+			if (!in_array($source, $decided_sources, true)) {
+				continue;
+			}
+
+			$c = run_c($topo_step, $walk_file, $source);
+
+			if (!$c['ok'] || $c['rows'] === null) {
+				echo "  skip: {$name} {$source}: the step answers ".trim($c['text'])."\n";
+				continue;
+			}
+
+			$rows = $c['rows'];
+			usort($rows, static fn ($a, $b) => strcmp(json_encode($a), json_encode($b)));
+			file_put_contents($expected_file, json_encode(array_map(static function (array $row) {
+				ksort($row);
+				return $row;
+			}, $rows), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
+			echo "  wrote: {$name} {$source} (".count($rows)." rows)\n";
+			continue;
+		}
+
 		if ($generate) {
-			if ($rule === null || isset($decided["{$name} {$source}"])) {
+			if ($rule === null || in_array($source, $decided_sources, true)) {
 				continue;	// hand-reviewed expectation, never overwritten
 			}
 
@@ -155,8 +181,8 @@ foreach ($fixtures as $walk_file) {
 				"\n        JS: ".implode("\n             ", array_diff(canonical($expected), canonical($c['rows']))) : $c['text']
 		);
 
-		if (isset($decided["{$name} {$source}"])) {
-			echo "  note: {$name} {$source}: the expected output differs from the JS by decision ({$decided["{$name} {$source}"]})\n";
+		if (in_array($source, $decided_sources, true)) {
+			// not compared with the JS (see the header)
 		}
 		elseif ($js_rows !== null && $rule !== null) {
 			check(canonical($js_rows) === canonical($expected), "{$name} {$source}: the committed expected output is the JS output");

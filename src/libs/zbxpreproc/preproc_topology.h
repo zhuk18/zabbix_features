@@ -19,7 +19,5 @@
 
 int	item_preproc_snmp_walk_to_topology(zbx_variant_t *value, const char *params, char **errmsg);
 
-/* test hook of the golden tests (step_golden/driver.c): a normalization function of topology-6-normalization.md on bytes */
-char	*zbx_preproc_topology_test_call(const char *function, const unsigned char *input, size_t len);
 
 #endif

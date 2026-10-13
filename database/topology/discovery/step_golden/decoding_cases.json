@@ -1,0 +1,493 @@
+[
+ {
+  "name": "ports: ifName and ifDescr apart, no fallback of ifName to ifDescr",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.2.2.1.2.1 = STRING: \"eth0\"\n",
+  "expect": {
+   "{#IFNAME}": null,
+   "{#IFDESCR}": "eth0"
+  }
+ },
+ {
+  "name": "ports: both names",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"Gi0/1\"\n.1.3.6.1.2.1.2.2.1.2.1 = STRING: \"GigabitEthernet0/1\"\n",
+  "expect": {
+   "{#IFNAME}": "Gi0/1",
+   "{#IFDESCR}": "GigabitEthernet0/1"
+  }
+ },
+ {
+  "name": "text: white space inside the quotes is kept (ingest cleans)",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"  a b  \"\n",
+  "expect": {
+   "{#IFNAME}": "  a b  "
+  }
+ },
+ {
+  "name": "text: a quote character inside is kept",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"\\\"x\\\"\"\n",
+  "expect": {
+   "{#IFNAME}": "\"x\""
+  }
+ },
+ {
+  "name": "text: backslash, quote and a raw line feed",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"a\\\\b\\\"c\nd\"\n",
+  "expect": {
+   "{#IFNAME}": "a\\b\"c\nd"
+  }
+ },
+ {
+  "name": "text: a line feed and a trailing space are kept",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"Uplink x\n2D 31 00 \"\n",
+  "expect": {
+   "{#IFNAME}": "Uplink x\n2D 31 00 "
+  }
+ },
+ {
+  "name": "text: UTF-8 is a STRING",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"ä€\"\n",
+  "expect": {
+   "{#IFNAME}": "ä€"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING with trailing NUL bytes is text (corpus F5)",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 74 65 6E 67 69 67 61 62 69 74 65 74 68 65 72 6E 65 74 31 2F 31 2F 31 00 \n",
+  "expect": {
+   "{#IFNAME}": "tengigabitethernet1/1/1"
+  }
+ },
+ {
+  "name": "text: several trailing NUL bytes",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 47 69 30 2F 31 00 00 00 \n",
+  "expect": {
+   "{#IFNAME}": "Gi0/1"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING with a NUL inside is the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 61 00 62 \n",
+  "expect": {
+   "{#IFNAME}": "61:00:62"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING with a control character is the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 61 01 62 \n",
+  "expect": {
+   "{#IFNAME}": "61:01:62"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING with a line feed is the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 61 0A 62 \n",
+  "expect": {
+   "{#IFNAME}": "61:0a:62"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING with a tab is text",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 61 09 62 \n",
+  "expect": {
+   "{#IFNAME}": "a\tb"
+  }
+ },
+ {
+  "name": "text: invalid UTF-8 is the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 61 FF 62 \n",
+  "expect": {
+   "{#IFNAME}": "61:ff:62"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING of UTF-8 is text",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: C3 A4 E2 82 AC \n",
+  "expect": {
+   "{#IFNAME}": "ä€"
+  }
+ },
+ {
+  "name": "text: a Hex-STRING of NUL bytes only is no value",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: 00 00 \n",
+  "expect": {
+   "{#IFNAME}": null
+  }
+ },
+ {
+  "name": "text: an empty STRING is no value",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: \"\"\n",
+  "expect": {
+   "{#IFNAME}": null
+  }
+ },
+ {
+  "name": "binary: ifPhysAddress is the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.2.2.1.6.1 = Hex-STRING: 02 00 00 00 00 0A \n",
+  "expect": {
+   "{#IFMAC}": "02:00:00:00:00:0a"
+  }
+ },
+ {
+  "name": "binary: a MAC written as text is passed as text",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.2.2.1.6.1 = STRING: \"0:11:22:33:44:5\"\n",
+  "expect": {
+   "{#IFMAC}": "0:11:22:33:44:5"
+  }
+ },
+ {
+  "name": "binary: an all-zero MAC is passed (ingest decides)",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.2.2.1.6.1 = Hex-STRING: 00 00 00 00 00 00 \n",
+  "expect": {
+   "{#IFMAC}": "00:00:00:00:00:00"
+  }
+ },
+ {
+  "name": "loc chassis: macAddress subtype, the hex form and the subtype name",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.0.8802.1.1.2.1.3.1.0 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.3.2.0 = Hex-STRING: AA BB CC 00 00 01 \n",
+  "expect": {
+   "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+   "{#LOC_CHASSIS_TYPE}": "macAddress"
+  }
+ },
+ {
+  "name": "loc chassis: local subtype is text",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.0.8802.1.1.2.1.3.1.0 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.3.2.0 = STRING: \"sw-1\"\n",
+  "expect": {
+   "{#LOC_CHASSIS}": "sw-1",
+   "{#LOC_CHASSIS_TYPE}": "local"
+  }
+ },
+ {
+  "name": "loc chassis: no subtype, a Hex-STRING is the hex form and has no type",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.0.8802.1.1.2.1.3.2.0 = Hex-STRING: AA BB CC 00 00 02 \n",
+  "expect": {
+   "{#LOC_CHASSIS}": "aa:bb:cc:00:00:02",
+   "{#LOC_CHASSIS_TYPE}": null
+  }
+ },
+ {
+  "name": "loc chassis: absent, nothing is guessed from a port MAC",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.2.2.1.6.1 = Hex-STRING: 02 00 00 00 00 01 \n",
+  "expect": {
+   "{#LOC_CHASSIS}": null,
+   "{#LOC_CHASSIS_TYPE}": null
+  }
+ },
+ {
+  "name": "lldp: the local port number from the index, no {#IFINDEX}, no {#IFNAME}",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: \"Gi0/7\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_NUM}": "7",
+   "{#IFINDEX}": null,
+   "{#IFNAME}": null
+  }
+ },
+ {
+  "name": "lldp: a row is emitted whatever the local port (no IF-MIB, no loc port table)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.99.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.99.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.99.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.99.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.99.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.1.1.8.0.99.1 = STRING: \"d\"\n.1.0.8802.1.1.2.1.3.7.1.3.1 = STRING: \"x\"\n",
+  "expect": {
+   "{#LOC_PORT_NUM}": "99"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype interfaceName",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: \"Gi0/7\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "Gi0/7",
+   "{#LOC_PORT_ID_TYPE}": "interfaceName"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype macAddress",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: macAddress(3)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = Hex-STRING: 02 00 00 00 00 07 \n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "02:00:00:00:00:07",
+   "{#LOC_PORT_ID_TYPE}": "macAddress"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype local",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: \"7\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "7",
+   "{#LOC_PORT_ID_TYPE}": "local"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype local",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = Hex-STRING: 37 00 \n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "7",
+   "{#LOC_PORT_ID_TYPE}": "local"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype interfaceAlias",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: interfaceAlias(1)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: \"alias 7\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "alias 7",
+   "{#LOC_PORT_ID_TYPE}": "interfaceAlias"
+  }
+ },
+ {
+  "name": "lldp: local port id of subtype networkAddress",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: networkAddress(4)\n.1.0.8802.1.1.2.1.3.7.1.3.7 = Hex-STRING: 01 0A 00 00 07 \n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "01:0a:00:00:07",
+   "{#LOC_PORT_ID_TYPE}": "networkAddress"
+  }
+ },
+ {
+  "name": "lldp: local port id without a subtype: a Hex-STRING is the hex form",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.3.7 = Hex-STRING: 02 00 00 00 00 07 \n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "02:00:00:00:00:07",
+   "{#LOC_PORT_ID_TYPE}": null
+  }
+ },
+ {
+  "name": "lldp: local port id without a subtype: a STRING is text",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: \"Gi0/7\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_ID}": "Gi0/7",
+   "{#LOC_PORT_ID_TYPE}": null
+  }
+ },
+ {
+  "name": "lldp: local port description",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.4.7 = STRING: \"Uplink\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#LOC_PORT_DESC}": "Uplink"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id of subtype macAddress (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "aa:bb:cc:00:00:01",
+   "{#REM_CHASSIS_TYPE}": "macAddress"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id of subtype networkAddress (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: networkAddress(5)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: 01 C0 A8 01 0A \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "01:c0:a8:01:0a",
+   "{#REM_CHASSIS_TYPE}": "networkAddress"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id of subtype local (STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = STRING: \"sw-local\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "sw-local",
+   "{#REM_CHASSIS_TYPE}": "local"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id of subtype interfaceName (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: interfaceName(6)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: 47 69 30 2F 31 00 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "Gi0/1",
+   "{#REM_CHASSIS_TYPE}": "interfaceName"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id of subtype macAddress (STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.0.7.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = STRING: \"AA:BB:CC:00:00:01\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "AA:BB:CC:00:00:01",
+   "{#REM_CHASSIS_TYPE}": "macAddress"
+  }
+ },
+ {
+  "name": "lldp: remote chassis id without a subtype: a STRING is text",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = STRING: \"X1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_CHASSIS}": "X1",
+   "{#REM_CHASSIS_TYPE}": null
+  }
+ },
+ {
+  "name": "lldp: remote port id of subtype macAddress (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: macAddress(3)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = Hex-STRING: AA BB CC 00 00 09 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_PORT}": "aa:bb:cc:00:00:09",
+   "{#REM_PORT_TYPE}": "macAddress"
+  }
+ },
+ {
+  "name": "lldp: remote port id of subtype interfaceName (STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_PORT}": "Te1/0/1",
+   "{#REM_PORT_TYPE}": "interfaceName"
+  }
+ },
+ {
+  "name": "lldp: remote port id of subtype local (STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: \"01\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_PORT}": "01",
+   "{#REM_PORT_TYPE}": "local"
+  }
+ },
+ {
+  "name": "lldp: remote port id of subtype local (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: local(7)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = Hex-STRING: 31 32 00 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_PORT}": "12",
+   "{#REM_PORT_TYPE}": "local"
+  }
+ },
+ {
+  "name": "lldp: remote port id of subtype networkAddress (Hex-STRING)",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.6.0.7.1 = INTEGER: networkAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = Hex-STRING: 01 0A 00 00 09 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_PORT}": "01:0a:00:00:09",
+   "{#REM_PORT_TYPE}": "networkAddress"
+  }
+ },
+ {
+  "name": "lldp: remote sysname and port description are text",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.8.0.7.1 = STRING: \" uplink \"\n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = Hex-STRING: 63 6F 72 65 2D 31 00 \n",
+  "expect": {
+   "{#REM_SYSNAME}": "core-1",
+   "{#REM_PORT_DESC}": " uplink "
+  }
+ },
+ {
+  "name": "lldp mgmt: an entry with the length octet",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.1.4.10.0.0.9 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.9"
+  }
+ },
+ {
+  "name": "lldp mgmt: every entry, ordered by the index part",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.1.4.10.0.0.20 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.1.4.10.0.0.5 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.6.6.2.0.0.0.0.1 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.5 lldp:1.4.10.0.0.20 lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:6.6.2.0.0.0.0.1"
+  }
+ },
+ {
+  "name": "lldp mgmt: without the length octet and with length 5 and an extra octet",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.1.10.0.0.2 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.1.1.5.10.0.0.3.0 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "lldp:1.5.10.0.0.3.0 lldp:1.10.0.0.2"
+  }
+ },
+ {
+  "name": "lldp mgmt: the TimeMark of the address table is ignored",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.527540.7.1.1.4.10.0.0.7 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.7"
+  }
+ },
+ {
+  "name": "lldp mgmt: one pair under two TimeMark values is one neighbor",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.5.7.1.1.4.10.0.0.8 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.6.7.1.1.4.10.0.0.7 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.7 lldp:1.4.10.0.0.8"
+  }
+ },
+ {
+  "name": "lldp mgmt: another LocalPortNum.RemIndex is another neighbor",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.8.1.1.4.10.0.0.9 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.0.7.2.1.4.10.0.0.9 = INTEGER: 2\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": null
+  }
+ },
+ {
+  "name": "lldp mgmt: no entries, no macro",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 01 \n.1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: \"peer\"\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": null
+  }
+ },
+ {
+  "name": "cdp: the address raw as cdp:<type>:<hex octets>",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.3.5.1 = INTEGER: 1\n.1.3.6.1.4.1.9.9.23.1.2.1.1.4.5.1 = Hex-STRING: C0 A8 01 0B \n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = STRING: \"sw-b\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.7.5.1 = STRING: \"Gi1/0/48\"\n",
+  "expect": {
+   "{#IFINDEX}": "5",
+   "{#IFNAME}": "Gi0/5",
+   "{#REM_MAN_ADDRS}": "cdp:1:c0:a8:01:0b",
+   "{#REM_SYSNAME}": "sw-b",
+   "{#REM_PORT}": "Gi1/0/48",
+   "{#REM_PORT_TYPE}": "interfaceName",
+   "{#SOURCE}": "cdp"
+  }
+ },
+ {
+  "name": "cdp: a type 65535 entry with an empty address is raw too",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.3.5.1 = INTEGER: 65535\n.1.3.6.1.4.1.9.9.23.1.2.1.1.4.5.1 = Hex-STRING: \n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = STRING: \"sw-c\"\n",
+  "expect": {
+   "{#REM_MAN_ADDRS}": "cdp:65535:"
+  }
+ },
+ {
+  "name": "cdp: a device id that is a bare MAC is text",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = STRING: \"204c9e6e08fe\"\n",
+  "expect": {
+   "{#REM_SYSNAME}": "204c9e6e08fe",
+   "{#REM_MAN_ADDRS}": null
+  }
+ }
+]

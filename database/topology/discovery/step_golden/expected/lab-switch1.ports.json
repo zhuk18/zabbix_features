@@ -1,6 +1,7 @@
 [
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/24",
         "{#IFINDEX}": "1",
         "{#IFMAC}": "02:00:00:02:00:01",
         "{#IFNAME}": "Gi0/24",
@@ -10,6 +11,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/2",
         "{#IFINDEX}": "2",
         "{#IFMAC}": "02:00:00:02:00:02",
         "{#IFNAME}": "Gi0/2",
@@ -19,6 +21,7 @@
     },
     {
         "{#IFADMINSTATUS}": "2",
+        "{#IFDESCR}": "Gi0/3",
         "{#IFINDEX}": "3",
         "{#IFMAC}": "02:00:00:02:00:03",
         "{#IFNAME}": "Gi0/3",

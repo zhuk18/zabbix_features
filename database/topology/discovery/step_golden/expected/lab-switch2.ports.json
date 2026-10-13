@@ -1,6 +1,7 @@
 [
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/24",
         "{#IFINDEX}": "1",
         "{#IFMAC}": "02:00:00:03:00:01",
         "{#IFNAME}": "Gi0/24",
@@ -10,6 +11,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/1",
         "{#IFINDEX}": "2",
         "{#IFMAC}": "02:00:00:03:00:02",
         "{#IFNAME}": "Gi0/1",
@@ -19,6 +21,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/2",
         "{#IFINDEX}": "3",
         "{#IFMAC}": "02:00:00:03:00:03",
         "{#IFNAME}": "Gi0/2",
@@ -28,6 +31,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/3",
         "{#IFINDEX}": "4",
         "{#IFMAC}": "02:00:00:03:00:04",
         "{#IFNAME}": "Gi0/3",
@@ -37,6 +41,7 @@
     },
     {
         "{#IFADMINSTATUS}": "2",
+        "{#IFDESCR}": "Gi0/4",
         "{#IFINDEX}": "5",
         "{#IFMAC}": "02:00:00:03:00:05",
         "{#IFNAME}": "Gi0/4",
@@ -46,6 +51,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "Gi0/5",
         "{#IFINDEX}": "6",
         "{#IFMAC}": "02:00:00:03:00:06",
         "{#IFNAME}": "Gi0/5",

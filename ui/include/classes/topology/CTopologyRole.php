@@ -39,16 +39,19 @@ class CTopologyRole {
 			'export' => 'PORTS',
 			'required' => ['{#IFINDEX}'],
 			'one_of' => [],
-			'optional' => ['{#IFNAME}', '{#IFTYPE}', '{#IFMAC}', '{#IFADMINSTATUS}', '{#IFOPERSTATUS}', '{#IFSPEED}',
-				'{#LOC_CHASSIS}'
+			'optional' => ['{#IFNAME}', '{#IFDESCR}', '{#IFTYPE}', '{#IFMAC}', '{#IFADMINSTATUS}', '{#IFOPERSTATUS}',
+				'{#IFSPEED}', '{#LOC_CHASSIS}', '{#LOC_CHASSIS_TYPE}'
 			]
 		],
 		ZBX_TOPOLOGY_ROLE_NEIGHBORS => [
 			'export' => 'NEIGHBORS',
-			'required' => ['{#IFINDEX}'],
-			'one_of' => [['{#REM_CHASSIS}', '{#REM_MGMT_IP}', '{#REM_SYSNAME}']],
-			'optional' => ['{#REM_CHASSIS_TYPE}', '{#REM_PORT}', '{#REM_PORT_TYPE}', '{#REM_PORT_DESC}', '{#IFNAME}',
-				'{#LOC_CHASSIS}', '{#SOURCE}'
+			'required' => [],
+			'one_of' => [['{#IFINDEX}', '{#LOC_PORT_NUM}'],
+				['{#REM_CHASSIS}', '{#REM_MGMT_IP}', '{#REM_MAN_ADDRS}', '{#REM_SYSNAME}']
+			],
+			'optional' => ['{#LOC_PORT_ID}', '{#LOC_PORT_ID_TYPE}', '{#LOC_PORT_DESC}', '{#REM_CHASSIS_TYPE}',
+				'{#REM_PORT}', '{#REM_PORT_TYPE}', '{#REM_PORT_DESC}', '{#IFNAME}', '{#LOC_CHASSIS}',
+				'{#LOC_CHASSIS_TYPE}', '{#SOURCE}'
 			]
 		],
 		ZBX_TOPOLOGY_ROLE_LEARNED_MACS => [

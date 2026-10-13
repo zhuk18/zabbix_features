@@ -237,42 +237,22 @@ for code, name, want in ((24, "Loopback0", "virtual"), (53, "Vlan10", "virtual")
                          (6, "Gi0/1", "physical"), (1, "Gi0/2", "physical"), (6, "", "physical"), (24, "mgmt0", "virtual")):
     check(push.port_class(code, name) == want, f"port class: IANA {code}, {name!r} -> {want}")
 
+# Decoding cases shared with the native step (step_golden/decoding_cases.json; push.py has no CDP)
+print("\n=== decoding (decoding_cases.json) ===")
+for case in json.load(open(os.path.join(HERE, "step_golden", "decoding_cases.json"), encoding="utf-8")):
+    if case["source"] == "cdp":
+        continue
+    builder = push.rows_ports if case["source"] == "ports" else push.rows_lldp
+    try:
+        got = builder(push.parse_walk(case["walk"]))
+    except push.WalkUnusable as exc:
+        got = []
+    row = got[0] if len(got) == 1 else {}
+    bad = [f"{k}: {row.get(k)!r} != {v!r}" for k, v in case["expect"].items() if row.get(k) != v]
+    check(len(got) == 1 and not bad, f"[{case['source']}] {case['name']}", "; ".join(bad) + f" | {got}")
+
 # No guessed chassis (model §6.4 step 7): without lldpLocChassisId there is no chassis, whatever the port MACs are
-check(push._local_chassis({}, {"1": {"mac": "02:00:00:00:00:01"}}) == "", "no lldpLocChassisId: _local_chassis is empty, not a port MAC")
-
-print("\n=== local port (steps 1-4) and management address: the same cases as the native step (step_golden/lldp_cases.json) ===")
-for case in json.load(open(os.path.join(HERE, "step_golden", "lldp_cases.json"), encoding="utf-8")):
-    rows = push.rows_lldp(push.parse_walk(case["walk"]))
-    row = rows[0] if len(rows) == 1 else {}
-    check(len(rows) == 1 and row.get("{#IFINDEX}") == case["expect_ifindex"] and row.get("{#REM_MGMT_IP}") == case["expect_ip"],
-          f"[{case['rule']}] {case['name']}", json.dumps(rows))
-
-print("\n=== walk[] text of STRING values: the same cases as the native step (step_golden/text_cases.json) ===")
-for case in json.load(open(os.path.join(HERE, "step_golden", "text_cases.json"), encoding="utf-8")):
-    rows = push.rows_ports(push.parse_walk(case["walk"]))
-    check(len(rows) == 1 and rows[0].get("{#IFNAME}") == case["expect_ifname"], case["name"], json.dumps(rows, ensure_ascii=False))
-
-print("\n=== normalization (topology-6): the same cases as the native step and PHP (normalization_cases.json) ===")
-norm_cases = json.load(open(os.path.join(HERE, "normalization_cases.json"), encoding="utf-8"))
-norm_call = {
-    "text_or_hex": lambda x: push.norm_text_or_hex(bytes.fromhex(x.replace(" ", ""))),
-    "clean": lambda x: push.norm_clean(x),
-    "name_key": lambda x: push.norm_name_key(x),
-    "numeric_id": lambda x: push.norm_numeric_id(x),
-    "port_mac": lambda x: push.norm_port_mac(x["mac"], x["ports"]),
-    "ip_text": lambda x: push.norm_ip_text(x),
-}
-for function, group in norm_cases.items():
-    for case in group:
-        try:
-            got = norm_call[function](case["in"])
-        except Exception as e:  # noqa: BLE001
-            got = f"{type(e).__name__}: {e}"
-        check(got == case["out"], f"{function} {json.dumps(case['in'], ensure_ascii=False)} -> {json.dumps(case['out'], ensure_ascii=False)}", f"got {got!r}")
-import subprocess
-if os.path.exists(os.environ.get("TOPOLOGY_NORMALIZATION_FORMS", "/media/sf_topology-specs/normalization/port-name-forms.tsv")):
-    r = subprocess.run([sys.executable, os.path.join(HERE, "gen_port_name_forms.py"), "--check"], capture_output=True, text=True)
-    check(r.returncode == 0, "the table in the three implementations is the file of the spec folder", r.stdout)
+check(push._local_chassis({}) == ("", ""), "no lldpLocChassisId: _local_chassis is empty, not a port MAC")
 
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)

@@ -1,6 +1,7 @@
 [
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "GigabitEthernetGi0/1",
         "{#IFINDEX}": "1",
         "{#IFMAC}": "02:00:00:00:00:01",
         "{#IFNAME}": "Gi0/1",
@@ -10,6 +11,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "GigabitEthernetPo1",
         "{#IFINDEX}": "10",
         "{#IFMAC}": "02:00:00:00:00:0a",
         "{#IFNAME}": "Po1",
@@ -19,6 +21,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "GigabitEthernetGi0/4",
         "{#IFINDEX}": "11",
         "{#IFMAC}": "02:00:00:00:00:0b",
         "{#IFNAME}": "Gi0/4",
@@ -28,6 +31,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "GigabitEthernetGi0/2",
         "{#IFINDEX}": "2",
         "{#IFMAC}": "02:00:00:00:00:02",
         "{#IFNAME}": "Gi0/2",
@@ -37,6 +41,7 @@
     },
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "GigabitEthernetGi0/3",
         "{#IFINDEX}": "3",
         "{#IFMAC}": "02:00:00:00:00:03",
         "{#IFNAME}": "Gi0/3",

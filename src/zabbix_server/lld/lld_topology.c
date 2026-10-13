@@ -57,32 +57,42 @@ zbx_lld_topo_field_t;
 /* does not block a valid value (topology-1-model.md "Snapshot rules" rule 9). The one place the tolerance is defined.       */
 #define ZBX_LLD_TOPO_FUTURE_TOLERANCE	300
 
-#define ZBX_LLD_TOPO_MAX_FIELDS		16
+#define ZBX_LLD_TOPO_MAX_FIELDS		20
 #define ZBX_LLD_TOPO_MAX_REASONS	(2 * ZBX_LLD_TOPO_MAX_FIELDS + 2)
 
 static const zbx_lld_topo_field_t	topo_ports[] = {
 	{"{#IFINDEX}",		"if_index",		ZBX_LLD_TOPO_UINT,	1, 0, NULL},
 	{"{#IFNAME}",		"name",			ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#IFDESCR}",		"descr",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFTYPE}",		"if_type",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFMAC}",		"mac",			ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFADMINSTATUS}",	"admin_status",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFOPERSTATUS}",	"oper_status",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFSPEED}",		"speed",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_CHASSIS}",	"loc_chassis",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#LOC_CHASSIS_TYPE}",	"loc_chassis_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{NULL, NULL, 0, 0, 0, NULL}
 };
 
+/* NEIGHBORS (topology-1-model.md §5.2): the local port is {#IFINDEX} (CDP, other rules) or {#LOC_PORT_NUM} (LLDP: ingest resolves it, §6.7.6) - group 2; */
+/* the remote identity is one of chassis, management IP, raw management addresses and sysname - group 1                                                 */
 static const zbx_lld_topo_field_t	topo_neighbors[] = {
-	{"{#IFINDEX}",		"if_index",		ZBX_LLD_TOPO_UINT,	1, 0, NULL},
+	{"{#IFINDEX}",		"if_index",		ZBX_LLD_TOPO_UINT,	0, 2, NULL},
+	{"{#LOC_PORT_NUM}",	"loc_port_num",		ZBX_LLD_TOPO_UINT,	0, 2, NULL},
+	{"{#LOC_PORT_ID}",	"loc_port_id",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#LOC_PORT_ID_TYPE}",	"loc_port_id_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#LOC_PORT_DESC}",	"loc_port_desc",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFNAME}",		"if_name",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_CHASSIS}",	"rem_chassis",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
 	{"{#REM_MGMT_IP}",	"rem_mgmt_ip",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
+	{"{#REM_MAN_ADDRS}",	"rem_man_addrs",	ZBX_LLD_TOPO_STR,	0, 1, NULL},
 	{"{#REM_SYSNAME}",	"rem_sysname",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
 	{"{#REM_CHASSIS_TYPE}",	"rem_chassis_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_PORT}",		"rem_port",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_PORT_TYPE}",	"rem_port_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_PORT_DESC}",	"rem_port_desc",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_CHASSIS}",	"loc_chassis",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#LOC_CHASSIS_TYPE}",	"loc_chassis_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#SOURCE}",		"source",		ZBX_LLD_TOPO_STR,	0, 0, "lldp"},
 	{NULL, NULL, 0, 0, 0, NULL}
 };

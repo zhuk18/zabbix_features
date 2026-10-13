@@ -1,6 +1,7 @@
 [
     {
         "{#IFADMINSTATUS}": "1",
+        "{#IFDESCR}": "eth0",
         "{#IFINDEX}": "1",
         "{#IFMAC}": "02:00:00:04:00:01",
         "{#IFNAME}": "eth0",

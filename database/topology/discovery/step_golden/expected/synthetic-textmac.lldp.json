@@ -1,8 +1,20 @@
 [
     {
-        "{#IFINDEX}": "2",
-        "{#IFNAME}": "Gi0/2",
-        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#LOC_CHASSIS}": "AA-BB-CC-0-0-1",
+        "{#LOC_PORT_ID_TYPE}": "macAddress",
+        "{#LOC_PORT_ID}": "2:0:0:0:0:2",
+        "{#LOC_PORT_NUM}": "201",
+        "{#REM_CHASSIS_TYPE}": "macAddress",
+        "{#REM_CHASSIS}": "AA:BB:CC:0:0:A",
+        "{#REM_PORT_TYPE}": "macAddress",
+        "{#REM_PORT}": "0-C-29-1-2-3",
+        "{#SOURCE}": "lldp"
+    },
+    {
+        "{#LOC_CHASSIS}": "AA-BB-CC-0-0-1",
+        "{#LOC_PORT_ID_TYPE}": "macAddress",
+        "{#LOC_PORT_ID}": "02:00:00:00:00:03",
+        "{#LOC_PORT_NUM}": "202",
         "{#REM_CHASSIS_TYPE}": "macAddress",
         "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
         "{#REM_PORT_TYPE}": "macAddress",
@@ -10,25 +22,17 @@
         "{#SOURCE}": "lldp"
     },
     {
-        "{#IFINDEX}": "3",
-        "{#IFNAME}": "Gi0/3",
-        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
-        "{#REM_CHASSIS_TYPE}": "macAddress",
-        "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
-        "{#REM_PORT_TYPE}": "macAddress",
-        "{#REM_PORT}": "00:0c:29:01:02:03",
+        "{#LOC_CHASSIS}": "AA-BB-CC-0-0-1",
+        "{#LOC_PORT_NUM}": "203",
+        "{#REM_CHASSIS}": "aabb.cc00.000a",
+        "{#REM_SYSNAME}": "no-type",
         "{#SOURCE}": "lldp"
     },
     {
-        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
+        "{#LOC_CHASSIS}": "AA-BB-CC-0-0-1",
+        "{#LOC_PORT_NUM}": "204",
         "{#REM_CHASSIS_TYPE}": "local",
         "{#REM_CHASSIS}": "aa-bb-cc-00-00-0a",
-        "{#SOURCE}": "lldp"
-    },
-    {
-        "{#LOC_CHASSIS}": "aa:bb:cc:00:00:01",
-        "{#REM_CHASSIS}": "aa:bb:cc:00:00:0a",
-        "{#REM_SYSNAME}": "no-type",
         "{#SOURCE}": "lldp"
     }
 ]
