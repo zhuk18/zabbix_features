@@ -12,6 +12,9 @@ A function is a key; each case is {"in": ..., "out": ...}. `null` is "no value".
   numeric_id   §4.7 input text, output an integer
   port_mac     §4.8 input {"mac", "ports": [macs of the Device's ports]}, output the 0-based index of the one port that has it
   ip_text      §4.3 input an address in any spelling, output the canonical text
+  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
+  local_port   model §6.7.6 input {"name", "ports": [{if_index, name?, descr?, mac?}], "row": {if_index? loc_port_num loc_port_id loc_port_id_type loc_port_desc}},
+               output {"if_index": n|null, "reason": null|name_on_several_ports|if_index_missing|no_ports}
 """
 import argparse
 import json
@@ -159,6 +162,82 @@ cases = {
         {"in": "", "out": None},
     ],
 }
+
+
+def _ports(*specs):
+    return [dict({"if_index": i}, **{k: v for k, v in zip(("name", "descr", "mac"), rest) if v is not None}) for i, *rest in specs]
+
+
+P3 = _ports((1, "Gi0/1", "GigabitEthernet0/1", "02:00:00:00:00:01"), (2, "Gi0/2", "GigabitEthernet0/2", "02:00:00:00:00:02"), (3, "Te1/0/1", "TenGigabitEthernet1/0/1", "02:00:00:00:00:03"))
+SHARED_MAC = _ports((1, "p1", "d1", "aa:aa:aa:aa:aa:aa"), (2, "p2", "d2", "aa:aa:aa:aa:aa:aa"), (3, "p3", "d3", "02:00:00:00:00:03"))
+DUP = _ports((1, "Eth1", None, None), (2, "eth1", None, None), (3, "Eth3", "uplink", None))
+ZERO = _ports((1, "p1", None, "00:00:00:00:00:00"), (2, "p2", None, "00:00:00:00:00:00"))
+
+
+def lp(name, ports, row, ok=None, reason=None):
+    return {"in": {"name": name, "ports": ports, "row": row}, "out": {"if_index": ok, "reason": reason}}
+
+
+cases["man_addrs"] = [
+    {"in": "lldp:1.4.10.0.0.9", "out": "10.0.0.9"},
+    {"in": "lldp:1.10.0.0.9", "out": "10.0.0.9"},
+    {"in": "lldp:1.5.10.0.0.9.0", "out": "10.0.0.9"},
+    {"in": "lldp:1.6.10.0.0.9.0.0", "out": None},
+    {"in": "lldp:1.3.10.0.0.1", "out": None},
+    {"in": "lldp:1.4.10.0.0.256", "out": None},
+    {"in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1", "out": "2001:db8::1"},
+    {"in": "lldp:2.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1", "out": "2001:db8::1"},
+    {"in": "lldp:2.16.0.0.0.0.0.0.0.0.0.0.0.0.10.0.0.1", "out": "::a00:1"},
+    {"in": "lldp:2.4.10.0.0.1", "out": None},
+    {"in": "lldp:6.6.2.0.0.0.0.1", "out": None},
+    {"in": "lldp:7.4.10.0.0.1", "out": None},
+    {"in": "lldp:1.4.10.0.0.5 lldp:1.4.10.0.0.20", "out": "10.0.0.5"},
+    {"in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.10.0.0.5", "out": "10.0.0.5"},
+    {"in": "lldp:6.6.2.0.0.0.0.1 lldp:1.4.10.0.0.5", "out": "10.0.0.5"},
+    {"in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.2", "out": "2001:db8::1"},
+    {"in": "cdp:1:c0:a8:01:0b", "out": "192.168.1.11"},
+    {"in": "cdp:1:C0:A8:01:0B", "out": "192.168.1.11"},
+    {"in": "cdp:65535:", "out": None},
+    {"in": "cdp:1:c0:a8:01", "out": None},
+    {"in": "cdp:1:c0:a8:01:0b:00", "out": None},
+    {"in": "cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01", "out": None},
+    {"in": "cdp:65535: cdp:1:0a:00:00:07", "out": "10.0.0.7"},
+    {"in": "lldp:1.4.10.0.0.9 cdp:1:0a:00:00:07", "out": "10.0.0.9"},
+    {"in": "", "out": None},
+    {"in": "junk lldp:1.x", "out": None},
+]
+cases["local_port"] = [
+    lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
+    lp("no PORTS rows at all", [], {"loc_port_num": 1}, None, "no_ports"),
+    lp("step 1 interfaceName: loc_port_id against name", P3, {"loc_port_num": 99, "loc_port_id_type": "interfaceName", "loc_port_id": "Gi0/2"}, 2),
+    lp("step 1 interfaceName: against the cleaned name", P3, {"loc_port_num": 99, "loc_port_id_type": "interfaceName", "loc_port_id": "Te1/0/1"}, 3),
+    lp("step 1 macAddress: one port has the MAC", P3, {"loc_port_num": 99, "loc_port_id_type": "macAddress", "loc_port_id": "02:00:00:00:00:02"}, 2),
+    lp("step 1 macAddress: a MAC on several ports is no match, goes on, then step 3 (loc_port_num is an ifIndex)", SHARED_MAC, {"loc_port_num": 2, "loc_port_id_type": "macAddress", "loc_port_id": "aa:aa:aa:aa:aa:aa"}, 2),
+    lp("step 1 macAddress: a MAC on several ports and no other hint: unresolved", SHARED_MAC, {"loc_port_num": 9, "loc_port_id_type": "macAddress", "loc_port_id": "aa:aa:aa:aa:aa:aa"}, None, "if_index_missing"),
+    lp("step 1 macAddress: the zero MAC is no match", ZERO, {"loc_port_num": 2, "loc_port_id_type": "macAddress", "loc_port_id": "00:00:00:00:00:00"}, 2),
+    lp("step 1 local: a numeric id that is an ifIndex", P3, {"loc_port_num": 99, "loc_port_id_type": "local", "loc_port_id": "3"}, 3),
+    lp("step 1 local: leading zeros", P3, {"loc_port_num": 99, "loc_port_id_type": "local", "loc_port_id": "03"}, 3),
+    lp("step 1 local: not an ifIndex of the reporter, goes on and ends in step 3", P3, {"loc_port_num": 1, "loc_port_id_type": "local", "loc_port_id": "77"}, 1),
+    lp("step 2 id against name when the subtype says nothing", P3, {"loc_port_num": 99, "loc_port_id": "Gi0/1"}, 1),
+    lp("step 2 id against descr", P3, {"loc_port_num": 99, "loc_port_id": "GigabitEthernet0/2"}, 2),
+    lp("step 2 description against name", P3, {"loc_port_num": 99, "loc_port_desc": "Gi0/1"}, 1),
+    lp("step 2 description against descr", P3, {"loc_port_num": 99, "loc_port_desc": "TenGigabitEthernet1/0/1"}, 3),
+    lp("step 2 cleaned names before the name key: an exact name wins over a key match", _ports((1, "Gi0/1", None, None), (2, "GigabitEthernet0/1", None, None)), {"loc_port_num": 9, "loc_port_id": "Gi0/1"}, 1),
+    lp("step 2 name key: the long form against the short name", P3, {"loc_port_num": 99, "loc_port_id": "GigabitEthernet0/3 "}, None, "if_index_missing"),
+    lp("step 2 name key: a long form id against a short name", P3, {"loc_port_num": 99, "loc_port_id": "TenGigabitEthernet1/0/1"}, 3),
+    lp("step 2 name key: case and a space before the digit", P3, {"loc_port_num": 99, "loc_port_id": "gi 0/2"}, 2),
+    lp("step 2 name key: the id is the long form, the port name the short one", _ports((5, "Gi0/5", None, None)), {"loc_port_num": 99, "loc_port_id": "GigabitEthernet0/5"}, 5),
+    lp("step 2 cleaned names are case sensitive: Eth1 is the one port with that exact name", DUP, {"loc_port_num": 3, "loc_port_id": "Eth1"}, 1),
+    lp("step 2 a name on several ports (name key only): dropped, step 3 is not tried", DUP, {"loc_port_num": 3, "loc_port_id": "ETH1 "}, None, "name_on_several_ports"),
+    lp("step 2 several ports with the name key but the next comparison gives one port: that one wins", DUP, {"loc_port_num": 9, "loc_port_id": "eth1x", "loc_port_desc": "uplink"}, 3),
+    lp("step 2 the exact (cleaned) comparison gives one port before the key is tried", _ports((1, "x", None, None), (2, "X", None, None)), {"loc_port_num": 1, "loc_port_id": "x"}, 1),
+    lp("step 2 several ports by the name key only: name_on_several_ports", _ports((1, "Gi0/1", None, None), (2, "GigabitEthernet0/1", None, None)), {"loc_port_num": 1, "loc_port_id": "gigabitethernet0/1"}, None, "name_on_several_ports"),
+    lp("step 3 loc_port_num as an ifIndex when no name matches", P3, {"loc_port_num": 3, "loc_port_id": "nothing", "loc_port_desc": "else"}, 3),
+    lp("step 3 only if no name of step 2 matches any port", _ports((1, "x1", None, None), (2, "X1", None, None), (3, "p3", None, None)), {"loc_port_num": 3, "loc_port_id": "x1"}, 1),
+    lp("step 4 the ifIndex does not exist", P3, {"loc_port_num": 12, "loc_port_id": "nothing"}, None, "if_index_missing"),
+    lp("step 4 no id, no description, the port number does not exist", P3, {"loc_port_num": 0}, None, "if_index_missing"),
+    lp("step 4 a row with neither if_index nor loc_port_num", P3, {"loc_port_id": "nothing"}, None, "if_index_missing"),
+]
 
 
 def form_cases(table):

@@ -2444,7 +2444,7 @@ c('N-02', 'Правило', function () {
 	h_ingest('port id = the MAC of one Port (R:Gi0/1), of two Ports (R:Gi0/2)');
 	ex(count(h_links('R:Gi0/1', 'B:Gi0/1', 'physical_link', 'active')) === 1, 'the MAC of one Port: port-level');
 	$l = h_links('R:Gi0/2', 'B', 'device_link', 'active');
-	ex(count($l) === 1 && $l[0]['reason'] === 'port_shared_id', 'the MAC of several Ports: device_link, port_shared_id');
+	ex(count($l) === 1 && $l[0]['reason'] === 'port_unmatched', 'the MAC of several Ports is no port identity (normalization §4.8): device_link, port_unmatched');
 }, 'test_far_port_identification.php §1');
 
 c('N-03', 'Правило', function () {
@@ -3068,6 +3068,41 @@ c('Q-08', 'Правило', function () {
 	ex(port_attr('A', 'Mgmt0', 'if_type') === 'mgmt', 'the port name is stored cleaned (Mgmt0) and the class mgmt comes from the cleaned name (ports: '.json_encode(ports_of_dev('A')).')');
 	ex(h_dev('X-sw') !== null, 'the sysname of the neighbor is stored cleaned (Devices: '.json_encode(h_devices()).')');
 	ex(port_attr('A', 'Gi0/2', 'if_index') === 2, 'padding is gone from a port name');
+});
+
+/** An LLDP row without if_index: the local port is decided by ingest (model §6.7.6). */
+function lr(array $local, ?string $chassis, string $sysname, array $extra = []): array {
+	$row = array_diff_key(NR(1, $chassis, $sysname, 'Gi0/24', $extra), ['if_index' => 1, 'if_name' => 1]);
+	return $local + $row;
+}
+
+c('Q-09', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_ports('A', [1 => ['Gi0/1', ['descr' => 'GigabitEthernet0/1']], 2 => ['Gi0/2', ['descr' => 'GigabitEthernet0/2']]]);
+	h_nbrs('A', [lr(['loc_port_num' => 17, 'loc_port_id' => 'Gi0/2', 'loc_port_id_type' => 'interfaceName'], mac(10), 'X')]);
+	$summary = h_ingest('the LLDP local port number 17 is not an ifIndex; the port id names Gi0/2');
+	ex(count(h_links('A:Gi0/2', 'X:Gi0/24*', 'physical_link', 'active')) === 1, 'the link starts at A:Gi0/2 (links: '.json_encode(h_state()['links']).')');
+	ex(($summary['rows_local_port_unresolved']['count'] ?? -1) === 0, 'nothing unresolved');
+});
+
+c('Q-10', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_ports('A', [1 => 'Eth1', 2 => 'eth1', 3 => 'Gi0/3']);
+	h_nbrs('A', [lr(['loc_port_num' => 3, 'loc_port_id' => 'ETH1'], mac(10), 'X'), lr(['loc_port_num' => 40], mac(11), 'Y'), lr(['loc_port_num' => 3, 'loc_port_id' => 'Gi0/3'], mac(12), 'Z')]);
+	$summary = h_ingest('a name on several ports, a port number that is no ifIndex, one good row');
+	$u = $summary['rows_local_port_unresolved'] ?? [];
+	ex(($u['count'] ?? -1) === 2 && ($u['by_reason']['name_on_several_ports'] ?? -1) === 1 && ($u['by_reason']['if_index_missing'] ?? -1) === 1 && ($u['by_reason']['no_ports'] ?? -1) === 0,
+		'two rows are dropped and counted by reason ('.json_encode($u).')');
+	ex(h_dev('X') === null && h_dev('Y') === null && h_dev('Z') !== null, 'the dropped rows make no Device, the good row does (Devices: '.json_encode(h_devices()).')');
+});
+
+c('Q-11', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('A', [1 => 'Gi0/1']);
+	h_nbrs('A', [NR(1, null, 'B', 'Gi0/24', ['rem_man_addrs' => 'lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.10.0.0.2 lldp:1.4.10.0.0.9'])]);
+	h_ingest('only the management address entries name B (the first IPv4 is 10.0.0.2)');
+	ex(h_dev_count() === 2, 'the row finds the reporter B by 10.0.0.2, no third Device (Devices: '.json_encode(h_devices()).')');
 });
 
 // ============================================================================================================

@@ -875,5 +875,1019 @@
    "in": "",
    "out": null
   }
+ ],
+ "man_addrs": [
+  {
+   "in": "lldp:1.4.10.0.0.9",
+   "out": "10.0.0.9"
+  },
+  {
+   "in": "lldp:1.10.0.0.9",
+   "out": "10.0.0.9"
+  },
+  {
+   "in": "lldp:1.5.10.0.0.9.0",
+   "out": "10.0.0.9"
+  },
+  {
+   "in": "lldp:1.6.10.0.0.9.0.0",
+   "out": null
+  },
+  {
+   "in": "lldp:1.3.10.0.0.1",
+   "out": null
+  },
+  {
+   "in": "lldp:1.4.10.0.0.256",
+   "out": null
+  },
+  {
+   "in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1",
+   "out": "2001:db8::1"
+  },
+  {
+   "in": "lldp:2.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1",
+   "out": "2001:db8::1"
+  },
+  {
+   "in": "lldp:2.16.0.0.0.0.0.0.0.0.0.0.0.0.10.0.0.1",
+   "out": "::a00:1"
+  },
+  {
+   "in": "lldp:2.4.10.0.0.1",
+   "out": null
+  },
+  {
+   "in": "lldp:6.6.2.0.0.0.0.1",
+   "out": null
+  },
+  {
+   "in": "lldp:7.4.10.0.0.1",
+   "out": null
+  },
+  {
+   "in": "lldp:1.4.10.0.0.5 lldp:1.4.10.0.0.20",
+   "out": "10.0.0.5"
+  },
+  {
+   "in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.10.0.0.5",
+   "out": "10.0.0.5"
+  },
+  {
+   "in": "lldp:6.6.2.0.0.0.0.1 lldp:1.4.10.0.0.5",
+   "out": "10.0.0.5"
+  },
+  {
+   "in": "lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.2",
+   "out": "2001:db8::1"
+  },
+  {
+   "in": "cdp:1:c0:a8:01:0b",
+   "out": "192.168.1.11"
+  },
+  {
+   "in": "cdp:1:C0:A8:01:0B",
+   "out": "192.168.1.11"
+  },
+  {
+   "in": "cdp:65535:",
+   "out": null
+  },
+  {
+   "in": "cdp:1:c0:a8:01",
+   "out": null
+  },
+  {
+   "in": "cdp:1:c0:a8:01:0b:00",
+   "out": null
+  },
+  {
+   "in": "cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01",
+   "out": null
+  },
+  {
+   "in": "cdp:65535: cdp:1:0a:00:00:07",
+   "out": "10.0.0.7"
+  },
+  {
+   "in": "lldp:1.4.10.0.0.9 cdp:1:0a:00:00:07",
+   "out": "10.0.0.9"
+  },
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": "junk lldp:1.x",
+   "out": null
+  }
+ ],
+ "local_port": [
+  {
+   "in": {
+    "name": "row with if_index is the local port, nothing is looked up",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "if_index": 2,
+     "loc_port_num": 9
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "no PORTS rows at all",
+    "ports": [],
+    "row": {
+     "loc_port_num": 1
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "no_ports"
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 interfaceName: loc_port_id against name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id_type": "interfaceName",
+     "loc_port_id": "Gi0/2"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 interfaceName: against the cleaned name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id_type": "interfaceName",
+     "loc_port_id": "Te1/0/1"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 macAddress: one port has the MAC",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id_type": "macAddress",
+     "loc_port_id": "02:00:00:00:00:02"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 macAddress: a MAC on several ports is no match, goes on, then step 3 (loc_port_num is an ifIndex)",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "p1",
+      "descr": "d1",
+      "mac": "aa:aa:aa:aa:aa:aa"
+     },
+     {
+      "if_index": 2,
+      "name": "p2",
+      "descr": "d2",
+      "mac": "aa:aa:aa:aa:aa:aa"
+     },
+     {
+      "if_index": 3,
+      "name": "p3",
+      "descr": "d3",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 2,
+     "loc_port_id_type": "macAddress",
+     "loc_port_id": "aa:aa:aa:aa:aa:aa"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 macAddress: a MAC on several ports and no other hint: unresolved",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "p1",
+      "descr": "d1",
+      "mac": "aa:aa:aa:aa:aa:aa"
+     },
+     {
+      "if_index": 2,
+      "name": "p2",
+      "descr": "d2",
+      "mac": "aa:aa:aa:aa:aa:aa"
+     },
+     {
+      "if_index": 3,
+      "name": "p3",
+      "descr": "d3",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 9,
+     "loc_port_id_type": "macAddress",
+     "loc_port_id": "aa:aa:aa:aa:aa:aa"
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "if_index_missing"
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 macAddress: the zero MAC is no match",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "p1",
+      "mac": "00:00:00:00:00:00"
+     },
+     {
+      "if_index": 2,
+      "name": "p2",
+      "mac": "00:00:00:00:00:00"
+     }
+    ],
+    "row": {
+     "loc_port_num": 2,
+     "loc_port_id_type": "macAddress",
+     "loc_port_id": "00:00:00:00:00:00"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 local: a numeric id that is an ifIndex",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id_type": "local",
+     "loc_port_id": "3"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 local: leading zeros",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id_type": "local",
+     "loc_port_id": "03"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 1 local: not an ifIndex of the reporter, goes on and ends in step 3",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 1,
+     "loc_port_id_type": "local",
+     "loc_port_id": "77"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 id against name when the subtype says nothing",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "Gi0/1"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 id against descr",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "GigabitEthernet0/2"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 description against name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_desc": "Gi0/1"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 description against descr",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_desc": "TenGigabitEthernet1/0/1"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 cleaned names before the name key: an exact name wins over a key match",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1"
+     },
+     {
+      "if_index": 2,
+      "name": "GigabitEthernet0/1"
+     }
+    ],
+    "row": {
+     "loc_port_num": 9,
+     "loc_port_id": "Gi0/1"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 name key: the long form against the short name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "GigabitEthernet0/3 "
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "if_index_missing"
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 name key: a long form id against a short name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "TenGigabitEthernet1/0/1"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 name key: case and a space before the digit",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "gi 0/2"
+    }
+   },
+   "out": {
+    "if_index": 2,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 name key: the id is the long form, the port name the short one",
+    "ports": [
+     {
+      "if_index": 5,
+      "name": "Gi0/5"
+     }
+    ],
+    "row": {
+     "loc_port_num": 99,
+     "loc_port_id": "GigabitEthernet0/5"
+    }
+   },
+   "out": {
+    "if_index": 5,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 cleaned names are case sensitive: Eth1 is the one port with that exact name",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Eth1"
+     },
+     {
+      "if_index": 2,
+      "name": "eth1"
+     },
+     {
+      "if_index": 3,
+      "name": "Eth3",
+      "descr": "uplink"
+     }
+    ],
+    "row": {
+     "loc_port_num": 3,
+     "loc_port_id": "Eth1"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 a name on several ports (name key only): dropped, step 3 is not tried",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Eth1"
+     },
+     {
+      "if_index": 2,
+      "name": "eth1"
+     },
+     {
+      "if_index": 3,
+      "name": "Eth3",
+      "descr": "uplink"
+     }
+    ],
+    "row": {
+     "loc_port_num": 3,
+     "loc_port_id": "ETH1 "
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "name_on_several_ports"
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 several ports with the name key but the next comparison gives one port: that one wins",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Eth1"
+     },
+     {
+      "if_index": 2,
+      "name": "eth1"
+     },
+     {
+      "if_index": 3,
+      "name": "Eth3",
+      "descr": "uplink"
+     }
+    ],
+    "row": {
+     "loc_port_num": 9,
+     "loc_port_id": "eth1x",
+     "loc_port_desc": "uplink"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 the exact (cleaned) comparison gives one port before the key is tried",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "x"
+     },
+     {
+      "if_index": 2,
+      "name": "X"
+     }
+    ],
+    "row": {
+     "loc_port_num": 1,
+     "loc_port_id": "x"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 several ports by the name key only: name_on_several_ports",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1"
+     },
+     {
+      "if_index": 2,
+      "name": "GigabitEthernet0/1"
+     }
+    ],
+    "row": {
+     "loc_port_num": 1,
+     "loc_port_id": "gigabitethernet0/1"
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "name_on_several_ports"
+   }
+  },
+  {
+   "in": {
+    "name": "step 3 loc_port_num as an ifIndex when no name matches",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 3,
+     "loc_port_id": "nothing",
+     "loc_port_desc": "else"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 3 only if no name of step 2 matches any port",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "x1"
+     },
+     {
+      "if_index": 2,
+      "name": "X1"
+     },
+     {
+      "if_index": 3,
+      "name": "p3"
+     }
+    ],
+    "row": {
+     "loc_port_num": 3,
+     "loc_port_id": "x1"
+    }
+   },
+   "out": {
+    "if_index": 1,
+    "reason": null
+   }
+  },
+  {
+   "in": {
+    "name": "step 4 the ifIndex does not exist",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 12,
+     "loc_port_id": "nothing"
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "if_index_missing"
+   }
+  },
+  {
+   "in": {
+    "name": "step 4 no id, no description, the port number does not exist",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_num": 0
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "if_index_missing"
+   }
+  },
+  {
+   "in": {
+    "name": "step 4 a row with neither if_index nor loc_port_num",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "Gi0/1",
+      "descr": "GigabitEthernet0/1",
+      "mac": "02:00:00:00:00:01"
+     },
+     {
+      "if_index": 2,
+      "name": "Gi0/2",
+      "descr": "GigabitEthernet0/2",
+      "mac": "02:00:00:00:00:02"
+     },
+     {
+      "if_index": 3,
+      "name": "Te1/0/1",
+      "descr": "TenGigabitEthernet1/0/1",
+      "mac": "02:00:00:00:00:03"
+     }
+    ],
+    "row": {
+     "loc_port_id": "nothing"
+    }
+   },
+   "out": {
+    "if_index": null,
+    "reason": "if_index_missing"
+   }
+  }
  ]
 }

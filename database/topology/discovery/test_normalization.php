@@ -55,7 +55,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 	$cases = json_decode((string) file_get_contents(__DIR__.'/normalization_cases.json'), true, 512, JSON_THROW_ON_ERROR);
 	$functions = [
 		'text_or_hex' => 'norm_text_or_hex', 'clean' => 'norm_clean', 'name_key' => 'norm_name_key', 'numeric_id' => 'norm_numeric_id',
-		'port_mac' => 'norm_port_mac', 'ip_text' => 'norm_ip_text',
+		'port_mac' => 'norm_port_mac', 'ip_text' => 'norm_ip_text', 'man_addrs' => 'norm_man_addrs', 'local_port' => 'resolve_local_port',
 	];
 
 	foreach ($cases as $group => $list) {
@@ -77,6 +77,11 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 				case 'port_mac':
 					$got = $fn($in['mac'], $in['ports']);
 					break;
+				case 'local_port':
+					[$index, $reason] = $fn($in['row'], $in['ports']);
+					$got = ['if_index' => $index, 'reason' => $reason];
+					check($got === $case['out'], "{$group} {$in['name']}", 'got '.json_encode($got));
+					continue 2;
 				default:
 					$got = $fn($in);
 			}
@@ -90,7 +95,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 
 	if (is_readable($spec)) {
 		exec('python3 '.escapeshellarg(__DIR__.'/gen_port_name_forms.py').' --check --spec '.escapeshellarg($spec), $lines, $code);
-		check($code === 0, 'the table in the three implementations is the file of the spec folder', implode("\n", $lines));
+		check($code === 0, 'the table in ingest.php is the file of the spec folder', implode("\n", $lines));
 	}
 	else {
 		echo "  skip: {$spec} is not readable\n";

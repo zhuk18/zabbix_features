@@ -6,8 +6,8 @@ declare(strict_types=1);
 /**
  * test_identity_normalization.php — the identity normalization of ingest.php (topology-1-model.md "Identity normalization").
  *
- * Reaches $snap_normalize_row through TOPOLOGY_INGEST_TEST_HOOK. (1) It is a no-op on the native step's output: every
- * golden output (step_golden/expected, the reference JavaScript's rows) goes through it unchanged. (2) It normalizes the
+ * Reaches $snap_normalize_row through TOPOLOGY_INGEST_TEST_HOOK. (1) It is idempotent on the native step's output and a no-op on it
+ * except for MACs the device wrote as text in another spelling (step_golden/expected, the rows of every golden fixture). (2) It normalizes the
  * spellings a collector other than the step could produce, and refuses what cannot be normalized.
  *
  * Usage: test_identity_normalization.php <PDO DSN> <database user> [password]
@@ -70,7 +70,8 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use (&$done) {
 				$snapshot_row[$field[$macro] ?? $macro] = $value;
 			}
 			[$out, $problem] = $normalize($snapshot_row);
-			if ($out !== $snapshot_row) {
+			// idempotent everywhere; a no-op on every output except the one fixture whose MACs are text in other spellings (the step passes text as it is, ingest normalizes)
+			if ($out === null || $normalize($out) !== [$out, null] || (!str_starts_with(basename($file), 'synthetic-textmac') && $out !== $snapshot_row)) {
 				fail_test(basename($file).': '.json_encode($snapshot_row).' became '.json_encode($out ?? $problem));
 			}
 			$rows_checked++;

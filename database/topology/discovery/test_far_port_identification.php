@@ -212,7 +212,8 @@ echo "\n=== 1: the far Device is a reporter — primary match by subtype, the de
 foreach ([
 	'interfaceName Gi0/1 with the description "uplink to core": port-level to Gi0/1' => [['rem_port' => 'Gi0/1', 'rem_port_type' => 'interfaceName', 'rem_port_desc' => 'uplink to core'], ['physical_link', 'Gi0/1', null]],
 	'macAddress = the MAC of one Port: port-level to that Port' => [['rem_port' => $MAC1, 'rem_port_type' => 'macAddress'], ['physical_link', 'Gi0/1', null]],
-	'macAddress = the MAC of two Ports: device_link, port_shared_id' => [['rem_port' => $MAC2, 'rem_port_type' => 'macAddress'], ['device_link', null, 'port_shared_id']],
+	'macAddress = the MAC of two Ports is no port MAC identity (normalization §4.8), so no port and no description: device_link, port_unmatched' => [['rem_port' => $MAC2, 'rem_port_type' => 'macAddress'], ['device_link', null, 'port_unmatched']],
+	'macAddress = the MAC of two Ports, the description names Gi0/3: port-level to Gi0/3' => [['rem_port' => $MAC2, 'rem_port_type' => 'macAddress', 'rem_port_desc' => 'Gi0/3'], ['physical_link', 'Gi0/3', null]],
 	'local "10" = the ifIndex of Gi0/1: port-level' => [['rem_port' => '10', 'rem_port_type' => 'local'], ['physical_link', 'Gi0/1', null]],
 	'local "1": no Port of ifIndex 1, no name "1": device_link, port_unmatched (no phantom port)' => [['rem_port' => '1', 'rem_port_type' => 'local'], ['device_link', null, 'port_unmatched']],
 	'no subtype: the name' => [['rem_port' => 'Gi0/2'], ['physical_link', 'Gi0/2', null]],

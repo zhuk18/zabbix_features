@@ -960,6 +960,117 @@ $norm_ip_text = static function (string $text): ?string {
 	}
 	return $hex(array_slice($groups, 0, $best)).'::'.$hex(array_slice($groups, $best + $best_len));
 };
+/** §4.4: the management address from the raw `rem_man_addrs` entries ("lldp:<family.[len.]addr>" / "cdp:<type>:<hex octets>", space-separated, in order): the first IPv4, else the first IPv6; null = none usable */
+$norm_man_addrs = static function (string $entries) use ($norm_ip_text): ?string {
+	$v4 = null;
+	$v6 = null;
+	foreach (preg_split('/\s+/', trim($entries), -1, PREG_SPLIT_NO_EMPTY) as $entry) {
+		$octets = null;
+		$family = null;
+		if (str_starts_with($entry, 'lldp:')) {
+			$numbers = explode('.', substr($entry, 5));
+			if ($numbers !== array_filter($numbers, static fn (string $n): bool => preg_match('/^[0-9]{1,3}$/D', $n) === 1 && (int) $n <= 255)) {
+				continue;
+			}
+			$numbers = array_map('intval', $numbers);
+			$family = array_shift($numbers);
+			$length = $family === 1 ? 4 : ($family === 2 ? 16 : null);
+			if ($length === null) {
+				continue;
+			}
+			if (count($numbers) === $length) {                              // no length octet
+				$octets = $numbers;
+			}
+			elseif (count($numbers) > $length && $numbers[0] === count($numbers) - 1) {   // a length octet; IPv4 with length 5: the first 4 octets (§4.4)
+				$octets = array_slice($numbers, 1, $length);
+				if (!($family === 1 && $numbers[0] === 5) && $numbers[0] !== $length) {
+					continue;
+				}
+			}
+			else {
+				continue;
+			}
+		}
+		elseif (str_starts_with($entry, 'cdp:')) {
+			$parts = explode(':', substr($entry, 4));
+			$type = array_shift($parts);
+			if ($type !== '1' || count($parts) !== 4 || preg_grep('/^[0-9a-f]{2}$/Di', $parts) !== $parts) {
+				continue;
+			}
+			$octets = array_map('hexdec', $parts);
+			$family = 1;
+		}
+		else {
+			continue;
+		}
+		if ($family === 1) {
+			$v4 ??= implode('.', $octets);
+		}
+		else {
+			$v6 ??= implode(':', array_map(static fn (array $p): string => dechex($p[0] * 256 + $p[1]), array_chunk($octets, 2)));
+		}
+	}
+	return $v4 ?? ($v6 !== null ? $norm_ip_text($v6) : null);
+};
+/** Model §6.7.6: [if_index, null] or [null, reason] for a NEIGHBORS row with `loc_port_num`; $ports = PORTS rows [if_index, name, descr, mac] (cleaned) */
+$resolve_local_port = static function (array $row, array $ports) use ($norm_clean, $norm_name_key, $norm_numeric_id, $norm_port_mac): array {
+	if (isset($row['if_index']) && $row['if_index'] !== '') {
+		return [(int) $row['if_index'], null];
+	}
+	if (!$ports) {
+		return [null, 'no_ports'];
+	}
+	$by_index = [];
+	foreach ($ports as $port) {
+		$by_index[(int) $port['if_index']] = $port;
+	}
+	$id = isset($row['loc_port_id']) ? (string) $row['loc_port_id'] : null;
+	$type = (string) ($row['loc_port_id_type'] ?? '');
+	// step 1: by the subtype of the port id
+	if ($id !== null && $id !== '') {
+		if ($type === 'interfaceName') {
+			$hits = array_keys(array_filter($ports, static fn (array $p): bool => ($p['name'] ?? null) !== null && $norm_clean((string) $p['name']) === $norm_clean($id)));
+			if (count($hits) === 1) {
+				return [(int) $ports[$hits[0]]['if_index'], null];
+			}
+		}
+		elseif ($type === 'macAddress') {
+			$hit = $norm_port_mac(strtolower($id), array_map(static fn (array $p): string => strtolower((string) ($p['mac'] ?? '')), $ports));
+			if ($hit !== null) {
+				return [(int) $ports[$hit]['if_index'], null];
+			}
+		}
+		elseif ($type === 'local') {
+			$number = $norm_numeric_id($id);
+			if ($number !== null && isset($by_index[$number])) {
+				return [$number, null];
+			}
+		}
+	}
+	// step 2: id, then description, against name, then descr; the cleaned names first, then the name key
+	$several = false;
+	foreach ([$norm_clean, $norm_name_key] as $compare) {
+		foreach ([['loc_port_id', 'name'], ['loc_port_id', 'descr'], ['loc_port_desc', 'name'], ['loc_port_desc', 'descr']] as [$from, $to]) {
+			$value = isset($row[$from]) ? $compare((string) $row[$from]) : null;
+			if ($value === null) {
+				continue;
+			}
+			$hits = array_keys(array_filter($ports, static fn (array $p): bool => isset($p[$to]) && $compare((string) $p[$to]) === $value));
+			if (count($hits) === 1) {
+				return [(int) $ports[$hits[0]]['if_index'], null];
+			}
+			$several = $several || count($hits) > 1;
+		}
+	}
+	if ($several) {
+		return [null, 'name_on_several_ports'];
+	}
+	// step 3: the port number as an ifIndex
+	if (isset($row['loc_port_num']) && $norm_numeric_id((string) $row['loc_port_num']) !== null && isset($by_index[$norm_numeric_id((string) $row['loc_port_num'])])) {
+		return [$norm_numeric_id((string) $row['loc_port_num']), null];
+	}
+	return [null, 'if_index_missing'];
+};
 // The port name as it is COMPARED (the name key); never stored as the name. Real ports ($find_matching_real_port), pseudo ports ($snap_pseudo_port), the
 // pseudo-port merge, the far port and the port class all compare names through it. "" = no key.
 $normalize_port_name = static fn (string $name): string => $norm_name_key($name) ?? '';
@@ -1244,6 +1355,7 @@ $summary += [
 	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
 	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
+	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0]],
 	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
 	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
 	// (neighbor rows and reporters), and of the MACs found on several Devices or in the inventory of several Hosts.
@@ -2020,7 +2132,7 @@ $snap_remote_key = static function (array $row, string $segment) use ($chassis_k
 // octets cannot be normalized and the row is skipped, never guessed. A management IP becomes dotted IPv4 / compressed
 // lowercase IPv6; a malformed one skips the row. A networkAddress chassis id that is an IP is written the same way; any
 // other chassis / port id is text, trimmed of trailing NUL and spaces. Returns [row, null] or [null, "field: why"].
-$snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_text): array {
+$snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_text, $norm_man_addrs): array {
 	$mac = static function (string $value, bool $strict): ?string {
 		$octets = null;
 		if (preg_match('/^[0-9a-f]{1,2}([:-][0-9a-f]{1,2})+$/i', $value)) {
@@ -2048,7 +2160,7 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 		}
 	}
 	// normalization §4.5: the cleaned value is the stored one; an empty result is no value
-	foreach (['name', 'if_name', 'rem_sysname', 'rem_port_desc'] as $field) {
+	foreach (['name', 'descr', 'if_name', 'rem_sysname', 'rem_port_desc', 'loc_port_desc'] as $field) {
 		if (isset($row[$field]) && is_string($row[$field])) {
 			if (($cleaned = $norm_clean($row[$field])) === null) {
 				unset($row[$field]);
@@ -2088,11 +2200,27 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 			$row[$field] = $cleaned;
 		}
 	}
+	if (isset($row['loc_port_id']) && is_string($row['loc_port_id'])) {
+		// a macAddress port id is a MAC when it is shaped like one; it is only compared (§4.8), a bad one is no match, never a skipped row
+		$cleaned = ($row['loc_port_id_type'] ?? '') === 'macAddress' ? ($mac($row['loc_port_id'], false) ?? $row['loc_port_id']) : $norm_clean($row['loc_port_id']);
+		if ($cleaned === null || $cleaned === '') {
+			unset($row['loc_port_id']);
+		}
+		else {
+			$row['loc_port_id'] = $cleaned;
+		}
+	}
 	if (isset($row['rem_mgmt_ip']) && $row['rem_mgmt_ip'] !== '') {
 		if (($row['rem_mgmt_ip'] = $ip($row['rem_mgmt_ip'])) === null) {
 			return [null, 'rem_mgmt_ip: not an IP address'];
 		}
 	}
+	elseif (isset($row['rem_man_addrs']) && is_string($row['rem_man_addrs'])) {
+		if (($address = $norm_man_addrs($row['rem_man_addrs'])) !== null) {
+			$row['rem_mgmt_ip'] = $address;      // no usable entry: no address, not an invalid row (§4.4)
+		}
+	}
+	unset($row['rem_man_addrs']);
 
 	return [$row, null];
 };
@@ -2357,6 +2485,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 		foreach ($snapshot['rows'] as $row) {
 			$if_index = (int) $row['if_index'];
 			$overlay = ['if_index' => $if_index, 'pseudo' => false, 'zabbix_itemids' => $port_items[$if_index] ?? []];
+			$row['name'] = ($row['name'] ?? '') !== '' ? $row['name'] : ($row['descr'] ?? '');       // the port's display name: ifName, else ifDescr (the step does not choose)
 			foreach (['name', 'mac', 'speed'] as $key) {
 				if (($row[$key] ?? '') !== '') {
 					$overlay[$key] = $row[$key];
@@ -2473,7 +2602,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 $snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
 
 	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$resolve_local_port, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
@@ -2484,9 +2613,32 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 	// Devices and remote ports are resolved and created, but no link and no observation is written here: whether a candidate link may take its
 	// port depends on what EVERY reporter's latest snapshot says, so the decision is made once, after all reporters, by $snap_resolve_links().
 	$sorted_rows = [];
+	// the reporter's ports from its PORTS snapshots (pass A): rows of several rules join by if_index, the first value of a field wins
+	$ports = [];
+	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+		foreach ($snapshot['rows'] as $row) {
+			$port = &$ports[(int) $row['if_index']];
+			$port ??= ['if_index' => (int) $row['if_index']];
+			foreach (['name', 'descr', 'mac'] as $field) {
+				if (($row[$field] ?? '') !== '' && !isset($port[$field])) {
+					$port[$field] = $row[$field];
+				}
+			}
+			unset($port);
+		}
+	}
+	$ports = array_values($ports);
 	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
 		$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
 		foreach ($snapshot['rows'] as $row) {
+			[$resolved, $reason] = $resolve_local_port($row, $ports);
+			if ($resolved === null) {
+				$summary['rows_local_port_unresolved']['count']++;
+				$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
+				echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
+				continue;
+			}
+			$row['if_index'] = $resolved;
 			$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
 		}
 	}
