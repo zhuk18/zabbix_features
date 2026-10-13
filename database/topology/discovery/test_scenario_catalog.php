@@ -2994,6 +2994,82 @@ c('A-11', 'Правило', function () {
 	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'DH keeps only its own address');
 });
 
+
+// ============================================================================================================
+// Q. Normalization of topology-6 on the far side (model §6.7.2, handoff 025 section 3): the corpus has no device pairs, so these cases are the test of
+// the far port rules: a numeric port id with a description, leading zeros, a port MAC identity, name forms, cleaning at ingest.
+// ============================================================================================================
+
+/** A (reporter) sees the reporter B on A:Gi0/1 with the given advertisement of B's port; B has the given ports. */
+function q_pair(array $b_ports, array $advert): void {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('A', [1 => 'Gi0/1']);
+	h_ports('B', $b_ports);
+	h_nbrs('A', [NR(1, mac(2), 'B', null, $advert)]);
+}
+
+c('Q-01', 'Правило', function () {
+	q_pair([5 => 'Gi0/5', 7 => 'Gi0/7'], ['rem_port' => '5', 'rem_port_type' => 'local', 'rem_port_desc' => 'Gi0/7']);
+	h_ingest('a numeric local port id 5 and a description that names the Port Gi0/7');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/7', 'physical_link', 'active')) === 1 && count(h_links('A:Gi0/1', 'B:Gi0/5')) === 0,
+		'the description wins over the ifIndex guess: the link ends at B:Gi0/7 (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-02', 'Правило', function () {
+	q_pair([5 => 'Gi0/5', 7 => 'Gi0/7'], ['rem_port' => '05', 'rem_port_type' => 'local']);
+	h_ingest('a numeric local port id with a leading zero');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/5', 'physical_link', 'active')) === 1, '05 is the ifIndex 5 (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-03', 'Правило', function () {
+	q_pair([5 => 'Gi0/5', 7 => 'Gi0/7'], ['rem_port' => '7', 'rem_port_type' => 'local', 'rem_port_desc' => 'uplink to core']);
+	h_ingest('a numeric id and a description that names no Port');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/7', 'physical_link', 'active')) === 1, 'the ifIndex 7 is used (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-04', 'Правило', function () {
+	q_pair([1 => ['Gi0/1', ['mac' => 'aa:aa:aa:00:00:01']], 2 => ['Gi0/2', ['mac' => 'aa:aa:aa:00:00:01']], 3 => ['Gi0/3', ['mac' => 'aa:aa:aa:00:00:01']]],
+		['rem_port' => 'aa:aa:aa:00:00:01', 'rem_port_type' => 'macAddress', 'rem_port_desc' => 'Gi0/3']);
+	h_ingest('a port id MAC that every port of the far Device has, and the description Gi0/3');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/3', 'physical_link', 'active')) === 1 && array_filter(h_state()['links_full'], static fn ($l) => $l['type'] === 'device_link') === [],
+		'the MAC is no port identity (it is on every port): the description finds Gi0/3, no port_shared_id (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-05', 'Правило', function () {
+	q_pair([1 => ['Gi0/1', ['mac' => '00:00:00:00:00:00']], 2 => ['Gi0/2', ['mac' => 'aa:aa:aa:00:00:02']]],
+		['rem_port' => '00:00:00:00:00:00', 'rem_port_type' => 'macAddress', 'rem_port_desc' => 'Gi0/2']);
+	h_ingest('an all-zero port id MAC that exactly one port has');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/2', 'physical_link', 'active')) === 1 && count(h_links('A:Gi0/1', 'B:Gi0/1')) === 0,
+		'an all-zero MAC identifies nothing: the description finds Gi0/2 (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-06', 'Правило', function () {
+	q_pair([1 => ['Gi0/1', ['mac' => 'aa:aa:aa:00:00:01']], 2 => ['Gi0/2', ['mac' => 'aa:aa:aa:00:00:02']]],
+		['rem_port' => 'aa:aa:aa:00:00:02', 'rem_port_type' => 'macAddress']);
+	h_ingest('a port id MAC that exactly one port has');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/2', 'physical_link', 'active')) === 1, 'a unique MAC is a port identity (links: '.json_encode(h_state()['links']).')');
+});
+
+c('Q-07', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_ports('A', [1 => 'Gi0/1']);
+	h_nbrs('A', [NR(1, mac(10), 'X', 'Ethernet 0/1', ['rem_mgmt_ip' => '10.5.5.5'])]);
+	h_nbrs('A', [NR(1, null, 'X', 'Eth0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
+	h_ingest('X advertises Ethernet 0/1 by LLDP and Eth0/1 by CDP');
+	ex(count(ports_of_dev('X')) === 1, 'one pseudo port for the two spellings (actual: '.json_encode(ports_of_dev('X')).')');
+});
+
+c('Q-08', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_ports('A', [1 => ["\"Mgmt0\"\0", []], 2 => ['  Gi0/2  ', []]]);
+	h_nbrs('A', [NR(2, mac(10), '"X-sw"', 'Gi0/24', ['rem_port_desc' => "  'uplink'\0"])]);
+	h_ingest('quoted, padded and NUL-ended names');
+	ex(port_attr('A', 'Mgmt0', 'if_type') === 'mgmt', 'the port name is stored cleaned (Mgmt0) and the class mgmt comes from the cleaned name (ports: '.json_encode(ports_of_dev('A')).')');
+	ex(h_dev('X-sw') !== null, 'the sysname of the neighbor is stored cleaned (Devices: '.json_encode(h_devices()).')');
+	ex(port_attr('A', 'Gi0/2', 'if_index') === 2, 'padding is gone from a port name');
+});
+
 // ============================================================================================================
 // Run
 // ============================================================================================================
