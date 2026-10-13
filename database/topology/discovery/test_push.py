@@ -252,5 +252,27 @@ for case in json.load(open(os.path.join(HERE, "step_golden", "text_cases.json"),
     rows = push.rows_ports(push.parse_walk(case["walk"]))
     check(len(rows) == 1 and rows[0].get("{#IFNAME}") == case["expect_ifname"], case["name"], json.dumps(rows, ensure_ascii=False))
 
+print("\n=== normalization (topology-6): the same cases as the native step and PHP (normalization_cases.json) ===")
+norm_cases = json.load(open(os.path.join(HERE, "normalization_cases.json"), encoding="utf-8"))
+norm_call = {
+    "text_or_hex": lambda x: push.norm_text_or_hex(bytes.fromhex(x.replace(" ", ""))),
+    "clean": lambda x: push.norm_clean(x),
+    "name_key": lambda x: push.norm_name_key(x),
+    "numeric_id": lambda x: push.norm_numeric_id(x),
+    "port_mac": lambda x: push.norm_port_mac(x["mac"], x["ports"]),
+    "ip_text": lambda x: push.norm_ip_text(x),
+}
+for function, group in norm_cases.items():
+    for case in group:
+        try:
+            got = norm_call[function](case["in"])
+        except Exception as e:  # noqa: BLE001
+            got = f"{type(e).__name__}: {e}"
+        check(got == case["out"], f"{function} {json.dumps(case['in'], ensure_ascii=False)} -> {json.dumps(case['out'], ensure_ascii=False)}", f"got {got!r}")
+import subprocess
+if os.path.exists(os.environ.get("TOPOLOGY_NORMALIZATION_FORMS", "/media/sf_topology-specs/normalization/port-name-forms.tsv")):
+    r = subprocess.run([sys.executable, os.path.join(HERE, "gen_port_name_forms.py"), "--check"], capture_output=True, text=True)
+    check(r.returncode == 0, "the table in the three implementations is the file of the spec folder", r.stdout)
+
 print(f"\n{checks - failures} of {checks} checks passed.")
 sys.exit(1 if failures else 0)

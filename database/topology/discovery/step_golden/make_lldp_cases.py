@@ -12,7 +12,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # ifIndex, ifName, ifDescr, ifPhysAddress
 PORTS = [(1, "A", "dA", "02 00 00 00 00 01"), (2, "B", "dB", "02 00 00 00 00 02"), (3, "B", "dC", "02 00 00 00 00 03"),
          (4, "C", "dD", "02 00 00 00 00 04"), (5, "D", "dE", "02 00 00 00 00 55"), (6, "E", "dF", "02 00 00 00 00 55"),
-         (10, "X10", "dX", "02 00 00 00 00 10")]
+         (10, "X10", "dX", "02 00 00 00 00 10"),
+         # for the normalization cases (handoff 025): name key, cleaned names, an all-zero MAC, a Hex-STRING name with a NUL
+         (20, "Gi0/20", "dG", "02 00 00 00 00 20"), (21, "Ethernet 0/21", "dH", "00 00 00 00 00 00"), (22, "Eth1/22", "dI", "02 00 00 00 00 22"),
+         (23, "Gi0/23", "dJ", "02 00 00 00 00 23"), (24, "GigabitEthernet0/23", "dK", "02 00 00 00 00 24"), (30, b"Gi0/30\x00", "dL", "02 00 00 00 00 30")]
 
 
 def line(oid, typ, value):
@@ -26,11 +29,14 @@ def base():
         text += line("1.3.6.1.2.1.2.2.1.2.%d" % index, "STRING", '"%s"' % descr)
         text += line("1.3.6.1.2.1.2.2.1.3.%d" % index, "INTEGER", "ethernetCsmacd(6)")
         text += line("1.3.6.1.2.1.2.2.1.6.%d" % index, "Hex-STRING", mac + " ")
-        text += line("1.3.6.1.2.1.31.1.1.1.1.%d" % index, "STRING", '"%s"' % name)
+        if isinstance(name, bytes):
+            text += line("1.3.6.1.2.1.31.1.1.1.1.%d" % index, "Hex-STRING", " ".join("%02x" % b for b in name) + " ")
+        else:
+            text += line("1.3.6.1.2.1.31.1.1.1.1.%d" % index, "STRING", '"%s"' % name)
     return text
 
 
-def case(name, rule, local, subtype=None, port_id=None, port_desc=None, expect=None, man=(), expect_ip=None, hexid=False):
+def case(name, rule, local, subtype=None, port_id=None, port_desc=None, expect=None, man=(), expect_ip=None, hexid=False, man_full=()):
     """local = LocalPortNum; the neighbor sits at index 0.<local>.1."""
     text = base()
     loc = "1.0.8802.1.1.2.1.3.7.1"
@@ -50,6 +56,8 @@ def case(name, rule, local, subtype=None, port_id=None, port_desc=None, expect=N
     text += line("1.0.8802.1.1.2.1.4.1.1.9." + rem, "STRING", '"peer"')
     for tail, typ, value in man:
         text += line("1.0.8802.1.1.2.1.4.2.1.3.%s.%s" % (rem, tail), typ, value)
+    for full, typ, value in man_full:           # an index with its own TimeMark
+        text += line("1.0.8802.1.1.2.1.4.2.1.3.%s" % full, typ, value)
     return {"name": name, "rule": rule, "walk": text, "expect_ifindex": expect, "expect_ip": expect_ip}
 
 
@@ -75,6 +83,19 @@ cases = [
     case("step 3, a MAC-looking id that matches no ifPhysAddress: LocalPortNum", "3", 4, None, "02 00 00 00 00 99 ", hexid=True, expect="4"),
     # step 4
     case("step 4, nothing matches and LocalPortNum is no ifIndex -> drop", "4", 77, None, "unknown", expect=None),
+    # normalization (topology-6): cleaned names, the name key, a numeric local id, the port MAC identity
+    case("step 2 key: the id is the long form of an ifName (GigabitEthernet0/20 ~ Gi0/20)", "2/§4.6", 99, None, "GigabitEthernet0/20", expect="20"),
+    case("step 2 key: the description has no space where the ifName has one (Ethernet0/21 ~ Ethernet 0/21)", "2/§4.6", 99, None, "nothing", "Ethernet0/21", expect="21"),
+    case("step 2 key: Eth1/22 ~ Ethernet1/22", "2/§4.6", 99, None, "Ethernet1/22", expect="22"),
+    case("step 2: an exact name wins over the key (Gi0/23 is exact on port 23; the key matches port 24 too)", "2/§4.6", 99, None, "Gi0/23", expect="23"),
+    case("step 2 key: a key on two ports -> drop, LocalPortNum is not used", "4/§4.6", 1, None, "gigabitethernet0/23", expect=None),
+    case("step 1 cleaned: a quoted interfaceName", "1/§4.5", 99, 5, '\\"C\\"', expect="4"),
+    case("step 2 cleaned: a Hex-STRING id with a trailing NUL is text", "2/§4.5", 99, None, "43 00 ", hexid=True, expect="4"),
+    case("step 2 cleaned: an ifName that is a Hex-STRING with a trailing NUL (Gi0/30)", "2/§3", 99, None, "Gi0/30", expect="30"),
+    case("step 1, local: a numeric id with leading zeros (01 is ifIndex 1)", "1/§4.7", 77, 7, "01", expect="1"),
+    case("step 1, local: 0 is not a numeric id; no name; LocalPortNum", "3/§4.7", 2, 7, "0", expect="2"),
+    case("step 1, local: an ifIndex that does not exist; no name; LocalPortNum", "3/§4.7", 3, 7, "99", expect="3"),
+    case("step 1, macAddress: an all-zero MAC is no match even if one port has it; no name; LocalPortNum", "3/§4.8", 5, 3, "00 00 00 00 00 00 ", hexid=True, expect="5"),
     # management address (F6)
     case("mgmt: IPv4 with the length octet", "F6", 1, None, "A", man=[("1.4.10.0.0.1", "INTEGER", 2)], expect="1", expect_ip="10.0.0.1"),
     case("mgmt: IPv4 without the length octet", "F6", 1, None, "A", man=[("1.10.0.0.2", "INTEGER", 2)], expect="1", expect_ip="10.0.0.2"),
@@ -87,6 +108,10 @@ cases = [
          man=[("2.16.32.1.13.184.0.0.0.0.0.1.0.0.0.0.0.1", "INTEGER", 2)], expect="1", expect_ip="2001:db8::1:0:0:1"),
     case("mgmt: an IPv4-compatible IPv6 address is written in hex, not with a dotted tail", "F6", 1, None, "A",
          man=[("2.16.0.0.0.0.0.0.0.0.0.0.0.0.169.254.2.122", "INTEGER", 2)], expect="1", expect_ip="::a9fe:27a"),
+    case("mgmt: the TimeMark of the address table differs from the neighbor table", "F6/§4.4", 1, None, "A", man_full=[("527540.1.1.1.4.10.0.0.7", "INTEGER", 2)], expect="1", expect_ip="10.0.0.7"),
+    case("mgmt: the same LocalPortNum.RemIndex under two TimeMark values is one neighbor; the first address by index order", "F6/§4.4", 1, None, "A",
+         man_full=[("5.1.1.1.4.10.0.0.8", "INTEGER", 2), ("6.1.1.1.4.10.0.0.7", "INTEGER", 2)], expect="1", expect_ip="10.0.0.7"),
+    case("mgmt: another LocalPortNum.RemIndex is another neighbor", "F6/§4.4", 1, None, "A", man_full=[("0.2.1.1.4.10.0.0.9", "INTEGER", 2)], expect="1", expect_ip=None),
     case("mgmt: IPv4 wins over IPv6, whatever the order of the index", "F6", 1, None, "A",
          man=[("1.4.10.0.0.9", "INTEGER", 2), ("2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1", "INTEGER", 2)], expect="1", expect_ip="10.0.0.9"),
     case("mgmt: two IPv4 addresses: the first by index order", "F6", 1, None, "A",

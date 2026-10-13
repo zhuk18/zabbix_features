@@ -1,0 +1,879 @@
+{
+ "text_or_hex": [
+  {
+   "in": "74 65 73 74",
+   "out": "test"
+  },
+  {
+   "in": "74 65 73 74 00",
+   "out": "test"
+  },
+  {
+   "in": "74 65 73 74 00 00 00",
+   "out": "test"
+  },
+  {
+   "in": "74 65 00 73 74",
+   "out": "74:65:00:73:74"
+  },
+  {
+   "in": "74 65 09 73 74",
+   "out": "te\tst"
+  },
+  {
+   "in": "74 65 0a 73 74",
+   "out": "74:65:0a:73:74"
+  },
+  {
+   "in": "c3 a4 e2 82 ac",
+   "out": "ä€"
+  },
+  {
+   "in": "61 ff 62",
+   "out": "61:ff:62"
+  },
+  {
+   "in": "74 65 73 74 20",
+   "out": "test "
+  },
+  {
+   "in": "74 65 7f 73",
+   "out": "74:65:7f:73"
+  },
+  {
+   "in": "74 65 6e 67 69 67 61 62 69 74 65 74 68 65 72 6e 65 74 31 2f 31 2f 31 00",
+   "out": "tengigabitethernet1/1/1"
+  },
+  {
+   "in": "",
+   "out": ""
+  },
+  {
+   "in": "00",
+   "out": ""
+  }
+ ],
+ "clean": [
+  {
+   "in": "plain",
+   "out": "plain"
+  },
+  {
+   "in": "  a b  ",
+   "out": "a b"
+  },
+  {
+   "in": "\t a \r\n",
+   "out": "a"
+  },
+  {
+   "in": "a\u0000",
+   "out": "a"
+  },
+  {
+   "in": "a\u0000\u0000",
+   "out": "a"
+  },
+  {
+   "in": "a  b",
+   "out": "a  b"
+  },
+  {
+   "in": "\"x\"",
+   "out": "x"
+  },
+  {
+   "in": "'x'",
+   "out": "x"
+  },
+  {
+   "in": "“x”",
+   "out": "x"
+  },
+  {
+   "in": "  \" x \"  ",
+   "out": "x"
+  },
+  {
+   "in": "\"\"",
+   "out": null
+  },
+  {
+   "in": "\"  \"",
+   "out": null
+  },
+  {
+   "in": "\"x",
+   "out": "\"x"
+  },
+  {
+   "in": "x\"",
+   "out": "x\""
+  },
+  {
+   "in": "“x\"",
+   "out": "“x\""
+  },
+  {
+   "in": "\"'x'\"",
+   "out": "'x'"
+  },
+  {
+   "in": "\"\"x\"\"",
+   "out": "\"x\""
+  },
+  {
+   "in": "“GigabitEthernet1/0/1”",
+   "out": "GigabitEthernet1/0/1"
+  },
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": " \t\n ",
+   "out": null
+  },
+  {
+   "in": "a\"b",
+   "out": "a\"b"
+  },
+  {
+   "in": "ä€ ",
+   "out": "ä€"
+  }
+ ],
+ "name_key": [
+  {
+   "in": "GigabitEthernet0/0/1",
+   "out": "gi0/0/1"
+  },
+  {
+   "in": "gi0/0/1",
+   "out": "gi0/0/1"
+  },
+  {
+   "in": "GE0/0/1",
+   "out": "gi0/0/1"
+  },
+  {
+   "in": "XGigabitEthernet0/0/1",
+   "out": "xge0/0/1"
+  },
+  {
+   "in": "TenGigabitEthernet1/1/1\u0000",
+   "out": "te1/1/1"
+  },
+  {
+   "in": "Ethernet 0/49",
+   "out": "et0/49"
+  },
+  {
+   "in": "Eth1/1",
+   "out": "et1/1"
+  },
+  {
+   "in": "ge-0/0/1",
+   "out": "ge-0/0/1"
+  },
+  {
+   "in": "Eth-Trunk1",
+   "out": "eth-trunk1"
+  },
+  {
+   "in": "Port-channel10",
+   "out": "po10"
+  },
+  {
+   "in": "“GigabitEthernet1/0/1”",
+   "out": "gi1/0/1"
+  },
+  {
+   "in": "1/1/1",
+   "out": "1/1/1"
+  },
+  {
+   "in": "  Gi0/1 ",
+   "out": "gi0/1"
+  },
+  {
+   "in": "GigabitEthernet 0/1",
+   "out": "gi0/1"
+  },
+  {
+   "in": "Ethernet  0/49",
+   "out": "et0/49"
+  },
+  {
+   "in": "Ethernet\t0/49",
+   "out": "et0/49"
+  },
+  {
+   "in": "port 1",
+   "out": "port1"
+  },
+  {
+   "in": "port-001",
+   "out": "port-001"
+  },
+  {
+   "in": "Port 1",
+   "out": "port1"
+  },
+  {
+   "in": "Vlan 10",
+   "out": "vlan10"
+  },
+  {
+   "in": "Management1",
+   "out": "management1"
+  },
+  {
+   "in": "mgmt1/1/1",
+   "out": "mgmt1/1/1"
+  },
+  {
+   "in": "ethernet",
+   "out": "ethernet"
+  },
+  {
+   "in": "Ethernet",
+   "out": "ethernet"
+  },
+  {
+   "in": "ethernetx1",
+   "out": "ethernetx1"
+  },
+  {
+   "in": "GigabitEthernet",
+   "out": "gigabitethernet"
+  },
+  {
+   "in": "GigabitEthernet-1",
+   "out": "gigabitethernet-1"
+  },
+  {
+   "in": "ge 0/0/1",
+   "out": "gi0/0/1"
+  },
+  {
+   "in": "G 0/1",
+   "out": "g0/1"
+  },
+  {
+   "in": "G0/1 2",
+   "out": "g0/1 2"
+  },
+  {
+   "in": "a b 1",
+   "out": "a b 1"
+  },
+  {
+   "in": "ÄBC1",
+   "out": "Äbc1"
+  },
+  {
+   "in": "äbc 1",
+   "out": "äbc 1"
+  },
+  {
+   "in": "1 Gi",
+   "out": "1 gi"
+  },
+  {
+   "in": "10GE1/0/1",
+   "out": "10ge1/0/1"
+  },
+  {
+   "in": "twentyfivegige1/0/1",
+   "out": "twe1/0/1"
+  },
+  {
+   "in": "TwentyFiveGigabitEthernet1/0/1",
+   "out": "twe1/0/1"
+  },
+  {
+   "in": "\"Gi0/1\"",
+   "out": "gi0/1"
+  },
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": "\"\"",
+   "out": null
+  },
+  {
+   "in": "twentyfivegigabitethernet1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "TWENTYFIVEGIGABITETHERNET1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "Twentyfivegigabitethernet 1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "twentyfivegigabitethernet-1",
+   "out": "twentyfivegigabitethernet-1"
+  },
+  {
+   "in": "twentyfivegigabitethernet",
+   "out": "twentyfivegigabitethernet"
+  },
+  {
+   "in": "hundredgigabitethernet1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "HUNDREDGIGABITETHERNET1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "Hundredgigabitethernet 1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "hundredgigabitethernet-1",
+   "out": "hundredgigabitethernet-1"
+  },
+  {
+   "in": "hundredgigabitethernet",
+   "out": "hundredgigabitethernet"
+  },
+  {
+   "in": "fortygigabitethernet1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "FORTYGIGABITETHERNET1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "Fortygigabitethernet 1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "fortygigabitethernet-1",
+   "out": "fortygigabitethernet-1"
+  },
+  {
+   "in": "fortygigabitethernet",
+   "out": "fortygigabitethernet"
+  },
+  {
+   "in": "tengigabitethernet1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "TENGIGABITETHERNET1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "Tengigabitethernet 1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "tengigabitethernet-1",
+   "out": "tengigabitethernet-1"
+  },
+  {
+   "in": "tengigabitethernet",
+   "out": "tengigabitethernet"
+  },
+  {
+   "in": "twogigabitethernet1/2",
+   "out": "tw1/2"
+  },
+  {
+   "in": "TWOGIGABITETHERNET1/2",
+   "out": "tw1/2"
+  },
+  {
+   "in": "Twogigabitethernet 1/2",
+   "out": "tw1/2"
+  },
+  {
+   "in": "twogigabitethernet-1",
+   "out": "twogigabitethernet-1"
+  },
+  {
+   "in": "twogigabitethernet",
+   "out": "twogigabitethernet"
+  },
+  {
+   "in": "xgigabitethernet1/2",
+   "out": "xge1/2"
+  },
+  {
+   "in": "XGIGABITETHERNET1/2",
+   "out": "xge1/2"
+  },
+  {
+   "in": "Xgigabitethernet 1/2",
+   "out": "xge1/2"
+  },
+  {
+   "in": "xgigabitethernet-1",
+   "out": "xgigabitethernet-1"
+  },
+  {
+   "in": "xgigabitethernet",
+   "out": "xgigabitethernet"
+  },
+  {
+   "in": "gigabitethernet1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "GIGABITETHERNET1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "Gigabitethernet 1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "gigabitethernet-1",
+   "out": "gigabitethernet-1"
+  },
+  {
+   "in": "gigabitethernet",
+   "out": "gigabitethernet"
+  },
+  {
+   "in": "twentyfivegige1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "TWENTYFIVEGIGE1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "Twentyfivegige 1/2",
+   "out": "twe1/2"
+  },
+  {
+   "in": "twentyfivegige-1",
+   "out": "twentyfivegige-1"
+  },
+  {
+   "in": "twentyfivegige",
+   "out": "twentyfivegige"
+  },
+  {
+   "in": "fastethernet1/2",
+   "out": "fa1/2"
+  },
+  {
+   "in": "FASTETHERNET1/2",
+   "out": "fa1/2"
+  },
+  {
+   "in": "Fastethernet 1/2",
+   "out": "fa1/2"
+  },
+  {
+   "in": "fastethernet-1",
+   "out": "fastethernet-1"
+  },
+  {
+   "in": "fastethernet",
+   "out": "fastethernet"
+  },
+  {
+   "in": "port-channel1/2",
+   "out": "po1/2"
+  },
+  {
+   "in": "PORT-CHANNEL1/2",
+   "out": "po1/2"
+  },
+  {
+   "in": "port-channel 1/2",
+   "out": "port-channel 1/2"
+  },
+  {
+   "in": "port-channel-1",
+   "out": "port-channel-1"
+  },
+  {
+   "in": "port-channel",
+   "out": "port-channel"
+  },
+  {
+   "in": "hundredgige1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "HUNDREDGIGE1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "Hundredgige 1/2",
+   "out": "hu1/2"
+  },
+  {
+   "in": "hundredgige-1",
+   "out": "hundredgige-1"
+  },
+  {
+   "in": "hundredgige",
+   "out": "hundredgige"
+  },
+  {
+   "in": "fortygige1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "FORTYGIGE1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "Fortygige 1/2",
+   "out": "fo1/2"
+  },
+  {
+   "in": "fortygige-1",
+   "out": "fortygige-1"
+  },
+  {
+   "in": "fortygige",
+   "out": "fortygige"
+  },
+  {
+   "in": "ethernet1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "ETHERNET1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "Ethernet 1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "ethernet-1",
+   "out": "ethernet-1"
+  },
+  {
+   "in": "ethernet",
+   "out": "ethernet"
+  },
+  {
+   "in": "tengige1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "TENGIGE1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "Tengige 1/2",
+   "out": "te1/2"
+  },
+  {
+   "in": "tengige-1",
+   "out": "tengige-1"
+  },
+  {
+   "in": "tengige",
+   "out": "tengige"
+  },
+  {
+   "in": "eth1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "ETH1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "Eth 1/2",
+   "out": "et1/2"
+  },
+  {
+   "in": "eth-1",
+   "out": "eth-1"
+  },
+  {
+   "in": "eth",
+   "out": "eth"
+  },
+  {
+   "in": "ge1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "GE1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "Ge 1/2",
+   "out": "gi1/2"
+  },
+  {
+   "in": "ge-1",
+   "out": "ge-1"
+  },
+  {
+   "in": "ge",
+   "out": "ge"
+  }
+ ],
+ "numeric_id": [
+  {
+   "in": "1",
+   "out": 1
+  },
+  {
+   "in": "01",
+   "out": 1
+  },
+  {
+   "in": "0001",
+   "out": 1
+  },
+  {
+   "in": "101",
+   "out": 101
+  },
+  {
+   "in": "0",
+   "out": null
+  },
+  {
+   "in": "00",
+   "out": null
+  },
+  {
+   "in": "2147483647",
+   "out": 2147483647
+  },
+  {
+   "in": "2147483648",
+   "out": null
+  },
+  {
+   "in": "0000000001",
+   "out": 1
+  },
+  {
+   "in": "00000000001",
+   "out": null
+  },
+  {
+   "in": "12345678901",
+   "out": null
+  },
+  {
+   "in": "12a",
+   "out": null
+  },
+  {
+   "in": " 12 ",
+   "out": 12
+  },
+  {
+   "in": "\"12\"",
+   "out": 12
+  },
+  {
+   "in": "-1",
+   "out": null
+  },
+  {
+   "in": "+1",
+   "out": null
+  },
+  {
+   "in": "1.5",
+   "out": null
+  },
+  {
+   "in": "",
+   "out": null
+  },
+  {
+   "in": "１２",
+   "out": null
+  },
+  {
+   "in": "1/1",
+   "out": null
+  }
+ ],
+ "port_mac": [
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:01",
+    "ports": [
+     "aa:bb:cc:00:00:01",
+     "aa:bb:cc:00:00:02"
+    ]
+   },
+   "out": 0
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:02",
+    "ports": [
+     "aa:bb:cc:00:00:01",
+     "aa:bb:cc:00:00:02"
+    ]
+   },
+   "out": 1
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:01",
+    "ports": [
+     "aa:bb:cc:00:00:01",
+     "aa:bb:cc:00:00:01"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:01",
+    "ports": [
+     "aa:bb:cc:00:00:01",
+     "aa:bb:cc:00:00:01",
+     "aa:bb:cc:00:00:03"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "00:00:00:00:00:00",
+    "ports": [
+     "00:00:00:00:00:00",
+     "aa:bb:cc:00:00:02"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:09",
+    "ports": [
+     "aa:bb:cc:00:00:01"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00",
+    "ports": [
+     "aa:bb:cc:00:00"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "",
+    "ports": [
+     "",
+     ""
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:01",
+    "ports": [
+     "",
+     "aa:bb:cc:00:00:01"
+    ]
+   },
+   "out": 1
+  },
+  {
+   "in": {
+    "mac": "not a mac",
+    "ports": [
+     "not a mac"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:01",
+    "ports": []
+   },
+   "out": null
+  }
+ ],
+ "ip_text": [
+  {
+   "in": "10.0.0.1",
+   "out": "10.0.0.1"
+  },
+  {
+   "in": "2001:db8::1",
+   "out": "2001:db8::1"
+  },
+  {
+   "in": "2001:DB8:0:0:0:0:0:1",
+   "out": "2001:db8::1"
+  },
+  {
+   "in": "2001:db8:0:0:1:0:0:1",
+   "out": "2001:db8::1:0:0:1"
+  },
+  {
+   "in": "2001:db8:0:1:1:1:1:1",
+   "out": "2001:db8:0:1:1:1:1:1"
+  },
+  {
+   "in": "::1",
+   "out": "::1"
+  },
+  {
+   "in": "::",
+   "out": "::"
+  },
+  {
+   "in": "::169.254.2.122",
+   "out": "::a9fe:27a"
+  },
+  {
+   "in": "::ffff:10.0.0.1",
+   "out": "::ffff:a00:1"
+  },
+  {
+   "in": "fe80::0:0:1",
+   "out": "fe80::1"
+  },
+  {
+   "in": "1:0:0:2:0:0:0:3",
+   "out": "1:0:0:2::3"
+  },
+  {
+   "in": "10.0.0",
+   "out": null
+  },
+  {
+   "in": "300.1.1.1",
+   "out": null
+  },
+  {
+   "in": "hello",
+   "out": null
+  },
+  {
+   "in": "",
+   "out": null
+  }
+ ]
+}
