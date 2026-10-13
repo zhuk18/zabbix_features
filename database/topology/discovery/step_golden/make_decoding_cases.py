@@ -66,6 +66,8 @@ case("text: several trailing NUL bytes", "ports", ports_walk((H, hexs(b"Gi0/1\0\
 case("text: a Hex-STRING with a NUL inside is the hex form", "ports", ports_walk((H, hexs(b"a\0b"))), {"{#IFNAME}": "61:00:62"})
 case("text: a Hex-STRING with a control character is the hex form", "ports", ports_walk((H, hexs(b"a\x01b"))), {"{#IFNAME}": "61:01:62"})
 case("text: a Hex-STRING with a line feed is the hex form", "ports", ports_walk((H, hexs(b"a\nb"))), {"{#IFNAME}": "61:0a:62"})
+case("text: a Hex-STRING with a C1 control character (U+0085) is the hex form", "ports", ports_walk((H, hexs("a\u0085b".encode()))), {"{#IFNAME}": "61:c2:85:62"})
+case("text: a Hex-STRING with DEL is the hex form", "ports", ports_walk((H, hexs(b"a\x7fb"))), {"{#IFNAME}": "61:7f:62"})
 case("text: a Hex-STRING with a tab is text", "ports", ports_walk((H, hexs(b"a\tb"))), {"{#IFNAME}": "a\tb"})
 case("text: invalid UTF-8 is the hex form", "ports", ports_walk((H, hexs(b"a\xffb"))), {"{#IFNAME}": "61:ff:62"})
 case("text: a Hex-STRING of UTF-8 is text", "ports", ports_walk((H, hexs("ä€".encode()))), {"{#IFNAME}": "ä€"})

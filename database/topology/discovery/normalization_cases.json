@@ -970,6 +970,14 @@
    "out": "10.0.0.7"
   },
   {
+   "in": "cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01 cdp:1:0a:00:00:07",
+   "out": "10.0.0.7"
+  },
+  {
+   "in": "cdp:1:0a:00:00:07 cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01",
+   "out": "10.0.0.7"
+  },
+  {
    "in": "lldp:1.4.10.0.0.9 cdp:1:0a:00:00:07",
    "out": "10.0.0.9"
   },
@@ -980,6 +988,108 @@
   {
    "in": "junk lldp:1.x",
    "out": null
+  }
+ ],
+ "row": [
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "aa:bb:cc:00:00:01",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "aa:bb:cc:00:00:01",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "aa:bb:cc:00:00",
+    "rem_sysname": "a"
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "AA-BB-CC-00-00-01-02",
+    "rem_sysname": "a"
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "AA-BB-CC-00-00-0A"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "aa:bb:cc:00:00:0a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "somethingElse",
+    "rem_chassis": " aa:bb:cc:00:00 ",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "somethingElse",
+    "rem_chassis": "aa:bb:cc:00:00",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "local",
+    "rem_chassis": "\"sw-1\"\u0000"
+   },
+   "out": {
+    "rem_chassis_type": "local",
+    "rem_chassis": "sw-1"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis": "aa:bb:cc:00:00:99:11"
+   },
+   "out": {
+    "rem_chassis": "aa:bb:cc:00:00:99:11"
+   }
+  },
+  {
+   "in": {
+    "rem_port_type": "macAddress",
+    "rem_port": "00:11:22",
+    "rem_sysname": "a"
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "rem_port_type": "interfaceAlias",
+    "rem_port": "00:11:22",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_port_type": "interfaceAlias",
+    "rem_port": "00:11:22",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "networkAddress",
+    "rem_chassis": "10.0.0.9",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "networkAddress",
+    "rem_chassis": "10.0.0.9",
+    "rem_sysname": "a"
+   }
   }
  ],
  "local_port": [
@@ -1729,6 +1839,34 @@
    "out": {
     "if_index": null,
     "reason": "name_on_several_ports"
+   }
+  },
+  {
+   "in": {
+    "name": "step 2 an earlier comparison gives several ports, a later one gives one port that is not among them: that port wins (known limit)",
+    "ports": [
+     {
+      "if_index": 1,
+      "name": "x"
+     },
+     {
+      "if_index": 2,
+      "name": "x"
+     },
+     {
+      "if_index": 3,
+      "name": "y"
+     }
+    ],
+    "row": {
+     "loc_port_num": 1,
+     "loc_port_id": "x",
+     "loc_port_desc": "y"
+    }
+   },
+   "out": {
+    "if_index": 3,
+    "reason": null
    }
   },
   {

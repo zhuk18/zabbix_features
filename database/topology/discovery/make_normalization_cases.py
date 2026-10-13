@@ -12,7 +12,7 @@ A function is a key; each case is {"in": ..., "out": ...}. `null` is "no value".
   numeric_id   §4.7 input text, output an integer
   port_mac     §4.8 input {"mac", "ports": [macs of the Device's ports]}, output the 0-based index of the one port that has it
   ip_text      §4.3 input an address in any spelling, output the canonical text
-  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
+  row          §5 input a NEIGHBORS row (snapshot field names), output the normalized row or null when the row is skipped (invalid identity)\n  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
   local_port   model §6.7.6 input {"name", "ports": [{if_index, name?, descr?, mac?}], "row": {if_index? loc_port_num loc_port_id loc_port_id_type loc_port_desc}},
                output {"if_index": n|null, "reason": null|name_on_several_ports|if_index_missing|no_ports}
 """
@@ -202,9 +202,23 @@ cases["man_addrs"] = [
     {"in": "cdp:1:c0:a8:01:0b:00", "out": None},
     {"in": "cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01", "out": None},
     {"in": "cdp:65535: cdp:1:0a:00:00:07", "out": "10.0.0.7"},
+    {"in": "cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01 cdp:1:0a:00:00:07", "out": "10.0.0.7"},
+    {"in": "cdp:1:0a:00:00:07 cdp:20:20:01:0d:b8:00:00:00:00:00:00:00:00:00:00:00:01", "out": "10.0.0.7"},
     {"in": "lldp:1.4.10.0.0.9 cdp:1:0a:00:00:07", "out": "10.0.0.9"},
     {"in": "", "out": None},
     {"in": "junk lldp:1.x", "out": None},
+]
+cases["row"] = [
+    {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00:01", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00:01", "rem_sysname": "a"}},
+    {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00", "rem_sysname": "a"}, "out": None},
+    {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "AA-BB-CC-00-00-01-02", "rem_sysname": "a"}, "out": None},
+    {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "AA-BB-CC-00-00-0A"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00:0a"}},
+    {"in": {"rem_chassis_type": "somethingElse", "rem_chassis": " aa:bb:cc:00:00 ", "rem_sysname": "a"}, "out": {"rem_chassis_type": "somethingElse", "rem_chassis": "aa:bb:cc:00:00", "rem_sysname": "a"}},
+    {"in": {"rem_chassis_type": "local", "rem_chassis": "\"sw-1\"\u0000"}, "out": {"rem_chassis_type": "local", "rem_chassis": "sw-1"}},
+    {"in": {"rem_chassis": "aa:bb:cc:00:00:99:11"}, "out": {"rem_chassis": "aa:bb:cc:00:00:99:11"}},
+    {"in": {"rem_port_type": "macAddress", "rem_port": "00:11:22", "rem_sysname": "a"}, "out": None},
+    {"in": {"rem_port_type": "interfaceAlias", "rem_port": "00:11:22", "rem_sysname": "a"}, "out": {"rem_port_type": "interfaceAlias", "rem_port": "00:11:22", "rem_sysname": "a"}},
+    {"in": {"rem_chassis_type": "networkAddress", "rem_chassis": "10.0.0.9", "rem_sysname": "a"}, "out": {"rem_chassis_type": "networkAddress", "rem_chassis": "10.0.0.9", "rem_sysname": "a"}},
 ]
 cases["local_port"] = [
     lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
@@ -232,6 +246,7 @@ cases["local_port"] = [
     lp("step 2 several ports with the name key but the next comparison gives one port: that one wins", DUP, {"loc_port_num": 9, "loc_port_id": "eth1x", "loc_port_desc": "uplink"}, 3),
     lp("step 2 the exact (cleaned) comparison gives one port before the key is tried", _ports((1, "x", None, None), (2, "X", None, None)), {"loc_port_num": 1, "loc_port_id": "x"}, 1),
     lp("step 2 several ports by the name key only: name_on_several_ports", _ports((1, "Gi0/1", None, None), (2, "GigabitEthernet0/1", None, None)), {"loc_port_num": 1, "loc_port_id": "gigabitethernet0/1"}, None, "name_on_several_ports"),
+    lp("step 2 an earlier comparison gives several ports, a later one gives one port that is not among them: that port wins (known limit)", _ports((1, "x", None, None), (2, "x", None, None), (3, "y", None, None)), {"loc_port_num": 1, "loc_port_id": "x", "loc_port_desc": "y"}, 3),
     lp("step 3 loc_port_num as an ifIndex when no name matches", P3, {"loc_port_num": 3, "loc_port_id": "nothing", "loc_port_desc": "else"}, 3),
     lp("step 3 only if no name of step 2 matches any port", _ports((1, "x1", None, None), (2, "X1", None, None), (3, "p3", None, None)), {"loc_port_num": 3, "loc_port_id": "x1"}, 1),
     lp("step 4 the ifIndex does not exist", P3, {"loc_port_num": 12, "loc_port_id": "nothing"}, None, "if_index_missing"),
