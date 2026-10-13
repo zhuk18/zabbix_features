@@ -419,3 +419,8 @@ ups1.log
 ui/include/defines.inc.php
 database/topology/discovery/reporters.json
 .cache
+
+# topology tests and tools: generated output
+__pycache__/
+*.pyc
+database/topology/discovery/scenario_catalog_results.json
