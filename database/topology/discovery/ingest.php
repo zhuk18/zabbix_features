@@ -15,8 +15,8 @@ declare(strict_types=1);
  * database/topology/seed.php — rather than bootstrapping Zabbix's full DB/API layer
  * (GOTCHAS.md #8) for a one-off CLI script. The upsert helpers below ($device/$port/
  * $ensure_edge) are deliberately a close mirror of seed.php's; $ensure_physical_link() and
- * $reconcile_device() are a byte-for-byte-equivalent reimplementation of
- * CTopologyPrototype::upsertPhysicalLink() and ::reconcileHost()/::promote() — see the
+ * $promote() are a byte-for-byte-equivalent reimplementation of
+ * CTopologyPrototype::upsertPhysicalLink() and ::promote() — see the
  * comments on each for the exact correspondence. Keep it that way: don't let this drift into
  * a second, subtly different set of rules (per the brief's explicit warning).
  *
@@ -732,7 +732,7 @@ $ensure_physical_link = static function (int $port_a, int $port_b, string $disco
 };
 
 // Byte-for-byte mirror of CTopologyPrototype::promote()'s 1:1-guard + write, called only from
-// $reconcile_device() below with matched_by='mac' (never 'manual' — manual promotion is the separate
+// $associate_hosts_by_mac() below with matched_by='mac' (never 'manual' — manual promotion is the separate
 // /promote endpoint's job (topology-1-model.md "`represented_by` (Device → Host or Proxy)"), not ingest's) and from the reporter_self call in the main loop below
 // with matched_by='reporter_self'. topology-1-model.md "`represented_by` (Device → Host or Proxy)": represented_by is stored as three columns directly on
 // the Device's own topo_nodes row, not a topo_edges row — matched_mac is deliberately not accepted or
@@ -758,14 +758,12 @@ $promote = static function (int $device_id, int $target_nodeid, string $matched_
 
 // topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": find-or-create the Host pointer node for a reporter's own hostid, scoped to the new
 // deterministic reporter-self-link path only (see the $promote() call in the main loop below) — NOT used
-// by $reconcile_device()'s neighbor-MAC path, which must keep only ever SELECTing an existing host node
-// (a neighbor reconciling against a Host that was never pulled via the "Pull Zabbix hosts" button is
-// correctly a non-match, per the "opportunistic" framing of topology-1-model.md "Automatic MAC match (Host only)"; that stays unchanged). Mirrors
+// by the inventory MAC match ($associate_hosts_by_mac), which creates the Host node itself on a match. Mirrors
 // CTopologyPrototype::upsertPointerNode() (ui/include/classes/topology/CTopologyPrototype.php ~line 709):
 // look up topo_nodes by (type='host', host_ref=hostid), insert {type:'host', host_ref:hostid, attrs:'{}'}
 // if missing. This is the whole point of the reporter-self-link change: ingest already knows the exact
 // hostid with certainty (from the item.get call that located this reporter, topology-1-model.md "Reporters and usable snapshots"), so linking the
-// reporter's Device to its own Host must not depend on "Pull Zabbix hosts" having been run first.
+// reporter's Device to its own Host does not depend on an inventory MAC.
 $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $last_insert_id): int {
 	$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'host' AND host_ref = ?");
 	$stmt->execute([$hostid]);
@@ -777,57 +775,86 @@ $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $l
 	return $last_insert_id();
 };
 
-// Byte-for-byte mirror of CTopologyPrototype::reconcileHost()'s MAC lookup (Port.attrs.mac via
-// host_inventory.macaddress_a/b) — run per Device instead of per Host, since ingest discovers/touches
-// Devices, not Hosts (the Host/Proxy pull (topology-1-model.md "Host and Proxy association") is a separate, already-existing pull path this script doesn't
-// duplicate). Only Host is reconciled against, not Proxy — proxy.get/CProxy::get exposes no MAC/inventory
-// concept at all, so there is nothing to reconcile a Proxy against here either (a Proxy node is only ever
-// created via manual /promote, topology-1-model.md "Manual `/promote` and `/depromote`"). topology-1-model.md "Automatic MAC match (Host only)": matching is MAC-only — there is no generic Zabbix host
-// field carrying an LLDP chassis ID (host_inventory.chassis is an unrelated free-text field), so
-// $device_attrs is unused here now; it stays a parameter only because callers pass it (see the neighbor
-// Device call below), not because this function reads it.
-$reconcile_device = static function (int $device_id, array $device_attrs, array $port_macs) use ($pdo, $promote, &$summary): void {
-	$note_mac = static function (string $kind, string $mac, array $node_ids) use (&$summary): void {
-		foreach ($summary['macs_shared']['list'] as $entry) {
-			if ($entry['kind'] === $kind && $entry['value'] === $mac) {
-				return;
+// topology-1-model.md §10.2 "Automatic MAC match (Host only)": part of every run (full and partial), after pass B; there is no separate action. One batched read of the
+// inventory MACs (host_inventory.macaddress_a / macaddress_b of the monitored and not monitored hosts: what host.get with selectInventory returns; a run has no API
+// user, so it reads the table, like the reporters), matched against the MACs of the Devices (the Device's own `mac` and the MAC of its Ports). A MAC in the inventory of
+// several Hosts, or on several Devices, matches nothing (§6.7.4, `macs_shared`). A Device or a Host that already has an association is never matched (§4.5). A Host gets its
+// topo_nodes row only here, on a match (§10.1). Returns nothing; counts the new associations in `hosts_associated_by_mac`.
+$associate_hosts_by_mac = static function () use ($pdo, $promote, $find_or_create_host_node, &$summary): void {
+	$mac_text = static function (?string $value): ?string {
+		$digits = strtolower(preg_replace('/[^0-9a-fA-F]/', '', (string) $value));
+		if (strlen($digits) !== 12 || preg_match('/[^0-9a-fA-F:.\- ]/', (string) $value) === 1 || $digits === '000000000000') {
+			return null;
+		}
+		return implode(':', str_split($digits, 2));
+	};
+	$hosts_by_mac = [];
+	try {
+		$rows = $pdo->query('SELECT hi.hostid, hi.macaddress_a, hi.macaddress_b FROM host_inventory hi JOIN hosts h ON h.hostid = hi.hostid'.
+			' WHERE h.status IN (0, 1) AND (hi.macaddress_a <> \'\' OR hi.macaddress_b <> \'\') ORDER BY hi.hostid')->fetchAll(PDO::FETCH_ASSOC);
+	}
+	catch (PDOException $exception) {
+		return;                    // a database without the Zabbix inventory table (a test stand-in): nothing to match
+	}
+	foreach ($rows as $row) {
+		foreach (['macaddress_a', 'macaddress_b'] as $field) {
+			if (($mac = $mac_text($row[$field])) !== null) {
+				$hosts_by_mac[$mac][(int) $row['hostid']] = (int) $row['hostid'];
 			}
 		}
+	}
+	if (!$hosts_by_mac) {
+		return;
+	}
+	$devices_by_mac = [];
+	foreach ($pdo->query("SELECT id, device_id, type, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac')) AS mac FROM topo_nodes".
+			" WHERE type IN ('device', 'port') AND JSON_EXTRACT(attrs, '\$.mac') IS NOT NULL ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$device_id = $row['type'] === 'device' ? (int) $row['id'] : ($row['device_id'] === null ? null : (int) $row['device_id']);
+		if ($device_id !== null && ($mac = $mac_text($row['mac'])) !== null) {
+			$devices_by_mac[$mac][$device_id] = $device_id;
+		}
+	}
+	$note_shared = static function (string $kind, string $mac, array $ids) use (&$summary): void {
 		$summary['macs_shared']['count']++;
 		if (count($summary['macs_shared']['list']) < 200) {
-			// Device ids are topology node ids; Host ids are Zabbix hostids (a Host that matched nothing has no node)
-			$summary['macs_shared']['list'][] = ['kind' => $kind, 'value' => $mac,
-				($kind === 'host' ? 'host_ids' : 'node_ids') => array_map('intval', $node_ids)];
+			$summary['macs_shared']['list'][] = ['kind' => $kind, 'value' => $mac, ($kind === 'host' ? 'host_ids' : 'node_ids') => array_values($ids)];
 		}
 	};
-	foreach ($port_macs as $mac) {
-		if (!$mac) {
-			continue;
-		}
-		$mac = strtolower($mac);
-		// topology-1-model.md "Automatic MAC match (Host only)", "Shared identifier": a MAC on more than one Device, or in the
-		// inventory of more than one Host, matches nothing.
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ?".
-			" UNION SELECT device_id FROM topo_nodes WHERE type = 'port' AND device_id IS NOT NULL".
-			" AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac'))) = ? ORDER BY 1");
-		$stmt->execute([$mac, $mac]);
-		$devices = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
-		if (count($devices) > 1) {
-			$note_mac('device', $mac, $devices);
-			continue;
-		}
-		$stmt = $pdo->prepare("SELECT hi.hostid, node.id AS node_id FROM host_inventory hi".
-			" LEFT JOIN topo_nodes node ON node.type = 'host' AND node.host_ref = hi.hostid".
-			" WHERE LOWER(hi.macaddress_a) = ? OR LOWER(hi.macaddress_b) = ? ORDER BY hi.hostid");
-		$stmt->execute([$mac, $mac]);
-		$hosts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+	ksort($hosts_by_mac);
+	foreach ($hosts_by_mac as $mac => $hosts) {
+		$devices = $devices_by_mac[$mac] ?? [];
 		if (count($hosts) > 1) {
-			$note_mac('host', $mac, array_column($hosts, 'hostid'));
+			$note_shared('host', $mac, $hosts);
 			continue;
 		}
-		foreach ($hosts as $host) {
-			if ($host['node_id'] !== null) {        // only an existing Host node is matched, as before
-				$promote($device_id, (int) $host['node_id'], 'mac');
+		if (count($devices) > 1) {
+			$note_shared('device', $mac, $devices);
+			continue;
+		}
+		if (!$devices) {
+			continue;
+		}
+		$device_id = reset($devices);
+		$hostid = reset($hosts);
+		$represented = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_node_id IS NOT NULL");
+		$represented->execute([$device_id]);
+		if ($represented->fetch()) {
+			continue;                // an existing association is never replaced
+		}
+		$host_node = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'host' AND host_ref = ?");
+		$host_node->execute([$hostid]);
+		if (($node_id = $host_node->fetchColumn()) !== false) {
+			$taken = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE type = 'device' AND represented_by_node_id = ?");
+			$taken->execute([$node_id]);
+			if ($taken->fetch()) {
+				continue;            // this Host represents another Device already
+			}
+		}
+		$node_id = $find_or_create_host_node((string) $hostid);
+		if ($promote($device_id, $node_id, 'mac')) {
+			$summary['hosts_associated_by_mac']['count']++;
+			if (count($summary['hosts_associated_by_mac']['list']) < 200) {
+				$summary['hosts_associated_by_mac']['list'][] = ['host_id' => $hostid, 'node_id' => $node_id, 'device_id' => $device_id];
 			}
 		}
 	}
@@ -1361,6 +1388,8 @@ $summary += [
 	// (neighbor rows and reporters), and of the MACs found on several Devices or in the inventory of several Hosts.
 	'identity_keys_shared' => ['count' => 0, 'list' => []],
 	'macs_shared' => ['count' => 0, 'list' => []],
+	// topology-1-model.md §10.2: new Host associations by inventory MAC in this run (host id, Host node id, Device id)
+	'hosts_associated_by_mac' => ['count' => 0, 'list' => []],
 	'hosts_duplicate_transport' => [],
 	'links_refined' => 0,
 	'device_level_reasons' => [],
@@ -2348,7 +2377,7 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 	$q_key, &$current_ip_keys,
 	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$label = $reporter['host'];
@@ -2458,7 +2487,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 
 	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -2603,7 +2632,7 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 
 	$pdo, $find_device, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$resolve_local_port, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $reconcile_device, $update_node, $now, &$summary,
+	$find_matching_real_port, $resolve_port_label, $far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
 	$snapshots = $reporter['snapshots'];
@@ -2667,9 +2696,6 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			'vendor' => 'unknown',
 		], $local_port_id, $clock);
 		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
-		if ($remote_device_id !== null) {
-			$reconcile_device($remote_device_id, [], array_filter([$looks_like_mac ? strtolower($chassis_id) : null]));
-		}
 
 		$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
 		// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
@@ -3897,6 +3923,19 @@ if ($phase_2_done && !$zabbix_host_filter) {
 	}
 }
 
+// ---- topology-1-model.md §10.2: the inventory MAC match, part of every run, after pass B ----
+try {
+	$pdo->beginTransaction();
+	$associate_hosts_by_mac();
+	$pdo->commit();
+}
+catch (Throwable $exception) {
+	if ($pdo->inTransaction()) {
+		$pdo->rollBack();
+	}
+	fwrite(STDERR, "ERROR: the inventory MAC match failed: {$exception->getMessage()}\n");
+}
+
 // ---- Legacy Trapper-blob reporters. A host that has LLD snapshots is ingested from them only. ----
 $reporter_items = $api->findAllReporterItems();
 if ($zabbix_host_filter) {
@@ -4034,15 +4073,11 @@ foreach ($reporter_items as $reporter_item) {
 			if ($local_port_id !== null) {
 				$ensure_physical_link($local_port_id, $neighbor_port_id, 'lldp', $local_port_id);
 			}
-
-			// topology-1-model.md "Automatic MAC match (Host only)": reconcile the neighbor Device too, not just the reporter — a neighbor discovered by
-			// LLDP might itself be an already-onboarded Zabbix Host with inventory MAC data.
-			$reconcile_device($neighbor_device_id, $neighbor_attrs, array_filter([$neighbor_attrs['mac']]));
 		}
 
 		// topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": the reporter's own Device is represented_by its own Host deterministically — this
 		// is a separate path from the opportunistic MAC reconciliation (topology-1-model.md "Automatic MAC match (Host only)"), not a variant of it.
-		// $reconcile_device() is never called for the reporter itself (only for neighbors, above): ingest
+		// The inventory MAC match ($associate_hosts_by_mac, §10.2) is not used for the reporter itself: ingest
 		// already knows the reporter's exact hostid for certain (from $reporter_item, the very item.get
 		// row that located this reporter in the first place), so there's no ambiguity to resolve via MAC
 		// matching, and no need to wait on a MAC even existing in inventory at all.

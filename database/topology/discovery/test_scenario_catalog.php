@@ -2996,6 +2996,112 @@ c('A-11', 'Правило', function () {
 
 
 // ============================================================================================================
+// MAC. The inventory MAC match of model §10.2 in every ingest run, after pass B (handoff 027): a Host gets its node and `represented_by` (mac) only here.
+// ============================================================================================================
+
+function mac_inventory(int $hostid, string $a, string $b = ''): void {
+	global $pdo;
+	add_host($pdo, $hostid, "h{$hostid}", "h{$hostid}", null);
+	$pdo->prepare('INSERT INTO host_inventory (hostid, macaddress_a, macaddress_b) VALUES (?, ?, ?)')->execute([$hostid, $a, $b]);
+}
+
+function mac_associated(): int {
+	return (int) ($GLOBALS['H']['last_summary']['hosts_associated_by_mac']['count'] ?? -1);
+}
+
+c('MAC-01', 'Правило', function () {
+	global $pdo;
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	mac_inventory(201, strtoupper(mac(20)));
+	h_ingest('a Host whose inventory MAC is the chassis MAC of a neighbor Device (no Host node before)');
+	ex((h_dev('DX')['represented_by'] ?? null) === 'mac', 'the Device is represented_by the Host (mac)');
+	ex((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='host' AND host_ref=201") === 1, 'the Host node was created by the match');
+	ex(mac_associated() === 1 && ($GLOBALS['H']['last_summary']['hosts_associated_by_mac']['list'][0]['host_id'] ?? null) === 201, 'hosts_associated_by_mac counts it with the host id');
+	h_ingest('again');
+	ex(mac_associated() === 0, 'the next run associates nothing new');
+});
+
+c('MAC-02', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24'), NR(2, mac(21), 'DY', 'Gi0/24', ['rem_port' => 'Gi0/1'])]);
+	mac_inventory(201, mac(20), mac(21));
+	h_ingest('a Host with two inventory MACs, each the MAC of another Device');
+	$n = count(array_filter(h_state()['devices'], static fn ($d) => $d['represented_by'] === 'mac'));
+	ex($n === 1 && mac_associated() === 1, 'one Host represents one Device (1:1): the first MAC wins, the second is not matched');
+});
+
+c('MAC-03', 'Правило', function () {
+	h_rep('R1', mac(1), '10.0.0.1');
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_ports('R1', [1 => ['Gi0/1', ['mac' => mac(30)]]]);
+	h_ports('R2', [1 => ['Gi0/1', ['mac' => mac(30)]]]);
+	mac_inventory(201, mac(30));
+	h_ingest('one MAC on the Ports of two Devices');
+	$s = $GLOBALS['H']['last_summary']['macs_shared'];
+	ex(mac_associated() === 0 && $s['count'] >= 1 && $s['list'][0]['kind'] === 'device' && $s['list'][0]['value'] === mac(30) && count($s['list'][0]['node_ids']) === 2,
+		'matches nothing; macs_shared lists the MAC with both Device node ids ('.json_encode($s).')');
+});
+
+c('MAC-04', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	mac_inventory(201, mac(20));
+	mac_inventory(202, '', mac(20));
+	h_ingest('one MAC in the inventory of two Hosts');
+	$s = $GLOBALS['H']['last_summary']['macs_shared'];
+	ex(mac_associated() === 0 && (h_dev('DX')['represented_by'] ?? null) === null && $s['count'] === 1 && $s['list'][0]['kind'] === 'host' && $s['list'][0]['host_ids'] === [201, 202],
+		'matches nothing; macs_shared lists the MAC with both hostids ('.json_encode($s).')');
+});
+
+c('MAC-05', 'Правило', function () {
+	global $pdo;
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	mac_inventory(201, mac(20));
+	h_ingest('baseline: DX is associated with Host 201');
+	mac_inventory(202, mac(20));
+	$pdo->exec('DELETE FROM host_inventory WHERE hostid = 201');
+	h_ingest('Host 202 has the MAC now, Host 201 lost it; DX is already associated');
+	ex(mac_associated() === 0 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='host' AND host_ref=202") === 0,
+		'an existing association is never replaced: no node for Host 202, nothing counted');
+});
+
+c('MAC-06', 'Правило', function () {
+	global $pdo;
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24'), NR(2, mac(21), 'DY', 'Gi0/24', ['rem_port' => 'Gi0/1'])]);
+	mac_inventory(201, mac(20));
+	h_ingest('baseline: DX associated with Host 201');
+	mac_inventory(202, mac(20), mac(21));
+	h_ingest('Host 202 holds the MACs of DX (taken) and DY');
+	ex((h_dev('DY')['represented_by'] ?? null) === 'mac' && (h_dev('DX')['represented_by'] ?? null) === 'mac' && mac_associated() === 1,
+		'a Host that has no association is matched on its other MAC; DX keeps Host 201');
+	$taken = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE d.type='device' AND h.host_ref = 201");
+	ex($taken === 1, 'DX is still represented by Host 201');
+});
+
+c('MAC-07', 'Правило', function () {
+	base_r();
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	h_ingest('baseline, no inventory yet');
+	mac_inventory(201, mac(20));
+	h_ingest('a partial run (one reporter named)', ['R2']);
+	ex(mac_associated() === 1 && (h_dev('DX')['represented_by'] ?? null) === 'mac', 'the match runs in a partial run too (on the Devices of earlier runs)');
+});
+
+c('MAC-08', 'Правило', function () {
+	base_r();
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	mac_inventory(201, '00:00:00:00:00:00', '');
+	mac_inventory(202, 'not a mac', '');
+	h_ingest('zero and malformed inventory MACs');
+	ex(mac_associated() === 0 && $GLOBALS['H']['last_summary']['macs_shared']['count'] === 0, 'no match, no macs_shared entry');
+});
+
+// ============================================================================================================
 // Q. Normalization of topology-6 on the far side (model §6.7.2, handoff 025 section 3): the corpus has no device pairs, so these cases are the test of
 // the far port rules: a numeric port id with a description, leading zeros, a port MAC identity, name forms, cleaning at ingest.
 // ============================================================================================================
