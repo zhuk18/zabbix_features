@@ -103,8 +103,10 @@ typedef struct
 	zbx_uint64_t	index;
 	char		*name;		/* ifName, else ifDescr, else "if<index>": what a row shows */
 	char		*mac;
-	char		*ifname;	/* ifName as the walk has it ("" when absent), for the local port rule */
-	char		*descr;		/* ifDescr as the walk has it ("" when absent) */
+	char		*ifname;	/* ifName cleaned (§4.5; "" when absent), for the local port rule */
+	char		*descr;		/* ifDescr cleaned ("" when absent) */
+	char		*ifname_key;	/* the name key (§4.6) of ifName / ifDescr, "" when there is no name */
+	char		*descr_key;
 }
 topo_if_t;
 
@@ -515,7 +517,7 @@ static int	topo_if_compare(const void *d1, const void *d2)
 
 static const topo_if_t	*topo_if_get(const zbx_vector_topo_if_t *ifs, zbx_uint64_t index)
 {
-	topo_if_t	key = {index, NULL, NULL, NULL, NULL};
+	topo_if_t	key = {index, NULL, NULL, NULL, NULL, NULL, NULL};
 	int		i;
 
 	if (FAIL == (i = zbx_vector_topo_if_bsearch(ifs, key, topo_if_compare)))
@@ -532,6 +534,214 @@ static const topo_if_t	*topo_if_get_text(const zbx_vector_topo_if_t *ifs, const 
 		return NULL;
 
 	return topo_if_get(ifs, index);
+}
+
+/******************************************************************************
+ *                                                                            *
+ * normalization (topology-6-normalization.md §3-§4): the same functions in   *
+ * push.py and in ingest.php, tested with normalization_cases.json            *
+ *                                                                            *
+ ******************************************************************************/
+
+#define TOPO_WHITE	" \t\n\v\f\r"
+
+/* §3: a control character is a C0 character other than tab, DEL, or a C1 character (U+0080..U+009F) */
+static int	topo_has_control(const unsigned char *s, size_t len)
+{
+	for (size_t i = 0; i < len; i++)
+	{
+		if ((s[i] < 0x20 && 0x09 != s[i]) || 0x7f == s[i])
+			return SUCCEED;
+
+		if (0xc2 == s[i] && i + 1 < len && 0x80 <= s[i + 1] && 0x9f >= s[i + 1])
+			return SUCCEED;
+	}
+
+	return FAIL;
+}
+
+/* §3, text fields from a Hex-STRING: trailing NUL bytes removed; the rest is text when it is valid UTF-8 without a control character other than tab,
+ * else the hex form aa:bb:.. (lower case) */
+static char	*topo_text_or_hex(const unsigned char *bytes, size_t len)
+{
+	char	*out;
+
+	while (0 < len && '\0' == bytes[len - 1])
+		len--;
+
+	out = (char *)zbx_malloc(NULL, 3 * len + 1);
+	memcpy(out, bytes, len);
+	out[len] = '\0';
+
+	if (strlen(out) == len && SUCCEED == zbx_is_utf8(out) && SUCCEED != topo_has_control(bytes, len))
+		return out;
+
+	{
+		size_t	offset = 0;
+
+		for (size_t i = 0; i < len; i++)
+			offset += zbx_snprintf(out + offset, 4, "%s%02x", 0 == i ? "" : ":", bytes[i]);
+
+		out[offset] = '\0';
+	}
+
+	return out;
+}
+
+/* §4.5 steps 2-4 in place: leading and trailing white space, one pair of surrounding quote characters ("..", '..', U+201C U+201D), white space again.
+ * (Trailing NUL characters cannot be in a C string: the callers that take bytes remove them.) Empty = no value. */
+static char	*topo_name_clean(char *text)
+{
+	size_t	len;
+	char	*start;
+
+	for (int pass = 0; pass < 2; pass++)
+	{
+		start = text + strspn(text, TOPO_WHITE);
+		len = strlen(start);
+
+		while (0 < len && NULL != strchr(TOPO_WHITE, start[len - 1]))
+			len--;
+
+		memmove(text, start, len);
+		text[len] = '\0';
+
+		if (1 == pass)
+			break;
+
+		if (2 <= len && (('"' == text[0] && '"' == text[len - 1]) || ('\'' == text[0] && '\'' == text[len - 1])))
+		{
+			memmove(text, text + 1, len - 2);
+			text[len - 2] = '\0';
+		}
+		else if (6 <= len && 0 == memcmp(text, "\xe2\x80\x9c", 3) && 0 == memcmp(text + len - 3, "\xe2\x80\x9d", 3))
+		{
+			memmove(text, text + 3, len - 6);
+			text[len - 6] = '\0';
+		}
+		else
+			break;
+	}
+
+	return text;
+}
+
+/* §4.6 name key (a new string): clean, ASCII lower case, no white space between the leading letters and the first digit, a long form of the table
+ * replaced by its short form when a digit follows it (the table is longest first, the first match wins) */
+static char	*topo_name_key(const char *name)
+{
+	char	*key = topo_name_clean(zbx_strdup(NULL, name)), *p;
+	size_t	letters;
+
+	for (p = key; '\0' != *p; p++)
+	{
+		if ('A' <= *p && 'Z' >= *p)
+			*p = (char)(*p - 'A' + 'a');
+	}
+
+	for (letters = 0; 'a' <= key[letters] && 'z' >= key[letters]; letters++)
+		;
+
+	if (0 < letters && '\0' != key[letters] && NULL != strchr(TOPO_WHITE, key[letters]))
+	{
+		const char	*digit = key + letters + strspn(key + letters, TOPO_WHITE);
+
+		if ('0' <= *digit && '9' >= *digit)
+			memmove(key + letters, digit, strlen(digit) + 1);
+	}
+
+	for (int i = 0; NULL != topo_port_forms[i].long_form; i++)
+	{
+		size_t	n = strlen(topo_port_forms[i].long_form);
+
+		if (0 == strncmp(key, topo_port_forms[i].long_form, n) && '0' <= key[n] && '9' >= key[n])
+		{
+			char	*out = zbx_dsprintf(NULL, "%s%s", topo_port_forms[i].short_form, key + n);
+
+			zbx_free(key);
+
+			return out;
+		}
+	}
+
+	return key;
+}
+
+/* §4.7: 1 to 10 ASCII digits after cleaning, value 1..2147483647 */
+static int	topo_numeric_id(const char *text, zbx_uint64_t *value)
+{
+	char	*clean = topo_name_clean(zbx_strdup(NULL, text));
+	size_t	len = strlen(clean);
+	int	ret = FAIL;
+
+	if (1 <= len && 10 >= len && len == strspn(clean, "0123456789"))
+	{
+		zbx_uint64_t	number = strtoull(clean, NULL, 10);
+
+		if (0 < number && 2147483647 >= number)
+		{
+			*value = number;
+			ret = SUCCEED;
+		}
+	}
+
+	zbx_free(clean);
+
+	return ret;
+}
+
+/* §4.1 and §4.8: a normalized MAC (6 lower case colon pairs) that is not all zero */
+static int	topo_mac_usable(const char *mac)
+{
+	if (17 != strlen(mac) || 0 == strcmp(mac, "00:00:00:00:00:00"))
+		return FAIL;
+
+	for (int i = 0; i < 17; i++)
+	{
+		if (2 == i % 3)
+		{
+			if (':' != mac[i])
+				return FAIL;
+		}
+		else if (0 == isxdigit((unsigned char)mac[i]) || (isalpha((unsigned char)mac[i]) && 0 == islower((unsigned char)mac[i])))
+			return FAIL;
+	}
+
+	return SUCCEED;
+}
+
+/* a name value of a walk (§3 + §4.5): a Hex-STRING is text or the hex form, a STRING is text, then cleaned; "" when there is no value */
+static char	*topo_pair_name(const zbx_snmp_value_pair_t *pair)
+{
+	char	*out;
+
+	if (ZBX_SNMP_TYPE_HEX == pair->type)
+	{
+		unsigned char	*bytes = (unsigned char *)zbx_malloc(NULL, strlen(pair->value) / 2 + 1);
+		size_t		len = 0;
+		char		*copy = zbx_strdup(NULL, pair->value), *p, *save = NULL;
+
+		for (p = strtok_r(copy, " \t\r\n:", &save); NULL != p; p = strtok_r(NULL, " \t\r\n:", &save))
+			bytes[len++] = (unsigned char)strtoul(p, NULL, 16);
+
+		out = topo_text_or_hex(bytes, len);
+		zbx_free(bytes);
+		zbx_free(copy);
+	}
+	else
+	{
+		out = zbx_strdup(NULL, pair->value);
+		zbx_replace_invalid_utf8(out);
+	}
+
+	return topo_name_clean(out);
+}
+
+static char	*topo_table_name(const topo_table_t *table, const char *suffix)
+{
+	const zbx_snmp_value_pair_t	*pair = topo_table_get(table, suffix);
+
+	return NULL != pair ? topo_pair_name(pair) : zbx_strdup(NULL, "");
 }
 
 /* interfaces of the walk: ifIndex column drives the list; name = ifName, else ifDescr, else "if<index>" */
@@ -554,8 +764,10 @@ static void	topo_ifs_load(const zbx_snmp_value_cache_t *cache, zbx_vector_topo_i
 		if (SUCCEED != topo_index_parse(suffix, &item.index))
 			continue;
 
-		item.ifname = topo_table_text(&names, suffix);
-		item.descr = topo_table_text(&descr, suffix);
+		item.ifname = topo_table_name(&names, suffix);
+		item.descr = topo_table_name(&descr, suffix);
+		item.ifname_key = topo_name_key(item.ifname);
+		item.descr_key = topo_name_key(item.descr);
 		item.name = zbx_strdup(NULL, '\0' != *item.ifname ? item.ifname : item.descr);
 
 		if ('\0' == *item.name)
@@ -582,6 +794,8 @@ static void	topo_ifs_clear(zbx_vector_topo_if_t *ifs)
 		zbx_free(ifs->values[i].mac);
 		zbx_free(ifs->values[i].ifname);
 		zbx_free(ifs->values[i].descr);
+		zbx_free(ifs->values[i].ifname_key);
+		zbx_free(ifs->values[i].descr_key);
 	}
 
 	zbx_vector_topo_if_destroy(ifs);
@@ -843,8 +1057,9 @@ static char	*lldp_decode_id(const zbx_snmp_value_pair_t *pair, long long subtype
 	return topo_decode(pair);
 }
 
-/* ports whose ifName (field 0) or ifDescr (field 1) equals the text exactly; *one is the port when there is exactly one */
-static int	lldp_name_matches(const zbx_vector_topo_if_t *ifs, int field, const char *text, const topo_if_t **one)
+/* ports whose name equals the text: field 0 = ifName, 1 = ifDescr; by_key 0 = the cleaned names are equal, 1 = the name keys are equal;
+ * *one is the port when there is exactly one */
+static int	lldp_name_matches(const zbx_vector_topo_if_t *ifs, int field, int by_key, const char *text, const topo_if_t **one)
 {
 	int	num = 0;
 
@@ -853,9 +1068,10 @@ static int	lldp_name_matches(const zbx_vector_topo_if_t *ifs, int field, const c
 
 	for (int i = 0; i < ifs->values_num; i++)
 	{
-		const char	*name = 0 == field ? ifs->values[i].ifname : ifs->values[i].descr;
+		const char	*name = by_key ? (0 == field ? ifs->values[i].ifname_key : ifs->values[i].descr_key) :
+				(0 == field ? ifs->values[i].ifname : ifs->values[i].descr);
 
-		if (0 == strcmp(name, text))
+		if ('\0' != *name && 0 == strcmp(name, text))
 		{
 			*one = &ifs->values[i];
 			num++;
@@ -866,88 +1082,101 @@ static int	lldp_name_matches(const zbx_vector_topo_if_t *ifs, int field, const c
 }
 
 /* The local port of an lldpRemTable entry as an ifIndex, topology-2-lld-delivery.md §4.4 `lldp`, in this order; every match is exact and gives ONE port:
- *   1. by lldpLocPortIdSubtype: interfaceName -> ifName; macAddress -> an ifPhysAddress that one port has; local -> an ifIndex that exists;
- *   2. else lldpLocPortId, then lldpLocPortDesc, against ifName, then ifDescr;
- *   3. only if no name of step 2 matches any port: LocalPortNum, if that ifIndex exists;
- *   4. else NULL (the neighbor is dropped): a name on several ports, or an ifIndex that does not exist. No guess. */
+ *   1. by lldpLocPortIdSubtype: interfaceName -> the cleaned ifName; macAddress -> a port MAC identity (normalization §4.8: valid, not all zero, one
+ *      port); local -> a numeric port id (§4.7) that is an existing ifIndex;
+ *   2. else lldpLocPortId, then lldpLocPortDesc, each against ifName, then ifDescr: the cleaned names first (§4.5), and only if no comparison gave a port
+ *      the same four comparisons with the name key (§4.6). A comparison that gives several ports drops the row;
+ *   3. only if no name matched any port: LocalPortNum, if that ifIndex exists;
+ *   4. else NULL (the neighbor is dropped). No guess. */
 static const topo_if_t	*lldp_local_if(const zbx_vector_topo_if_t *ifs, const topo_table_t *loc_type,
 		const topo_table_t *loc_id, const topo_table_t *loc_desc, const char *port_num)
 {
-	long long	type = topo_table_int(loc_type, port_num);
-	char		*id = topo_table_text(loc_id, port_num), *desc = topo_table_text(loc_desc, port_num);
-	const topo_if_t	*found = NULL, *one = NULL;
-	const char	*texts[2];
+	long long			type = topo_table_int(loc_type, port_num);
+	const zbx_snmp_value_pair_t	*id_pair = topo_table_get(loc_id, port_num);
+	char				*id, *desc = topo_table_name(loc_desc, port_num);
+	const topo_if_t			*found = NULL, *one = NULL;
+	const char			*texts[2];
+	char				*keys[2] = {NULL, NULL};
+	int				dropped = 0;
 
-	if (3 == type)
-		id = topo_mac_normalize(id);
+	/* a macAddress id is bytes, any other id is a name */
+	id = NULL == id_pair ? zbx_strdup(NULL, "") : (3 == type ? topo_mac_normalize(topo_decode(id_pair)) : topo_pair_name(id_pair));
 
 	/* step 1 */
 	if ('\0' != *id)
 	{
 		if (5 == type)
 		{
-			int	num = lldp_name_matches(ifs, 0, id, &one);
+			int	num = lldp_name_matches(ifs, 0, 0, id, &one);
 
 			if (1 == num)
-			{
 				found = one;
-			}
 			else if (1 < num)
-			{
-				zbx_free(id);
-				zbx_free(desc);
-
-				return NULL;	/* step 4: a name on several ports */
-			}
+				dropped = 1;				/* step 4: a name on several ports */
 		}
 		else if (3 == type)
 		{
 			int	num = 0;
 
-			for (int i = 0; i < ifs->values_num; i++)
+			if (SUCCEED == topo_mac_usable(id))
 			{
-				if ('\0' != *ifs->values[i].mac && 0 == strcmp(ifs->values[i].mac, id))
+				for (int i = 0; i < ifs->values_num; i++)
 				{
-					one = &ifs->values[i];
-					num++;
+					if (0 == strcmp(ifs->values[i].mac, id))
+					{
+						one = &ifs->values[i];
+						num++;
+					}
 				}
 			}
 
 			if (1 == num)
-				found = one;
+				found = one;				/* a MAC on several ports is no match, not a drop */
 		}
 		else if (7 == type)
 		{
-			found = topo_if_get_text(ifs, id);
+			zbx_uint64_t	number;
+
+			if (SUCCEED == topo_numeric_id(id, &number))
+				found = topo_if_get(ifs, number);
 		}
 	}
 
-	/* step 2 */
+	/* step 2: the cleaned names, then the keys */
 	texts[0] = id;
 	texts[1] = desc;
 
-	for (int t = 0; NULL == found && t < 2; t++)
+	for (int by_key = 0; 2 > by_key && NULL == found && 0 == dropped; by_key++)
 	{
-		for (int field = 0; NULL == found && field < 2; field++)
+		if (1 == by_key)
 		{
-			int	num = lldp_name_matches(ifs, field, texts[t], &one);
+			keys[0] = topo_name_key(id);
+			keys[1] = topo_name_key(desc);
+			texts[0] = keys[0];
+			texts[1] = keys[1];
+		}
 
-			if (1 == num)
+		for (int t = 0; t < 2 && NULL == found && 0 == dropped; t++)
+		{
+			for (int field = 0; field < 2 && NULL == found && 0 == dropped; field++)
 			{
-				found = one;
-			}
-			else if (1 < num)
-			{
-				zbx_free(id);
-				zbx_free(desc);
+				int	num = lldp_name_matches(ifs, field, by_key, texts[t], &one);
 
-				return NULL;	/* step 4: a name on several ports */
+				if (1 == num)
+					found = one;
+				else if (1 < num)
+					dropped = 1;
 			}
 		}
 	}
 
+	zbx_free(keys[0]);
+	zbx_free(keys[1]);
 	zbx_free(id);
 	zbx_free(desc);
+
+	if (0 != dropped)
+		return NULL;
 
 	/* step 3: no name matched any port */
 	if (NULL == found)
@@ -1081,20 +1310,28 @@ static char	*lldp_man_addr_text(const char *tail, int *ipv6)
  * order); an IPv6 address only when there is no IPv4. The index is <suffix>.<family>.[<length>.]<address octets>. */
 static char	*lldp_management_ip(const topo_table_t *man_addr, const char *suffix)
 {
-	size_t		len = strlen(suffix);
+	/* the neighbor is LocalPortNum.RemIndex: TimeMark, the first part of the index, is ignored (normalization §4.4) */
+	const char	*pair = strchr(suffix, '.');
+	size_t		len;
 	const char	*best4 = NULL, *best6 = NULL;
 	char		*ip4 = NULL, *ip6 = NULL;
 
+	if (NULL == pair)
+		return zbx_strdup(NULL, "");
+
+	pair++;
+	len = strlen(pair);
+
 	for (int i = 0; i < man_addr->values_num; i++)
 	{
-		const char	*key = man_addr->values[i].suffix, *rest;
+		const char	*key = man_addr->values[i].suffix, *rest = strchr(key, '.');
 		char		*text;
 		int		ipv6;
 
-		if (0 != strncmp(key, suffix, len) || '.' != key[len])
+		if (NULL == rest || 0 != strncmp(rest + 1, pair, len) || '.' != rest[1 + len])
 			continue;
 
-		rest = key + len + 1;
+		rest += 1 + len + 1;
 
 		if (NULL == (text = lldp_man_addr_text(rest, &ipv6)))
 			continue;
@@ -1211,9 +1448,10 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 
 		if (NULL != (pair = topo_table_get(&rem_chassis, suffix)))
 		{
-			char	*id = lldp_decode_id(pair, chassis_type);
+			/* a text subtype is a name (§3, §4.5); a text MAC gets the spelling of a Hex-STRING one */
+			char	*id = (1 == chassis_type || 2 == chassis_type || 3 == chassis_type || 6 == chassis_type || 7 == chassis_type) ?
+					topo_pair_name(pair) : lldp_decode_id(pair, chassis_type);
 
-			/* a text MAC gets the spelling of a Hex-STRING one */
 			if (4 == chassis_type || 0 == chassis_type)
 				id = topo_mac_normalize(id);
 
@@ -1231,11 +1469,12 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		zbx_free(ip);
 
 		if (NULL != topo_table_get(&rem_sysname, suffix))
-			topo_row_add_owned(row, "{#REM_SYSNAME}", topo_table_text(&rem_sysname, suffix));
+			topo_row_add_owned(row, "{#REM_SYSNAME}", topo_table_name(&rem_sysname, suffix));
 
 		if (NULL != (pair = topo_table_get(&rem_port, suffix)))
 		{
-			char	*id = lldp_decode_id(pair, port_type);
+			char	*id = (1 == port_type || 2 == port_type || 5 == port_type || 6 == port_type || 7 == port_type) ?
+					topo_pair_name(pair) : lldp_decode_id(pair, port_type);
 
 			if (3 == port_type || 0 == port_type)
 				id = topo_mac_normalize(id);
@@ -1248,7 +1487,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 
 		if (NULL != topo_table_get(&rem_port_desc, suffix))
 		{
-			text = topo_table_text(&rem_port_desc, suffix);
+			text = topo_table_name(&rem_port_desc, suffix);
 			topo_row_add_owned(row, "{#REM_PORT_DESC}", text);
 		}
 
@@ -1371,7 +1610,7 @@ static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *cha
 			topo_row_add(row, "{#IFNAME}", local->name);
 
 		if (NULL != topo_table_get(&device_id, suffix))
-			topo_row_add_owned(row, "{#REM_SYSNAME}", topo_table_text(&device_id, suffix));
+			topo_row_add_owned(row, "{#REM_SYSNAME}", topo_table_name(&device_id, suffix));
 
 		if (NULL != (pair = topo_table_get(&address, suffix)))
 		{
@@ -1385,7 +1624,7 @@ static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *cha
 
 		if (NULL != topo_table_get(&device_port, suffix))
 		{
-			topo_row_add_owned(row, "{#REM_PORT}", topo_table_text(&device_port, suffix));
+			topo_row_add_owned(row, "{#REM_PORT}", topo_table_name(&device_port, suffix));
 			topo_row_add(row, "{#REM_PORT_TYPE}", "interfaceName");
 		}
 
@@ -1887,4 +2126,118 @@ int	item_preproc_snmp_walk_to_topology(zbx_variant_t *value, const char *params,
 	zbx_variant_set_str(value, result);
 
 	return SUCCEED;
+}
+
+/******************************************************************************
+ *                                                                            *
+ * test hook: the normalization functions of topology-6-normalization.md,     *
+ * called by step_golden/driver.c (`topo_step --fn`) with the cases of        *
+ * database/topology/discovery/normalization_cases.json                       *
+ *                                                                            *
+ * Return value: allocated text: hex of the result bytes, a decimal number    *
+ *               (numeric_id, port_mac), or "-" for no value                  *
+ *                                                                            *
+ ******************************************************************************/
+char	*zbx_preproc_topology_test_call(const char *function, const unsigned char *input, size_t len)
+{
+	char	*text = (char *)zbx_malloc(NULL, len + 1), *out = NULL, *hex;
+
+	memcpy(text, input, len);
+	text[len] = '\0';
+
+	if (0 == strcmp(function, "text_or_hex"))
+	{
+		out = topo_text_or_hex(input, len);
+	}
+	else if (0 == strcmp(function, "clean") || 0 == strcmp(function, "name_key"))
+	{
+		size_t	n = len;
+
+		while (0 < n && '\0' == input[n - 1])
+			n--;
+
+		text[n] = '\0';
+		out = 0 == strcmp(function, "clean") ? topo_name_clean(zbx_strdup(NULL, text)) : topo_name_key(text);
+
+		if ('\0' == *out)
+			zbx_free(out);
+	}
+	else if (0 == strcmp(function, "numeric_id"))
+	{
+		zbx_uint64_t	number;
+
+		if (SUCCEED == topo_numeric_id(text, &number))
+			out = zbx_dsprintf(NULL, ZBX_FS_UI64, number);
+
+		zbx_free(text);
+
+		return NULL != out ? out : zbx_strdup(NULL, "-");
+	}
+	else if (0 == strcmp(function, "port_mac"))
+	{
+		char	*bar = strchr(text, '|'), *list, *item, *save = NULL;
+		int	index = 0, found = -1, count = 0;
+
+		if (NULL != bar)
+		{
+			*bar = '\0';
+			list = zbx_strdup(NULL, bar + 1);
+
+			if (SUCCEED == topo_mac_usable(text))
+			{
+				/* the ports are split by ',' and an empty item is a port without a MAC */
+				for (item = list; NULL != item; index++)
+				{
+					char	*comma = strchr(item, ',');
+
+					if (NULL != comma)
+						*comma = '\0';
+
+					if (0 == strcmp(item, text))
+					{
+						found = index;
+						count++;
+					}
+
+					item = NULL != comma ? comma + 1 : NULL;
+				}
+			}
+
+			zbx_free(list);
+			(void)save;
+		}
+
+		zbx_free(text);
+
+		return 1 == count ? zbx_dsprintf(NULL, "%d", found) : zbx_strdup(NULL, "-");
+	}
+	else if (0 == strcmp(function, "ip_text"))
+	{
+		unsigned char	addr[16];
+		char		buf[INET6_ADDRSTRLEN];
+
+		if (1 == inet_pton(AF_INET, text, addr) && NULL != inet_ntop(AF_INET, addr, buf, sizeof(buf)))
+			out = zbx_strdup(NULL, buf);
+		else if (1 == inet_pton(AF_INET6, text, addr))
+		{
+			topo_ipv6_text(addr, buf, sizeof(buf));
+			out = zbx_strdup(NULL, buf);
+		}
+	}
+
+	zbx_free(text);
+
+	if (NULL == out)
+		return zbx_strdup(NULL, "-");
+
+	hex = (char *)zbx_malloc(NULL, 2 * strlen(out) + 1);
+
+	for (size_t i = 0; i < strlen(out); i++)
+		zbx_snprintf(hex + 2 * i, 3, "%02x", (unsigned char)out[i]);
+
+	hex[2 * strlen(out)] = '\0';
+
+	zbx_free(out);
+
+	return hex;
 }

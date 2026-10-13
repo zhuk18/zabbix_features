@@ -3,6 +3,7 @@
  * item_preproc_snmp_walk_to_topology() on a walk file and prints the result, or "ERROR: <message>" with exit code 1.
  *
  *     topo_step <walk-file> <source> [missing_mib] [mac_limit]
+ *     topo_step --fn <function> <hex of the input>      a normalization function (normalization_cases.json), prints hex / a number / -
  *
  * Built by build.sh against the libraries of the built tree.
  */
@@ -27,6 +28,29 @@ int	main(int argc, char **argv)
 	long		size;
 	zbx_variant_t	v;
 	int		ret;
+
+	if (4 == argc && 0 == strcmp(argv[1], "--fn"))
+	{
+		/* topo_step --fn <function> <hex of the input bytes>: a normalization function (normalization_cases.json) */
+		size_t		len = strlen(argv[3]) / 2;
+		unsigned char	*bytes = (unsigned char *)malloc(len + 1);
+		char		*out;
+
+		for (size_t i = 0; i < len; i++)
+		{
+			unsigned int	b;
+
+			sscanf(argv[3] + 2 * i, "%2x", &b);
+			bytes[i] = (unsigned char)b;
+		}
+
+		out = zbx_preproc_topology_test_call(argv[2], bytes, len);
+		printf("%s\n", out);
+		zbx_free(out);
+		free(bytes);
+
+		return 0;
+	}
 
 	if (argc < 3 || NULL == (f = fopen(argv[1], "rb")))
 	{

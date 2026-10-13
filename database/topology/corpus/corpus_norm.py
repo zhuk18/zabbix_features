@@ -187,9 +187,99 @@ def characterize(paths):
             "steps": {"%s -> %s" % k: v for k, v in sorted(steps.items(), key=str)}, "different": key_examples}
 
 
+def measure(paths, topo_step):
+    """Section 4: native and push.py against the reference (resolve_new) on every LLDP row, by step, and against the 024 state (out/f1-after.json)."""
+    table = nr.forms()
+    before = json.load(open(os.path.join(corpus_walk.OUT, "f1-after.json")))
+    rows_out, stats = {}, {"steps": {}, "drops": {}, "native_ok": 0, "push_ok": 0, "rows": 0, "transitions": {}, "new_drops": [], "disagree": []}
+    for path in paths:
+        name = os.path.basename(path)[:-5]
+        cells = ev.read_walk(path)
+        text = open(path, encoding="utf-8", errors="surrogateescape").read()
+        suffixes = sorted({oid[len(ev.REM + c + "."):] for c in "456789" for oid in cells if oid.startswith(ev.REM + c + ".")})
+        suffixes = [x for x in suffixes if x.count(".") >= 2]
+        rows, err = corpus_run.run_native(topo_step, path, "lldp")
+        if rows is None or not suffixes:
+            continue
+        pushed = push.rows_lldp(push.parse_walk(text))
+        recs = f1.records(text)
+        tmp = os.path.join(corpus_walk.OUT, "one-row.walk")
+        old = {r["suffix"]: r for r in before.get(name, {}).get("rows", [])}
+        for suffix, prow in zip(suffixes, pushed):
+            local_num = suffix.split(".")[1]
+            nrow, nerr = f1.native_row(topo_step, recs, suffix, tmp)
+            step, res = resolve_new(cells, local_num, table)
+            want = res if step else None
+            nat, pus = (nrow or {}).get("{#IFINDEX}"), prow.get("{#IFINDEX}")
+            stats["rows"] += 1
+            label = str(step) if step else "drop"
+            stats["steps"][label] = stats["steps"].get(label, 0) + 1
+            if not step:
+                stats["drops"][res] = stats["drops"].get(res, 0) + 1
+            stats["native_ok"] += nat == want
+            stats["push_ok"] += pus == want
+            if nat != want or pus != want:
+                stats["disagree"].append((name, suffix, want, nat, pus))
+            o = old.get(suffix)
+            if o is not None:
+                was = o["native"]
+                if was == want:
+                    kind = "right -> right" if want is not None else "dropped -> dropped"
+                elif was is None:
+                    kind = "dropped -> right"
+                elif want is None:
+                    kind = "resolved -> dropped (new drop)"
+                    stats["new_drops"].append((name, suffix, was))
+                else:
+                    kind = "other -> other"
+                stats["transitions"][kind] = stats["transitions"].get(kind, 0) + 1
+    return stats
+
+
+def threeway(path=None):
+    """The 020 three-way comparison (out/results-ifindex.json from corpus_run.py --with-ifindex): every difference between the native step, push.py and PHP
+    normalization, except the one the spec expects: PHP skips a row whose MAC-typed value has the wrong length (validity only in ingest, normalization §5)."""
+    path = path or os.path.join(corpus_walk.OUT, "results-ifindex.json")
+    data = json.load(open(path))
+    differences, expected = [], []
+    for name, r in sorted(data.items()):
+        if name == "_meta":
+            continue
+        for source, v in r["sources"].items():
+            if v.get("native_error"):
+                continue
+            if v.get("push_vs_native") or v.get("push_php_vs_native"):
+                differences.append((name, source, "push.py differs from the native step", (v.get("push_vs_native") or [])[:2]))
+            lost = v["native_rows"] - len(v["contract_dropped"]) - v["php_rows"]
+            wrong_mac = sum(1 for why in v["php_dropped"] if "a MAC of the wrong length" in why)
+            if lost != len(v["php_dropped"]):
+                differences.append((name, source, "PHP dropped %d rows, %d reported" % (lost, len(v["php_dropped"])), []))
+            if wrong_mac:
+                expected.append((name, source, wrong_mac))
+            if len(v["php_dropped"]) - wrong_mac:
+                differences.append((name, source, "PHP dropped rows for another reason", [w for w in v["php_dropped"] if "a MAC of the wrong length" not in w][:2]))
+    return differences, expected
+
+
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "characterize"
     paths = sorted(glob.glob(os.path.join(corpus_walk.OUT, "walks-ifindex", "*.walk")))
+    if mode == "threeway":
+        diff, exp = threeway()
+        print("expected (PHP skips a MAC of the wrong length): %s" % exp)
+        print("differences: %d" % len(diff))
+        for d in diff:
+            print("  ", d)
+    if mode == "measure":
+        topo_step = os.path.join(HERE, "..", "discovery", "step_golden", "topo_step")
+        r = measure(paths, topo_step)
+        with open(os.path.join(corpus_walk.OUT, "norm-measure.json"), "w", encoding="utf-8") as fh:
+            json.dump(r, fh, indent=1, ensure_ascii=False)
+        print("rows %(rows)d; by step %(steps)s; dropped %(drops)s" % r)
+        print("native = reference on %(native_ok)d rows, push.py = reference on %(push_ok)d" % r)
+        print("against the 024 state:", json.dumps(r["transitions"]))
+        print("new drops:", r["new_drops"][:20])
+        print("disagreements:", r["disagree"][:20])
     if mode == "characterize":
         r = characterize(paths)
         with open(os.path.join(corpus_walk.OUT, "norm.json"), "w", encoding="utf-8") as fh:

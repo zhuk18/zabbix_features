@@ -243,13 +243,102 @@ PORT_CLASS_VIRTUAL = (24, 53, 131, 135, 136, 150, 166)
 PORT_CLASS_MGMT_NAME_PREFIXES = ("mgmt", "management", "fxp0", "me0", "oob")
 
 
+# --- topology-6-normalization.md §3-§4: the same functions as the native step (preproc_topology.c) and ingest.php; normalization_cases.json tests all three ---
+_WHITE = " \t\n\v\f\r"
+
+
+def _has_control(text: str) -> bool:
+    return any(c == "\x7f" or (c < " " and c != "\t") or "\x80" <= c <= "\x9f" for c in text)
+
+
+def norm_text_or_hex(raw: bytes) -> str:
+    """§3, text fields from a Hex-STRING: trailing NUL bytes removed; valid UTF-8 without a control character other than tab is text, else the hex form aa:bb:.."""
+    raw = raw.rstrip(b"\0")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return ":".join("%02x" % b for b in raw)
+    return ":".join("%02x" % b for b in raw) if _has_control(text) else text
+
+
+def norm_clean(value):
+    """§4.5 steps 2-4: trailing NUL characters, white space, one pair of surrounding quotes (\"..\", '..', U+201C U+201D), white space; None = no value."""
+    value = str(value).rstrip("\0").strip(_WHITE)
+    for left, right in (('"', '"'), ("'", "'"), ("\u201c", "\u201d")):
+        if len(value) >= 2 and value[0] == left and value[-1] == right:
+            value = value[1:-1].strip(_WHITE)
+            break
+    return value if value != "" else None
+
+
+def norm_name_key(value):
+    """§4.6: clean, ASCII lower case, no white space between the leading letters and the first digit, a long form of the table replaced by its short form
+    when a digit follows it (PORT_NAME_FORMS is longest first); None = no key."""
+    key = norm_clean(value)
+    if key is None:
+        return None
+    key = "".join(chr(ord(c) + 32) if "A" <= c <= "Z" else c for c in key)
+    m = re.match(r"^([a-z]+)[" + re.escape(_WHITE) + r"]+([0-9])", key)
+    if m:
+        key = m.group(1) + key[m.end(1):].lstrip(_WHITE)
+    for long_form, short_form in PORT_NAME_FORMS:
+        rest = key[len(long_form):]
+        if key.startswith(long_form) and rest[:1] != "" and rest[0] in "0123456789":
+            return short_form + rest
+    return key
+
+
+def norm_numeric_id(value):
+    """§4.7: 1 to 10 ASCII digits after cleaning, value 1..2147483647; else None."""
+    value = norm_clean(value)
+    if value is None or not re.fullmatch(r"[0-9]{1,10}", value):
+        return None
+    number = int(value)
+    return number if 0 < number <= 2147483647 else None
+
+
+def norm_mac_usable(mac: str) -> bool:
+    return bool(re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", mac)) and mac != "00:00:00:00:00:00"
+
+
+def norm_port_mac(mac: str, port_macs: list):
+    """§4.8: the 0-based index of the one port that has this MAC; None when the MAC is not usable (invalid, all zero) or no or several ports have it."""
+    if not norm_mac_usable(mac):
+        return None
+    hits = [i for i, m in enumerate(port_macs) if m == mac]
+    return hits[0] if len(hits) == 1 else None
+
+
+def norm_ip_text(text: str):
+    """§4.3: IPv4 dotted decimal, IPv6 as RFC 5952 text written by this function (Python 3.13 writes an IPv4-mapped address with a dotted tail, the spec
+    does not); None when it is not an address."""
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        return None
+    if address.version == 4:
+        return str(address)
+    groups = [(address.packed[2 * i] << 8) | address.packed[2 * i + 1] for i in range(8)]
+    best, best_len, run, run_len = -1, 0, -1, 0
+    for i, g in enumerate(groups):
+        if g == 0:
+            if run == -1:
+                run, run_len = i, 0
+            run_len += 1
+            if run_len > best_len:
+                best, best_len = run, run_len
+        else:
+            run = -1
+    if best_len < 2:
+        best = -1
+    if best < 0:
+        return ":".join("%x" % g for g in groups)
+    return ":".join("%x" % g for g in groups[:best]) + "::" + ":".join("%x" % g for g in groups[best + best_len:])
+
+
 def normalize_port_name(name: str) -> str:
-    """The port name normalization of ingest.php ($normalize_port_name): vendor long/short forms, case-insensitive."""
-    lower = name.strip().lower()
-    for long_form, short in (("gigabitethernet", "gi"), ("tengigabitethernet", "te"), ("fastethernet", "fa"), ("port-channel", "po")):
-        if lower.startswith(long_form):
-            return short + lower[len(long_form):]
-    return lower
+    """The name key (§4.6) as a string ("" when there is none); the old name of this function, used for the port class."""
+    return norm_name_key(name or "") or ""
 
 
 def port_class(type_code: int, name: str) -> str:
@@ -533,6 +622,15 @@ def _decode(row: tuple[str, str]) -> str:
     return raw
 
 
+def _name(row: tuple[str, str]) -> str:
+    """A name value of a walk (§3 + §4.5): a Hex-STRING is text or the hex form, a STRING is text, then cleaned; "" when there is no value."""
+    if row[0] == "Hex-STRING":
+        text = norm_text_or_hex(bytes(int(o, 16) for o in re.split(r"[\s:]+", row[1].strip()) if o))
+    else:
+        text = _decode(row)
+    return norm_clean(text) or ""
+
+
 def _norm_mac(text: str) -> str:
     """A MAC written as text -> "aa:bb:cc:00:00:0a" (six octets of one or two hex digits joined by ':' or '-', or the
     Cisco form "aabb.cc00.000a"); anything else is returned as it came."""
@@ -572,12 +670,13 @@ def _interfaces(rows: dict) -> dict[str, dict]:
     result = {}
     # JavaScript visits integer-like keys in ascending order; keep that, byName below depends on it
     for k in sorted(indexes, key=lambda x: (0, int(x)) if re.match(r"^[0-9]+$", x) else (1, 0)):
-        name = _decode(names[k]) if k in names else ""
-        if name == "" and k in descr:
-            name = _decode(descr[k])
+        ifname = _name(names[k]) if k in names else ""
+        descr_name = _name(descr[k]) if k in descr else ""
+        name = ifname or descr_name
         result[k] = {"name": name if name != "" else "if" + k,
                      "mac": _norm_mac(_decode(phys[k])) if k in phys else "",
-                     "ifname": _decode(names[k]) if k in names else "", "descr": _decode(descr[k]) if k in descr else ""}
+                     "ifname": ifname, "descr": descr_name,
+                     "ifname_key": norm_name_key(ifname) or "", "descr_key": norm_name_key(descr_name) or ""}
     return result
 
 
@@ -633,16 +732,21 @@ def rows_lldp(rows: dict) -> list[dict]:
     for col in (rem_chassis, rem_port, rem_port_desc, rem_sysname, rem_chassis_type, rem_port_type):
         suffixes.update(col)
 
-    def name_matches(field: str, text: str) -> list:
-        return [k for k, interface in ifs.items() if text != "" and interface[field] == text]
+    def name_matches(field: str, text: str, by_key: bool = False) -> list:
+        field = field + "_key" if by_key else field
+        return [k for k, interface in ifs.items() if text != "" and interface[field] != "" and interface[field] == text]
 
     def local_if_index(port_num: str) -> str:
-        """The local port as an ifIndex, topology-2-lld-delivery.md §4.4 `lldp` steps 1-4 (the same logic as the native step); "" = drop."""
+        """The local port as an ifIndex, topology-2-lld-delivery.md §4.4 `lldp` steps 1-4 with the normalization of topology-6 (the same logic as the native
+        step); "" = drop."""
         t = _parse_int(_decode(loc_port_type[port_num])) if port_num in loc_port_type else 0
-        ident = _decode(loc_port_id[port_num]) if port_num in loc_port_id else ""
-        desc = _decode(loc_port_desc[port_num]) if port_num in loc_port_desc else ""
-        if t == 3:
-            ident = _norm_mac(ident)
+        if port_num not in loc_port_id:
+            ident = ""
+        elif t == 3:
+            ident = _norm_mac(_decode(loc_port_id[port_num]))
+        else:
+            ident = _name(loc_port_id[port_num])
+        desc = _name(loc_port_desc[port_num]) if port_num in loc_port_desc else ""
         # step 1: by the subtype
         if ident != "":
             if t == 5:
@@ -652,19 +756,25 @@ def rows_lldp(rows: dict) -> list[dict]:
                 if len(hit) > 1:
                     return ""                                   # step 4: a name on several ports
             elif t == 3:
-                hit = [k for k, interface in ifs.items() if interface["mac"] != "" and interface["mac"] == ident]
-                if len(hit) == 1:
-                    return hit[0]
-            elif t == 7 and re.match(r"^(0|[1-9][0-9]*)$", ident) and ident in ifs:
-                return ident
-        # step 2: lldpLocPortId, then lldpLocPortDesc, against ifName, then ifDescr
-        for text in (ident, desc):
-            for field in ("ifname", "descr"):
-                hit = name_matches(field, text)
-                if len(hit) == 1:
-                    return hit[0]
-                if len(hit) > 1:
-                    return ""
+                if norm_mac_usable(ident):
+                    hit = [k for k, interface in ifs.items() if interface["mac"] == ident]
+                    if len(hit) == 1:
+                        return hit[0]                           # a MAC on several ports is no match, not a drop
+            elif t == 7:
+                number = norm_numeric_id(ident)
+                if number is not None and str(number) in ifs:
+                    return str(number)
+        # step 2: lldpLocPortId, then lldpLocPortDesc, each against ifName, then ifDescr; the cleaned names first, then the name keys
+        for by_key in (False, True):
+            for text in (ident, desc):
+                if by_key:
+                    text = norm_name_key(text) or ""
+                for field in ("ifname", "descr"):
+                    hit = name_matches(field, text, by_key)
+                    if len(hit) == 1:
+                        return hit[0]
+                    if len(hit) > 1:
+                        return ""
         # step 3: no name matched any port: LocalPortNum, if that ifIndex exists
         return port_num if port_num in ifs else ""
 
@@ -680,11 +790,12 @@ def rows_lldp(rows: dict) -> list[dict]:
         """The first IPv4 of the lldpRemManAddrTable rows of this remote index (by index order), else the first IPv6; the index is
         <suffix>.<family>.[<length>.]<address octets>, with or without the length octet; other families and lengths are ignored (corpus F6)."""
         v4, v6 = [], []
+        pair = suffix.split(".", 1)[1] + "."                 # LocalPortNum.RemIndex: the TimeMark is ignored (normalization §4.4)
         for key in man_addr:
-            if not key.startswith(suffix + "."):
+            if "." not in key or not key.split(".", 1)[1].startswith(pair):
                 continue
             try:
-                p = [int(x) for x in key[len(suffix) + 1:].split(".")]
+                p = [int(x) for x in key.split(".", 1)[1][len(pair):].split(".")]
             except ValueError:
                 continue
             if len(p) < 2 or any(x > 255 for x in p[1:]):
@@ -727,7 +838,7 @@ def rows_lldp(rows: dict) -> list[dict]:
         else:
             row["{#IFNAME}"] = ifs[row["{#IFINDEX}"]]["name"]
         if sfx in rem_chassis:
-            row["{#REM_CHASSIS}"] = decode_id(rem_chassis[sfx], chassis_type)
+            row["{#REM_CHASSIS}"] = _name(rem_chassis[sfx]) if chassis_type in (1, 2, 3, 6, 7) else decode_id(rem_chassis[sfx], chassis_type)
             if chassis_type in (4, 0):
                 row["{#REM_CHASSIS}"] = _norm_mac(row["{#REM_CHASSIS}"])
             if chassis_type in LLDP_CHASSIS_ID_SUBTYPES:
@@ -735,15 +846,15 @@ def rows_lldp(rows: dict) -> list[dict]:
         if ip != "":
             row["{#REM_MGMT_IP}"] = ip
         if sfx in rem_sysname:
-            row["{#REM_SYSNAME}"] = _decode(rem_sysname[sfx])
+            row["{#REM_SYSNAME}"] = _name(rem_sysname[sfx])
         if sfx in rem_port:
-            row["{#REM_PORT}"] = decode_id(rem_port[sfx], port_type)
+            row["{#REM_PORT}"] = _name(rem_port[sfx]) if port_type in (1, 2, 5, 6, 7) else decode_id(rem_port[sfx], port_type)
             if port_type in (3, 0):
                 row["{#REM_PORT}"] = _norm_mac(row["{#REM_PORT}"])
             if port_type in LLDP_PORT_ID_SUBTYPES:
                 row["{#REM_PORT_TYPE}"] = LLDP_PORT_ID_SUBTYPES[port_type]
         if sfx in rem_port_desc:
-            row["{#REM_PORT_DESC}"] = _decode(rem_port_desc[sfx])
+            row["{#REM_PORT_DESC}"] = _name(rem_port_desc[sfx])
         out.append(_with_chassis(row, chassis))
     return out
 
