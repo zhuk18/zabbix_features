@@ -24,7 +24,7 @@ Times differ from VM to VM and are only a size. Everything else should be equal;
 | PHP tests (21 files, each in a fresh `topo_t_*` database) | `cd database/topology && ./run_php_tests.sh zabbix [password]` | `run_php_tests.txt`: one line `pass`/`FAIL` per file |
 | Lab unit tests | `cd database/topology/lab && $P -m unittest discover -s tests` | `lab_unit_tests.txt` |
 | Harness, first pass | `mysql -uzabbix -e "DROP DATABASE IF EXISTS topo_t_baseline; CREATE DATABASE topo_t_baseline"`, then `cd database/topology/discovery && php test_scenario_catalog.php --first-pass "mysql:host=localhost;dbname=topo_t_baseline;charset=utf8mb4" zabbix` | `harness_first_pass.txt`, verdicts in `harness_first_pass_verdicts.tsv` |
-| Harness, full | the same without `--first-pass` (it rewrites the tracked `scenario_catalog_results.json`; `git checkout -- database/topology/discovery/scenario_catalog_results.json` afterwards) | `harness_full.txt`, `harness_full_verdicts.tsv` |
+| Harness, full | the same without `--first-pass` (it rewrites `scenario_catalog_results.json`, which is git-ignored output) | `harness_full.txt`, `harness_full_verdicts.tsv` |
 | Lab S0-S5 | `cd database/topology/lab && for s in S0 S1 S2 S3 S4 S5; do $P -m labsim provision $s; $P -m labsim run $s --reset --report /tmp/$s.json; done` | `lab_Sn` lines in `times.tsv`, `lab/Sn.run.txt`, `lab_summary.tsv` (steps, assertions, SHA-256 of the report without clocks and ids) |
 | Corpus fixtures, as recorded | `cd database/topology/corpus && python3 corpus_run.py --user zabbix` | `corpus_as_recorded.txt`, hashes in `corpus_sha256.txt` |
 | Corpus fixtures, ifIndex added (a measurement variant) | `python3 corpus_run.py --with-ifindex --user zabbix` | `corpus_ifindex_added.txt`, same hash file |

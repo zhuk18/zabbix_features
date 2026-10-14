@@ -6,7 +6,7 @@
 #
 # Needs: zabbix_server running with the lab hosts' templates, MariaDB/MySQL user `zabbix` (DB_PASSWORD may be set for a non-empty password),
 # ~/work/labenv, database/topology/discovery/step_golden/topo_step built, the corpus in /media/sf_topology-specs/corpus.
-# It writes only to <outdir>, to the databases zabbix and topo_t_*, and restores scenario_catalog_results.json after the full harness run.
+# It writes only to <outdir>, to the databases zabbix and topo_t_*, and leaves the harness's scenario_catalog_results.json (git-ignored output) in place.
 set -u
 export LC_ALL=C      # printf and bc: a decimal point, whatever the locale of the VM
 REPO=$(cd "$(dirname "$0")/../../../.." && pwd)
@@ -43,9 +43,7 @@ mysql -u"$DB_USER" -e "DROP DATABASE IF EXISTS topo_t_baseline; CREATE DATABASE 
 cd "$REPO/database/topology/discovery"
 timed harness_first_pass php test_scenario_catalog.php --first-pass "$DSN" "$DB_USER" "${DB_PASSWORD:-}"
 mysql -u"$DB_USER" -e "DROP DATABASE IF EXISTS topo_t_baseline; CREATE DATABASE topo_t_baseline"
-cp scenario_catalog_results.json "$OUT/.results.keep"
 timed harness_full php test_scenario_catalog.php "$DSN" "$DB_USER" "${DB_PASSWORD:-}"
-cp "$OUT/.results.keep" scenario_catalog_results.json && rm -f "$OUT/.results.keep"
 mysql -u"$DB_USER" -e "DROP DATABASE IF EXISTS topo_t_baseline"
 "$PY" "$REPO/database/topology/lab/baseline/summarize.py" verdicts "$OUT/harness_full.txt" >"$OUT/harness_full_verdicts.tsv"
 "$PY" "$REPO/database/topology/lab/baseline/summarize.py" verdicts "$OUT/harness_first_pass.txt" >"$OUT/harness_first_pass_verdicts.tsv"
