@@ -1,0 +1,32 @@
+id: S6
+title: Release 1 view - link severity and load
+base: lab.yaml
+# topology-4-lab-simulator.md §9 S6. Every lab host has "Network Generic Device by SNMP" (the role PORTS is in the template file, FR-B D-49) next to "Topology by SNMP".
+# The counters of IF-MIB grow with the port `load` (labmultiplex, counters.json); the items of that template poll every 3 minutes and take the rate between two
+# values, so step 0 waits for at least two polls. The trigger "High bandwidth usage" is the template's own: avg over 15 minutes above {$IF.UTIL.MAX} (90 %), so
+# step 1 waits until the 15-minute average has crossed it and the recovery needs the average below 87 %.
+patch:
+  settings: {load: 10}              # every port 10 % in and out
+steps:
+  - id: 0
+    note: all ports load 10 %
+    wait: {seconds: 480}
+    assert:
+      - link_items: {link: [Router1:Gi0/0, Switch1:Gi0/24]}
+      - link_items: {link: [Switch1:Gi0/2, Switch2:Gi0/24]}
+      - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 10, tolerance: 5}
+      - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: false}
+  - id: 1
+    note: Switch1:Gi0/24 load 95 % in and out
+    load: {Switch1:Gi0/24: {in: 95, out: 95}}
+    wait: {seconds: 1260}
+    assert:
+      - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 95, tolerance: 10}
+      - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: true}
+      - link_severity: {link: [Switch1:Gi0/2, Switch2:Gi0/24], present: false}
+  - id: 2
+    note: Switch1:Gi0/24 back to 10 %
+    load: {Switch1:Gi0/24: {in: 10, out: 10}}
+    wait: {seconds: 900}
+    assert:
+      - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: false}

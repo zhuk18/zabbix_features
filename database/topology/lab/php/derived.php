@@ -36,6 +36,30 @@ try {
 			'superseded_at' => $superseded_at];
 	}
 
+	// per physical link (by edge id): the items of the end ports, the severity and the load that the UI shows (model §4.8, getNeighbors() of both ends)
+	$detail = [];
+	$devices = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('device'));
+	while ($device = DBfetch($devices, false)) {
+		foreach (CTopologyPrototype::getNeighbors((string) $device['id']) as $neighbor) {
+			if (($neighbor['link_type'] ?? '') !== 'physical_link' || isset($detail[$neighbor['edge_id']])) {
+				continue;
+			}
+			$items = [];
+			foreach (['local_port_id', 'remote_port_id'] as $end) {
+				$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE id='.zbx_dbstr($neighbor[$end])), false);
+				$attrs = $row ? json_decode($row['attrs'], true) : [];
+				$items[$end] = count($attrs['zabbix_itemids'] ?? []);
+			}
+			$detail[$neighbor['edge_id']] = ['items_local' => $items['local_port_id'], 'items_remote' => $items['remote_port_id'],
+				'severity' => $neighbor['severity'], 'load_local' => $neighbor['load']['local']['percent'] ?? null,
+				'load_remote' => $neighbor['load']['remote']['percent'] ?? null];
+		}
+	}
+	foreach ($links as &$link) {
+		$link += $detail[$link['edge_id']] ?? [];
+	}
+	unset($link);
+
 	$contradictions = [];
 	$badges = [];
 	foreach (CTopologyPrototype::getContradictions() as $entry) {

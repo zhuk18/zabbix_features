@@ -120,6 +120,28 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         ok = got == want and bool(entries) == bool(want)
         return Result('contradiction', a, 'pass' if ok else 'fail',
                       '' if ok else 'hidden neighbors %s, expected %s' % (got, want))
+    if 'link_items' in a or 'link_load' in a or 'link_severity' in a:
+        # the items, the load and the severity that the UI shows for a link (model §3.2, §4.8; php/derived.php): link_items {link} - both end ports have
+        # items (zabbix_itemids not empty); link_load {link, percent, tolerance} - both sides within tolerance (default 5 points) of percent;
+        # link_severity {link, present: bool} - the link has (or has not) a severity from an active trigger on the items of its end ports
+        kind = 'link_items' if 'link_items' in a else 'link_load' if 'link_load' in a else 'link_severity'
+        r = a[kind]
+        ids = {str(l['id']) for l in find_links(state, r['link'][0], r['link'][1], 'physical_link')}
+        mine = [l for l in derived()['links'] if l['edge_id'] in ids]
+        if not mine:
+            return Result(kind, a, 'fail', 'no link %s - %s' % tuple(r['link']))
+        l = mine[0]
+        if kind == 'link_items':
+            ok = (l.get('items_local') or 0) > 0 and (l.get('items_remote') or 0) > 0
+            return Result(kind, a, 'pass' if ok else 'fail', '' if ok else 'items at the ends: %s / %s' % (l.get('items_local'), l.get('items_remote')))
+        if kind == 'link_load':
+            got = [l.get('load_local'), l.get('load_remote')]
+            tol = float(r.get('tolerance', 5))
+            ok = all(g is not None and abs(g - float(r['percent'])) <= tol for g in got)
+            return Result(kind, a, 'pass' if ok else 'fail', '' if ok else 'load %s %%, expected %s +- %s' % (got, r['percent'], tol))
+        has = l.get('severity') is not None
+        ok = has == bool(r.get('present', True))
+        return Result(kind, a, 'pass' if ok else 'fail', '' if ok else 'severity %s, expected %s' % (l.get('severity'), 'present' if r.get('present', True) else 'none'))
     if 'badge' in a:
         r = a['badge']
         present = r['node'] in derived()['badges']
