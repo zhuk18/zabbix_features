@@ -142,6 +142,12 @@ class Lab:
             if bad:
                 raise LabError('step changes %s of device %s: only attributes of its LLDP/CDP/FDB behavior can change in a step' % (sorted(bad), name))
             self.devices[name].update(change)
+        for ref, load in (step.get('load') or {}).items():       # port `load` {in: %, out: %} from this step on (lab spec 4.1)
+            _, p = self.port(ref)
+            bad = set(load or {}) - {'in', 'out'}
+            if bad:
+                raise LabError('step load of %s: unknown key(s) %s (in, out)' % (ref, sorted(bad)))
+            p['load'] = dict(load or {})
         self.apply_cables(step.get('cables') or {})
         dv = step.get('deviations') or {}
         for i in dv.get('enable') or []:
@@ -246,6 +252,9 @@ ASSERTION_FORMS = {
     'observation_count': (set(), {'outcome', 'edge', 'equals'}),
     'contradiction': (set(), {'link', 'hidden_neighbors'}),
     'badge': (set(), {'node', 'present'}),
+    'link_items': (set(), {'link'}),
+    'link_load': (set(), {'link', 'percent', 'tolerance'}),
+    'link_severity': (set(), {'link', 'present'}),
     'matches_reference': (set(), None),
     'pending': (set(), None),
 }

@@ -6,6 +6,10 @@
 #   2. SET on the control OID raises TypeError
 #      (`"control" in (settings and settings[...] == oid)`), so the step
 #      never switches. Fixed: the condition is two separate tests.
+# Addition (lab spec 5.1, handoff 032): counters that grow with time. A file counters.json in the subtree directory
+# {"oids": {oid: [key, width]}, "initial": {key: n}, "rates": [{key: units per second} per step]} makes the module answer
+# the listed OIDs with initial + rate * elapsed (modulo 2**width: a 32-bit counter wraps), instead of the value of the step
+# file. The rate of the step is applied when the control OID selects the step; the value stays continuous across steps.
 # Everything else is unchanged. Pin snmpsim==1.2.2 (requirements.txt).
 #
 #
@@ -18,6 +22,7 @@
 # a series of snapshots.
 #
 import bisect
+import json
 import os
 import time
 
@@ -45,6 +50,38 @@ RECORD_SET = {
     snmprec.SnmprecRecord.ext: snmprec.SnmprecRecord(),
     snmprec.CompressedSnmprecRecord.ext: snmprec.CompressedSnmprecRecord(),
 }
+
+
+def _counter_state(counters):
+    """The accumulators of the counter keys: {key: [value, time of the value, rate per second]}; created at the first request, with the rates of step 0."""
+    state = moduleContext.setdefault("counter_state", {})
+    if not state:
+        now = time.time()
+        for key, initial in counters["initial"].items():
+            state[key] = [float(initial), now, float(counters["rates"][0].get(key, 0))]
+    return state
+
+
+def _counter_step(counters, step):
+    """Applies the rates of a step: the value is brought up to now first, so it stays continuous."""
+    state = _counter_state(counters)
+    now = time.time()
+    rates = counters["rates"][min(step, len(counters["rates"]) - 1)]
+    for key, entry in state.items():
+        entry[0] += entry[2] * (now - entry[1])
+        entry[1] = now
+        entry[2] = float(rates.get(key, 0))
+
+
+def _counter_value(counters, oid_text):
+    """(value, width) of a counter OID, or None."""
+    spec = counters["oids"].get(oid_text)
+    if spec is None:
+        return None
+    key, width = spec
+    entry = _counter_state(counters)[key]
+    total = entry[0] + entry[2] * (time.time() - entry[1])
+    return int(total) % (1 << width), width
 
 
 def init(**context):
@@ -116,6 +153,12 @@ def variate(oid, tag, value, **context):
         recordContext["dirmap"] = {}
         recordContext["parsermap"] = {}
 
+        recordContext["counters"] = None
+        counters_file = os.path.join(d, "counters.json")
+        if os.path.exists(counters_file):
+            with open(counters_file) as fh:
+                recordContext["counters"] = json.load(fh)
+
         for fl in os.listdir(d):
             for ext in RECORD_SET:
                 if not fl.endswith(ext):
@@ -180,6 +223,8 @@ def variate(oid, tag, value, **context):
                 return context["origOid"], tag, context["errorStatus"]
 
             moduleContext[oid]["fileno"] = fileno
+            if recordContext.get("counters"):
+                _counter_step(recordContext["counters"], fileno)
 
             log.info(
                 "multiplex: switched to file #%s "
@@ -283,6 +328,11 @@ def variate(oid, tag, value, **context):
 
     except error.SnmpsimError:
         oid, value = context["origOid"], context["errorStatus"]
+
+    if recordContext.get("counters"):
+        counter = _counter_value(recordContext["counters"], ".".join("%s" % x for x in oid))
+        if counter is not None:
+            value = rfc1902.Counter64(counter[0]) if counter[1] == 64 else rfc1902.Counter32(counter[0])
 
     return oid, tag, value
 

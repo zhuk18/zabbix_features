@@ -123,6 +123,32 @@ SNMPREC_LINE = re.compile(r'^(\d+(?:\.\d+)*)\|(\d+[xe]?)\|(.*)$')
 IF_ENTRY = (1, 3, 6, 1, 2, 1, 2, 2, 1)           # ifEntry: column, ifIndex
 IFX_ENTRY = (1, 3, 6, 1, 2, 1, 31, 1, 1, 1)      # ifXEntry: column, ifIndex
 
+# counters that grow with time (lab spec 5.1): column -> (direction, width). The 32-bit ifTable counters are the low 32 bits of the 64-bit ifXTable ones.
+COUNTER_COLUMNS = {IFX_ENTRY + (6,): ('in', 64), IFX_ENTRY + (10,): ('out', 64), IF_ENTRY + (10,): ('in', 32), IF_ENTRY + (16,): ('out', 32)}
+
+
+def port_load(lab, p):
+    """(in %, out %) of a port: its own `load`, else the setting `load` of the lab (default 0)."""
+    default = float(lab.settings.get('load', 0) or 0)
+    own = p.get('load') or {}
+    return float(own.get('in', default)), float(own.get('out', default))
+
+
+def counter_spec(lab, name, ports):
+    """The counters of a device in one lab state: ({oid: [key, width]}, {key: initial}, {key: octets per second}). The rate is speed / 8 * load / 100."""
+    oids, initial, rates = {}, {}, {}
+    for p in ports:
+        i = p['ifindex']
+        load_in, load_out = port_load(lab, p)
+        speed = float(p.get('speed', 1000000000))
+        for direction, pct in (('in', load_in), ('out', load_out)):
+            key = '%d:%s' % (i, direction)
+            initial[key] = 5000000 * i + (1000 if direction == 'out' else 0)
+            rates[key] = speed / 8.0 * pct / 100.0
+        for column, (direction, width) in COUNTER_COLUMNS.items():
+            oids[oid_str(column + (i,))] = ['%d:%s' % (i, direction), width]
+    return oids, initial, rates
+
 
 def corpus_records(path, ifindex=False):
     """The records of a corpus file (snmprec) plus the end record of "Generator" (lab spec §5.2). A line that does not parse stops the
@@ -193,7 +219,15 @@ def device_records(lab, name):
         r.put(base + (7, i), '2', 2 if p.get('admin') == 'down' else 1)
         r.put(base + (8, i), '2', 2 if p.get('oper') == 'down' else 1)
         r.put(base + (9, i), '67', 0)
+        for column in (10, 16):                                      # ifInOctets, ifOutOctets: the value is the initial one; labmultiplex makes it grow (counters.json)
+            r.put(base + (column, i), '65', 0)
+        for column in (13, 14, 19, 20):                              # ifInDiscards, ifInErrors, ifOutDiscards, ifOutErrors
+            r.put(base + (column, i), '65', 0)
         r.put_str(xbase + (1, i), p['name'])
+        for column in (6, 10):                                       # ifHCInOctets, ifHCOutOctets
+            r.put(xbase + (column, i), '70', 0)
+        r.put(xbase + (15, i), '66', int(p.get('speed', 1000000000)) // 1000000)           # ifHighSpeed in Mbit/s
+        r.put_str(xbase + (18, i), p.get('alias') or '')            # ifAlias
 
     # LAG
     if 'lag' not in omit:
@@ -396,6 +430,7 @@ def generate(scenario, out_dir, variation_dir=None):
         main = {}
         mux = {}
         changing = {k for k in SUBTREES if any(per_step[0][k] != p[k] for p in per_step[1:])}
+        changing.add('mib2')          # the counters of IF-MIB grow with time: labmultiplex serves mib2 of every device (counters.json)
         for k, root in SUBTREES.items():
             if k in changing:
                 ctl = root + CONTROL_SUFFIX
@@ -404,6 +439,14 @@ def generate(scenario, out_dir, variation_dir=None):
                 for n, p in enumerate(per_step):
                     with open(os.path.join(kdir, '%05d.snmprec' % n), 'w') as f:
                         f.write(lines(p[k]))
+                if k == 'mib2':
+                    specs = []
+                    for lab in scenario.states:
+                        dev_state = lab.devices[name]
+                        ports_state = [dict(q) for q in dev_state['ports']]
+                        specs.append(counter_spec(lab, name, ports_state))
+                    with open(os.path.join(kdir, 'counters.json'), 'w') as f:
+                        json.dump({'oids': specs[0][0], 'initial': specs[0][1], 'rates': [sp[2] for sp in specs]}, f, indent=1, sort_keys=True)
                 mux[k] = {'root': oid_str(root), 'control': oid_str(ctl), 'dir': kdir}
             else:
                 main.update(per_step[0][k])
@@ -470,6 +513,10 @@ def export_walk(lab, name):
             out.append('.%s = INTEGER: %s' % (oid_str(oid), v))
         elif tag == '66':
             out.append('.%s = Gauge32: %s' % (oid_str(oid), v))
+        elif tag == '65':
+            out.append('.%s = Counter32: %s' % (oid_str(oid), v))
+        elif tag == '70':
+            out.append('.%s = Counter64: %s' % (oid_str(oid), v))
         elif tag == '67':
             out.append('.%s = Timeticks: (%s)' % (oid_str(oid), v))
         else:

@@ -3,6 +3,7 @@
 Run from database/topology/lab/:  python3 -m unittest discover -s tests
 """
 import copy
+import json
 import os
 import sys
 import tempfile
@@ -131,9 +132,28 @@ class TestGenerator(unittest.TestCase):
             main = open(os.path.join(t, 'A', 'lab.snmprec')).read()
             self.assertIn('1.0.8802.1.1.2|:labmultiplex|dir=', main)
             self.assertIn('control=1.0.8802.1.1.2.99999.0', main)
-            self.assertNotIn('multiplex|dir=%s' % os.path.join(t, 'A', 'mib2'), main)    # mib2 does not change
+            self.assertIn('multiplex|dir=%s' % os.path.join(t, 'A', 'mib2'), main)       # mib2 is always served by labmultiplex: the counters grow with time
             self.assertEqual(sorted(os.listdir(os.path.join(t, 'A', 'lldp'))), ['00000.snmprec', '00001.snmprec'])
             self.assertEqual(m['devices']['A']['step_masters'], [[], ['core']])
+
+
+    def test_counters_sidecar_has_the_rates_of_every_step_and_the_oids_of_both_sets(self):
+        L = lab()
+        L.settings['load'] = 10
+        sc = model.Scenario({'id': 'T', 'steps': [{'id': 0}, {'id': 1, 'load': {'A:Gi0/1': {'in': 95, 'out': 95}}}, {'id': 2, 'load': {'A:Gi0/1': {'in': 10, 'out': 10}}}]}, L)
+        with tempfile.TemporaryDirectory() as t:
+            gen.generate(sc, t)
+            c = json.load(open(os.path.join(t, 'A', 'mib2', 'counters.json')))
+            index = next(p['ifindex'] for p in L.devices['A']['ports'] if p['name'] == 'Gi0/1')
+            oids = {o: v for o, v in c['oids'].items() if o.endswith('.%d' % index)}
+            self.assertEqual(sorted(v[1] for v in oids.values()), [32, 32, 64, 64])      # ifInOctets, ifOutOctets, ifHCInOctets, ifHCOutOctets
+            self.assertEqual(oids['1.3.6.1.2.1.31.1.1.1.6.%d' % index], oids['1.3.6.1.2.1.2.2.1.10.%d' % index][:1] + [64])    # one accumulator for the 32 and the 64-bit counter
+            key = '%d:in' % index
+            self.assertEqual([r[key] for r in c['rates']], [125000000 * 0.10, 125000000 * 0.95, 125000000 * 0.10])    # 1 Gbit/s = 125000000 octets/s
+            recs = gen.device_records(L, 'A')
+            self.assertEqual(recs[gen.IFX_ENTRY + (15, index)], ('66', '1000'))          # ifHighSpeed in Mbit/s
+            self.assertIn(gen.IFX_ENTRY + (18, index), recs)                              # ifAlias
+            self.assertEqual(recs[gen.IF_ENTRY + (13, index)], ('65', '0'))               # discards and errors are 0
 
 
 class TestDeviationsAndMibs(unittest.TestCase):
