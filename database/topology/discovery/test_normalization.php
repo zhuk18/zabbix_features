@@ -55,7 +55,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 	$cases = json_decode((string) file_get_contents(__DIR__.'/normalization_cases.json'), true, 512, JSON_THROW_ON_ERROR);
 	$functions = [
 		'text_or_hex' => 'norm_text_or_hex', 'clean' => 'norm_clean', 'name_key' => 'norm_name_key', 'numeric_id' => 'norm_numeric_id',
-		'port_mac' => 'norm_port_mac', 'ip_text' => 'norm_ip_text', 'man_addrs' => 'norm_man_addrs', 'row' => 'snap_normalize_row', 'local_port' => 'resolve_local_port',
+		'port_mac' => 'norm_port_mac', 'ip_text' => 'norm_ip_text', 'man_addrs' => 'norm_man_addrs', 'placeholder' => 'snap_normalize_row', 'row' => 'snap_normalize_row', 'local_port' => 'resolve_local_port',
 	];
 
 	foreach ($cases as $group => $list) {
@@ -77,6 +77,16 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 				case 'port_mac':
 					$got = $fn($in['mac'], $in['ports']);
 					break;
+				case 'placeholder':
+					[$got_row, $problem] = $fn(['loc_chassis' => $in, 'mac' => $in, 'rem_chassis' => $in, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'x']);
+					$is = $ingest['is_placeholder_mac'];
+					$normal = $case['out'];
+					$ok = $normal === null
+						? ($got_row !== null && $is((string) ($got_row['mac'] ?? '')) === false && isset($got_row['loc_chassis']))
+						: ($got_row !== null && $problem === null && !isset($got_row['loc_chassis']) && ($got_row['mac'] ?? null) === $normal
+							&& ($got_row['rem_chassis'] ?? null) === $normal && $is($normal) === true && $is(strtoupper($normal)) === true);
+					check($ok, "{$group} ".json_encode($in), 'got '.json_encode([$got_row, $problem]));
+					continue 2;
 				case 'row':
 					[$got] = $fn($in);
 					break;

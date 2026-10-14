@@ -812,6 +812,53 @@
     "ports": []
    },
    "out": null
+  },
+  {
+   "in": {
+    "mac": "ff:ff:ff:ff:ff:ff",
+    "ports": [
+     "ff:ff:ff:ff:ff:ff",
+     "aa:bb:cc:00:00:02"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "ff:ff:ff:ff:ff:ff",
+    "ports": [
+     "ff:ff:ff:ff:ff:ff"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "FF:FF:FF:FF:FF:FF",
+    "ports": [
+     "FF:FF:FF:FF:FF:FF"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "00:00:00:00:00:00",
+    "ports": [
+     "00:00:00:00:00:00"
+    ]
+   },
+   "out": null
+  },
+  {
+   "in": {
+    "mac": "aa:bb:cc:00:00:02",
+    "ports": [
+     "ff:ff:ff:ff:ff:ff",
+     "aa:bb:cc:00:00:02"
+    ]
+   },
+   "out": 1
   }
  ],
  "ip_text": [
@@ -987,6 +1034,76 @@
   },
   {
    "in": "junk lldp:1.x",
+   "out": null
+  }
+ ],
+ "placeholder": [
+  {
+   "in": "00:00:00:00:00:00",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "00:00:00:00:00:00",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "00-00-00-00-00-00",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "00-00-00-00-00-00",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "0000.0000.0000",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "0000.0000.0000",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "0:0:0:0:0:0",
+   "out": "00:00:00:00:00:00"
+  },
+  {
+   "in": "ff:ff:ff:ff:ff:ff",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "FF:FF:FF:FF:FF:FF",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "ff-ff-ff-ff-ff-ff",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "FF-FF-FF-FF-FF-FF",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "ffff.ffff.ffff",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "FFFF.FFFF.FFFF",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "ff:ff:ff:ff:ff:ff",
+   "out": "ff:ff:ff:ff:ff:ff"
+  },
+  {
+   "in": "aa:bb:cc:00:00:01",
+   "out": null
+  },
+  {
+   "in": "00:00:00:00:00:01",
+   "out": null
+  },
+  {
+   "in": "fe:ff:ff:ff:ff:ff",
    "out": null
   }
  ],

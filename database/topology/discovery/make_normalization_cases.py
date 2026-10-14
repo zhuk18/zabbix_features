@@ -12,7 +12,7 @@ A function is a key; each case is {"in": ..., "out": ...}. `null` is "no value".
   numeric_id   §4.7 input text, output an integer
   port_mac     §4.8 input {"mac", "ports": [macs of the Device's ports]}, output the 0-based index of the one port that has it
   ip_text      §4.3 input an address in any spelling, output the canonical text
-  row          §5 input a NEIGHBORS row (snapshot field names), output the normalized row or null when the row is skipped (invalid identity)\n  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
+  row          §5 input a NEIGHBORS row (snapshot field names), output the normalized row or null when the row is skipped (invalid identity)\n  placeholder  §4.1 input a MAC text, output its normal form when it is a placeholder MAC (zeros, ff) else null; checked through the row: valid, kept, loc_chassis dropped\n  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
   local_port   model §6.7.6 input {"name", "ports": [{if_index, name?, descr?, mac?}], "row": {if_index? loc_port_num loc_port_id loc_port_id_type loc_port_desc}},
                output {"if_index": n|null, "reason": null|name_on_several_ports|if_index_missing|no_ports}
 """
@@ -143,6 +143,11 @@ cases = {
         {"in": {"mac": "aa:bb:cc:00:00:01", "ports": ["", "aa:bb:cc:00:00:01"]}, "out": 1},
         {"in": {"mac": "not a mac", "ports": ["not a mac"]}, "out": None},
         {"in": {"mac": "aa:bb:cc:00:00:01", "ports": []}, "out": None},
+        {"in": {"mac": "ff:ff:ff:ff:ff:ff", "ports": ["ff:ff:ff:ff:ff:ff", "aa:bb:cc:00:00:02"]}, "out": None},
+        {"in": {"mac": "ff:ff:ff:ff:ff:ff", "ports": ["ff:ff:ff:ff:ff:ff"]}, "out": None},
+        {"in": {"mac": "FF:FF:FF:FF:FF:FF", "ports": ["FF:FF:FF:FF:FF:FF"]}, "out": None},
+        {"in": {"mac": "00:00:00:00:00:00", "ports": ["00:00:00:00:00:00"]}, "out": None},
+        {"in": {"mac": "aa:bb:cc:00:00:02", "ports": ["ff:ff:ff:ff:ff:ff", "aa:bb:cc:00:00:02"]}, "out": 1},
     ],
     "ip_text": [
         {"in": "10.0.0.1", "out": "10.0.0.1"},
@@ -208,6 +213,15 @@ cases["man_addrs"] = [
     {"in": "", "out": None},
     {"in": "junk lldp:1.x", "out": None},
 ]
+# Placeholder MAC (normalization §4.1, §6): every input form of the MAC, both placeholders, both cases; the row stays valid (§5), the value is kept in its normal form, and
+# loc_chassis is dropped (the reporter has none). "form" is the text as the step passes it on (6 binary octets reach ingest as the hex form `ff:ff:..`).
+_PH = []
+for _normal in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
+    _o = _normal.split(":")
+    for _form in (_normal, _normal.upper(), "-".join(_o), "-".join(_o).upper(), _o[0] + _o[1] + "." + _o[2] + _o[3] + "." + _o[4] + _o[5], (_o[0] + _o[1] + "." + _o[2] + _o[3] + "." + _o[4] + _o[5]).upper(),
+                  ":".join(x.lstrip("0") or "0" for x in _o)):
+        _PH.append({"in": _form, "out": _normal})
+cases["placeholder"] = _PH + [{"in": "aa:bb:cc:00:00:01", "out": None}, {"in": "00:00:00:00:00:01", "out": None}, {"in": "fe:ff:ff:ff:ff:ff", "out": None}]
 cases["row"] = [
     {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00:01", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00:01", "rem_sysname": "a"}},
     {"in": {"rem_chassis_type": "macAddress", "rem_chassis": "aa:bb:cc:00:00", "rem_sysname": "a"}, "out": None},

@@ -76,6 +76,7 @@ case("text: an empty STRING is no value", "ports", ports_walk(None, None, None, 
 # ---- binary columns ----
 case("binary: ifPhysAddress is the hex form", "ports", ports_walk(None, None, (H, "02 00 00 00 00 0A ")), {"{#IFMAC}": "02:00:00:00:00:0a"})
 case("binary: a MAC written as text is passed as text", "ports", ports_walk(None, None, (S, '"0:11:22:33:44:5"')), {"{#IFMAC}": "0:11:22:33:44:5"})
+case("binary: an all-ones MAC is passed (ingest decides)", "ports", ports_walk(None, None, (H, "FF FF FF FF FF FF ")), {"{#IFMAC}": "ff:ff:ff:ff:ff:ff"})
 case("binary: an all-zero MAC is passed (ingest decides)", "ports", ports_walk(None, None, (H, "00 00 00 00 00 00 ")), {"{#IFMAC}": "00:00:00:00:00:00"})
 # ---- the device's own chassis id ----
 chassis = line("1.0.8802.1.1.2.1.3.1.0", "INTEGER", "macAddress(4)") + line("1.0.8802.1.1.2.1.3.2.0", H, "AA BB CC 00 00 01 ")

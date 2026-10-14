@@ -3099,6 +3099,84 @@ c('MAC-08', 'Правило', function () {
 });
 
 // ============================================================================================================
+// PH. Placeholder MAC (normalization §4.1, handoff 030): `00:00:00:00:00:00` and `ff:ff:ff:ff:ff:ff` are valid values but never an identity.
+// ============================================================================================================
+
+c('PH-01', 'Правило', function () {
+	foreach (['00:00:00:00:00:00', 'FF:FF:FF:FF:FF:FF'] as $placeholder) {
+		h_reset();
+		h_rep('R1', mac(1), '10.0.0.1');
+		h_rep('R2', mac(2), '10.0.0.2');
+		h_ports('R1', [1 => 'Gi0/1']);
+		h_ports('R2', [1 => 'Gi0/1']);
+		// the two neighbors have no name, chassis or address: the harness labels such Devices by their node id, which differs between the two reporter orders,
+		// so the order-independence comparison of natural states is switched off for this case (the counts below are checked in the forward order)
+		$GLOBALS['H']['multi'] = false;
+		h_nbrs('R1', [NR(1, $placeholder, null, 'Gi0/24')]);
+		h_nbrs('R2', [NR(1, $placeholder, null, 'Gi0/24')]);
+		h_ingest("two reporters each see a neighbor with only the chassis {$placeholder}");
+		ex(h_dev_count() === 4, "two neighbor Devices, not one: {$placeholder} is no identity (Devices: ".json_encode(h_devices()).')');
+		$keys = (int) scalar($GLOBALS['pdo'], "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` LIKE 'chassis:mac:%' AND (`key` LIKE '%00:00:00:00:00:00' OR `key` LIKE '%ff:ff:ff:ff:ff:ff')");
+		ex($keys === 0, 'no chassis:mac: key of a placeholder');
+		ex(($GLOBALS['H']['last_summary']['rows_identity_invalid'] ?? []) === [], 'the rows are valid: rows_identity_invalid is empty');
+	}
+});
+
+c('PH-02', 'Правило', function () {
+	h_rep('R1', mac(1), '10.0.0.1');
+	h_rep('R2', mac(2), '10.0.0.2');
+	h_ports('R1', [1 => 'Gi0/1', 2 => 'Gi0/2']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	h_nbrs('R1', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.1']), NR(2, 'ff:ff:ff:ff:ff:ff', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.2'])]);
+	h_nbrs('R2', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.1'])]);
+	h_ingest('placeholder chassis with a management address');
+	ex(h_dev_count() === 4, 'each neighbor is found by its ip: key: 10.5.5.1 seen by both reporters is one Device, 10.5.5.2 another (Devices: '.json_encode(h_devices()).')');
+});
+
+c('PH-03', 'Правило', function () {
+	h_rep('R1', '00:00:00:00:00:00', '10.0.0.1');
+	h_rep('R2', 'ff:ff:ff:ff:ff:ff', '10.0.0.2');
+	h_ports('R1', [1 => 'Gi0/1']);
+	h_ports('R2', [1 => 'Gi0/1']);
+	$summary = h_ingest('two reporters whose loc_chassis is a placeholder, each with an SNMP IP');
+	ex($summary['reporters_processed'] === 2 && !($summary['reporters_skipped'] ?? []), 'both reporters are processed, none is identity_ambiguous/identity_missing ('.json_encode($summary['reporters_skipped'] ?? null).')');
+	ex(h_dev_count() === 2 && (h_dev('R1')['represented_by'] ?? null) === 'reporter_self', 'each reporter has its own Device by the IP (Devices: '.json_encode(h_devices()).')');
+	ex((int) scalar($GLOBALS['pdo'], "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` LIKE 'chassis:mac:%'") === 0, 'no chassis key at all');
+});
+
+c('PH-04', 'Правило', function () {
+	// loc_chassis in one snapshot is a placeholder, in another a real chassis: the real one is the reporter's chassis (the placeholder does not count as a second value)
+	h_rep('R', null, '10.0.0.1');
+	h_ports('R', [1 => ['Gi0/1', ['loc_chassis' => '00:00:00:00:00:00']]]);
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24', ['loc_chassis' => mac(1)])]);
+	$summary = h_ingest('loc_chassis: a placeholder in PORTS, a real chassis in NEIGHBORS');
+	ex($summary['reporters_processed'] === 1 && !($summary['reporters_skipped'] ?? []), 'the reporter is processed, no identity_ambiguous ('.json_encode($summary['reporters_skipped'] ?? null).')');
+	ex((int) scalar($GLOBALS['pdo'], "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` = ".$GLOBALS['pdo']->quote('chassis:mac:'.mac(1))) === 1, 'the real chassis is the key of the reporter Device');
+});
+
+c('PH-05', 'Правило', function () {
+	global $pdo;
+	h_rep('R', mac(1), '10.0.0.1');
+	h_ports('R', [1 => 'Gi0/1']);
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	$pdo->exec("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '{\"mac\":\"ff:ff:ff:ff:ff:ff\",\"chassis_id\":\"x\",\"sysname\":\"DF\"}', 1, 1)");
+	mac_inventory(201, 'FF:FF:FF:FF:FF:FF');
+	mac_inventory(202, '00:00:00:00:00:00');
+	h_ingest('inventory MAC and Device MAC are placeholders');
+	ex(mac_associated() === 0 && $GLOBALS['H']['last_summary']['macs_shared']['count'] === 0, 'a placeholder on either side never matches and is not reported as shared');
+});
+
+c('PH-06', 'Правило', function () {
+	h_rep('A', mac(1), '10.0.0.1');
+	h_rep('B', mac(2), '10.0.0.2');
+	h_ports('A', [1 => 'Gi0/1']);
+	h_ports('B', [1 => ['Gi0/1', ['mac' => 'ff:ff:ff:ff:ff:ff']], 2 => ['Gi0/2', ['mac' => 'aa:aa:aa:00:00:02']], 3 => ['Gi0/3', ['mac' => 'ff:ff:ff:ff:ff:ff']]]);
+	h_nbrs('A', [NR(1, mac(2), 'B', 'ff:ff:ff:ff:ff:ff', ['rem_port_type' => 'macAddress', 'rem_port_desc' => 'Gi0/2'])]);
+	h_ingest('a far port id MAC ff that two ports of the far Device have, and the description Gi0/2');
+	ex(count(h_links('A:Gi0/1', 'B:Gi0/2', 'physical_link', 'active')) === 1, 'ff is no port identity: the description finds Gi0/2 (links: '.json_encode(h_state()['links']).')');
+});
+
+// ============================================================================================================
 // Q. Normalization of topology-6 on the far side (model §6.7.2, handoff 025 section 3): the corpus has no device pairs, so these cases are the test of
 // the far port rules: a numeric port id with a description, leading zeros, a port MAC identity, name forms, cleaning at ingest.
 // ============================================================================================================

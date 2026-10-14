@@ -424,3 +424,4 @@ database/topology/discovery/reporters.json
 __pycache__/
 *.pyc
 database/topology/discovery/scenario_catalog_results.json
+database/topology/discovery/step_golden/topo_step
