@@ -37,8 +37,58 @@ if (($conf['TYPE'] ?? '') !== 'MYSQL') {
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 require_once 'include/classes/core/CAutoloader.php';
 
-/** Stub of the API facade: only the visible hosts matter to the topology classes. */
+/** Stub of the API facade: the visible hosts (every host), and for the link severity and load of the derived state (model §4.8) the three reads of
+ * CTopologyPrototype by SQL: items by id, the triggers in problem state of items, and the open problems of triggers. No session, no permissions. */
 class API {
+	public static function Item() {
+		return new class {
+			public function get($options) {
+				$ids = array_map('intval', $options['itemids'] ?? []);
+				if (!$ids) {
+					return [];
+				}
+				$out = [];
+				foreach (DBselect('SELECT itemid,key_,value_type FROM items WHERE itemid IN ('.implode(',', $ids).')') as $item) {
+					// the last value as the value cache has it: the newest row of the history table of the item's value type (0 float, 3 unsigned)
+					$table = [0 => 'history', 3 => 'history_uint'][(int) $item['value_type']] ?? null;
+					$last = $table === null ? false : DBfetch(DBselect('SELECT clock,value FROM '.$table.' WHERE itemid='.(int) $item['itemid'].' ORDER BY clock DESC', 1), false);
+					$out[] = ['itemid' => (string) $item['itemid'], 'key_' => $item['key_'], 'lastvalue' => $last ? (string) $last['value'] : '', 'lastclock' => $last ? (string) $last['clock'] : '0'];
+				}
+				return $out;
+			}
+		};
+	}
+
+	public static function Trigger() {
+		return new class {
+			public function get($options) {
+				$ids = array_map('intval', $options['itemids'] ?? []);
+				if (!$ids) {
+					return [];
+				}
+				$out = [];
+				foreach (DBselect('SELECT DISTINCT t.triggerid,f.itemid FROM triggers t JOIN functions f ON f.triggerid=t.triggerid WHERE t.value=1 AND f.itemid IN ('.
+						implode(',', $ids).')') as $row) {
+					$out[$row['triggerid']]['triggerid'] = (string) $row['triggerid'];
+					$out[$row['triggerid']]['items'][] = ['itemid' => (string) $row['itemid']];
+				}
+				return array_values($out);
+			}
+		};
+	}
+
+	public static function Problem() {
+		return new class {
+			public function get($options) {
+				$ids = array_map('intval', $options['objectids'] ?? []);
+				if (!$ids) {
+					return [];
+				}
+				return DBfetchArray(DBselect('SELECT objectid,severity FROM problem WHERE source=0 AND object=0 AND r_eventid IS NULL AND objectid IN ('.implode(',', $ids).')'));
+			}
+		};
+	}
+
 	public static function Host() {
 		return new class {
 			public function get($options) {
