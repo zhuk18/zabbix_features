@@ -1834,7 +1834,23 @@ class CTopologyPrototype {
 		return $row;
 	}
 
-	/** The distinct loc_chassis values the reporter host of a Device reports in its stored snapshots (empty: not a reporter). */
+	/** A placeholder MAC (normalization §4.1: all zero or all ones, in any of the MAC spellings): never an identity. The mirror of `$is_placeholder_mac` of ingest.php. */
+	private static function isPlaceholderMac(string $value): bool {
+		$value = strtolower(trim($value));
+		if (preg_match('/^[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}$/', $value) === 1) {
+			$octets = str_split(str_replace('.', '', $value), 2);
+		}
+		elseif (preg_match('/^[0-9a-f]{1,2}([:-])(?:[0-9a-f]{1,2}\1){4}[0-9a-f]{1,2}$/', $value) === 1) {
+			$octets = array_map(static fn (string $o): string => str_pad($o, 2, '0', STR_PAD_LEFT), preg_split('/[:-]/', $value));
+		}
+		else {
+			return false;
+		}
+
+		return in_array(implode(':', $octets), ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'], true);
+	}
+
+	/** The distinct loc_chassis values the reporter host of a Device reports in its stored snapshots (empty: not a reporter). A placeholder MAC is not a chassis. */
 	private static function reportedChassis(array $device_row): array {
 		if ($device_row['represented_by_node_id'] === null) {
 			return [];
@@ -1847,7 +1863,7 @@ class CTopologyPrototype {
 		$result = DBselect('SELECT rows_json FROM topo_lld_snapshot WHERE hostid='.zbx_dbstr($host['host_ref']));
 		while ($snapshot = DBfetch($result, false)) {
 			foreach (json_decode($snapshot['rows_json'], true) ?: [] as $row) {
-				if (($row['loc_chassis'] ?? '') !== '') {
+				if (($row['loc_chassis'] ?? '') !== '' && !self::isPlaceholderMac((string) $row['loc_chassis'])) {
 					$values[$row['loc_chassis']] = true;
 				}
 			}

@@ -173,12 +173,15 @@ $segment_of = static function ($hostid) use ($pdo, &$run_segments): string {
 	return $run_segments[$hostid];
 };
 $mac_like = static fn (string $value): bool => (bool) preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $value);
-$chassis_key = static function (?string $value, ?string $type, string $segment) use ($mac_like): ?string {
+/** normalization §4.1 "Placeholder MAC": `00:00:00:00:00:00` and `ff:ff:ff:ff:ff:ff` (after the MAC normal form, any case) are valid values but never an identity: the one predicate of
+ * every place that makes or compares a MAC identity (chassis key, loc_chassis, port MAC identity, inventory MAC match) */
+$is_placeholder_mac = static fn (?string $mac): bool => $mac !== null && in_array(strtolower($mac), ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'], true);
+$chassis_key = static function (?string $value, ?string $type, string $segment) use ($mac_like, $is_placeholder_mac): ?string {
 	if ($value === null || $value === '') {
 		return null;
 	}
 	if (in_array($type, [null, '', 'macAddress'], true) && $mac_like($value)) {
-		return 'chassis:mac:'.strtolower($value);
+		return $is_placeholder_mac($value) ? null : 'chassis:mac:'.strtolower($value);      // a placeholder MAC gives no chassis key (normalization §4.2)
 	}
 	return substr('chassis:'.($type === null || $type === '' ? 'local' : $type).':'.$segment.':'.$value, 0, 300);
 };
@@ -325,8 +328,15 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 	if (!empty($identity['ip'])) {
 		$keys['ip'] = $identity['ip'];
 	}
+	$keyless = false;
 	if ($local_port_id !== null && $sysname) {
 		$keys['sysname'] = [$sysname, $sysname];
+	}
+	elseif (!$keys && !$for_reporter && $local_port_id !== null) {
+		// A neighbor with no key at all (for example only a placeholder chassis, normalization §4.1) is anonymous: it is found only as the Device that this local port
+		// already reaches without a sysname, so the next run finds the Device of the last run and never creates a second one (no global key).
+		$keys['sysname'] = ['', ''];
+		$keyless = true;
 	}
 	$names = ['chassis' => 'chassis_id', 'ip' => 'mgmt_ip', 'sysname' => 'sysname'];
 	$stronger = [];
@@ -384,7 +394,7 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 			return ['shared', $names[$kind], $raw, $ids];
 		}
 		if ($ids) {
-			return [$ids[0], $names[$kind]];
+			return [$ids[0], $keyless ? 'local_port' : $names[$kind]];
 		}
 		if ($kind === 'chassis') {
 			// topology-1-model.md §6.7.0 "Replaced chassis": a chassis key that is marked replaced on exactly one Device finds that Device, after the
@@ -515,13 +525,14 @@ $find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $l
 // user, so it reads the table, like the reporters), matched against the MACs of the Devices (the Device's own `mac` and the MAC of its Ports). A MAC in the inventory of
 // several Hosts, or on several Devices, matches nothing (§6.7.4, `macs_shared`). A Device or a Host that already has an association is never matched (§4.5). A Host gets its
 // topo_nodes row only here, on a match (§10.1). Returns nothing; counts the new associations in `hosts_associated_by_mac`.
-$associate_hosts_by_mac = static function () use ($pdo, $promote, $find_or_create_host_node, &$summary): void {
-	$mac_text = static function (?string $value): ?string {
+$associate_hosts_by_mac = static function () use ($pdo, $promote, $find_or_create_host_node, $is_placeholder_mac, &$summary): void {
+	$mac_text = static function (?string $value) use ($is_placeholder_mac): ?string {
 		$digits = strtolower(preg_replace('/[^0-9a-fA-F]/', '', (string) $value));
-		if (strlen($digits) !== 12 || preg_match('/[^0-9a-fA-F:.\- ]/', (string) $value) === 1 || $digits === '000000000000') {
+		if (strlen($digits) !== 12 || preg_match('/[^0-9a-fA-F:.\- ]/', (string) $value) === 1) {
 			return null;
 		}
-		return implode(':', str_split($digits, 2));
+		$mac = implode(':', str_split($digits, 2));
+		return $is_placeholder_mac($mac) ? null : $mac;          // a placeholder on either side never matches (normalization §4.1)
 	};
 	$hosts_by_mac = [];
 	try {
@@ -667,9 +678,9 @@ $norm_numeric_id = static function (string $value) use ($norm_clean): ?int {
 	$number = (int) $value;
 	return $number > 0 && $number <= 2147483647 ? $number : null;
 };
-/** §4.8: the 0-based index of the one port that has this MAC; null when the MAC is not usable (invalid, all zero) or no or several ports have it */
-$norm_port_mac = static function (string $mac, array $port_macs): ?int {
-	if (preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/D', $mac) !== 1 || $mac === '00:00:00:00:00:00') {
+/** §4.8: the 0-based index of the one port that has this MAC; null when the MAC is not usable (invalid, a placeholder MAC) or no or several ports have it */
+$norm_port_mac = static function (string $mac, array $port_macs) use ($is_placeholder_mac): ?int {
+	if (preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/D', $mac) !== 1 || $is_placeholder_mac($mac)) {
 		return null;
 	}
 	$hits = array_keys(array_filter($port_macs, static fn ($m): bool => $m === $mac));
@@ -1856,7 +1867,7 @@ $snap_remote_key = static function (array $row, string $segment) use ($chassis_k
 // octets cannot be normalized and the row is skipped, never guessed. A management IP becomes dotted IPv4 / compressed
 // lowercase IPv6; a malformed one skips the row. A networkAddress chassis id that is an IP is written the same way; any
 // other chassis / port id is text, trimmed of trailing NUL and spaces. Returns [row, null] or [null, "field: why"].
-$snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_text, $norm_man_addrs): array {
+$snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_text, $norm_man_addrs, $is_placeholder_mac): array {
 	$mac = static function (string $value, bool $strict): ?string {
 		$octets = null;
 		if (preg_match('/^[0-9a-f]{1,2}([:-][0-9a-f]{1,2})+$/i', $value)) {
@@ -1901,6 +1912,10 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 				return [null, $field.': a MAC of the wrong length'];
 			}
 		}
+	}
+	// normalization §4.1/§4.2: a placeholder loc_chassis is not a loc_chassis (the reporter has none: model §6.4 steps 2 and 3); the row is valid
+	if (isset($row['loc_chassis']) && $is_placeholder_mac($row['loc_chassis'])) {
+		unset($row['loc_chassis']);
 	}
 	foreach ([['rem_chassis', 'rem_chassis_type'], ['rem_port', 'rem_port_type']] as [$field, $type_field]) {
 		if (!isset($row[$field]) || $row[$field] === '') {
@@ -2326,7 +2341,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 $snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
 
 	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$resolve_local_port, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$resolve_local_port, $is_placeholder_mac, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
@@ -2372,6 +2387,9 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			'pseudo' => false], ['name' => $row['if_name'] ?? null]);
 
 		$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
+		if ($chassis_id !== null && in_array($row['rem_chassis_type'] ?? null, [null, '', 'macAddress'], true) && $is_placeholder_mac($chassis_id)) {
+			$chassis_id = null;     // a placeholder MAC is no identity (normalization §4.1): no chassis key, no chassis_id/mac attribute; $remote_attrs keeps the value as received
+		}
 		$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
 		$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
 			'rem_mgmt_ip', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
