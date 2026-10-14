@@ -328,15 +328,8 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 	if (!empty($identity['ip'])) {
 		$keys['ip'] = $identity['ip'];
 	}
-	$keyless = false;
 	if ($local_port_id !== null && $sysname) {
 		$keys['sysname'] = [$sysname, $sysname];
-	}
-	elseif (!$keys && !$for_reporter && $local_port_id !== null) {
-		// A neighbor with no key at all (for example only a placeholder chassis, normalization §4.1) is anonymous: it is found only as the Device that this local port
-		// already reaches without a sysname, so the next run finds the Device of the last run and never creates a second one (no global key).
-		$keys['sysname'] = ['', ''];
-		$keyless = true;
 	}
 	$names = ['chassis' => 'chassis_id', 'ip' => 'mgmt_ip', 'sysname' => 'sysname'];
 	$stronger = [];
@@ -394,7 +387,7 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 			return ['shared', $names[$kind], $raw, $ids];
 		}
 		if ($ids) {
-			return [$ids[0], $keyless ? 'local_port' : $names[$kind]];
+			return [$ids[0], $names[$kind]];
 		}
 		if ($kind === 'chassis') {
 			// topology-1-model.md §6.7.0 "Replaced chassis": a chassis key that is marked replaced on exactly one Device finds that Device, after the
@@ -1089,6 +1082,8 @@ $summary += [
 	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
 	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
+	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
+	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
 	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0]],
 	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
 	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
@@ -2397,6 +2392,12 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 		$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
 
 		$row_ip = ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null;
+		// model §6.7.1: a row with no key at all (for example only a placeholder MAC chassis) makes no Device, no observation and no link; it is counted
+		if ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && $row_ip === null && ($row['rem_sysname'] ?? '') === '') {
+			$summary['rows_no_identity']['count']++;
+			$summary['rows_no_identity']['by_rule'][$itemid] = ($summary['rows_no_identity']['by_rule'][$itemid] ?? 0) + 1;
+			continue;
+		}
 		$remote_device_id = $snap_device([
 			'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
 			'chassis_id' => $chassis_id,

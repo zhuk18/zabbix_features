@@ -3109,16 +3109,17 @@ c('PH-01', 'Правило', function () {
 		h_rep('R2', mac(2), '10.0.0.2');
 		h_ports('R1', [1 => 'Gi0/1']);
 		h_ports('R2', [1 => 'Gi0/1']);
-		// the two neighbors have no name, chassis or address: the harness labels such Devices by their node id, which differs between the two reporter orders,
-		// so the order-independence comparison of natural states is switched off for this case (the counts below are checked in the forward order)
-		$GLOBALS['H']['multi'] = false;
 		h_nbrs('R1', [NR(1, $placeholder, null, 'Gi0/24')]);
 		h_nbrs('R2', [NR(1, $placeholder, null, 'Gi0/24')]);
-		h_ingest("two reporters each see a neighbor with only the chassis {$placeholder}");
-		ex(h_dev_count() === 4, "two neighbor Devices, not one: {$placeholder} is no identity (Devices: ".json_encode(h_devices()).')');
+		$summary = h_ingest("two reporters each see a neighbor with only the chassis {$placeholder}");
+		ex(h_dev_count() === 2, "no neighbor Device: {$placeholder} is no identity and the row has no other key (Devices: ".json_encode(h_devices()).')');
+		ex(h_state()['links'] === [] && h_state()['obs'] === [], 'no link and no observation');
+		$no_identity = $summary['rows_no_identity'] ?? [];
+		ex(($no_identity['count'] ?? -1) === 2 && count($no_identity['by_rule'] ?? []) === 2 && array_sum($no_identity['by_rule'] ?? []) === 2,
+			'rows_no_identity counts one row per reporter, per rule ('.json_encode($no_identity).')');
 		$keys = (int) scalar($GLOBALS['pdo'], "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` LIKE 'chassis:mac:%' AND (`key` LIKE '%00:00:00:00:00:00' OR `key` LIKE '%ff:ff:ff:ff:ff:ff')");
 		ex($keys === 0, 'no chassis:mac: key of a placeholder');
-		ex(($GLOBALS['H']['last_summary']['rows_identity_invalid'] ?? []) === [], 'the rows are valid: rows_identity_invalid is empty');
+		ex(($summary['rows_identity_invalid'] ?? []) === [], 'the rows are valid: rows_identity_invalid is empty');
 	}
 });
 
@@ -3131,6 +3132,19 @@ c('PH-02', 'Правило', function () {
 	h_nbrs('R2', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.1'])]);
 	h_ingest('placeholder chassis with a management address');
 	ex(h_dev_count() === 4, 'each neighbor is found by its ip: key: 10.5.5.1 seen by both reporters is one Device, 10.5.5.2 another (Devices: '.json_encode(h_devices()).')');
+});
+
+c('PH-07', 'Правило', function () {
+	h_rep('R', mac(1), '10.0.0.1');
+	h_ports('R', [1 => 'Gi0/1']);
+	h_nbrs('R', [NR(1, mac(20), 'DX', 'Gi0/24')]);
+	h_ingest('a neighbor DX on R:Gi0/1');
+	ex(count(h_links('R:Gi0/1', 'DX', null, 'active')) === 1, 'the discovered link exists');
+	h_tick();
+	h_nbrs('R', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24')]);
+	$summary = h_ingest('the same port now has a keyless row');
+	ex(count(h_links('R:Gi0/1', 'DX', null, 'active')) === 1, 'the link is not superseded by a row that is not a neighbor of the port');
+	ex(h_dev_count() === 2 && ($summary['rows_no_identity']['count'] ?? -1) === 1, 'no Device was made for the keyless row, one row counted');
 });
 
 c('PH-03', 'Правило', function () {
