@@ -36,16 +36,15 @@ def _has_tag(h):
     return any(t['tag'] == TAG and t['value'] == '1' for t in h.get('tags', []))
 
 
-def _ensure_ports_role(api, templateid, name, log):
-    """The role PORTS on the interface discovery rule of the standard interface template (topology-4-lab-simulator.md §7), so that the ports of the
-    hosts get items (model §3.2). Changes the template once; a template rule that has the role is left alone."""
+def _check_ports_role(api, templateid, name):
+    """The role PORTS is a property of the template (FR-B D-49: `topology_role: PORTS` on the interface discovery rule in the template file), so that the ports of
+    the hosts get items (model §3.2). The tool does not set it any more: a rule of a host that inherits it is read-only. A template without the role is an error."""
     rules = api.call('discoveryrule.get', {'hostids': [templateid], 'output': ['itemid', 'key_', 'topology_role'],
                                            'filter': {'key_': 'net.if.discovery'}})
     if not rules:
         raise LabError('template %r has no interface discovery rule (net.if.discovery)' % name)
     if str(rules[0]['topology_role']) != '1':
-        api.call('discoveryrule.update', {'itemid': rules[0]['itemid'], 'topology_role': 1})
-        log('  set the role PORTS on the interface discovery rule of template %r' % name)
+        raise LabError('the interface discovery rule of template %r has no topology role PORTS; import the template file of the tree (templates/net/generic_snmp)' % name)
 
 
 def provision(api, scenario, prune=False, log=print):
@@ -67,7 +66,7 @@ def provision(api, scenario, prune=False, log=print):
     if z.get('template_interfaces'):
         if not tmpl['template_interfaces']:
             raise LabError('template %r does not exist' % z['template_interfaces'])
-        _ensure_ports_role(api, tmpl['template_interfaces'], z['template_interfaces'], log)
+        _check_ports_role(api, tmpl['template_interfaces'], z['template_interfaces'])
     proxies = {p['name']: p['proxyid'] for p in api.call('proxy.get', {'output': ['proxyid', 'name']})}
 
     existing = {h['host']: h for h in api.call('host.get', {

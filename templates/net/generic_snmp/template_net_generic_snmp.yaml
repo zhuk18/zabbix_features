@@ -300,6 +300,7 @@ zabbix_export:
           snmp_oid: 'discovery[{#IFOPERSTATUS},1.3.6.1.2.1.2.2.1.8,{#IFADMINSTATUS},1.3.6.1.2.1.2.2.1.7,{#IFALIAS},1.3.6.1.2.1.31.1.1.1.18,{#IFNAME},1.3.6.1.2.1.31.1.1.1.1,{#IFDESCR},1.3.6.1.2.1.2.2.1.2,{#IFTYPE},1.3.6.1.2.1.2.2.1.3]'
           key: net.if.discovery
           delay: 1h
+          topology_role: PORTS
           filter:
             evaltype: AND
             conditions:
@@ -662,10 +663,6 @@ zabbix_export:
                   item:
                     host: 'Network Generic Device by SNMP'
                     key: 'net.if.in.discards[ifInDiscards.{#SNMPINDEX}]'
-          preprocessing:
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 4h
         - uuid: f6784e45dac14c91bea4ffb14d4793e9
           name: 'EtherLike-MIB Discovery'
           type: SNMP_AGENT
