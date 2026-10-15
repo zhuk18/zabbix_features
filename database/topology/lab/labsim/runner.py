@@ -333,7 +333,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
         if reset:
             # after the schedule is suspended and the rules are set: a poll Zabbix made on its own before that, with the old
             # rules, would otherwise leave a snapshot behind (an empty one for a rule that is now off)
-            db.reset_topo(conn)
+            db.reset_topo(conn, mon)
             log('reset: topo_* cleared')
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))

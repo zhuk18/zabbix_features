@@ -40,6 +40,15 @@ require_once 'include/classes/core/CAutoloader.php';
 /** Stub of the API facade: the visible hosts (every host), and for the link severity and load of the derived state (model §4.8) the three reads of
  * CTopologyPrototype by SQL: items by id, the triggers in problem state of items, and the open problems of triggers. No session, no permissions. */
 class API {
+	/** The settings (the severity names and colours of describeSeverity()): what CApiSettingsHelper reads from the `settings` table, without a session. */
+	public static function Settings() {
+		return new class {
+			public function get($options) {
+				return CApiSettingsHelper::getParameters($options['output'] ?? null);
+			}
+		};
+	}
+
 	public static function Item() {
 		return new class {
 			public function get($options) {
