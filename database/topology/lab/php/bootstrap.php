@@ -67,7 +67,7 @@ class API {
 					return [];
 				}
 				$out = [];
-				foreach (DBselect('SELECT DISTINCT t.triggerid,f.itemid FROM triggers t JOIN functions f ON f.triggerid=t.triggerid WHERE t.value=1 AND f.itemid IN ('.
+				foreach (DBselect('SELECT DISTINCT t.triggerid,f.itemid FROM triggers t JOIN trigger_rtdata tr ON tr.triggerid=t.triggerid JOIN functions f ON f.triggerid=t.triggerid WHERE tr.value=1 AND f.itemid IN ('.
 						implode(',', $ids).')') as $row) {
 					$out[$row['triggerid']]['triggerid'] = (string) $row['triggerid'];
 					$out[$row['triggerid']]['items'][] = ['itemid' => (string) $row['itemid']];
