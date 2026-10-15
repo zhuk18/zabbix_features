@@ -140,7 +140,7 @@ def counter_spec(lab, name, ports):
     for p in ports:
         i = p['ifindex']
         load_in, load_out = port_load(lab, p)
-        speed = float(p.get('speed', 1000000000))
+        speed = float(p.get('speed', lab.settings.get('speed', 1000000000)))
         for direction, pct in (('in', load_in), ('out', load_out)):
             key = '%d:%s' % (i, direction)
             initial[key] = 5000000 * i + (1000 if direction == 'out' else 0)
@@ -214,7 +214,7 @@ def device_records(lab, name):
         r.put_str(base + (2, i), p['name'])
         r.put(base + (3, i), '2', 161 if p.get('type') == 'lag' else 6)
         r.put(base + (4, i), '2', 1500)
-        r.put(base + (5, i), '66', p.get('speed', 1000000000))
+        r.put(base + (5, i), '66', p.get('speed', s.get('speed', 1000000000)))
         r.put_hex(base + (6, i), bytes.fromhex(port_mac(dev, p).replace(':', '')))
         r.put(base + (7, i), '2', 2 if p.get('admin') == 'down' else 1)
         r.put(base + (8, i), '2', 2 if p.get('oper') == 'down' else 1)
@@ -226,7 +226,7 @@ def device_records(lab, name):
         r.put_str(xbase + (1, i), p['name'])
         for column in (6, 10):                                       # ifHCInOctets, ifHCOutOctets
             r.put(xbase + (column, i), '70', 0)
-        r.put(xbase + (15, i), '66', int(p.get('speed', 1000000000)) // 1000000)           # ifHighSpeed in Mbit/s
+        r.put(xbase + (15, i), '66', int(p.get('speed', s.get('speed', 1000000000))) // 1000000)           # ifHighSpeed in Mbit/s
         r.put_str(xbase + (18, i), p.get('alias') or '')            # ifAlias
 
     # LAG

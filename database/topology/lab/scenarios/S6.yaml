@@ -6,7 +6,8 @@ base: lab.yaml
 # values, so step 0 waits for at least two polls. The trigger "High bandwidth usage" is the template's own: avg over 15 minutes above {$IF.UTIL.MAX} (90 %), so
 # step 1 waits until the 15-minute average has crossed it and the recovery needs the average below 87 %.
 patch:
-  settings: {load: 10}              # every port 10 % in and out
+  settings: {load: 10, speed: 100000000}    # every port 10 % in and out, 100 Mbit/s: the 32-bit counters of the template (ifInOctets) wrap after 361 s at 100 Mbit/s and 95 %, longer than the 3-minute poll
+                                            # (they would wrap about five times between two 3-minute polls at 1 Gbit/s, which no poll rate can measure)
 steps:
   - id: 0
     note: all ports load 10 %
@@ -17,8 +18,8 @@ steps:
       - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 10, tolerance: 5}
       - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: false}
   - id: 1
-    note: Switch1:Gi0/24 load 95 % in and out
-    load: {Switch1:Gi0/24: {in: 95, out: 95}}
+    note: Switch1:Gi0/24 (and the other end of its cable, Router1:Gi0/0) load 95 % in and out
+    load: {Switch1:Gi0/24: {in: 95, out: 95}, Router1:Gi0/0: {in: 95, out: 95}}      # the cable carries the same traffic at both ends
     wait: {seconds: 1260}
     assert:
       - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 95, tolerance: 10}
@@ -26,7 +27,7 @@ steps:
       - link_severity: {link: [Switch1:Gi0/2, Switch2:Gi0/24], present: false}
   - id: 2
     note: Switch1:Gi0/24 back to 10 %
-    load: {Switch1:Gi0/24: {in: 10, out: 10}}
+    load: {Switch1:Gi0/24: {in: 10, out: 10}, Router1:Gi0/0: {in: 10, out: 10}}
     wait: {seconds: 900}
     assert:
       - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: false}
