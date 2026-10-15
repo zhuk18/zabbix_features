@@ -88,6 +88,23 @@ class CTopologyRole {
 		];
 	}
 
+	/**
+	 * Why "Discard unchanged with heartbeat" is refused for a role, or null when the role accepts it (LLD spec 2.3). PORTS accepts it: the PORTS snapshot
+	 * clock is not used for link freshness (FR-B D-23). For the other roles every value confirms the topology data.
+	 */
+	public static function getDiscardRefusal(int $role): ?string {
+		switch ($role) {
+			case ZBX_TOPOLOGY_ROLE_NEIGHBORS:
+				return _('every value must confirm the neighbors');
+			case ZBX_TOPOLOGY_ROLE_LEARNED_MACS:
+				return _('every value must confirm the learned MACs');
+			case ZBX_TOPOLOGY_ROLE_LAG:
+				return _('every value must confirm the LAG membership');
+		}
+
+		return null;
+	}
+
 	public static function getLabel(int $role): string {
 		return self::getLabels()[$role] ?? _('Unknown');
 	}

@@ -1213,6 +1213,16 @@ function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
 			->addClass('js-topology-role-hint')
 			->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
 			->setAttribute('data-topology-role', $role);
+
+		// LLD spec 2.6: under the role field for the roles that refuse the throttling step
+		if (CTopologyRole::getDiscardRefusal((int) $role) !== null) {
+			$hints[] = (new CDiv(_('Do not use "Discard unchanged" preprocessing: every value confirms the topology data.')))
+				->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
+				->addClass(ZBX_STYLE_GREY)
+				->addClass('js-topology-role-hint')
+				->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
+				->setAttribute('data-topology-role', $role);
+		}
 	}
 
 	$note_class = $topology_role == ZBX_TOPOLOGY_ROLE_NONE ? ZBX_STYLE_DISPLAY_NONE : null;

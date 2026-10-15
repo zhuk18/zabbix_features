@@ -55,9 +55,9 @@ abstract class CDiscoveryRuleGeneral extends CItemGeneral {
 	];
 
 	/**
-	 * A rule with a topology role treats every LLD value as a confirmation that the links are alive, so
-	 * "Discard unchanged with heartbeat" would silently stop refreshing the snapshot clock. The check works on the
-	 * resulting state: incoming fields are merged with the stored ones.
+	 * A rule with the topology role Neighbors, Learned MACs or LAG membership treats every LLD value as a confirmation that the topology data is alive, so
+	 * "Discard unchanged with heartbeat" would silently stop refreshing the snapshot clock. A Ports rule may keep it (LLD spec 2.3, FR-B D-23). The check works
+	 * on the resulting state: incoming fields are merged with the stored ones.
 	 *
 	 * @param array      $items
 	 * @param array|null $db_items  Null on create.
@@ -71,7 +71,8 @@ abstract class CDiscoveryRuleGeneral extends CItemGeneral {
 			$role = $item['topology_role']
 				?? ($db_items !== null ? $db_items[$item['itemid']]['topology_role'] : ZBX_TOPOLOGY_ROLE_NONE);
 
-			if ($role != ZBX_TOPOLOGY_ROLE_NONE && $db_items !== null && !array_key_exists('preprocessing', $item)) {
+			if (CTopologyRole::getDiscardRefusal((int) $role) !== null && $db_items !== null
+					&& !array_key_exists('preprocessing', $item)) {
 				$db_itemids[] = $item['itemid'];
 			}
 		}
@@ -91,10 +92,11 @@ abstract class CDiscoveryRuleGeneral extends CItemGeneral {
 		}
 
 		foreach ($items as $i => $item) {
-			$role = $item['topology_role']
-				?? ($db_items !== null ? $db_items[$item['itemid']]['topology_role'] : ZBX_TOPOLOGY_ROLE_NONE);
+			$role = (int) ($item['topology_role']
+				?? ($db_items !== null ? $db_items[$item['itemid']]['topology_role'] : ZBX_TOPOLOGY_ROLE_NONE));
+			$reason = CTopologyRole::getDiscardRefusal($role);
 
-			if ($role == ZBX_TOPOLOGY_ROLE_NONE) {
+			if ($reason === null) {
 				continue;
 			}
 
@@ -107,7 +109,7 @@ abstract class CDiscoveryRuleGeneral extends CItemGeneral {
 			if (array_intersect(array_map('intval', $types), $forbidden)) {
 				self::exception(ZBX_API_ERROR_PARAMETERS, _s('Invalid parameter "%1$s": %2$s.',
 					'/'.($i + 1).(array_key_exists('preprocessing', $item) ? '/preprocessing' : '/topology_role'),
-					_('a discovery rule with a topology role cannot use "Discard unchanged" preprocessing')
+					_s('"Discard unchanged" is not allowed for the topology role "%1$s": %2$s', CTopologyRole::getLabel($role), $reason)
 				));
 			}
 		}
