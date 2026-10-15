@@ -663,6 +663,10 @@ zabbix_export:
                   item:
                     host: 'Network Generic Device by SNMP'
                     key: 'net.if.in.discards[ifInDiscards.{#SNMPINDEX}]'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 4h
         - uuid: f6784e45dac14c91bea4ffb14d4793e9
           name: 'EtherLike-MIB Discovery'
           type: SNMP_AGENT
