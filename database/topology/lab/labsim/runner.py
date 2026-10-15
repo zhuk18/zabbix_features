@@ -368,15 +368,26 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             if i == 0:
                 ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc')}
                 if ifdisc:
+                    # The rule keeps "Discard unchanged with heartbeat" (FR-B D-23): an unchanged value is not stored again, so a rule that has a snapshot (--reset
+                    # keeps those of the standard interface discovery) usually gives no new clock; it gets a short wait for a changed value (ports a scenario adds),
+                    # a rule without a snapshot gets the long one.
                     before = db.snapshot_clocks(conn)
                     zbx.check_now(api, list(ifdisc))
-                    end = time.time() + 45
-                    while time.time() < end:
+                    start = time.time()
+                    while time.time() < start + 45:
                         now_clocks = db.snapshot_clocks(conn)
-                        if all(now_clocks.get(int(r), 0) > before.get(int(r), 0) for r in ifdisc):
+                        if all(now_clocks.get(int(r), 0) > before.get(int(r), 0) or (int(r) in before and time.time() > start + 10) for r in ifdisc):
                             break
                         time.sleep(1)
-                    missing = sorted(dev for r, dev in ifdisc.items() if db.snapshot_clocks(conn).get(int(r), 0) <= before.get(int(r), 0))
+                    missing = sorted(dev for r, dev in ifdisc.items() if int(r) not in db.snapshot_clocks(conn))
+                    template = (settings.get('zabbix') or {}).get('template_interfaces')
+                    if missing and template and zbx.reseed_interface_rule(api, template, log):
+                        # a rule that has no snapshot and whose value is the one it stored last (a deleted row, a fresh database) is made to store the next value
+                        zbx.check_now(api, [r for r, dev in ifdisc.items() if dev in missing])
+                        end = time.time() + 45
+                        while time.time() < end and any(int(r) not in db.snapshot_clocks(conn) for r, dev in ifdisc.items() if dev in missing):
+                            time.sleep(1)
+                        missing = sorted(dev for r, dev in ifdisc.items() if int(r) not in db.snapshot_clocks(conn))
                     if missing:
                         log('  note: no snapshot of the interface discovery rule yet for %s (the item ids of their ports come later)' % ', '.join(missing))
             pending, waited_for = {}, []

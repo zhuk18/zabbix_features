@@ -326,3 +326,22 @@ def restore_fresh_macro(api, state_file, log=print):
     after = get_fresh_macro(api)
     log('  freshness macro restored (%s)' % (saved['was'] if saved['was'] is not None else 'absent'))
     return after['value'] if after else 'absent'
+
+
+def reseed_interface_rule(api, template_name, log=print):
+    """Make the standard interface discovery rule store its next value. The rule keeps "Discard unchanged with heartbeat" (FR-B D-23), so an unchanged value is
+    not stored again, and a rule without a snapshot (a fresh database, a deleted row) would stay without one for the heartbeat time. The server forgets the
+    last value when the step changes: the heartbeat parameter of the template rule goes 4h -> 3h -> its old value (about two configuration syncs), the
+    template ends as it was."""
+    t = api.call('template.get', {'filter': {'host': [template_name]}, 'output': ['templateid']})
+    rules = api.call('discoveryrule.get', {'hostids': [t[0]['templateid']], 'filter': {'key_': 'net.if.discovery'}, 'output': ['itemid'],
+                                           'selectPreprocessing': 'extend'}) if t else []
+    if not rules or not rules[0]['preprocessing']:
+        return False
+    original = rules[0]['preprocessing']
+    changed = [dict(step, params='3h' if step['params'] != '3h' else '4h') for step in original]
+    api.call('discoveryrule.update', {'itemid': rules[0]['itemid'], 'preprocessing': changed})
+    time.sleep(CONFIG_SYNC_WAIT)
+    api.call('discoveryrule.update', {'itemid': rules[0]['itemid'], 'preprocessing': original})
+    log('  reseeded the interface discovery rule of template %r (the heartbeat parameter was changed and restored)' % template_name)
+    return True

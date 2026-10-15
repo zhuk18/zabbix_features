@@ -135,8 +135,11 @@ def reset_topo(conn):
     """topology-4-lab-simulator.md "Reset": clear topo_* state (the same as the 'clean topo_* state' of the equivalence tests)."""
     cur = conn.cursor()
     cur.execute('SET FOREIGN_KEY_CHECKS = 0')
-    for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot'):
+    for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'):
         cur.execute('DELETE FROM %s' % t)
+    # The snapshots of the topology rules go; those of the standard interface discovery rule stay: the rule keeps "Discard unchanged with heartbeat" (FR-B D-23),
+    # so after a reset it would not store an unchanged value again and the ports would have no item ids (model §3.2). A changed value replaces the row.
+    cur.execute("DELETE FROM topo_lld_snapshot WHERE itemid NOT IN (SELECT itemid FROM items WHERE key_ = 'net.if.discovery')")
     cur.execute('SET FOREIGN_KEY_CHECKS = 1')
 
 
