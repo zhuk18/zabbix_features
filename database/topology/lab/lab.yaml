@@ -7,6 +7,9 @@ settings:
   community: zbxlab
   emit_subtypes: false        # the current fixtures carry no lldp*IdSubtype columns
   emit_mgmt_addr: false       # ... and no lldpRemManAddrTable
+  speed: 100000000            # bit/s of every port without its own `speed` (lab spec 4.1): 100 Mbit/s, so that the 32-bit counters of the generic interface template
+                              # do not wrap between two 3-minute polls at a high load (S6); one speed in every scenario, or the template's trigger "Ethernet has changed
+                              # to lower speed" (Information) fires on every port when a scenario changes it
   adopt: [Router1, Switch1, Switch2, UPS1, AccessSwitch1]   # existing hosts the tool may take over (tag them)
   zabbix:
     url: http://localhost/zabbix/ui/api_jsonrpc.php
