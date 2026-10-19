@@ -226,7 +226,7 @@ class Lab:
                 self.port(d['writes'])
 
 
-WAIT_KEYS = {'unsupported', 'timeout', 'seconds'}
+WAIT_KEYS = {'unsupported', 'timeout', 'seconds', 'until'}
 
 
 def validate_wait(scenario_id, i, wait):
@@ -238,6 +238,8 @@ def validate_wait(scenario_id, i, wait):
     s = wait.get('seconds')
     if 'seconds' in wait and (isinstance(s, bool) or not isinstance(s, (int, float)) or s < 0):
         raise LabError('scenario %s step %d: wait.seconds must be a number >= 0, got %r' % (scenario_id, i, s))
+    if 'until' in wait and (not isinstance(wait['until'], bool) or not wait.get('seconds')):
+        raise LabError('scenario %s step %d: wait.until is true or false and needs wait.seconds (the longest wait), got %r' % (scenario_id, i, wait))
 
 
 # Assertion forms (topology-4-lab-simulator.md "Assertions"): the form key -> (other keys on the assertion itself,

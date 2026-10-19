@@ -493,7 +493,8 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             sr['waited_for'] = waited_for
 
             seconds = (step.get('wait') or {}).get('seconds')
-            if seconds:
+            until = bool((step.get('wait') or {}).get('until'))      # poll-until: the link assertions below are re-evaluated until they hold, `seconds` is the longest wait
+            if seconds and not until:
                 log('  waiting %s s' % seconds)
                 time.sleep(seconds)
                 sr['waited_seconds'] = seconds
@@ -522,17 +523,47 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                 return derived_cache['d']
 
             load_asserts = [a['link_load'] for a in step.get('assert') or [] if 'link_load' in a]
+            counter_links = [a[k] for a in step.get('assert') or [] for k in ('link_load', 'link_severity') if k in a]
             load_error, load_polls = None, None
-            if load_asserts:
+
+            def counter_ids():
+                ends = run_derived()['links']
+                ids = set()
+                for r in counter_links:
+                    for l in [x for x in ends if x['edge_id'] in {str(y['id']) for y in find_links(state, r['link'][0], r['link'][1], 'physical_link')}][:1]:
+                        for side in (l.get('load_items') or {}).values():
+                            ids.update(str(side[k]) for k in ('in', 'out') if side and side.get(k))
+                return ids
+
+            if until and counter_links:
+                # poll-until (lab spec 9 S6): every round reads a fresh counter pair (which also polls the items the template triggers use) and evaluates the
+                # link assertions; the step ends when all hold or after `seconds`. The result below is the evaluation after the last round.
+                t_end, rounds = time.time() + seconds, 0
+                link_forms = [a for a in step.get('assert') or [] if set(a) & {'link_items', 'link_load', 'link_severity'}]
+                while True:
+                    rounds += 1
+                    round_start = time.time()
+                    try:
+                        read_fresh_counters(api, conn, counter_ids(), log)
+                    except LabError:
+                        pass                                                     # reported by the final evaluation below
+                    derived_cache.clear()
+                    ok = True
+                    for a in link_forms:
+                        try:
+                            ok = ok and evaluate(a, state, ingest, history, clocks_hist, i, derived).status == 'pass'
+                        except LabError:
+                            ok = False
+                    if ok or time.time() >= t_end:
+                        break
+                    time.sleep(max(0, round_start + COUNTER_POLL_GAP - time.time()))       # a round is at least 30 s: a poll every few seconds would change the 15-minute average of the trigger
+                sr['waited_seconds'] = int(time.time() - (t_end - seconds))
+                sr['wait_rounds'] = rounds
+                log('  link assertions %s after %d round(s), %d s' % ('hold' if ok else 'do not hold', rounds, sr['waited_seconds']))
+            if load_asserts and not (until and counter_links):
                 # the counters of the ends of the asserted links are read from a fresh pair (lab spec 9 S6 "Load reading"), then the UI reads them
                 try:
-                    ends = run_derived()['links']
-                    ids = set()
-                    for r in load_asserts:
-                        for l in [x for x in ends if x['edge_id'] in {str(y['id']) for y in find_links(state, r['link'][0], r['link'][1], 'physical_link')}][:1]:
-                            for side in (l.get('load_items') or {}).values():
-                                ids.update(str(side[k]) for k in ('in', 'out') if side and side.get(k))
-                    load_polls = read_fresh_counters(api, conn, ids, log)
+                    load_polls = read_fresh_counters(api, conn, counter_ids(), log)
                     sr['load_polls'] = load_polls
                     log('  counters read from a fresh pair after %d poll(s)' % load_polls)
                 except LabError as e:

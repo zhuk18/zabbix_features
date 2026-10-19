@@ -65,3 +65,17 @@ class Reading(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WaitUntil(unittest.TestCase):
+    def test_until_needs_seconds_and_a_bool(self):
+        from labsim import model
+        model.validate_wait('X', 0, {'seconds': 900, 'until': True})
+        for bad in ({'until': True}, {'seconds': 900, 'until': 'yes'}):
+            with self.assertRaises(LabError):
+                model.validate_wait('X', 0, bad)
+
+    def test_s6_waits_are_poll_until(self):
+        from labsim import model
+        steps = model.load_scenario('S6').steps
+        self.assertTrue(all((s.get('wait') or {}).get('until') for s in steps))
