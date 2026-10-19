@@ -227,6 +227,34 @@ def check_now(api, itemids):
         api.call('task.create', [{'type': 6, 'request': {'itemid': i}} for i in itemids])
 
 
+def close_problems(api, log=print, wait=30):
+    """lab spec 8.2: close every open problem that allows manual close on the hosts with the tag lab.managed=1 (event.acknowledge, action "close problem").
+    A problem that stays open after `wait` seconds is not closed. Returns {'count': n, 'triggers': [problem names], 'left': [problem names]}."""
+    hosts = api.call('host.get', {'output': ['hostid'], 'tags': [{'tag': TAG, 'value': '1', 'operator': 1}]})
+    result = {'count': 0, 'triggers': [], 'left': []}
+    if not hosts:
+        return result
+    problems = api.call('problem.get', {'hostids': [h['hostid'] for h in hosts], 'source': 0, 'object': 0, 'output': ['eventid', 'objectid', 'name']})
+    if not problems:
+        return result
+    triggers = api.call('trigger.get', {'triggerids': sorted({p['objectid'] for p in problems}), 'output': ['triggerid', 'manual_close']})
+    closable = {t['triggerid'] for t in triggers if str(t['manual_close']) == '1'}
+    todo = {p['eventid']: p['name'] for p in problems if p['objectid'] in closable}
+    if not todo:
+        return result
+    api.call('event.acknowledge', {'eventids': sorted(todo), 'action': 1})
+    end = time.time() + wait
+    left = set(todo)
+    while left and time.time() < end:
+        time.sleep(1)
+        left = {p['eventid'] for p in api.call('problem.get', {'eventids': sorted(left), 'source': 0, 'object': 0, 'output': ['eventid']})}
+    result['triggers'] = sorted(name for e, name in todo.items() if e not in left)
+    result['count'] = len(result['triggers'])
+    result['left'] = sorted(todo[e] for e in left)
+    log('reset: %d open problem(s) with manual close closed%s' % (result['count'], ('; still open: %d' % len(left)) if left else ''))
+    return result
+
+
 CONFIG_SYNC_WAIT = 12            # the server's CacheUpdateFrequency is 10 s
 SCHEDULE_SUSPENDED = '1d'        # the API's maximum update interval is 86400 s
 

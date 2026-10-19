@@ -335,6 +335,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
             # rules, would otherwise leave a snapshot behind (an empty one for a rule that is now off)
             db.reset_topo(conn, mon)
             log('reset: topo_* cleared')
+            report['problems_closed'] = zbx.close_problems(api, log)
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
