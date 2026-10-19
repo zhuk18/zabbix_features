@@ -52,7 +52,8 @@ try {
 			}
 			$detail[$neighbor['edge_id']] = ['items_local' => $items['local_port_id'], 'items_remote' => $items['remote_port_id'],
 				'severity' => $neighbor['severity'], 'load_local' => $neighbor['load']['local']['percent'] ?? null,
-				'load_remote' => $neighbor['load']['remote']['percent'] ?? null];
+				'load_remote' => $neighbor['load']['remote']['percent'] ?? null,
+				'load_items' => ['local' => $neighbor['load']['local']['items'] ?? null, 'remote' => $neighbor['load']['remote']['items'] ?? null]];
 		}
 	}
 	foreach ($links as &$link) {

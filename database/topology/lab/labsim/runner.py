@@ -71,6 +71,35 @@ def find_links(state, a, b, type_=None):
     return out
 
 
+COUNTER_POLL_GAP = 30            # lab spec 9 S6 "Load reading": seconds between two polls of the counter items
+COUNTER_PAIR_MAX = 60            # a value counts only when its clock is less than this after the previous value of the same item
+COUNTER_POLLS = 3
+
+
+def read_fresh_counters(api, conn, itemids, log=print, sleep=time.sleep, now=time.time):
+    """Lab spec 9 S6 "Load reading": make Zabbix poll the counter items ("check now") 30 s apart and wait until every item has a value whose clock is less than
+    60 s after the previous value of the same item (a 32-bit counter wraps in about 360 s at 95 % of 100 Mbit/s: a longer gap gives a wrong rate). At most 3 polls.
+    Returns the number of polls; LabError('no fresh counter pair') when 3 polls did not give a pair for every item."""
+    itemids = sorted({str(i) for i in itemids})
+    start = int(now())
+    for poll in range(1, COUNTER_POLLS + 1):
+        t0 = now()
+        before = {i: (db.item_history(conn, i, 1) or [(0, None)])[0][0] for i in itemids}
+        zbx.check_now(api, itemids)
+        while now() < t0 + COUNTER_POLL_GAP - 2 and any((db.item_history(conn, i, 1) or [(0, None)])[0][0] <= before[i] for i in itemids):
+            sleep(1)
+        fresh = True
+        for i in itemids:
+            h = db.item_history(conn, i, 2)
+            if len(h) < 2 or h[0][0] < start or h[0][0] - h[1][0] >= COUNTER_PAIR_MAX:
+                fresh = False
+        if fresh:
+            return poll
+        if poll < COUNTER_POLLS:
+            sleep(max(0, t0 + COUNTER_POLL_GAP - now()))
+    raise LabError('no fresh counter pair')
+
+
 def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
     """One assertion. Returns Result. Forms: topology-4-lab-simulator.md "Assertions" plus snapshot_unchanged (an extension).
 
@@ -492,7 +521,29 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                     derived_cache['d'] = run_derived()
                 return derived_cache['d']
 
+            load_asserts = [a['link_load'] for a in step.get('assert') or [] if 'link_load' in a]
+            load_error, load_polls = None, None
+            if load_asserts:
+                # the counters of the ends of the asserted links are read from a fresh pair (lab spec 9 S6 "Load reading"), then the UI reads them
+                try:
+                    ends = run_derived()['links']
+                    ids = set()
+                    for r in load_asserts:
+                        for l in [x for x in ends if x['edge_id'] in {str(y['id']) for y in find_links(state, r['link'][0], r['link'][1], 'physical_link')}][:1]:
+                            for side in (l.get('load_items') or {}).values():
+                                ids.update(str(side[k]) for k in ('in', 'out') if side and side.get(k))
+                    load_polls = read_fresh_counters(api, conn, ids, log)
+                    sr['load_polls'] = load_polls
+                    log('  counters read from a fresh pair after %d poll(s)' % load_polls)
+                except LabError as e:
+                    load_error = str(e)
+                derived_cache.clear()
             for a in step.get('assert') or []:
+                if load_error and 'link_load' in a:
+                    res = Result('link_load', a, 'fail', load_error)
+                    sr['assertions'].append(res.as_dict())
+                    log('  FAIL    link_load %s %s' % (json.dumps(a, default=str)[:110], load_error))
+                    continue
                 try:
                     res = evaluate(a, state, ingest, history, clocks_hist, i, derived)
                 except LabError as e:

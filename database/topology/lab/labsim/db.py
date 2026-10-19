@@ -161,3 +161,10 @@ def edge_between(conn, port_a, port_b):
     r = rows(conn, "SELECT id FROM topo_edges WHERE type='physical_link' AND src_id=%s AND dst_id=%s ORDER BY id DESC",
              (min(port_a, port_b), max(port_a, port_b)))
     return r[0]['id'] if r else None
+
+
+def item_history(conn, itemid, n=2):
+    """The last n values of an item, newest first: [(clock, value)]. The table follows the value type of the item (float -> history, unsigned -> history_uint)."""
+    vt = rows(conn, 'SELECT value_type FROM items WHERE itemid=%s', (itemid,))
+    table = 'history' if vt and int(vt[0]['value_type']) == 0 else 'history_uint'
+    return [(r['clock'], r['value']) for r in rows(conn, 'SELECT clock, value FROM %s WHERE itemid=%%s ORDER BY clock DESC, ns DESC LIMIT %d' % (table, int(n)), (itemid,))]
