@@ -357,7 +357,6 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                 if masters:
                     polled[dev] = masters
             want_unsupported = (step.get('wait') or {}).get('unsupported') or [d for d, f in faults.items() if f not in (None, 'none')]
-            deadline = time.time() + float((step.get('wait') or {}).get('timeout', timeout))
             # One master item at a time, in a fixed order, each started in a later second than the previous snapshot's
             # clock: all snapshot clocks of a step are then distinct and ordered the same way in every run. Ingest counts
             # a device as updated when its attrs change, and last_seen (= snapshot clock) is one of them, so two clocks
@@ -390,6 +389,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                         missing = sorted(dev for r, dev in ifdisc.items() if int(r) not in db.snapshot_clocks(conn))
                     if missing:
                         log('  note: no snapshot of the interface discovery rule yet for %s (the item ids of their ports come later)' % ', '.join(missing))
+            # The wait of the step starts here: the interface rule phase above has its own waits (up to 90 s with a reseed) and must not eat it (035 section 1:
+            # in a batch S5 step 0 lost Switch2 fdb and UPS1 because that phase had used most of the 119 s).
+            deadline = time.time() + float((step.get('wait') or {}).get('timeout', timeout))
             pending, waited_for = {}, []
             last_clock = max(db.snapshot_clocks(conn).values(), default=0)
             for dev in sorted(polled):
