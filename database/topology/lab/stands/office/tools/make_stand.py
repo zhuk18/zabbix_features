@@ -40,6 +40,7 @@ w('  database: zabbix')
 w('  network: 127.0.17.0/24        # last octet = last octet of the captured address')
 w('  snmp_port: 1611')
 w('  community: zbxlab')
+w('  timeout: 240                   # seconds per step (lab spec 8.1): 28 master items, polled one at a time, about 5 s each (task 039)')
 w('  zabbix: {url: <as lab.yaml>, group: Test, template_lld: "Topology by SNMP", template_interfaces: "Network Generic Device by SNMP"}')
 w('devices:')
 for m in man:

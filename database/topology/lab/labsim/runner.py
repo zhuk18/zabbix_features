@@ -396,6 +396,21 @@ def left_ids(host, kind):
     return host['rules'][kind]
 
 
+DEFAULT_TIMEOUT = 120
+
+
+def effective_timeout(cli, settings):
+    """The step timeout in seconds (lab spec 8.1): the command-line `--timeout` wins, then `settings.timeout` of the lab file, then 120."""
+    if cli is not None:
+        return cli
+    value = (settings or {}).get('timeout')
+    if value is None:
+        return DEFAULT_TIMEOUT
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise LabError('settings.timeout must be a number of seconds > 0, got %r' % (value,))
+    return value
+
+
 def reset_report(conn, mon, report, reset, log=print):
     """`--reset` (lab spec 8.2) and its line in the report (8.4): the row count of each topo_* table right after it. Without `--reset` the report has no counts."""
     if not reset:
