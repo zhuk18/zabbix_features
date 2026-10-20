@@ -28,7 +28,8 @@ def norm_cable(a, b):
 
 
 class Lab:
-    def __init__(self, data):
+    def __init__(self, data, base_dir=None):
+        self.base_dir = base_dir or HERE                      # relative `replay:` paths are relative to the lab file
         self.settings = dict(data.get('settings', {}))
         if data.get('fdb_extra'):
             self.settings['fdb_extra'] = data['fdb_extra']     # topology-4-lab-simulator.md "Extra MACs": top-level key in lab.yaml
@@ -46,6 +47,11 @@ class Lab:
     # -- construction ------------------------------------------------------------------------------------------------
     def _device(self, name, d):
         d = copy.deepcopy(d or {})
+        if 'replay' in d:
+            from . import replay
+            replay.check_device(name, d)
+            d['replay_path'] = os.path.normpath(os.path.join(self.base_dir, d['replay']))
+            d['chassis'] = None
         d.setdefault('sysname', name)
         d.setdefault('community', self.settings.get('community', 'public'))
         d.setdefault('lldp', True)
@@ -96,6 +102,8 @@ class Lab:
             raise LabError('deviation %s has no reason' % d['id'])
         if d.get('type') not in DEVIATION_TYPES:
             raise LabError('deviation %s: unknown type %r' % (d['id'], d.get('type')))
+        from . import replay
+        replay.check_deviation(d, self.devices)
         self.deviations[d['id']] = d
 
     def apply_patch(self, patch):
@@ -138,6 +146,8 @@ class Lab:
                 raise LabError('step changes unknown device %r' % name)
             if self.devices[name].get('snmprec'):
                 raise LabError('step changes corpus device %s: a corpus device does not change' % name)
+            if self.devices[name].get('replay'):
+                raise LabError('step changes replay device %s: `devices:` can not change a replay device (use its deviations)' % name)
             bad = set(change) & {'ports', 'zabbix', 'chassis', 'ip', 'sysname'}
             if bad:
                 raise LabError('step changes %s of device %s: only attributes of its LLDP/CDP/FDB behavior can change in a step' % (sorted(bad), name))
@@ -174,6 +184,8 @@ class Lab:
         dev, name = split_port(ref)
         if dev not in self.devices:
             raise LabError('unknown device %r in %r' % (dev, ref))
+        if self.devices[dev].get('replay'):
+            raise LabError('%r uses a port of replay device %s: a replay device has no ports (its neighbors are in its data)' % (ref, dev))
         for p in self.devices[dev]['ports']:
             if p['name'] == name:
                 return self.devices[dev], p
@@ -187,7 +199,15 @@ class Lab:
 
     def validate(self):
         """topology-4-lab-simulator.md "Checks": reject invalid inputs, writing nothing."""
+        from . import replay
         for name, d in self.devices.items():
+            if d.get('replay'):
+                # §5.4: the file, its order, its end record and its sysName; every deviation that names the device applies to its data
+                records = replay.read_records(d['replay_path'], name)
+                for dv in self.deviations.values():
+                    if dv.get('device') == name:
+                        replay.check_applies(records, name, dv)
+                continue
             seen_idx, seen_name = set(), set()
             for p in d['ports']:
                 if p['ifindex'] in seen_idx or p['name'] in seen_name:
@@ -295,7 +315,8 @@ def load_yaml(path):
 
 
 def load_lab(path=None):
-    return Lab(load_yaml(path or os.path.join(HERE, 'lab.yaml')))
+    path = path or os.path.join(HERE, 'lab.yaml')
+    return Lab(load_yaml(path), os.path.dirname(os.path.abspath(path)))
 
 
 TRANSPORTS = ('lld', 'push')
@@ -343,8 +364,12 @@ class Scenario:
 
 
 def load_scenario(sid, lab=None, directory=None, transport=None, roles=None):
-    directory = directory or os.path.join(HERE, 'scenarios')
+    lab = lab or load_lab()
+    if directory is None:
+        # the scenarios next to the lab file (a stand has its own), else the ones of the lab tool
+        near = os.path.join(lab.base_dir, 'scenarios')
+        directory = near if os.path.exists(os.path.join(near, '%s.yaml' % sid)) else os.path.join(HERE, 'scenarios')
     path = os.path.join(directory, '%s.yaml' % sid)
     if not os.path.exists(path):
         raise LabError('no scenario %s (%s)' % (sid, path))
-    return Scenario(load_yaml(path), lab or load_lab(), transport, roles)
+    return Scenario(load_yaml(path), lab, transport, roles)

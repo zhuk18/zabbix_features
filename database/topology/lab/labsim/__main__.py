@@ -57,7 +57,8 @@ def main(argv=None):
             sc = model.load_scenario(a.scenario, lab)
             os.makedirs(a.out, exist_ok=True)
             for name in sc.states[a.step].monitored():
-                path = os.path.join(a.out, '%s.%s.step%d.synthetic.walk' % (sc.id, name, a.step))
+                kind = 'replay' if sc.states[a.step].devices[name].get('replay') else 'synthetic'
+                path = os.path.join(a.out, '%s.%s.step%d.%s.walk' % (sc.id, name, a.step, kind))
                 with open(path, 'w') as f:
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)

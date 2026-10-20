@@ -88,3 +88,13 @@ python3 -m labsim run S0 --reset              # back to the normal lab state aft
 
 Files that share a chassis id (local or remote) never run in one batch; the topo_* state is reset between batches and the corpus hosts are deleted after each one
 (only hosts with the lab tag and the batch's names). Fails only on a PORTS/LLDP rule that is unsupported while its anchor is in the walk, an ingest error or a crash.
+
+## Stands (replay devices)
+
+`stands/<name>/` holds a lab file, scenarios, tools and a README for a set of **replay devices** (lab spec §4.1a): devices whose SNMP data is a snmprec file.
+Run it with the lab file of the stand: `python -m labsim --lab stands/office/lab-office.yaml run R1 --reset`; the scenarios next to the lab file are found first.
+
+`stands/office/` is the office network (12 real switches, 2 synthetic gateways). **Not in git:** `stands/office/data/` (the 14 snmprec files and `manifest.json`;
+`data/` is in `.gitignore`). They contain real host names, MACs and serial numbers of the Zabbix office network. The files come from the handoff folder
+`034-stand-office/` (task 034; the capture of 2026-10-14, converted by `tools/walk2snmprec.py`, gateways by `tools/gen_gateways.py`). Without `stands/office/data/`
+the stand does not start (`error: replay file of <device>: ... No such file`).

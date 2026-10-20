@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 
+from . import replay
 from .model import LabError, split_port
 
 # A record after every walked OID. Without it the last walked column (ifName) is the end of the device's MIB, and a bulk walk
@@ -181,6 +182,8 @@ def corpus_records(path, ifindex=False):
 def device_records(lab, name):
     """All SNMP records of one monitored device in one lab state."""
     dev = lab.devices[name]
+    if dev.get('replay'):
+        return Records(replay.records_at(lab, name))
     if dev.get('snmprec'):
         return corpus_records(dev['snmprec'], dev.get('corpus_ifindex', False))
     s = lab.settings
@@ -407,6 +410,9 @@ def generate(scenario, out_dir, variation_dir=None):
     monitored = sorted(set().union(*[set(l.monitored()) for l in scenario.states]))
     for name in monitored:
         dev = scenario.states[0].devices[name]
+        if dev.get('replay'):
+            manifest['devices'][name] = _generate_replay(scenario, name, os.path.join(out_dir, name))
+            continue
         if dev.get('snmprec'):
             # a corpus device is one static file (no step changes it): no subtree is split, no master item is ever "changed"
             ddir = os.path.join(out_dir, name)
@@ -467,6 +473,43 @@ def generate(scenario, out_dir, variation_dir=None):
     with open(os.path.join(out_dir, 'manifest.json'), 'w') as f:
         json.dump(manifest, f, indent=1)
     return manifest
+
+
+def _generate_replay(scenario, name, ddir):
+    """A replay device (lab spec §4.1a, §5.3). Static (no deviation of the device active in any step): the file is copied as it is. Otherwise the MIB roots that differ
+    between steps go through labmultiplex (one file per step), the rest of the data (with the deviations of step 0 that never change) stays in the main file."""
+    dev = scenario.states[0].devices[name]
+    os.makedirs(ddir)
+    target = os.path.join(ddir, '%s.snmprec' % dev['community'])
+    per_step = [replay.records_at(lab, name) for lab in scenario.states]
+    changing = replay.subtree_roots(per_step[0], per_step[1:])
+    mux = {}
+    if not changing:
+        if any(lab.active_deviations() and any(d.get('device') == name for d in lab.active_deviations()) for lab in scenario.states):
+            with open(target, 'w', encoding='utf-8', errors='surrogateescape') as f:
+                f.write(lines(per_step[0]))
+        else:
+            shutil.copyfile(dev['replay_path'], target)             # the tool never changes replay data
+    else:
+        roots = list(changing.values())
+        main = {o: v for o, v in per_step[0].items() if not any(o[:len(r)] == r for r in roots)}
+        recs = [(o, '%s|%s|%s\n' % (oid_str(o), t, v)) for o, (t, v) in main.items()]
+        for key, root in sorted(changing.items()):
+            kdir = os.path.join(ddir, key)
+            os.makedirs(kdir)
+            for n, records in enumerate(per_step):
+                with open(os.path.join(kdir, '%05d.snmprec' % n), 'w', encoding='utf-8', errors='surrogateescape') as f:
+                    f.write(lines({o: v for o, v in records.items() if o[:len(root)] == root}))
+            control = root + CONTROL_SUFFIX
+            mux[key] = {'root': oid_str(root), 'control': oid_str(control), 'dir': kdir}
+            recs.append((root, '%s|:labmultiplex|dir=%s,control=%s\n' % (oid_str(root), kdir, oid_str(control))))
+        recs.sort(key=lambda x: x[0])
+        with open(target, 'w', encoding='utf-8', errors='surrogateescape') as f:
+            f.write(''.join(l for _, l in recs))
+    step_masters = [[]] + [sorted(changed_masters(per_step[i - 1], per_step[i])) for i in range(1, len(per_step))]
+    return {'ip': dev['ip'], 'community': dev['community'], 'dir': ddir, 'mux': mux, 'step_masters': step_masters,
+            'step_hashes': [hashlib.sha1(json.dumps(sorted((oid_str(o), v) for o, v in r.items())).encode()).hexdigest() for r in per_step],
+            'replay': dev['replay_path']}
 
 
 def hosts_json(scenario):
