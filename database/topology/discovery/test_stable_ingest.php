@@ -339,4 +339,39 @@ snapshot($pdo, 1004, 101, 2, CLOCK + 10, [$lldp_local]);
 run_ingest($dsn, $user, $password);
 check($non_reporter_devices() === 1 && $phys() === 1, 'the sysname-only row of the lowest rule is resolved after the chassis row of the highest rule: one Device');
 
+// ============================================================================================================
+echo "\n=== 4: rows with the same claim key (model §7.1); a port with and without an active link (model §8.5) ===\n";
+$c1 = nrow(1, 'cdp', ['rem_mgmt_ip' => '10.4.4.4', 'rem_sysname' => 'first-id']);
+$c2 = nrow(1, 'cdp', ['rem_mgmt_ip' => '10.4.4.4', 'rem_sysname' => 'second-id']);
+foreach (['first-id' => [$c1, $c2], 'second-id' => [$c2, $c1]] as $kept => $rows) {
+	reporter($pdo, [], $rows);
+	$r = run_ingest($dsn, $user, $password);
+	$n = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE itemid = 1003");
+	$name = json_decode((string) scalar($pdo, 'SELECT remote_attrs FROM topo_observations WHERE itemid = 1003'), true)['rem_sysname'] ?? null;
+	check($n === 1 && $name === $kept, "two CDP rows, one claim key: one observation, from the first row of the snapshot ({$kept})");
+	check(($r['summary']['rows_duplicate_claim']['count'] ?? -1) === 1 && ($r['summary']['rows_duplicate_claim']['by_rule'][1003] ?? -1) === 1,
+		'rows_duplicate_claim counts it per rule: '.json_encode($r['summary']['rows_duplicate_claim'] ?? null));
+	check($non_reporter_devices() === 1, 'one Device for the neighbor');
+}
+reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress'])], [nrow(2, 'cdp', ['rem_sysname' => 'Z'])]);
+$r = run_ingest($dsn, $user, $password);
+check(($r['summary']['rows_duplicate_claim']['count'] ?? -1) === 0, 'no duplicate claim when the claim keys differ');
+
+echo "  -- §8.5 without an active link: the claims of two rules on one port are one set\n";
+reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X'])], [nrow(1, 'cdp', ['rem_mgmt_ip' => '10.7.7.7', 'rem_sysname' => 'Y'])]);
+run_ingest($dsn, $user, $password);
+run_ingest($dsn, $user, $password);
+check(array_unique($obs_outcomes()) === ['ambiguous'] && $phys() === 0 && scalar($pdo, 'SELECT COUNT(*) FROM topo_observations WHERE edge_id IS NOT NULL') == 0,
+	'LLDP shows X, CDP shows Y, no active link -> no link, both ambiguous, no edge_id');
+
+echo "  -- §8.5 with an active link: a claim of another rule is a §8.4 candidate\n";
+reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X'])], []);
+run_ingest($dsn, $user, $password);
+$link = (int) scalar($pdo, "SELECT id FROM topo_edges WHERE type IN ('physical_link','device_link')");
+snapshot($pdo, 1003, 101, 2, CLOCK + 20, [nrow(1, 'cdp', ['rem_mgmt_ip' => '10.7.7.7', 'rem_sysname' => 'Y'])]);
+run_ingest($dsn, $user, $password);
+$o = $pdo->query('SELECT itemid, outcome, edge_id FROM topo_observations ORDER BY itemid')->fetchAll(PDO::FETCH_ASSOC);
+check(count($o) === 2 && $o[0]['outcome'] === 'applied' && (int) $o[0]['edge_id'] === $link && $o[1]['outcome'] === 'conflict' && (int) $o[1]['edge_id'] === $link && $phys() === 1,
+	'the link has support: the LLDP claim stays applied, the CDP claim is `conflict` with edge_id = the link (not ambiguous)');
+
 echo "\nALL OK\n";

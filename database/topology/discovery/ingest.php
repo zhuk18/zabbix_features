@@ -1122,6 +1122,7 @@ $summary += [
 	'rows_identity_invalid' => [],
 	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
 	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
+	'rows_duplicate_claim' => ['count' => 0, 'by_rule' => []],
 	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0]],
 	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
 	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
@@ -2461,9 +2462,19 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 	// of the port first. The remote keys sort that way by their prefix (chassis: < ip: < sysname:); the rank states it, so a new key prefix cannot change it.
 	$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'sysname:') ? 1 : 0, $r[1], $r[2]];
 	usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
-	foreach ($sorted_rows as [, , $itemid, $clock, $row]) {
+	$claims_seen = [];
+	foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row]) {
 		$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
 			'pseudo' => false], ['name' => $row['if_name'] ?? null]);
+		// Rows of one snapshot with the same claim key (rule, local port, remote key): the first row in the row order makes the observation, the others are
+		// counted per rule and give no Device, no observation (§7.1; the claim key of the table is (itemid, local_port_id, remote_key)).
+		$claim_key = $itemid.'|'.$local_port_id.'|'.$row_remote_key;
+		if (isset($claims_seen[$claim_key])) {
+			$summary['rows_duplicate_claim']['count']++;
+			$summary['rows_duplicate_claim']['by_rule'][$itemid] = ($summary['rows_duplicate_claim']['by_rule'][$itemid] ?? 0) + 1;
+			continue;
+		}
+		$claims_seen[$claim_key] = true;
 
 		$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
 		if ($chassis_id !== null && in_array($row['rem_chassis_type'] ?? null, [null, '', 'macAddress'], true) && $is_placeholder_mac($chassis_id)) {
