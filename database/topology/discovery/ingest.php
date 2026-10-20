@@ -320,7 +320,13 @@ $note_shared = static function (string $kind, string $value, array $node_ids) us
 	}
 };
 
-$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind): ?array {
+// What the rows of this run resolved to, per local port (§6.7.1): the Devices found or made by rows of that port, and the Devices a scoped sysname key of
+// that port names. Both are filled by $snap_device; the first is what the same-port join looks at, the second is the part of the sysname lookup that no link
+// and no observation of an earlier run can answer yet (links are made in phase 2, §6.8).
+$run_port_devices = [];      // [local_port_id => [device_id => true]]
+$run_sysname_keys = [];      // [local_port_id => [sysname => device_id]]
+
+$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind, &$run_port_devices, &$run_sysname_keys): ?array {
 	$keys = [];       // [kind => [key, raw]], in the order of strength, only the keys the row has
 	if (!empty($identity['chassis'])) {
 		$keys['chassis'] = $identity['chassis'];
@@ -349,7 +355,39 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 				$stmt->execute($params);
 				$ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
 			}
+			// A key never makes a second Device (§6.7.1): the observation of an earlier run on this port with this sysname key names the Device the
+			// row resolved to, whatever its outcome was (applied, conflict, ambiguous), so a row that made no link finds its Device again.
+			$stmt = $pdo->prepare("SELECT DISTINCT dev.id FROM topo_observations obs JOIN topo_nodes dev ON dev.id = obs.device_id AND dev.type = 'device'".
+				" WHERE obs.local_port_id = ? AND obs.remote_key = ? ORDER BY dev.id");
+			$stmt->execute([$local_port_id, substr('sysname:'.$value, 0, 300)]);
+			$ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
+			if (isset($run_sysname_keys[$local_port_id][$value])) {
+				$ids[] = $run_sysname_keys[$local_port_id][$value];       // a row of this run, same port, same sysname
+			}
 			$ids = array_values(array_unique(array_map('intval', $ids)));
+			sort($ids);
+			if (!$ids && count($keys) === 1) {
+				// Same-port join (§6.7.1): a row whose only key is the scoped sysname key joins the Device another row of this reporter and this port resolved to,
+				// when the sysname is that Device's text chassis id or its sysname. One → that Device; several → shared; none → create.
+				$join = [];
+				foreach (array_keys($run_port_devices[$local_port_id] ?? []) as $candidate) {
+					$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+					$stmt->execute([$candidate]);
+					$candidate_attrs = json_decode((string) $stmt->fetchColumn(), true) ?: [];
+					$text_chassis = ($candidate_attrs['chassis_id'] ?? '') !== '' && !preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', (string) $candidate_attrs['chassis_id'])
+						? trim((string) $candidate_attrs['chassis_id']) : null;
+					if (trim($value) !== '' && (trim($value) === $text_chassis || trim($value) === trim((string) ($candidate_attrs['sysname'] ?? '')))) {
+						$join[] = (int) $candidate;
+					}
+				}
+				sort($join);
+				if (count($join) > 1) {
+					return ['shared', 'sysname', $raw, $join];
+				}
+				if ($join) {
+					return [$join[0], 'sysname'];
+				}
+			}
 		}
 		else {
 			$ids = $key_holders($value);
@@ -1349,7 +1387,7 @@ $note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
 $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use (
 	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $convert_leftover_pseudo_ports, $key_holders, $device_has_kind,
-	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys
+	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys, &$run_port_devices, &$run_sysname_keys
 ): ?int {
 	if (!$chassis_key || !$ip_key) {
 		return null;
@@ -1568,6 +1606,16 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 ): ?int {
 	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity keys of the row: chassis_key / chassis_raw,
 	// ip_key / ip_raw (§6.7.0).
+	// What this row resolved to is remembered per local port for the rows after it (same-port join and the sysname key of this run, §6.7.1).
+	$note_row_device = static function (int $device_id) use ($incoming, $local_port_id, $for_reporter, &$run_port_devices, &$run_sysname_keys): void {
+		if ($for_reporter || $local_port_id === null) {
+			return;
+		}
+		$run_port_devices[$local_port_id][$device_id] = true;
+		if (!isset($incoming['chassis_key']) && !isset($incoming['ip_key']) && ($incoming['sysname'] ?? '') !== '') {
+			$run_sysname_keys[$local_port_id][$incoming['sysname']] = $device_id;
+		}
+	};
 	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
 	// reporter's own identity joins automatically (see $snap_ingest_reporter).
 	if (!$for_reporter) {      // `split_identity` is evidence of a neighbor row (§6.7.5); a reporter's own identity is not a row
@@ -1617,6 +1665,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		if (!$for_reporter && !$has_reporter && isset($incoming['ip_key'])) {
 			$current_ip_keys[$device_id][$incoming['ip_key']] = true;      // a row gives this address to a Device without a reporter (§6.7.0)
 		}
+		$note_row_device($device_id);
 		return $device_id;
 	}
 	$attrs = [
@@ -1640,6 +1689,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 	if (!$for_reporter && isset($incoming['ip_key'])) {
 		$current_ip_keys[$created_id][$incoming['ip_key']] = true;
 	}
+	$note_row_device($created_id);
 	return $created_id;
 };
 
