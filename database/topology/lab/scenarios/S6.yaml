@@ -3,10 +3,14 @@ title: Release 1 view - link severity and load
 base: lab.yaml
 # topology-4-lab-simulator.md §9 S6. Every lab host has "Network Generic Device by SNMP" (the role PORTS is in the template file, FR-B D-49) next to "Topology by SNMP".
 # The counters of IF-MIB grow with the port `load` (labmultiplex, counters.json); the items of that template poll every 3 minutes and take the rate between two
-# values, so step 0 waits for at least two polls. The trigger "High bandwidth usage" is the template's own: avg over 15 minutes above {$IF.UTIL.MAX} (90 %), so
-# (a `wait` with `until: true` ends as soon as the link assertions hold; `seconds` is the longest wait) step 1 waits until the 15-minute average has crossed it (the first interval at the new load is partial, so the average passes 90 % about 22 minutes after the change) and the recovery needs the average below 87 %.
+# values, so step 0 waits for at least two polls. The trigger "High bandwidth usage" is the template's own: avg over 15 minutes above {$IF.UTIL.MAX} and
+# recovery below {$IF.UTIL.MAX} - 3. The real values: {$IF.UTIL.MAX} of "Network Generic Device by SNMP" is 95, so the problem is above 95 % and the recovery below 92 %
+# (not 90 / 87). Step 1 loads 98 %, clearly above 95 % (at 95 % the average sits on the threshold, values 94.93-95.07, and the problem fires by chance).
+# (a `wait` with `until: true` ends as soon as the link assertions hold; `seconds` is the longest wait) step 1 waits until the 15-minute average has crossed the threshold
+# (the first interval at the new load is partial). Step 2 recovers within about a minute: the lab polls every 30 s, so the 15-minute window holds about 30 values and two
+# low ones are enough to bring the average below 92 %.
 patch:
-  settings: {load: 10}              # every port 10 % in and out of the 100 Mbit/s of lab.yaml (settings.speed): the 32-bit counters of the template (ifInOctets) wrap after 361 s at 95 %,
+  settings: {load: 10}              # every port 10 % in and out of the 100 Mbit/s of lab.yaml (settings.speed): the 32-bit counters of the template (ifInOctets) wrap after about 350 s at 98 %,
                                     # longer than the 3-minute poll (at 1 Gbit/s they would wrap about five times between two polls, which no poll rate can measure)
 steps:
   - id: 0
@@ -18,11 +22,11 @@ steps:
       - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 10, tolerance: 5}
       - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: false}
   - id: 1
-    note: Switch1:Gi0/24 (and the other end of its cable, Router1:Gi0/0) load 95 % in and out
-    load: {Switch1:Gi0/24: {in: 95, out: 95}, Router1:Gi0/0: {in: 95, out: 95}}      # the cable carries the same traffic at both ends
+    note: Switch1:Gi0/24 (and the other end of its cable, Router1:Gi0/0) load 98 % in and out
+    load: {Switch1:Gi0/24: {in: 98, out: 98}, Router1:Gi0/0: {in: 98, out: 98}}      # the cable carries the same traffic at both ends
     wait: {seconds: 1500, until: true}
     assert:
-      - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 95, tolerance: 10}
+      - link_load: {link: [Router1:Gi0/0, Switch1:Gi0/24], percent: 98, tolerance: 10}
       - link_severity: {link: [Router1:Gi0/0, Switch1:Gi0/24], present: true}
       - link_severity: {link: [Switch1:Gi0/2, Switch2:Gi0/24], present: false}
   - id: 2
