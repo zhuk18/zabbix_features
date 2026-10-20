@@ -77,16 +77,26 @@ def natural_state(conn):
                 else 'proxy#%s' % t['proxy_ref']
     represented = dict(sorted(represented.items()))
 
+    def end_parts(nid):
+        # (label, Device node id, port name or None): the structured end that an assertion key is matched against (lab spec 8.3)
+        n = nodes[nid]
+        if n['type'] == 'port':
+            return end_label(nid), n['device_id'], n['a'].get('name')
+        return end_label(nid), nid, None
+
     links = []
     for e in rows(conn, 'SELECT * FROM topo_edges ORDER BY id'):
         if e['type'] not in ('physical_link', 'device_link'):
             continue
         a = _j(e['attrs'])
-        ends = sorted([end_label(e['src_id']), end_label(e['dst_id'])]) if e['type'] == 'physical_link' \
-            else [end_label(e['src_id']), end_label(e['dst_id'])]
+        parts = [end_parts(e['src_id']), end_parts(e['dst_id'])]
+        if e['type'] == 'physical_link':
+            parts.sort(key=lambda x: x[0])
+        ends = [x[0] for x in parts]
         links.append({'id': e['id'], 'type': e['type'], 'ends': ends, 'discovered_via': a.get('discovered_via'),
                       'state': 'superseded' if a.get('superseded_at') else 'active',
-                      'far_port_reason': a.get('far_port_reason'), 'attrs': a})
+                      'far_port_reason': a.get('far_port_reason'), 'attrs': a,
+                      'end_devices': [x[1] for x in parts], 'end_ports': [x[2] for x in parts]})
     links.sort(key=lambda l: (l['type'], l['ends']))
 
     obs = []
@@ -95,8 +105,10 @@ def natural_state(conn):
         obs.append({'id': o['id'], 'reporter': o['reporter'], 'port': port_label(o['local_port_id']).split(':', 1)[1],
                     'remote_key': o['remote_key'], 'outcome': o['outcome'], 'edge_id': o['edge_id'],
                     'link_precision': o['link_precision'], 'precision_lower': bool(o['precision_lower']),
-                    'device': dev_name(nodes[o['device_id']]) if o['device_id'] in nodes else None})
-    return {'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}
+                    'device': dev_name(nodes[o['device_id']]) if o['device_id'] in nodes else None, 'device_id': o['device_id']})
+    device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac')}
+                    for n in nodes.values() if n['type'] == 'device']
+    return {'device_nodes': device_nodes, 'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}
 
 
 def comparable(state):

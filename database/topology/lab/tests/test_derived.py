@@ -129,11 +129,19 @@ class ScenarioFormat(unittest.TestCase):
 
 
 def link(id_, ends, state='active', type_='physical_link'):
-    return {'id': id_, 'type': type_, 'ends': ends, 'discovered_via': 'lldp', 'state': state, 'far_port_reason': None, 'attrs': {}}
+    # the structured ends of db.natural_state(): the Device (here its name is its node id) and the port of each end
+    return {'id': id_, 'type': type_, 'ends': ends, 'discovered_via': 'lldp', 'state': state, 'far_port_reason': None, 'attrs': {},
+            'end_devices': [e.split(':', 1)[0] for e in ends], 'end_ports': [e.split(':', 1)[1] if ':' in e else None for e in ends]}
+
+
+def devices_of(links):
+    names = sorted({d for l in links for d in l['end_devices']})
+    return [{'id': n, 'sysname': n, 'chassis_id': None, 'mac': None} for n in names]
 
 
 STATE = {'links': [link(1, ['Switch1:Gi0/4', 'Printer1:Gi0/1']), link(2, ['Router1:Gi0/1', 'UPS1:eth0']),
                    link(3, ['Switch1:Gi0/5', 'Printer1:Gi0/1'], 'superseded')], 'observations': []}
+STATE['device_nodes'] = devices_of(STATE['links'])
 DERIVED = {'links': [{'edge_id': '1', 'stale': True, 'superseded_at': None}, {'edge_id': '2', 'stale': False, 'superseded_at': None},
                      {'edge_id': '3', 'stale': True, 'superseded_at': 5}],
            'contradictions': [{'edge_id': '2', 'contradicted': True, 'hidden_neighbors': ['Printer1', 'Switch2'],
