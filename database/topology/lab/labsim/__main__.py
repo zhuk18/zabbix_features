@@ -27,7 +27,7 @@ def main(argv=None):
     p = sub.add_parser('provision'); p.add_argument('scenario'); p.add_argument('--prune', action='store_true')
     p.add_argument('--transport', choices=model.TRANSPORTS, help='every monitored host on this transport (replaces settings.transport)')
     p = sub.add_parser('run'); p.add_argument('scenario'); p.add_argument('--reset', action='store_true')
-    p.add_argument('--timeout', type=int, default=None, help='seconds per step; wins over settings.timeout of the lab file (default 120)'); p.add_argument('--report')
+    p.add_argument('--timeout', type=int, default=None, help='seconds to wait for the snapshots of one master item after its check now; wins over settings.timeout of the lab file (default 60)'); p.add_argument('--report')
     p.add_argument('--transport', choices=model.TRANSPORTS, help='every monitored host on this transport (replaces settings.transport); provision with the same option first')
     p.add_argument('--roles', help='comma-separated roles to collect on LLD hosts (%s); the other rules are disabled for the run' % ','.join(model.RULE_ROLES))
     p = sub.add_parser('corpus-smoke', help='scenario SC: every file of the vendor corpus as a lab device, in batches, step 0 only')

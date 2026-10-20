@@ -5,7 +5,6 @@ settings:
   network: 127.0.17.0/24        # last octet = last octet of the captured address
   snmp_port: 1611
   community: zbxlab
-  timeout: 240                   # seconds per step (lab spec 8.1): the runner polls the 28 master items one at a time, about 5 s each (Zabbix takes a check-now request at its next task cycle): 140 s (task 039)
   zabbix:                        # as in lab.yaml
     url: http://localhost/zabbix/ui/api_jsonrpc.php
     group: Test

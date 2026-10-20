@@ -396,11 +396,26 @@ def left_ids(host, kind):
     return host['rules'][kind]
 
 
-DEFAULT_TIMEOUT = 120
+DEFAULT_TIMEOUT = 60
+
+
+def wait_for_clocks(left, before, clocks, timeout, now=time.time, sleep=time.sleep):
+    """Wait until the snapshot clock of every rule in `left` ({rule id: label}) is newer than in `before`, at most `timeout` seconds from now (the
+    "check now" of this master item, lab spec 8.1: the wait counts per master item). Returns the rules that did not advance."""
+    left = dict(left)
+    deadline = now() + timeout
+    while left and now() < deadline:
+        current = clocks()
+        for r in list(left):
+            if current.get(int(r), 0) > before.get(int(r), 0):
+                del left[r]
+        if left:
+            sleep(0.3)
+    return left
 
 
 def effective_timeout(cli, settings):
-    """The step timeout in seconds (lab spec 8.1): the command-line `--timeout` wins, then `settings.timeout` of the lab file, then 120."""
+    """The snapshot wait per master item in seconds (lab spec 8.1): the command-line `--timeout` wins, then `settings.timeout` of the lab file, then 60."""
     if cli is not None:
         return cli
     value = (settings or {}).get('timeout')
@@ -420,7 +435,7 @@ def reset_report(conn, mon, report, reset, log=print):
     log('reset: topo_* cleared')
 
 
-def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv=None):
+def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log=print, argv=None):
     if not server_running():
         raise LabError('zabbix_server is not running; the runner polls through it')
     report = {'scenario': scenario.id, 'title': scenario.title, 'steps': []}
@@ -509,9 +524,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv
                         missing = sorted(dev for r, dev in ifdisc.items() if int(r) not in db.snapshot_clocks(conn))
                     if missing:
                         log('  note: no snapshot of the interface discovery rule yet for %s (the item ids of their ports come later)' % ', '.join(missing))
-            # The wait of the step starts here: the interface rule phase above has its own waits (up to 90 s with a reseed) and must not eat it (035 section 1:
-            # in a batch S5 step 0 lost Switch2 fdb and UPS1 because that phase had used most of the 119 s).
-            deadline = time.time() + float((step.get('wait') or {}).get('timeout', timeout))
+            # The wait counts per master item, from its own "check now" (lab spec 8.1, task 040): a stand with many hosts polled one at a time needs no
+            # larger value (the office stand: 28 master items, about 5 s each).
+            wait_timeout = float((step.get('wait') or {}).get('timeout', timeout))
             pending, waited_for = {}, []
             last_clock = max(db.snapshot_clocks(conn).values(), default=0)
             for dev in sorted(polled):
@@ -536,13 +551,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv
                         zbx.check_now(api, [ms[dev][m]['itemid']])
                         left = {r: '%s %s rule %s' % (dev, m, r) for r in ms[dev]['rules'][m]}
                     waited_for += sorted(left.values())
-                    while left and time.time() < deadline:
-                        now = db.snapshot_clocks(conn)
-                        for r in list(left):
-                            if now.get(int(r), 0) > before.get(int(r), 0):
-                                del left[r]
-                        if left:
-                            time.sleep(0.3)
+                    left = wait_for_clocks(left, before, lambda: db.snapshot_clocks(conn), wait_timeout)
                     pending.update(left)
                     done = db.snapshot_clocks(conn)
                     last_clock = max([last_clock] + [done.get(int(r), 0) for r in left_ids(ms[dev], m)])
@@ -559,6 +568,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv
                 else:
                     zbx.check_now(api, [ms[dev]['core']['itemid']])
             waited_for = sorted(waited_for)
+            deadline = time.time() + wait_timeout          # the faulted devices: one wait after their polls
             while time.time() < deadline and len(unsupported_seen) < len(want_unsupported):
                 for dev in want_unsupported:
                     if dev in unsupported_seen or transport[dev] == 'push':
@@ -576,7 +586,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv
                             ('interface errors_from=%s available=%s' % (iface['errors_from'], iface['available']))
                 time.sleep(1)
             if pending:
-                sr['errors'].append('timeout (%ss) waiting for snapshots of: %s' % (int(deadline - time.time() + timeout), sorted(pending.values())))
+                sr['errors'].append('timeout (%ss per master item) waiting for snapshots of: %s' % (int(wait_timeout), sorted(pending.values())))
             for dev in want_unsupported:
                 if dev not in unsupported_seen:
                     sr['errors'].append('timeout: %s did not fail the poll' % dev)
