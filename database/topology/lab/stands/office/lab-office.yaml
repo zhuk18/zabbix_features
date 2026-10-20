@@ -5,7 +5,12 @@ settings:
   network: 127.0.17.0/24        # last octet = last octet of the captured address
   snmp_port: 1611
   community: zbxlab
-  zabbix: {url: <as lab.yaml>, group: Test, template_lld: "Topology by SNMP", template_interfaces: "Network Generic Device by SNMP"}
+  zabbix:                        # as in lab.yaml
+    url: http://localhost/zabbix/ui/api_jsonrpc.php
+    group: Test
+    template_lld: Topology by SNMP
+    template_push: Topology by push
+    template_interfaces: Network Generic Device by SNMP
 devices:
   SW12-10-CORE-6000-48G:
     ip: 127.0.17.2

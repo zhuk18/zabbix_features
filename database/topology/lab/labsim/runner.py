@@ -684,7 +684,7 @@ def compare_transports(a, b):
 
 
 _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_id', 'snapshot_clocks', 'waited_for', 'last_seen', 'itemids',
-             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes'}
+             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids'}
 
 
 def normalize_report(obj):
