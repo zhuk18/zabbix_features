@@ -48,4 +48,5 @@ fresh topo_t_busy_port
 run topo_t_busy_port discovery/test_manual_link_busy_port.php name
 
 php "$here/test_freshness.php" >/tmp/topo_t_freshness.log 2>&1 && echo "pass  test_freshness.php" || { echo "FAIL  test_freshness.php"; failed=1; }
+php "$here/test_node_label.php" >/tmp/topo_t_node_label.log 2>&1 && echo "pass  test_node_label.php" || { echo "FAIL  test_node_label.php"; failed=1; }
 exit $failed

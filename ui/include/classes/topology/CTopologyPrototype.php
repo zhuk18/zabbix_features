@@ -75,6 +75,32 @@ class CTopologyPrototype {
 	 *                              from CTopologyHopScope::neighborhood()); null = unrestricted,
 	 *                              today's default behavior.
 	 */
+	/**
+	 * topology-1-model.md §12.2 "Label": the first value that is not empty. Host or Proxy: its visible name. Device: `sysname`, then `chassis_id` (a text subtype as it
+	 * is, a MAC in its normal form), then `mgmt_ip`, then `?` (the side panel shows the keys). The values come from the network and are returned as they are: the
+	 * caller escapes them when it renders them (§13); the endpoint encodes them with JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT.
+	 */
+	public static function nodeLabel(string $type, ?string $name = null, ?string $sysname = null, ?string $chassis_id = null, ?string $mgmt_ip = null): string {
+		$candidates = $type === 'device' ? [$sysname, self::chassisLabel($chassis_id), $mgmt_ip] : [$name];
+
+		foreach ($candidates as $value) {
+			if ($value !== null && trim($value) !== '') {
+				return $value;
+			}
+		}
+
+		return '?';
+	}
+
+	// A chassis id that is a MAC in any text form (aa:bb:.., aa-bb-.., aabb.ccdd.eeff, aabbccddeeff) in its normal form (lower case, colons); any other text as it is.
+	private static function chassisLabel(?string $chassis_id): ?string {
+		if ($chassis_id !== null && preg_match('/^[0-9a-fA-F]{2}([:.-]?[0-9a-fA-F]{2}){5}$/', $chassis_id) === 1) {
+			return implode(':', str_split(strtolower(preg_replace('/[^0-9a-fA-F]/', '', $chassis_id)), 2));
+		}
+
+		return $chassis_id;
+	}
+
 	public static function getDevices(?array $node_ids = null): array {
 		$nodes = [];
 		$visible_hostids = self::getVisibleHostIds();
@@ -115,6 +141,7 @@ class CTopologyPrototype {
 					$node['name'] = $attrs['sysname'];
 					$node['chassis_id'] = $attrs['chassis_id'] ?? null;      // shown next to the name where two Devices have one name (§6.7.5)
 					$node['mgmt_ip'] = $attrs['mgmt_ip'] ?? null;
+					$node['label'] = self::nodeLabel('device', null, $attrs['sysname'] ?? null, $attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null);
 					$node['created_at'] = (int) $row['created_at'];
 					// topology-1-model.md §6.7.5: possible duplicates (the evidence ingest wrote); resolved below, in one query
 					$node['duplicates'] = $attrs['duplicate_candidates'] ?? [];
@@ -128,6 +155,7 @@ class CTopologyPrototype {
 					// would be shown. Maintenance is a *different* state: still monitored, keeps its real
 					// severity color, just adds a badge — the two must not be conflated.
 					$node['name'] = $row['host_name'];
+					$node['label'] = self::nodeLabel('host', $row['host_name']);
 					$node['hostid'] = $row['host_ref'];
 					$node['monitoring_state'] = $row['host_status'];
 					$node['disabled'] = ((int) $row['host_status']) === HOST_STATUS_NOT_MONITORED;
@@ -142,6 +170,7 @@ class CTopologyPrototype {
 					// topology-1-model.md "Node styles": Proxy shares Host's "monitored, has severity" styling — resolved via the
 					// zabbix.proxy.*[name] internal item convention, see getProxyHealthItemIds().
 					$node['name'] = $row['proxy_name'];
+					$node['label'] = self::nodeLabel('proxy', $row['proxy_name']);
 					$node['proxyid'] = $row['proxy_ref'];
 					$node['unreachable'] = !self::isProxyOnline($row['proxy_state']);
 					$node['represented'] = self::isRepresentedTarget($row['id']);

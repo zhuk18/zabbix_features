@@ -2,7 +2,7 @@
 
 $this->addJsFile('d3.js');
 $this->addJsFile('multiselect.js');
-$this->includeJsFile('monitoring.topology.view.js.php');
+$this->includeJsFile('monitoring.topology.view.js.php', ['legend_collapsed' => (int) ($data['legend_collapsed'] ?? 0)]);
 
 // NOTE: CTag/CDiv::addStyle() writes into the element's style="" HTML attribute, which can only hold
 // property:value declarations — it cannot hold selector rules. Every class-based rule below was silently
@@ -16,7 +16,7 @@ $page_styles = '
 .topology-header h1{margin:0}
 .topology-header-field{display:flex;align-items:center;gap:8px;font-size:12px}
 .topology-header-field label{margin:0}
-.topology-workspace{display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
+.topology-workspace{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
 #topology-canvas{grid-column:1;grid-row:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
@@ -30,7 +30,15 @@ $page_styles = '
 .topology-workspace.topology-panel-collapsed .topology-panel #topology-details{display:none}
 .topology-node{cursor:pointer}
 .topology-node.device rect{fill:#f3f4f6;stroke:#697386;stroke-width:2;stroke-dasharray:6 4}
-.topology-node.host rect{fill:#2b7dbc;stroke:#17577f;stroke-width:2}
+.topology-node.host rect{fill:#fff;stroke:#1f2937;stroke-width:2}
+.topology-node.proxy rect{fill:#fff;stroke:#1f2937;stroke-width:2}
+.topology-legend{position:absolute;left:8px;bottom:8px;z-index:2;max-width:300px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.topology-legend-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 8px;cursor:pointer;font-weight:600;user-select:none}
+.topology-legend-body{padding:2px 8px 8px;max-height:46vh;overflow:auto}
+.topology-legend.topology-legend-collapsed .topology-legend-body{display:none}
+.topology-legend h4{margin:8px 0 3px;font-size:11px;text-transform:uppercase;color:#55606b}
+.topology-legend-row{display:flex;align-items:center;gap:8px;margin:3px 0}
+.topology-legend-row svg{flex:0 0 44px}
 .topology-label{font-size:12px;pointer-events:none}
 .topology-link{stroke:#77818d;stroke-width:2}
 .topology-group{margin:14px 0}

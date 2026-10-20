@@ -70,6 +70,7 @@ const view = new class {
 			// until some unrelated interaction happens to trigger the next render().
 			setTimeout(() => this.render(), 160);
 		});
+		this.buildLegend(<?= json_encode((bool) ($data['legend_collapsed'] ?? 0)) ?>);
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -780,7 +781,7 @@ const view = new class {
 				.map(([port_id, name]) => `<button type="button" class="btn-alt" data-topology-keep-port="${this.escape(port_id)}" ` +
 					`data-edge="${this.escape(link.edge_id)}">${this.escape(<?= json_encode(_('Make device-level, keep')) ?>)} ${this.escape(name ?? '?')}</button>`).join(' ')}</div>`
 			: '';
-		this.details.innerHTML = `<h2>${this.escape(link.source.name)} ↔ ${this.escape(link.target.name)}</h2>${table}${device_link_actions}${delete_button}${to_device_buttons}`;
+		this.details.innerHTML = `<h2>${this.escape(link.source.label ?? link.source.name)} ↔ ${this.escape(link.target.label ?? link.target.name)}</h2>${table}${device_link_actions}${delete_button}${to_device_buttons}`;
 		this.wireDeviceLinkActions();
 		this.details.querySelectorAll('[data-topology-keep-port]').forEach(keep => keep.addEventListener('click', () => this.guard(async () => {
 			await this.request('topology.link.convert', {
@@ -1013,6 +1014,61 @@ const view = new class {
 		return '#' + String(color ?? '97AAB3').replace(/^#/, '');
 	}
 
+	// Dark or white text, whichever reads better on a fill (a severity colour can be light yellow or dark red); WCAG relative luminance.
+	readableTextOn(hex) {
+		const value = String(hex).replace(/^#/, '');
+		const [red, green, blue] = [0, 2, 4].map(start => {
+			const channel = parseInt(value.slice(start, start + 2), 16) / 255;
+			return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+		});
+		return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.4 ? '#1f2937' : '#ffffff';
+	}
+
+	// The legend (topology-1-model.md §12.2 "Legend"): the node channels (outline, icon, fill, badges) and the link channels of §12.3. It can be collapsed; the state
+	// is kept per user in the user profile (topology.legend.state), and comes with the page. Only static text and shapes: nothing from the network.
+	buildLegend(collapsed) {
+		const workspace = document.querySelector('.topology-workspace');
+		const node = (outline, fill, icon, dash) => `<svg width="44" height="26" viewBox="0 0 44 26"><rect x="2" y="3" width="40" height="20" rx="3" style="fill:${fill};stroke:${outline};stroke-width:2;${dash ? 'stroke-dasharray:5 3' : ''}"/>${icon}</svg>`;
+		const host_icon = '<g transform="translate(6,8)" style="fill:none;stroke:#1f2937;stroke-width:1.4"><rect x="0" y="0" width="10" height="7" rx="1"/><path d="M3 10 H7 M5 7 V10"/></g>';
+		const proxy_icon = '<g transform="translate(6,8)" style="fill:none;stroke:#1f2937;stroke-width:1.4"><rect x="2" y="2" width="6" height="6" rx="1"/><path d="M0 5 H2 M8 5 H10 M5 0 V2 M5 8 V10"/></g>';
+		const badge = (fill, stroke, letter) => `<svg width="44" height="26" viewBox="0 0 44 26"><circle cx="22" cy="13" r="9" style="fill:${fill};stroke:${stroke};stroke-width:2"/><text x="22" y="17" text-anchor="middle" style="font:bold 11px sans-serif;fill:#fff">${letter}</text></svg>`;
+		const line = (stroke, width, dash, opacity = 1) => `<svg width="44" height="26" viewBox="0 0 44 26"><line x1="2" y1="13" x2="42" y2="13" style="stroke:${stroke};stroke-width:${width};stroke-dasharray:${dash};opacity:${opacity}"/></svg>`;
+		const row = (swatch, text) => `<div class="topology-legend-row">${swatch}<span>${text}</span></div>`;
+		const sections = [
+			[<?= json_encode(_('Nodes')) ?>, [
+				[node('#1f2937', '#ffffff', host_icon, false), <?= json_encode(_('Host: solid outline, Host icon; white fill: no problems')) ?>],
+				[node('#1f2937', '#f97a5e', host_icon, false), <?= json_encode(_('Host fill: the severity of its problems')) ?>],
+				[node('#1f2937', '#cbd2d9', host_icon, false), <?= json_encode(_('Host, disabled: muted fill')) ?>],
+				[node('#1f2937', '#ffffff', proxy_icon, false), <?= json_encode(_('Proxy: solid outline, Proxy icon, neutral fill')) ?>],
+				[node('#697386', '#f3f4f6', '', true), <?= json_encode(_('Device without association: dashed outline, grey fill, no icon')) ?>]
+			]],
+			[<?= json_encode(_('Badges')) ?>, [
+				[badge('#475569', '#1e293b', 'M'), <?= json_encode(_('Maintenance')) ?>],
+				[badge('#f59e0b', '#7c2d12', '?'), <?= json_encode(_('Blind spot: the Proxy of the Host is not reachable')) ?>],
+				[badge('#c2410c', '#7c2d12', '!'), <?= json_encode(_('Link hidden by a manual link (contradiction)')) ?>],
+				[badge('#6d28d9', '#4c1d95', '='), <?= json_encode(_('Possible duplicate')) ?>]
+			]],
+			[<?= json_encode(_('Links')) ?>, [
+				[line('#64748b', 2, '0'), <?= json_encode(_('Solid: discovered')) ?>],
+				[line('#64748b', 2, '5 3'), <?= json_encode(_('Dashed: manual')) ?>],
+				[line('#e97659', 4, '0'), <?= json_encode(_('Colour: the severity of the problems on the port items')) ?>],
+				[line('#64748b', 2, '0', 0.45), <?= json_encode(_('Faded: stale or superseded')) ?>],
+				[line('#64748b', 3, '1 4'), <?= json_encode(_('Dotted: device-level link (far port unknown)')) ?>]
+			]]
+		];
+		const legend = document.createElement('div');
+		legend.className = 'topology-legend' + (collapsed ? ' topology-legend-collapsed' : '');
+		legend.id = 'topology-legend';
+		legend.innerHTML = `<div class="topology-legend-head" id="topology-legend-head"><span>${this.escape(<?= json_encode(_('Legend')) ?>)}</span><span id="topology-legend-arrow">${collapsed ? '▸' : '▾'}</span></div>` +
+			`<div class="topology-legend-body">${sections.map(([title, rows]) => `<h4>${this.escape(title)}</h4>` + rows.map(([swatch, text]) => row(swatch, this.escape(text))).join('')).join('')}</div>`;
+		workspace.appendChild(legend);
+		document.getElementById('topology-legend-head').addEventListener('click', () => {
+			const now_collapsed = legend.classList.toggle('topology-legend-collapsed');
+			document.getElementById('topology-legend-arrow').textContent = now_collapsed ? '▸' : '▾';
+			this.guard(() => this.request('topology.legend.state', {method: 'POST', body: JSON.stringify({collapsed: now_collapsed ? 1 : 0})}));
+		});
+	}
+
 	// Node/device names here are typically one hyphenated word (e.g. "core-switch-48") rather than prose, so
 	// wrapping on spaces alone (as CSS text-wrap would) wouldn't help — this also breaks on '-'. Greedy
 	// last-fit: the break point is the latest hyphen/space at or before maxChars, so the first line never
@@ -1048,8 +1104,9 @@ const view = new class {
 		selection.each((node, index, elements) => {
 			const lines = this.wrapLabel(textFn(node), maxChars);
 			const text = d3.select(elements[index]);
+			const x_of_node = typeof x === 'function' ? x(node) : x;
 			lines.forEach((line, line_index) => {
-				text.append('tspan').attr('x', x).attr('dy', line_index === 0 ? (lines.length > 1 ? -2 : 4) : 12).text(line);
+				text.append('tspan').attr('x', x_of_node).attr('dy', line_index === 0 ? (lines.length > 1 ? -2 : 4) : 12).text(line);
 			});
 		});
 	}
@@ -1081,7 +1138,7 @@ const view = new class {
 		const device_section = groups !== null
 			? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Device')) ?>)}</h3>${this.buildPortsFragment(node.device, groups)}</section>`
 			: '';
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${problems_section}${device_section}`;
+		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${problems_section}${device_section}`;
 		if (groups !== null) {
 			this.wirePortsFragment(node.device, node);
 		}
@@ -1292,7 +1349,7 @@ const view = new class {
 	// ever applies to a Device with no on-screen Host/Proxy counterpart to begin with.
 	showPorts(node, groups) {
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
-		this.details.innerHTML = `<h2>${this.escape(node.name)}</h2>${this.buildPortsFragment(node, groups)}`;
+		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${this.buildPortsFragment(node, groups)}`;
 		this.wirePortsFragment(node, node);
 	}
 
@@ -1549,42 +1606,28 @@ const view = new class {
 		// A node with an associated Device (node.device set) is styled exactly the same as one without —
 		// nothing here reads .device at all, per the topology-1-model.md "UI" rule "completely unchanged by whether it happens to have an
 		// associated Device."
+		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind.
+		// Fill = the severity of a Host only: white without problems, the severity colour with them, muted when the Host is disabled. A Proxy and a Device never
+		// show a severity: a Proxy is neutral, a Device is always grey. Maintenance, blind spot, contradiction and possible duplicate are badges, never a fill.
 		const fill_for = subject => {
 			if (subject.type === 'host') {
 				if (subject.disabled) {
 					return '#cbd2d9';
 				}
-				if (subject.blind_spot) {
-					return 'url(#topology-blind-spot-hatch)';
-				}
-				return subject.severity !== null && subject.severity !== undefined ? this.cssColor(subject.color) : '#2b7dbc';
+				return subject.severity !== null && subject.severity !== undefined ? this.cssColor(subject.color) : '#ffffff';
 			}
-			if (subject.type === 'proxy') {
-				if (subject.unreachable) {
-					return '#9ca3af';
-				}
-				return subject.severity !== null && subject.severity !== undefined ? this.cssColor(subject.color) : '#6b46c1';
-			}
-			return '#f3f4f6';
+			return subject.type === 'proxy' ? '#ffffff' : '#f3f4f6';
 		};
-		const stroke_for = subject => {
-			if (subject.type === 'host') {
-				if (subject.disabled) {
-					return '#98a2ad';
-				}
-				return subject.blind_spot ? '#f59e0b' : '#17577f';
-			}
-			if (subject.type === 'proxy') {
-				return subject.unreachable ? '#ef4444' : '#4c1d95';
-			}
-			return '#697386';
-		};
+		const stroke_for = subject => subject.type === 'device' ? '#697386' : '#1f2937';
 		const label_fill_for = subject => {
-			if (subject.type === 'host' && subject.disabled) {
-				return '#55606b';
+			if (subject.type === 'host' && !subject.disabled && subject.severity !== null && subject.severity !== undefined) {
+				return this.readableTextOn(this.cssColor(subject.color));
 			}
-			return (subject.type === 'host' || subject.type === 'proxy') ? '#ffffff' : '#1f2937';
+			return subject.type === 'host' && subject.disabled ? '#55606b' : '#1f2937';
 		};
+		// Host and Proxy carry an icon at the left; the label moves right by the room it takes. A Device has no icon.
+		const has_icon = subject => subject.type === 'host' || subject.type === 'proxy';
+		const label_x = subject => has_icon(subject) ? 9 : 0;
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
 			.attr('class', node => `topology-node ${node.type}`)
@@ -1625,24 +1668,25 @@ const view = new class {
 			.style('fill', fill_for)
 			.style('stroke', stroke_for)
 			.style('stroke-width', node => (node.type === 'proxy' && node.unreachable) ? 3 : 2)
-			.style('stroke-dasharray', node => {
-				if (node.type === 'device') {
-					return '6 4';
-				}
-				return (node.type === 'proxy' && node.unreachable) ? '4 3' : null;
-			})
+			.style('stroke-dasharray', node => node.type === 'device' ? '6 4' : null)
 			.style('cursor', 'pointer')
 			.on('click', (event, node) => this.selectNode(node));
+		// kind icons (§12.2 "Icon"): a monitor for a Host, a relay (box with two arms) for a Proxy; a Device without association has none
+		const host_icons = node_selection.filter(node => node.type === 'host').append('g').attr('class', 'topology-icon topology-icon-host')
+			.attr('transform', 'translate(-52,-8)').style('pointer-events', 'none');
+		host_icons.append('rect').attr('x', 0).attr('y', 0).attr('width', 14).attr('height', 10).attr('rx', 1.5)
+			.style('fill', 'none').style('stroke', label_fill_for).style('stroke-width', 1.6);
+		host_icons.append('path').attr('d', 'M4 14 H10 M7 10 V14').style('fill', 'none').style('stroke', label_fill_for).style('stroke-width', 1.6);
+		const proxy_icons = node_selection.filter(node => node.type === 'proxy').append('g').attr('class', 'topology-icon topology-icon-proxy')
+			.attr('transform', 'translate(-52,-8)').style('pointer-events', 'none');
+		proxy_icons.append('rect').attr('x', 3).attr('y', 3).attr('width', 8).attr('height', 8).attr('rx', 1.5)
+			.style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
+		proxy_icons.append('path').attr('d', 'M0 7 H3 M11 7 H14 M7 0 V3 M7 11 V14').style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
 		const node_labels = node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
 			.style('fill', label_fill_for).style('pointer-events', 'none');
-		this.renderWrappedLabel(node_labels, node => node.name, 14);
+		// the label of §12.2 comes from the server (`label`); written with text(), so a value from the network is never markup (§13)
+		this.renderWrappedLabel(node_labels, node => node.label ?? node.name ?? '?', 13, label_x);
 
-		const proxy_badges = node_selection.filter(node => node.type === 'proxy');
-		proxy_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
-			.style('fill', '#ffffff').style('stroke', node => node.unreachable ? '#ef4444' : '#4c1d95').style('stroke-width', 2);
-		proxy_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', node => node.unreachable ? '#ef4444' : '#4c1d95')
-			.text('P');
 		// blind-spot ("?", amber, top-right) and maintenance ("M", slate) are deliberately different corners
 		// with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a maintenance
 		// window) and the two badges must read as different concerns, never the same warning twice.
