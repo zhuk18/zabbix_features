@@ -730,6 +730,30 @@ _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_
              'command_line', 'topo_rows_after_reset'}
 
 
+def diff_reports(a, b, path=''):
+    """Two normalized reports: (differences, new fields). A key that only one report has is a new field (lab spec 8.4), not a difference; each entry is a
+    path and the report that has it ('a' or 'b'). Everything else that is not equal is a difference."""
+    diffs, new = [], []
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in sorted(set(a) | set(b), key=str):
+            if k not in b:
+                new.append((path + '/' + str(k), 'a'))
+            elif k not in a:
+                new.append((path + '/' + str(k), 'b'))
+            else:
+                d, n = diff_reports(a[k], b[k], path + '/' + str(k))
+                diffs += d
+                new += n
+    elif isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        for i, (x, y) in enumerate(zip(a, b)):
+            d, n = diff_reports(x, y, '%s[%d]' % (path, i))
+            diffs += d
+            new += n
+    elif a != b:
+        diffs.append(path or '/')
+    return diffs, new
+
+
 def normalize_report(obj):
     """A report without clocks and ids, for comparing two runs (topology-4-lab-simulator.md "Acceptance criteria")."""
     if isinstance(obj, dict):

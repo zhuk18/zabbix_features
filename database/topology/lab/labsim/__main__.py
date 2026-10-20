@@ -88,8 +88,13 @@ def main(argv=None):
             return 1 if diffs else 0
         elif a.cmd == 'compare-reports':
             x, y = (runner.normalize_report(json.load(open(f))) for f in (a.a, a.b))
-            print('reports are equal (clocks and ids ignored)' if x == y else 'reports DIFFER')
-            return 0 if x == y else 1
+            diffs, new = runner.diff_reports(x, y)
+            for path, only in new:
+                print('new field %s (only in %s)' % (path, 'the first report' if only == 'a' else 'the second report'))
+            for path in diffs[:50]:
+                print('differs: %s' % path)
+            print('reports are equal (clocks and ids ignored%s)' % (', new fields listed' if new else '') if not diffs else 'reports DIFFER')
+            return 0 if not diffs else 1
         elif a.cmd == 'up':
             ctl.up(model.load_scenario(a.scenario, lab), settings)
         elif a.cmd == 'down':
