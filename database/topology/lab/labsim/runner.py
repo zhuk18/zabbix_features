@@ -629,6 +629,20 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
                 sr['assertions'].append(res.as_dict())
                 log('  %-7s %s' % (res.status.upper(), (res.message if res.status == 'pending' else
                                                           '%s %s %s' % (res.kind, json.dumps(a, default=str)[:110], res.message))[:300]))
+            if load_asserts:
+                # the values behind link_load (bit/s, speed and %: what the UI reads from the items of the two ends), in the report
+                sr['load_measured'] = []
+                try:
+                    all_links = {l['edge_id']: l for l in derived()['links']}
+                    for r in load_asserts:
+                        for l in find_links(state, r['link'][0], r['link'][1], 'physical_link')[:1]:
+                            d = all_links.get(str(l['id'])) or {}
+                            sr['load_measured'].append({'link': r['link'], 'detail': d.get('load_detail')})
+                            for side in ('local', 'remote'):
+                                v = (d.get('load_detail') or {}).get(side) or {}
+                                log('  load %s of %s: in %s bit/s, out %s bit/s, speed %s bit/s, %s %%' % (side, r['link'], v.get('in'), v.get('out'), v.get('speed'), v.get('percent')))
+                except LabError as e:
+                    sr['load_measured'].append({'error': str(e)})
             for e in sr['errors']:
                 log('  ERROR   ' + e)
     finally:
@@ -684,7 +698,7 @@ def compare_transports(a, b):
 
 
 _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_id', 'snapshot_clocks', 'waited_for', 'last_seen', 'itemids',
-             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids'}
+             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids', 'load_measured'}
 
 
 def normalize_report(obj):

@@ -36,6 +36,7 @@ try {
 			'superseded_at' => $superseded_at];
 	}
 
+	$pick = static fn (?array $side): ?array => $side === null ? null : ['in' => $side['in'] ?? null, 'out' => $side['out'] ?? null, 'speed' => $side['speed'] ?? null, 'percent' => $side['percent'] ?? null];
 	// per physical link (by edge id): the items of the end ports, the severity and the load that the UI shows (model §4.8, getNeighbors() of both ends)
 	$detail = [];
 	$devices = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('device'));
@@ -53,7 +54,8 @@ try {
 			$detail[$neighbor['edge_id']] = ['items_local' => $items['local_port_id'], 'items_remote' => $items['remote_port_id'],
 				'severity' => $neighbor['severity'], 'load_local' => $neighbor['load']['local']['percent'] ?? null,
 				'load_remote' => $neighbor['load']['remote']['percent'] ?? null,
-				'load_items' => ['local' => $neighbor['load']['local']['items'] ?? null, 'remote' => $neighbor['load']['remote']['items'] ?? null]];
+				'load_items' => ['local' => $neighbor['load']['local']['items'] ?? null, 'remote' => $neighbor['load']['remote']['items'] ?? null],
+				'load_detail' => ['local' => $pick($neighbor['load']['local'] ?? null), 'remote' => $pick($neighbor['load']['remote'] ?? null)]];
 		}
 	}
 	foreach ($links as &$link) {
