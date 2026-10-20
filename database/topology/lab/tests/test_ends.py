@@ -93,6 +93,43 @@ class Ends(unittest.TestCase):
         with self.assertRaisesRegex(LabError, 'ambiguous key FAP'):
             obs('FAP', port='1/1/2')
 
+    def test_explicit_keys_in_ends(self):
+        self.assertEqual(link_status('SW1:1/1/1', {'device': {'chassis': '3a:5c:91:e2:07:4b'}, 'port': 'eth0'}), 'pass')
+        self.assertEqual(link_status('SW1:1/1/1', {'device': {'chassis': '3A-5C-91-E2-07-4B'}, 'port': 'eth0'}), 'pass')          # normal form
+        self.assertEqual(link_status('SW1:1/1/1', {'device': {'chassis': '12:bf:b8:b9:6a:f5'}, 'port': 'eth0'}), 'fail')         # the old Device has no link
+        self.assertEqual(link_status('SW1:1/1/3', {'device': {'sysname': 'SW1'}}), 'fail')                                          # only the sysname is compared
+        self.assertEqual(link_status({'device': {'sysname': 'SW1'}, 'port': '1/1/3'}, {'device': {'chassis': '18:60:24:b2:bd:06'}}), 'pass')
+
+    def test_explicit_sysname_does_not_fall_back_to_the_chassis_id(self):
+        # the default key would find the Device by its chassis id; the explicit sysname key finds none
+        self.assertEqual(link_status('SW1:1/1/3', {'device': '18:60:24:b2:bd:06'}), 'pass')
+        with self.assertRaisesRegex(LabError, 'no device'):
+            link_status('SW1:1/1/3', {'device': {'sysname': '18:60:24:b2:bd:06'}})
+
+    def test_explicit_key_zero_devices_is_no_device_even_for_absent(self):
+        with self.assertRaisesRegex(LabError, 'no device'):
+            link_status('SW1', {'device': {'chassis': 'ff:ff:ff:ff:ff:01'}})
+        with self.assertRaisesRegex(LabError, 'no device'):
+            link_status('SW1', {'device': {'sysname': 'NOBODY'}}, state='absent')
+
+    def test_explicit_key_several_devices_is_ambiguous(self):
+        with self.assertRaisesRegex(LabError, 'ambiguous key'):
+            link_status('SW1:1/1/2', {'device': {'sysname': 'FAP'}, 'port': 'eth0'})
+        with self.assertRaisesRegex(LabError, 'ambiguous key'):
+            obs({'sysname': 'NA1'})
+
+    def test_explicit_key_in_observation_remote(self):
+        self.assertEqual(obs({'chassis': '3a:5c:91:e2:07:4b'}).status, 'pass')
+        self.assertEqual(obs({'chassis': '3A-5C-91-E2-07-4B'}).status, 'pass')
+        self.assertEqual(obs({'chassis': '12:bf:b8:b9:6a:f5'}).status, 'fail')
+        with self.assertRaisesRegex(LabError, 'no device'):
+            obs({'sysname': 'NOBODY'})
+
+    def test_bad_explicit_keys(self):
+        for bad in ({'name': 'x'}, {'sysname': 'a', 'chassis': 'b'}, {}):
+            with self.assertRaises(LabError):
+                link_status('SW1', {'device': bad})
+
 
 if __name__ == '__main__':
     unittest.main()

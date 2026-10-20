@@ -67,12 +67,14 @@ def normal_chassis(key):
 
 
 def split_end(ref):
-    """An end of a link or an observation: `Device`, `Device:port` (split at the first ':') or {device: <key>, port: <name>}. Returns (Device key, port or None)."""
+    """An end of a link or an observation: `Device`, `Device:port` (split at the first ':') or {device: <key>, port: <name>}. A Device key is a text, or the explicit
+    form {sysname: <value>} / {chassis: <value>}. Returns (Device key, port or None)."""
     if isinstance(ref, dict):
         bad = set(ref) - {'device', 'port'}
         if bad or 'device' not in ref:
             raise LabError('bad end %r: the object form is {device: <key>, port: <name>}' % (ref,))
-        return str(ref['device']), (None if ref.get('port') is None else str(ref['port']))
+        key = ref['device']
+        return (key if isinstance(key, dict) else str(key)), (None if ref.get('port') is None else str(ref['port']))
     ref = str(ref)
     if ':' in ref:
         device, port = ref.split(':', 1)
@@ -82,8 +84,24 @@ def split_end(ref):
 
 def resolve_device(state, key):
     """The Device node ids of a Device key (lab spec 8.3): the sysname; if no Device or several have that sysname, the chassis id in normal form. A key that gives
-    several Devices fails with `ambiguous key <key>`. No Device at all is an empty list (a link to it is absent)."""
+    several Devices fails with `ambiguous key <key>`. No Device at all is an empty list (a link to it is absent).
+    The explicit key {sysname: <value>} or {chassis: <value>} compares only that attribute (the chassis in normal form); no Device is `no device <key>`, several
+    are `ambiguous key <key>`."""
     nodes = state.get('device_nodes') or []
+    if isinstance(key, dict):
+        if len(key) != 1 or next(iter(key)) not in ('sysname', 'chassis'):
+            raise LabError('bad Device key %r: the explicit forms are {sysname: <value>} and {chassis: <value>}' % (key,))
+        kind, value = next(iter(key.items()))
+        if kind == 'sysname':
+            found = [n['id'] for n in nodes if n['sysname'] == str(value)]
+        else:
+            want = normal_chassis(value)
+            found = [n['id'] for n in nodes if want in (n['chassis_id'], n['mac'])]
+        if not found:
+            raise LabError('no device %s' % (key,))
+        if len(found) > 1:
+            raise LabError('ambiguous key %s' % (key,))
+        return found
     named = [n['id'] for n in nodes if n['sysname'] == key]
     if len(named) == 1:
         return named
@@ -97,7 +115,7 @@ def resolve_device(state, key):
 
 def _end_matches(state, link, idx, ref, cache):
     key, port = split_end(ref)
-    ck = (id(state), key)
+    ck = (id(state), repr(key))
     if ck not in cache:
         cache[ck] = set(resolve_device(state, key))
     if link['end_devices'][idx] not in cache[ck]:
@@ -226,7 +244,7 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
                                                                        'present' if r.get('present', True) else 'absent'))
     if 'observation' in a:
         o = a['observation']
-        remote = set(resolve_device(state, str(o['remote']))) if o.get('remote') else None      # the whole value is a Device key (it may contain ':')
+        remote = set(resolve_device(state, o['remote'] if isinstance(o['remote'], dict) else str(o['remote']))) if o.get('remote') else None      # the whole value is a Device key (it may contain ':'), also the explicit form
         hits = [x for x in state['observations'] if x['reporter'] == o['reporter'] and x['port'] == o['port']
                 and (remote is None or x['device_id'] in remote)]
         ok = any(x['outcome'] == a['outcome'] and ('precision_lower' not in a or x['precision_lower'] == a['precision_lower'])
