@@ -106,7 +106,7 @@ def main(argv=None):
         elif a.cmd == 'run':
             sc = model.load_scenario(a.scenario, lab, transport=a.transport, roles=a.roles.split(',') if a.roles else None)
             conn = db.connect(settings)
-            rep = runner.run(sc, settings, zbx.Api(settings['zabbix']['url']), conn, reset=a.reset, timeout=a.timeout)
+            rep = runner.run(sc, settings, zbx.Api(settings['zabbix']['url']), conn, reset=a.reset, timeout=a.timeout, argv=sys.argv)
             path = a.report or os.path.join(model.HERE, 'reports', '%s.json' % sc.id)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w') as f:

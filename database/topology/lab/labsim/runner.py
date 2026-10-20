@@ -396,10 +396,21 @@ def left_ids(host, kind):
     return host['rules'][kind]
 
 
-def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
+def reset_report(conn, mon, report, reset, log=print):
+    """`--reset` (lab spec 8.2) and its line in the report (8.4): the row count of each topo_* table right after it. Without `--reset` the report has no counts."""
+    if not reset:
+        return
+    db.reset_topo(conn, mon)
+    report['topo_rows_after_reset'] = db.topo_counts(conn)
+    log('reset: topo_* cleared')
+
+
+def run(scenario, settings, api, conn, reset=False, timeout=120, log=print, argv=None):
     if not server_running():
         raise LabError('zabbix_server is not running; the runner polls through it')
     report = {'scenario': scenario.id, 'title': scenario.title, 'steps': []}
+    if argv is not None:
+        report['command_line'] = list(argv)          # all arguments of the runner (lab spec 8.4)
     ctl.up(scenario, settings, log)
     manifest = json.load(open(os.path.join(ctl.DATA_DIR, scenario.id, 'manifest.json')))
     mon = sorted(manifest['devices'])
@@ -427,8 +438,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=120, log=print):
         if reset:
             # after the schedule is suspended and the rules are set: a poll Zabbix made on its own before that, with the old
             # rules, would otherwise leave a snapshot behind (an empty one for a rule that is now off)
-            db.reset_topo(conn, mon)
-            log('reset: topo_* cleared')
+            reset_report(conn, mon, report, reset, log)
             report['problems_closed'] = zbx.close_problems(api, log)
         for i, step in enumerate(scenario.steps):
             log('step %d: %s' % (i, step.get('note', '')))
@@ -716,7 +726,8 @@ def compare_transports(a, b):
 
 
 _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_id', 'snapshot_clocks', 'waited_for', 'last_seen', 'itemids',
-             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids', 'load_measured'}
+             'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids', 'load_measured',
+             'command_line', 'topo_rows_after_reset'}
 
 
 def normalize_report(obj):

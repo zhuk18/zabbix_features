@@ -164,6 +164,19 @@ def reset_topo(conn, keep_hosts=()):
     cur.execute('SET FOREIGN_KEY_CHECKS = 1')
 
 
+TOPO_TABLES = ('topo_nodes', 'topo_edges', 'topo_identity_keys', 'topo_observations', 'topo_lld_snapshot')
+
+
+def topo_counts(conn):
+    """The row count of each topo_* table (lab spec 8.4: right after --reset)."""
+    cur = conn.cursor()
+    out = {}
+    for t in TOPO_TABLES:
+        cur.execute('SELECT COUNT(*) FROM %s' % t)
+        out[t] = int(cur.fetchone()[0])
+    return out
+
+
 def port_node_id(conn, device, port):
     r = rows(conn, "SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id=p.device_id WHERE p.type='port' "
                    "AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs,'$.sysname'))=%s AND JSON_UNQUOTE(JSON_EXTRACT(p.attrs,'$.name'))=%s",

@@ -71,6 +71,19 @@ class ResetBySteps(unittest.TestCase):
         db.reset_topo(self.conn)
         self.assertEqual(self.kept(), [])
 
+    def test_a_report_with_reset_has_the_row_counts_after_it(self):
+        from labsim import runner
+        report = {}
+        runner.reset_report(self.conn, ['A'], report, True, log=lambda *_: None)
+        self.assertEqual(report['topo_rows_after_reset'], {'topo_nodes': 0, 'topo_edges': 0, 'topo_identity_keys': 0, 'topo_observations': 0, 'topo_lld_snapshot': 2})
+
+    def test_a_report_without_reset_has_no_counts_and_the_tables_stay(self):
+        from labsim import runner
+        report = {}
+        runner.reset_report(self.conn, ['A'], report, False, log=lambda *_: None)
+        self.assertNotIn('topo_rows_after_reset', report)
+        self.assertEqual(self.kept(), [10, 11, 12, 13, 20])
+
 
 if __name__ == '__main__':
     unittest.main()
