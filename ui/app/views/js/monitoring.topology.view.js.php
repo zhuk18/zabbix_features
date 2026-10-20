@@ -61,6 +61,12 @@ const view = new class {
 		// container shrinks the panel's column), nothing about the loaded data changes.
 		const panel_toggle = document.getElementById('topology-panel-toggle');
 		const workspace = document.querySelector('.topology-workspace');
+		// topology-1-model.md §12.1 "Layout": the graph area reaches the bottom of the window, whatever the side panel holds (the panel scrolls by itself)
+		this.fitToWindow();
+		window.addEventListener('resize', () => {
+			this.fitToWindow();
+			this.render();
+		});
 		panel_toggle.addEventListener('click', () => {
 			const collapsed = workspace.classList.toggle('topology-panel-collapsed');
 			panel_toggle.textContent = collapsed ? '»' : '«';
@@ -1111,10 +1117,24 @@ const view = new class {
 	// Renders `textFn(node)` as one or two vertically-centered <tspan> lines (wrapped via wrapLabel()) instead
 	// of a single line that can run past the node box's edge — every <tspan> repeats `x` explicitly, since a
 	// tspan with no x of its own continues from the end of the previous line's text, not back at the start.
+	// The page (filter bar, graph area and side panel) ends at the bottom of the window: the graph area has the height that is left, and the side panel
+	// scrolls inside it (topology-1-model.md §12.1 "Layout"). Not below the CSS minimum.
+	fitToWindow() {
+		const page = document.querySelector('.topology-prototype');
+		if (!page) {
+			return;
+		}
+		const top = page.getBoundingClientRect().top + window.scrollY;
+		page.style.height = `${Math.max(520, Math.floor(window.innerHeight - top - 8))}px`;
+	}
+
+	// A node label is wrapped and can be cut by the node box: the node has the full label as its tooltip (§12.1 "Layout"), written with text(), so
+	// a value from the network stays text (§13).
 	renderWrappedLabel(selection, textFn, maxChars, x = 0) {
 		selection.each((node, index, elements) => {
 			const lines = this.wrapLabel(textFn(node), maxChars);
 			const text = d3.select(elements[index]);
+			d3.select(elements[index].parentNode).append('title').attr('class', 'topology-label-title').text(String(textFn(node) ?? ''));
 			const x_of_node = typeof x === 'function' ? x(node) : x;
 			lines.forEach((line, line_index) => {
 				text.append('tspan').attr('x', x_of_node).attr('dy', line_index === 0 ? (lines.length > 1 ? -2 : 4) : 12).text(line);
@@ -1129,8 +1149,8 @@ const view = new class {
 		return `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Problems')) ?>)}</h3>${problems.length
 			? `<table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
 				${problems.map(problem => `<tr>
-					<td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}">${this.escape(problem.severity_name)}</span></td>
-					<td>${this.escape(problem.name)}</td>
+					<td title="${this.escape(problem.severity_name)}"><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}">${this.escape(problem.severity_name)}</span></td>
+					<td title="${this.escape(problem.name)}">${this.escape(problem.name)}</td>
 					<td>${this.escape(this.formatAge(problem.age))}</td>
 				</tr>`).join('')}
 				</tbody></table>`

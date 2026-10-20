@@ -103,6 +103,38 @@ class WebSocket:
                 return answer.get('result', {})
 
 
+# Checks of model §12.1 "Layout" (task 042), run in the real page after the filter (and --select)
+CHECKS = {
+    # the graph area ends at the bottom of the window; the side panel scrolls inside it; the page itself does not scroll
+    'layout': '''(() => {
+        const ws = document.querySelector('.topology-workspace').getBoundingClientRect();
+        const canvas = document.querySelector('#topology-canvas').getBoundingClientRect();
+        const panel = document.querySelector('.topology-panel');
+        const r = {window_h: innerHeight, page_h: document.documentElement.scrollHeight, workspace_bottom: Math.round(ws.bottom),
+            canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
+        r.ok = r.page_h <= r.window_h + 1 && r.workspace_bottom <= r.window_h && r.workspace_bottom >= r.window_h - 40 && r.canvas_h === r.panel_h;
+        return r;
+    })()''',
+    # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
+    'escape': '''(() => {
+        const evil = '<img src=x onerror="window.__xss=1">SW-<b>very</b>-long-name-for-a-node';
+        const node = Array.from(view.nodes.values()).find(n => n.type !== 'device') || Array.from(view.nodes.values())[0];
+        node.label = evil;
+        view.render();
+        const title = Array.from(document.querySelectorAll('#topology-canvas title.topology-label-title')).find(t => t.textContent === evil);
+        const div = document.createElement('div');
+        div.innerHTML = view.buildPortsFragment({id: '0', represented: true}, {connected: [{id: '1', port: '<i>p</i>', group: 'connected', status: 'up',
+            connected_to: evil, linked_port_id: '2', source: 'LLDP'}]});
+        const cell = div.querySelector('td.topology-port-name').nextElementSibling.nextElementSibling;
+        const r = {node_title_is_text: !!title && title.childElementCount === 0, img_in_svg: document.querySelectorAll('#topology-canvas img').length,
+            script_ran: window.__xss === 1, cell_title: cell.getAttribute('title'), img_in_table: !!div.querySelector('img, b, i'),
+            port_title: div.querySelector('td.topology-port-name').getAttribute('title')};
+        r.ok = r.node_title_is_text && !r.img_in_svg && !r.script_ran && r.cell_title === evil && !r.img_in_table && r.port_title === '<i>p</i>';
+        return r;
+    })()''',
+}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--host', help='Focus host (technical name)')
@@ -113,6 +145,8 @@ def main():
     ap.add_argument('--height', type=int, default=900)
     ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
     ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
+    ap.add_argument('--check', choices=sorted(CHECKS), help='a named check on the real page (model §12.1 "Layout"); exit 1 when it fails')
+    ap.add_argument('--eval', help='a JavaScript expression evaluated before the screenshot; its value is printed (layout checks)')
     ap.add_argument('--full', action='store_true', help='capture the whole page height (the side panel with its port table)')
     a = ap.parse_args()
 
@@ -174,6 +208,13 @@ def main():
             })()''' % ((json.dumps(a.select),) * 3))
             print('selected:', picked)
             time.sleep(3)
+        if a.eval:
+            print('eval:', json.dumps(js(a.eval)))
+        failed = False
+        if a.check:
+            result = js(CHECKS[a.check])
+            failed = not result.get('ok')
+            print('check %s: %s %s' % (a.check, 'ok' if not failed else 'FAILED', json.dumps(result)))
         nodes = js('''Array.from(document.querySelectorAll('#topology-canvas g.node, #topology-canvas g')).length''')
         print('svg groups:', nodes)
         if a.full:
@@ -186,6 +227,8 @@ def main():
         with open(a.out, 'wb') as f:
             f.write(base64.b64decode(shot['data']))
         print('screenshot:', a.out)
+        if failed:
+            sys.exit(1)
     finally:
         chrome.terminate()
         chrome.wait(timeout=10)
