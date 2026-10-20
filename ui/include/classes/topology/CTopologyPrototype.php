@@ -2184,6 +2184,29 @@ class CTopologyPrototype {
 		DBexecute('UPDATE IGNORE topo_observations SET local_port_id='.zbx_dbstr($to).' WHERE local_port_id='.zbx_dbstr($from));
 		DBexecute('DELETE FROM topo_observations WHERE local_port_id='.zbx_dbstr($from));
 		DBexecute('UPDATE topo_nodes SET lag_id='.zbx_dbstr($to).' WHERE lag_id='.zbx_dbstr($from));
+		self::movePortSysnameKeys($from, $to);
+	}
+
+	/** The scoped sysname keys of the removed Port become keys of the kept Port: `sysname:<from>:<value>` -> `sysname:<to>:<value>` (§6.7.0); a Device that holds the new key loses the old one. */
+	private static function movePortSysnameKeys(string $from, string $to): void {
+		$col = self::keyColumn();
+		$prefix = 'sysname:'.$from.':';
+		$result = DBselect('SELECT device_id,'.$col.' AS k FROM topo_identity_keys WHERE kind='.zbx_dbstr('sysname').' AND '.$col.' LIKE '.zbx_dbstr(addcslashes($prefix, '%_\\').'%'));
+		$rows = [];
+		while ($row = DBfetch($result, false)) {
+			if (str_starts_with($row['k'], $prefix)) {
+				$rows[] = $row;
+			}
+		}
+		foreach ($rows as $row) {
+			$new = substr('sysname:'.$to.':'.substr($row['k'], strlen($prefix)), 0, 300);
+			if (DBfetch(DBselect('SELECT device_id FROM topo_identity_keys WHERE device_id='.zbx_dbstr($row['device_id']).' AND '.$col.'='.zbx_dbstr($new), 1), false)) {
+				DBexecute('DELETE FROM topo_identity_keys WHERE device_id='.zbx_dbstr($row['device_id']).' AND '.$col.'='.zbx_dbstr($row['k']));
+			}
+			else {
+				DBexecute('UPDATE topo_identity_keys SET '.$col.'='.zbx_dbstr($new).' WHERE device_id='.zbx_dbstr($row['device_id']).' AND '.$col.'='.zbx_dbstr($row['k']));
+			}
+		}
 	}
 
 	/** §6.7.3 after a merge: a pseudo port of $device_id with exactly one real Port of the same normalized name moves its links there and is deleted. */

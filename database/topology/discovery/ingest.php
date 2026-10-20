@@ -185,6 +185,8 @@ $chassis_key = static function (?string $value, ?string $type, string $segment) 
 	}
 	return substr('chassis:'.($type === null || $type === '' ? 'local' : $type).':'.$segment.':'.$value, 0, 300);
 };
+// The scoped sysname key (§6.7.0, 2.31): the reporter's local Port (its topo_nodes id, so it names the reporter too) and the sysname as received.
+$sysname_key = static fn (int $port_id, string $sysname): string => substr('sysname:'.$port_id.':'.$sysname, 0, 300);
 $ip_key = static fn (?string $addr, string $segment): ?string => $addr === null || $addr === '' ? null : substr('ip:'.$segment.':'.$addr, 0, 300);
 
 /** Devices that hold a key (replaced keys only when asked for), ordered by id. */
@@ -220,9 +222,13 @@ $register_keys = static function (int $device_id, array $incoming, int $seen_at,
 			return;
 		}
 	}
-	foreach (['chassis', 'ip'] as $kind) {
+	foreach (['chassis', 'ip', 'sysname'] as $kind) {
 		$key = $incoming[$kind.'_key'] ?? null;
 		if ($key === null || $device_holds_key($device_id, $key)) {
+			continue;
+		}
+		if ($kind === 'sysname') {
+			$insert_key($device_id, $key, 'sysname', $seen_at);      // scoped to one reporter and one port: never shared with another Device's key by value
 			continue;
 		}
 		if ($kind === 'chassis' && $device_has_kind($device_id, 'chassis')) {
@@ -243,7 +249,7 @@ $current_ip_keys = [];
 // Devices that hold no key (data written before the key table, and Devices made by the legacy loop) get their keys from their attributes, in the
 // segment of their reporter, else of the reporter of their latest observation. A MAC chassis is global and needs no segment; a Device whose
 // scoped keys cannot be built (no reporter, no observation) is listed in the run summary and left without them.
-$build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, $ip_key, $insert_key, $now, &$summary): void {
+$build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, $ip_key, $sysname_key, $insert_key, $now, &$summary): void {
 	// key rows without a Device (§6.7.0): counted, then removed
 	$summary['identity_keys_orphaned'] = (int) $pdo->query("SELECT COUNT(*) FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')")->fetchColumn();
 	$pdo->exec("DELETE FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')");
@@ -261,6 +267,21 @@ $build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, 
 		}
 		if (($attrs['mgmt_ip'] ?? '') !== '') {
 			$wanted[] = [(string) $attrs['mgmt_ip'], 'ip', false];
+		}
+		// Upgrade from before 2.31 (the scoped sysname key was found through links, then through observations): a Device without keys that an observation names by a
+		// sysname key (`remote_key` sysname:<value> on a local port) gets that key once; the Device is a far Device found or made by sysname.
+		$sysname_wanted = [];
+		$named = $pdo->prepare("SELECT DISTINCT local_port_id, remote_key FROM topo_observations WHERE device_id = ? AND remote_key LIKE 'sysname:%' ORDER BY local_port_id, remote_key");
+		$named->execute([$device['id']]);
+		foreach ($named->fetchAll(PDO::FETCH_ASSOC) as $o) {
+			$sysname_wanted[] = $sysname_key((int) $o['local_port_id'], substr((string) $o['remote_key'], 8));
+		}
+		foreach ($sysname_wanted as $key) {
+			$insert_key((int) $device['id'], $key, 'sysname', (int) ($attrs['last_seen'] ?? $now));
+			$summary['identity_keys_built']['keys']++;
+			if (!$wanted) {
+				$summary['identity_keys_built']['devices']++;
+			}
 		}
 		if (!$wanted) {
 			continue;
@@ -320,13 +341,11 @@ $note_shared = static function (string $kind, string $value, array $node_ids) us
 	}
 };
 
-// What the rows of this run resolved to, per local port (§6.7.1): the Devices found or made by rows of that port, and the Devices a scoped sysname key of
-// that port names. Both are filled by $snap_device; the first is what the same-port join looks at, the second is the part of the sysname lookup that no link
-// and no observation of an earlier run can answer yet (links are made in phase 2, §6.8).
+// What the rows of this run resolved to, per local port (§6.7.1): the Devices found or made by rows of that port. Filled by $snap_device; the same-port join
+// looks at it. (The scoped sysname key itself is a stored key like the others, $sysname_key.)
 $run_port_devices = [];      // [local_port_id => [device_id => true]]
-$run_sysname_keys = [];      // [local_port_id => [sysname => device_id]]
 
-$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind, &$run_port_devices, &$run_sysname_keys): ?array {
+$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind, $sysname_key, &$run_port_devices): ?array {
 	$keys = [];       // [kind => [key, raw]], in the order of strength, only the keys the row has
 	if (!empty($identity['chassis'])) {
 		$keys['chassis'] = $identity['chassis'];
@@ -341,31 +360,9 @@ $resolve_device = static function (array $identity, ?int $local_port_id, ?string
 	$stronger = [];
 	foreach ($keys as $kind => [$value, $raw]) {
 		if ($kind === 'sysname') {
-			$ids = [];
-			foreach ([
-				"SELECT dev.id FROM topo_edges link JOIN topo_nodes port ON port.id = (CASE WHEN link.src_id = ? THEN link.dst_id ELSE link.src_id END)".
-					" JOIN topo_nodes dev ON dev.id = port.device_id WHERE link.type = 'physical_link' AND (link.src_id = ? OR link.dst_id = ?)".
-					" AND port.type = 'port' AND dev.type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ? ORDER BY dev.id" =>
-					[$local_port_id, $local_port_id, $local_port_id, $value],
-				"SELECT dev.id FROM topo_edges link JOIN topo_nodes dev ON dev.id = link.dst_id WHERE link.type = 'device_link'".
-					" AND link.src_id = ? AND dev.type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(dev.attrs, '\$.sysname')) = ? ORDER BY dev.id" =>
-					[$local_port_id, $value],
-			] as $sql => $params) {
-				$stmt = $pdo->prepare($sql);
-				$stmt->execute($params);
-				$ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
-			}
-			// A key never makes a second Device (§6.7.1): the observation of an earlier run on this port with this sysname key names the Device the
-			// row resolved to, whatever its outcome was (applied, conflict, ambiguous), so a row that made no link finds its Device again.
-			$stmt = $pdo->prepare("SELECT DISTINCT dev.id FROM topo_observations obs JOIN topo_nodes dev ON dev.id = obs.device_id AND dev.type = 'device'".
-				" WHERE obs.local_port_id = ? AND obs.remote_key = ? ORDER BY dev.id");
-			$stmt->execute([$local_port_id, substr('sysname:'.$value, 0, 300)]);
-			$ids = array_merge($ids, $stmt->fetchAll(PDO::FETCH_COLUMN));
-			if (isset($run_sysname_keys[$local_port_id][$value])) {
-				$ids[] = $run_sysname_keys[$local_port_id][$value];       // a row of this run, same port, same sysname
-			}
-			$ids = array_values(array_unique(array_map('intval', $ids)));
-			sort($ids);
+			// the stored scoped key (§6.7.0): a Device that a row of this reporter and this port resolved to by its sysname, in this run or an earlier one,
+			// whatever the outcome of the observation was (applied, conflict, ambiguous) — a key never makes a second Device (§6.7.1)
+			$ids = $key_holders($sysname_key($local_port_id, $value));
 			if (!$ids && count($keys) === 1) {
 				// Same-port join (§6.7.1): a row whose only key is the scoped sysname key joins the Device another row of this reporter and this port resolved to,
 				// when the sysname is that Device's text chassis id or its sysname. One → that Device; several → shared; none → create.
@@ -882,7 +879,29 @@ $pseudo_local_if_index = static function (?string $remote_port_id, ?string $remo
 // this Device ever pushed its own data — re-point its physical_link edge(s) onto the real Port and delete
 // it. Zero or more-than-one match: do nothing (never guess — the explicit instruction of topology-1-model.md "Pseudo-port merge"), just log it
 // so it isn't silently missed either way.
-$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note): void {
+// A Port merge moves the scoped sysname keys of the removed Port to the kept Port (§6.7.0, §6.7.2, §6.7.3): `sysname:<from>:<value>` becomes `sysname:<to>:<value>`;
+// a Device that already holds the new key just loses the old one.
+$move_port_sysname_keys = static function (int $from_port_id, int $to_port_id) use ($pdo, $q_key): void {
+	$prefix = 'sysname:'.$from_port_id.':';
+	$stmt = $pdo->prepare("SELECT device_id, {$q_key} AS k FROM topo_identity_keys WHERE {$q_key} LIKE ?");
+	$stmt->execute([$prefix.'%']);
+	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		if (!str_starts_with($row['k'], $prefix)) {
+			continue;
+		}
+		$new = substr('sysname:'.$to_port_id.':'.substr($row['k'], strlen($prefix)), 0, 300);
+		$held = $pdo->prepare("SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?");
+		$held->execute([$row['device_id'], $new]);
+		if ($held->fetchColumn() !== false) {
+			$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?")->execute([$row['device_id'], $row['k']]);
+		}
+		else {
+			$pdo->prepare("UPDATE topo_identity_keys SET {$q_key} = ? WHERE device_id = ? AND {$q_key} = ?")->execute([$new, $row['device_id'], $row['k']]);
+		}
+	}
+};
+
+$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note, $move_port_sysname_keys): void {
 	$normalized_real = $normalize_port_name($real_port_name);
 
 	$stmt = $pdo->prepare(
@@ -988,6 +1007,7 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		return;
 	}
 
+	$move_port_sysname_keys($pseudo_port_id, $real_port_id);
 	$pdo->prepare("DELETE FROM topo_nodes WHERE id = ? AND type = 'port'")->execute([$pseudo_port_id]);
 	echo "OK: merged pseudo-Port #{$pseudo_port_id} into real Port #{$real_port_id} ('{$real_port_name}') ".
 		"on device #{$reporter_device_id}\n";
@@ -1387,7 +1407,7 @@ $note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // B is deleted (the only deletion of a Device by ingest). Both with a represented_by: no join, reported. The IP on two or more other
 // Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
 $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use (
-	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $convert_leftover_pseudo_ports, $key_holders, $device_has_kind,
+	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $move_port_sysname_keys, $convert_leftover_pseudo_ports, $key_holders, $device_has_kind,
 	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys
 ): ?int {
 	if (!$chassis_key || !$ip_key) {
@@ -1504,6 +1524,7 @@ $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 		$pdo->prepare('UPDATE IGNORE topo_observations SET local_port_id = ? WHERE local_port_id = ?')->execute([$target, $id]);
 		$pdo->prepare('DELETE FROM topo_observations WHERE local_port_id = ?')->execute([$id]);
 		$pdo->prepare('UPDATE topo_nodes SET lag_id = ? WHERE lag_id = ?')->execute([$target, $id]);
+		$move_port_sysname_keys($id, $target);
 		$pdo->prepare('DELETE FROM topo_nodes WHERE id = ?')->execute([$id]);
 	}
 
@@ -1604,18 +1625,14 @@ $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = []) use (
 	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary, &$current_ip_keys,
-	&$run_port_devices, &$run_sysname_keys
+	&$run_port_devices
 ): ?int {
 	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity keys of the row: chassis_key / chassis_raw,
 	// ip_key / ip_raw (§6.7.0).
-	// What this row resolved to is remembered per local port for the rows after it (same-port join and the sysname key of this run, §6.7.1).
-	$note_row_device = static function (int $device_id) use ($incoming, $local_port_id, $for_reporter, &$run_port_devices, &$run_sysname_keys): void {
-		if ($for_reporter || $local_port_id === null) {
-			return;
-		}
-		$run_port_devices[$local_port_id][$device_id] = true;
-		if (!isset($incoming['chassis_key']) && !isset($incoming['ip_key']) && ($incoming['sysname'] ?? '') !== '') {
-			$run_sysname_keys[$local_port_id][$incoming['sysname']] = $device_id;
+	// What this row resolved to is remembered per local port for the rows after it (same-port join, §6.7.1).
+	$note_row_device = static function (int $device_id) use ($local_port_id, $for_reporter, &$run_port_devices): void {
+		if (!$for_reporter && $local_port_id !== null) {
+			$run_port_devices[$local_port_id][$device_id] = true;
 		}
 	};
 	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
@@ -1713,7 +1730,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$summary['devices_created']++;
 	$created_id = $last_insert_id();
-	foreach (['chassis', 'ip'] as $kind) {
+	foreach (['chassis', 'ip', 'sysname'] as $kind) {
 		if (isset($incoming[$kind.'_key'])) {
 			$insert_key($created_id, $incoming[$kind.'_key'], $kind, $seen_at);
 		}
@@ -2418,7 +2435,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 $snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
 
 	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$resolve_local_port, $is_placeholder_mac, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$resolve_local_port, $is_placeholder_mac, $sysname_key, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
@@ -2504,6 +2521,9 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			'sysname' => $row['rem_sysname'] ?? null,
 			'vendor' => 'unknown',
 			'source' => $source,
+			// a row whose only key is the sysname gives the scoped sysname key to the Device it resolves to (§6.7.0, §6.7.1)
+			'sysname_key' => ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && $row_ip === null && ($row['rem_sysname'] ?? '') !== '')
+				? $sysname_key($local_port_id, (string) $row['rem_sysname']) : null,
 		], $local_port_id, $clock);
 		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
 

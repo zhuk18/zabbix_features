@@ -374,4 +374,43 @@ $o = $pdo->query('SELECT itemid, outcome, edge_id FROM topo_observations ORDER B
 check(count($o) === 2 && $o[0]['outcome'] === 'applied' && (int) $o[0]['edge_id'] === $link && $o[1]['outcome'] === 'conflict' && (int) $o[1]['edge_id'] === $link && $phys() === 1,
 	'the link has support: the LLDP claim stays applied, the CDP claim is `conflict` with edge_id = the link (not ambiguous)');
 
+// ============================================================================================================
+echo "\n=== 5: the stored sysname key (model §6.7.0, 2.31) ===\n";
+reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X'])], []);
+run_ingest($dsn, $user, $password);
+snapshot($pdo, 1003, 101, 2, CLOCK + 20, [nrow(1, 'cdp', ['rem_sysname' => 'Ysys'])]);
+run_ingest($dsn, $user, $password);
+$port1 = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:01'"), 1);
+$ydev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Ysys'");
+$keys = $pdo->prepare("SELECT `key`, kind FROM topo_identity_keys WHERE device_id = ? ORDER BY `key`");
+$keys->execute([$ydev]);
+check($keys->fetchAll(PDO::FETCH_KEY_PAIR) === ['sysname:'.$port1.':Ysys' => 'sysname'], "a Device found or made by its sysname holds the key sysname:<port id>:<value>, kind sysname (port {$port1})");
+$before = counts($pdo);
+$pdo->exec('DELETE FROM topo_observations');
+$r = run_ingest($dsn, $user, $password);
+check($r['summary']['devices_created'] === 0 && counts($pdo) === $before, 'the observations of the port are deleted: the next run finds the Device by the stored key and creates nothing');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE device_id = ?", [$ydev]) === 1, 'and the observation points at the same Device again');
+
+echo "  -- a Port merge keeps the key\n";
+$rdev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:01'");
+$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
+	->execute([$rdev, json_encode(['if_index' => -77, 'pseudo' => true, 'name' => 'GigabitEthernet0/3'])]);
+$pseudo = (int) $pdo->lastInsertId();
+$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'sysname', 1, 0)")->execute([$ydev, 'sysname:'.$pseudo.':Moved']);
+$real3 = port_id($pdo, $rdev, 3);
+run_ingest($dsn, $user, $password);
+check(scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE id = ?', [$pseudo]) == 0, 'the pseudo Port was merged into the real Port Gi0/3');
+check(scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` = ?", ['sysname:'.$real3.':Moved']) == 1
+	&& scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` = ?", ['sysname:'.$pseudo.':Moved']) == 0, "the key moved with the Port: sysname:{$pseudo}:Moved -> sysname:{$real3}:Moved");
+
+echo "  -- upgrade: a Device without keys that an observation names by a sysname key gets the key once\n";
+$pdo->exec("DELETE FROM topo_identity_keys WHERE kind = 'sysname'");
+$before = counts($pdo);
+$r = run_ingest($dsn, $user, $password);
+check($r['summary']['devices_created'] === 0 && scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ? AND kind = 'sysname'", [$ydev]) == 1
+	&& counts($pdo)['devices'] === $before['devices'], 'the key is built from the observation, no Device is created');
+$fp = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
+
 echo "\nALL OK\n";
