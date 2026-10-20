@@ -43,6 +43,7 @@ $page_styles = '
 .topology-link{stroke:#77818d;stroke-width:2}
 .topology-group{margin:14px 0}
 .topology-group h3{font-size:14px;margin:0 0 6px}
+.topology-group-help{font-size:11.5px;color:var(--topology-muted,#666);margin:0 0 6px}
 .topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
 .topology-col-port{width:24%}
 .topology-col-status{width:19%}
@@ -50,6 +51,7 @@ $page_styles = '
 .topology-col-source{width:17%}
 .topology-col-action{width:64px}
 .topology-group th,.topology-group td{padding:6px 6px;border-bottom:1px solid #e5e7eb;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.topology-group td.topology-mac-list{white-space:normal;word-break:break-all;font-family:monospace;font-size:11px}
 .topology-port-name{font-family:monospace;font-size:11px}
 .topology-status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .topology-status-up{background:#2ecc71}

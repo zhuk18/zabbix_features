@@ -1175,13 +1175,24 @@ const view = new class {
 	// actual Device node either way, never the Host/Proxy that might be showing it.
 	buildPortsFragment(device, groups) {
 		const hidden_by = this.hiddenByFragment(device.id);
-		// topology-1-model.md "API", "Side panels": "Partial connectivity evidence" (not "connected MAC-only") — a MAC-only port has no
-		// physical_link (topology-1-model.md "Observations": outcome device_only), so labeling it "connected" the same way as an LLDP-confirmed one
-		// invites the reasonable but wrong question "where's the physical link for this port?".
+		// topology-1-model.md §12.5 "Port table groups": the server gives each port its group (first true rule: connected, lag, mgmt, virtual, mac_only,
+		// no_neighbor) and leaves empty groups out. Status (oper / admin) is a column, not a group.
 		const labels = {
-			connected_lldp: 'Connected (LLDP)', connected_mac_only: 'Partial connectivity evidence',
-			disconnected: 'Disconnected', port_channel: 'Port-channel', management: 'Management', virtual: 'Virtual'
+			connected: <?= json_encode(_('Connected')) ?>, lag: <?= json_encode(_('Port-channel')) ?>, mgmt: <?= json_encode(_('Management')) ?>,
+			virtual: <?= json_encode(_('Virtual')) ?>, mac_only: <?= json_encode(_('MAC addresses only')) ?>, no_neighbor: <?= json_encode(_('No neighbor')) ?>
 		};
+		const help = {
+			mac_only: <?= json_encode(_('No LLDP or CDP neighbor on these ports. The switch learned MAC addresses here (FDB), so a device is connected, but it is not known.')) ?>
+		};
+		const mac_count_text = <?= json_encode(_('%1$s MAC addresses')) ?>;
+		// Connected to: the far Device of a link; for a port in "MAC addresses only" the learned MACs, or their number above the MAC limit
+		const connected_cell = port => port.group === 'mac_only'
+			? (port.learned_mac_count !== null && port.learned_mac_count !== undefined
+				? this.escape(mac_count_text.replace('%1$s', String(port.learned_mac_count)))
+				: (port.learned_macs ?? []).map(mac => this.escape(mac)).join('<br>'))
+			: `${this.escape(port.connected_to ?? '–')}${port.device_link_id ? ` <em>(${this.escape(<?= json_encode(_('port unknown')) ?>)})</em>` : ''}`;
+		const status_cell = port => `<span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}` +
+			(port.admin_status === 'down' ? ` <em>(${this.escape(<?= json_encode(_('admin down')) ?>)})</em>` : '');
 		const port_action = port => port.device_link_id
 			? `<button type="button" class="btn-alt topology-remove-link-button" data-edge-id="${this.escape(port.device_link_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
 			: port.linked_port_id
@@ -1189,14 +1200,14 @@ const view = new class {
 			: `<button type="button" class="btn-alt topology-link-button" data-port-id="${this.escape(port.id)}" data-port-name="${this.escape(port.port)}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`;
 		const source_classes = {LLDP: 'topology-source-lldp', Manual: 'topology-source-manual'};
 		const sections = Object.entries(groups).filter(([, ports]) => ports.length).map(([group, ports]) => `
-			<section class="topology-group"><h3>${labels[group]}</h3><table><colgroup>
+			<section class="topology-group"><h3>${this.escape(labels[group] ?? group)}</h3>${help[group] ? `<p class="topology-group-help">${this.escape(help[group])}</p>` : ''}<table><colgroup>
 				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected">
 				<col class="topology-col-source"><col class="topology-col-action">
 			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th>Source</th><th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
-				<td class="topology-port-name" title="${this.escape(port.port)}">${this.escape(port.port)}</td>
-				<td><span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}</td>
-				<td title="${this.escape(port.connected_to ?? '')}">${this.escape(port.connected_to ?? '–')}${port.device_link_id ? ` <em>(${this.escape(<?= json_encode(_('port unknown')) ?>)})</em>` : ''}</td>
+				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
+				<td>${status_cell(port)}</td>
+				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td>${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
 				<td>${port_action(port)}</td>
 			</tr>`).join('')}

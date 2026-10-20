@@ -1037,12 +1037,16 @@ class CTopologyPrototype {
 		return $problems;
 	}
 
+	/**
+	 * The port table of a Device (topology-1-model.md §11 /ports, §12.5 "Port table groups"): each port in exactly one group, by the first rule that is true:
+	 * connected (an end of a physical_link or device_link that is not superseded; stale counts), lag, mgmt, virtual (by if_type), mac_only (learned_macs not
+	 * empty or learned_mac_count set), no_neighbor (all other ports). oper_status / admin_status are columns, not groups. Groups in this order; an empty
+	 * group is left out. Each port carries its group id.
+	 */
 	public static function getPorts(string $deviceid): array {
-		$groups = [
-			'connected_lldp' => [], 'connected_mac_only' => [], 'disconnected' => [], 'port_channel' => [], 'management' => [], 'virtual' => []
-		];
+		$groups = array_fill_keys(self::PORT_GROUPS, []);
 		$result = DBselect(
-			'SELECT port.id,port.attrs,link.id AS linkid,link.attrs AS link_attrs,'.
+			'SELECT port.id,port.attrs,port.lag_id,link.id AS linkid,link.attrs AS link_attrs,'.
 				'CASE WHEN link.src_id=port.id THEN link.dst_id ELSE link.src_id END AS linked_port_id'.
 			' FROM topo_nodes port'.
 			' LEFT JOIN topo_edges link ON link.type='.zbx_dbstr('physical_link').
@@ -1084,6 +1088,14 @@ class CTopologyPrototype {
 			}
 		}
 		$linked_names = self::getLinkedDeviceNames($connected_port_ids);
+		$lag_names = [];
+		$lag_ids = array_values(array_unique(array_filter(array_column($rows, 'lag_id'), static fn ($id): bool => $id !== null)));
+		if ($lag_ids) {
+			$cursor = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $lag_ids));
+			while ($lag = DBfetch($cursor)) {
+				$lag_names[$lag['id']] = self::attrs($lag)['name'] ?? null;
+			}
+		}
 
 		// Device-level links (device-level-edge spec): a port whose link ends at a Device is connected too, to a Device
 		// whose port is not known. An active one only; the port keeps its row either way.
@@ -1112,41 +1124,50 @@ class CTopologyPrototype {
 				? (json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR)['discovered_via'] ?? 'lldp')
 				: null;
 
-			if ($attrs['if_type'] === 'lag') {
-				$group = 'port_channel';
-			}
-			elseif ($attrs['if_type'] === 'mgmt') {
-				$group = 'management';
-			}
-			elseif ($attrs['if_type'] === 'virtual') {
-				// topology-1-model.md §6.6 / §11: virtual ports (loopback, tunnel, SVI, subinterface) have a group of their own, never Disconnected
-				$group = 'virtual';
-			}
-			elseif ($row['linkid'] !== null || isset($device_level[$row['id']])) {
-				$group = 'connected_lldp';
-			}
-			elseif ($attrs['oper_status'] === 'down') {
-				$group = 'disconnected';
-			}
-			else {
-				$group = 'connected_mac_only';
-			}
-
 			$device_link = $row['linkid'] === null ? ($device_level[$row['id']] ?? null) : null;
+			$learned_macs = array_values((array) ($attrs['learned_macs'] ?? []));
+			$learned_mac_count = isset($attrs['learned_mac_count']) ? (int) $attrs['learned_mac_count'] : null;
+			$group = self::portGroup($row['linkid'] !== null || $device_link !== null, (string) ($attrs['if_type'] ?? 'physical'), $learned_macs,
+				$learned_mac_count);
+
 			$groups[$group][] = [
-				'id' => $row['id'], 'port' => $attrs['name'], 'status' => $attrs['oper_status'],
+				'id' => $row['id'], 'port' => $attrs['name'], 'group' => $group,
+				'status' => $attrs['oper_status'], 'admin_status' => $attrs['admin_status'] ?? null,
+				// a LAG member shows the name of its LAG (§12.5)
+				'lag' => $row['lag_id'] !== null ? ($lag_names[$row['lag_id']] ?? null) : null,
 				'connected_to' => $linked_names[$row['id']] ?? $device_link['device'] ?? null,
 				'linked_port_id' => $row['linkid'] !== null ? $row['linked_port_id'] : null,
 				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
 				'device_link_id' => $device_link['id'] ?? null,
 				'far_port_reason' => $device_link['reason'] ?? null,
+				// group mac_only: the MACs the switch learned on the port, or their number only above the MAC limit (§6.6)
+				'learned_macs' => $group === 'mac_only' ? $learned_macs : [],
+				'learned_mac_count' => $group === 'mac_only' ? $learned_mac_count : null,
 				'source' => $device_link !== null ? ($device_link['discovered_via'] === 'manual' ? 'Manual' : 'LLDP')
 					: ($discovered_via === 'manual' ? 'Manual' : ($row['linkid'] !== null ? 'LLDP'
-					: ($group === 'connected_mac_only' ? 'MAC only' : '-')))
+					: ($group === 'mac_only' ? 'FDB' : '-')))
 			];
 		}
 
-		return $groups;
+		return array_filter($groups, static fn (array $ports): bool => (bool) $ports);
+	}
+
+	/** The groups of the port table, in the order of the rules of topology-1-model.md §12.5 (the UI shows them in this order). */
+	public const PORT_GROUPS = ['connected', 'lag', 'mgmt', 'virtual', 'mac_only', 'no_neighbor'];
+
+	/** topology-1-model.md §12.5: the first rule that is true gives the group of a port. */
+	public static function portGroup(bool $has_active_link, string $if_type, array $learned_macs, ?int $learned_mac_count): string {
+		if ($has_active_link) {
+			return 'connected';
+		}
+		if (in_array($if_type, ['lag', 'mgmt', 'virtual'], true)) {
+			return $if_type;
+		}
+		if ($learned_macs || $learned_mac_count !== null) {
+			return 'mac_only';
+		}
+
+		return 'no_neighbor';
 	}
 
 	/**

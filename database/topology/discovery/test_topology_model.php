@@ -740,7 +740,76 @@ foreach ([[1, 'Gi0/1', 'physical'], [2, 'Loopback0', 'virtual'], [3, 'mgmt0', 'm
 }
 $groups = CTopologyPrototype::getPorts((string) $Dv);
 check(array_column($groups['virtual'], 'port') === ['Loopback0'], 'the virtual port is in the Virtual group');
-check(array_column($groups['disconnected'], 'port') === ['Gi0/1'] && array_column($groups['management'], 'port') === ['mgmt0'] && array_column($groups['port_channel'], 'port') === ['Po1'],
-	'and not under Disconnected, even though it is down; the other groups are as before');
+check(array_column($groups['no_neighbor'], 'port') === ['Gi0/1'] && array_column($groups['mgmt'], 'port') === ['mgmt0'] && array_column($groups['lag'], 'port') === ['Po1'],
+	'and not under No neighbor, even though it is down; the other groups are as before');
+
+// ============================================================================================================
+echo "\n=== step 13: port table groups by the rules of topology-1-model.md §12.5, through /ports (topology.ports.get) ===\n";
+reset_topology($pdo);
+login();
+$D = device($pdo, 'Dev P');
+$F = device($pdo, 'Far');
+$far1 = port($pdo, $F, 1, 'f1');
+$far2 = port($pdo, $F, 2, 'f2');
+$far3 = port($pdo, $F, 3, 'f3');
+$far4 = port($pdo, $F, 4, 'f4');
+$p = static function (int $if, string $name, string $type, array $extra = []) use ($pdo, $D): int {
+	return node($pdo, 'port', array_merge(['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => 'up', 'admin_status' => 'up', 'if_type' => $type], $extra), $D);
+};
+$connected = $p(1, 'Gi0/1', 'physical');
+edge($pdo, 'physical_link', min($connected, $far1), max($connected, $far1), ['discovered_via' => 'lldp', 'last_seen' => 1]);       // stale (old last_seen): still Connected
+$mgmt_linked = $p(2, 'mgmt0', 'mgmt');
+edge($pdo, 'physical_link', min($mgmt_linked, $far2), max($mgmt_linked, $far2), ['discovered_via' => 'lldp', 'last_seen' => time()]);
+$virtual_linked = $p(3, 'Vlan10', 'virtual');
+edge($pdo, 'device_link', $virtual_linked, $F, ['discovered_via' => 'lldp', 'far_port_reason' => 'port_unmatched', 'last_seen' => time()]);
+$superseded = $p(4, 'Gi0/4', 'physical');
+edge($pdo, 'physical_link', min($superseded, $far3), max($superseded, $far3), ['discovered_via' => 'lldp', 'last_seen' => time(), 'superseded_at' => time()]);
+$lag = $p(5, 'Po1', 'lag');
+$member = $p(6, 'Gi0/6', 'physical');
+$pdo->prepare('UPDATE topo_nodes SET lag_id = ? WHERE id = ?')->execute([$lag, $member]);
+$mgmt = $p(7, 'mgmt1', 'mgmt', ['oper_status' => 'down']);
+$virtual = $p(8, 'Loopback0', 'virtual');
+$macs = $p(9, 'Gi0/9', 'physical', ['learned_macs' => ['00:11:22:33:44:55', '00:11:22:33:44:66']]);
+$many = $p(10, 'Gi0/10', 'physical', ['learned_macs' => [], 'learned_mac_count' => 312]);
+$up_alone = $p(11, 'Gi0/11', 'physical');
+$admin_down = $p(12, 'Gi0/12', 'physical', ['oper_status' => 'down', 'admin_status' => 'down']);
+
+$answer = call(CControllerTopologyPortsGet::class, ['id' => (string) $D]);
+$groups = $answer['groups'];
+$where = [];
+foreach ($groups as $group => $ports) {
+	foreach ($ports as $port) {
+		$where[$port['port']] = $group;
+		check($port['group'] === $group, "{$port['port']}: the port carries its group id ({$group})");
+	}
+}
+echo '  groups: '.json_encode(array_map(static fn (array $ports): array => array_column($ports, 'port'), $groups))."\n";
+check(array_keys($groups) === ['connected', 'lag', 'mgmt', 'virtual', 'mac_only', 'no_neighbor'], 'the groups in the order of the rules');
+check($where['Gi0/1'] === 'connected', 'rule 1: a port with a link that is not superseded (a stale one counts) is Connected');
+check($where['mgmt0'] === 'connected' && $where['Vlan10'] === 'connected', 'a management port with a link and a virtual port with a device-level link are Connected');
+check($where['Gi0/4'] === 'no_neighbor', 'a port with a superseded link only is not Connected (No neighbor)');
+check($where['Po1'] === 'lag', 'rule 2: Port-channel');
+check($where['mgmt1'] === 'mgmt', 'rule 3: Management (down, still Management: the status is a column)');
+check($where['Loopback0'] === 'virtual', 'rule 4: Virtual');
+check($where['Gi0/9'] === 'mac_only' && $where['Gi0/10'] === 'mac_only', 'rule 5: learned MACs, or learned_mac_count, give MAC addresses only');
+check($where['Gi0/11'] === 'no_neighbor' && $where['Gi0/12'] === 'no_neighbor' && $where['Gi0/6'] === 'no_neighbor', 'rule 6: up or down, no neighbor and no MAC: No neighbor (a LAG member by the same rules)');
+$by_name = [];
+foreach ($groups as $ports) {
+	foreach ($ports as $port) {
+		$by_name[$port['port']] = $port;
+	}
+}
+check($by_name['Gi0/10']['learned_mac_count'] === 312 && $by_name['Gi0/10']['learned_macs'] === [] && $by_name['Gi0/9']['learned_macs'] === ['00:11:22:33:44:55', '00:11:22:33:44:66'],
+	'a port above the MAC limit gives its count (the page shows "<N> MAC addresses"), the other its MACs');
+check($by_name['Gi0/6']['lag'] === 'Po1' && $by_name['Gi0/1']['lag'] === null, 'a LAG member shows the name of its LAG');
+check($by_name['Gi0/12']['status'] === 'down' && $by_name['Gi0/12']['admin_status'] === 'down' && $by_name['Gi0/11']['status'] === 'up', 'oper_status and admin_status are columns');
+check($by_name['Gi0/9']['source'] === 'FDB' && $by_name['Gi0/1']['source'] === 'LLDP', 'source: FDB for MAC addresses only, LLDP for a discovered link');
+
+// no group without ports
+reset_topology($pdo);
+$D2 = device($pdo, 'Dev Q');
+port($pdo, $D2, 1, 'Gi0/1');
+$answer = call(CControllerTopologyPortsGet::class, ['id' => (string) $D2]);
+check(array_keys($answer['groups']) === ['no_neighbor'], 'an empty group is not given: only No neighbor here');
 
 echo "\nAll topology model tests passed.\n";

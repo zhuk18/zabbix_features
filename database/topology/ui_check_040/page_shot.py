@@ -112,6 +112,8 @@ def main():
     ap.add_argument('--width', type=int, default=1400)
     ap.add_argument('--height', type=int, default=900)
     ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
+    ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
+    ap.add_argument('--full', action='store_true', help='capture the whole page height (the side panel with its port table)')
     a = ap.parse_args()
 
     cookie = login()
@@ -163,8 +165,23 @@ def main():
         })()''' % (json.dumps(host), json.dumps(groups), json.dumps(a.depth))
         print('filter:', json.dumps(js(filter_js)))
         time.sleep(a.settle)
+        if a.select:
+            picked = js('''(async () => {
+                const node = Array.from(view.nodes.values()).find(n => n.label === %s && n.type !== 'device') || Array.from(view.nodes.values()).find(n => n.label === %s);
+                if (!node) throw new Error('no node ' + %s);
+                await view.selectNode(node);
+                return node.type + ' ' + node.label;
+            })()''' % ((json.dumps(a.select),) * 3))
+            print('selected:', picked)
+            time.sleep(3)
         nodes = js('''Array.from(document.querySelectorAll('#topology-canvas g.node, #topology-canvas g')).length''')
         print('svg groups:', nodes)
+        if a.full:
+            # let the side panel grow with its content, then capture the whole page
+            js('''(() => { for (const el of document.querySelectorAll('.topology-panel, .topology-workspace, .topology-prototype')) { el.style.maxHeight = 'none'; el.style.height = 'auto'; el.style.overflow = 'visible'; } })()''')
+            height = js('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)')
+            ws.call('Emulation.setDeviceMetricsOverride', width=a.width, height=int(height), deviceScaleFactor=1, mobile=False)
+            time.sleep(1)
         shot = ws.call('Page.captureScreenshot', format='png')
         with open(a.out, 'wb') as f:
             f.write(base64.b64decode(shot['data']))
