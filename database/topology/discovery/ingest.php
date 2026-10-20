@@ -1639,12 +1639,22 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		$has_reporter = $owner['represented_by_matched_by'] === 'reporter_self' && $owner['represented_by_node_id'] !== null;
 		$before = $snap_node_attrs($device_id);
 		$attrs = $before;
+		// Source priority (§6.7.1, 2.29), on a Device without a reporter: a value of a `lldp` row replaces the stored one; a value of another source (cdp, push)
+		// fills an empty attribute, and replaces a value that another non-lldp row gave (among rows of one priority the last row wins, pass B order). The
+		// stored value of an lldp row (or of an older run, which did not note the source) is never replaced by another source. `attrs.value_source` notes
+		// the attributes whose stored value came from a non-lldp row.
+		$row_source = (string) ($incoming['source'] ?? 'lldp');
+		$value_source = (array) ($before['value_source'] ?? []);
 		foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
 			if (($incoming[$key] ?? null) === null || $incoming[$key] === '') {
 				continue;
 			}
-			if ($has_reporter && ($before[$key] ?? '') !== '' && !($key === 'vendor' && $before[$key] === 'unknown')) {
+			$stored_empty = ($before[$key] ?? '') === '' || ($key === 'vendor' && $before[$key] === 'unknown');
+			if ($has_reporter && !$stored_empty) {
 				continue;
+			}
+			if (!$has_reporter && !$stored_empty && $row_source !== 'lldp' && !isset($value_source[$key])) {
+				continue;      // a stored lldp value (or one of unknown source) stays
 			}
 			// A stored stronger key is never replaced by a different value (topology-1-model.md "Far Device"); the MAC
 			// is the chassis id spelled as a MAC, so it follows the chassis id.
@@ -1653,6 +1663,18 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 				continue;
 			}
 			$attrs[$key] = $incoming[$key];
+			if ($row_source !== 'lldp' && !$has_reporter && !($key === 'vendor' && $incoming[$key] === 'unknown')) {
+				$value_source[$key] = $row_source;
+			}
+			else {
+				unset($value_source[$key]);
+			}
+		}
+		if ($value_source) {
+			$attrs['value_source'] = $value_source;
+		}
+		else {
+			unset($attrs['value_source']);
 		}
 		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $seen_at);
 		if ($matched_by === 'sysname') {
@@ -1677,6 +1699,14 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 	// so the first repeat run changes no attribute.
 	if (!($incoming['chassis_id'] ?? null) && !($incoming['mgmt_ip'] ?? null) && $local_port_id !== null && ($incoming['sysname'] ?? '') !== '') {
 		$attrs['matched_by'] = 'sysname';
+	}
+	if (($incoming['source'] ?? 'lldp') !== 'lldp') {
+		// the values of a non-lldp row are noted as such (source priority, §6.7.1): a later lldp row replaces them, another source only fills
+		foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname'] as $key) {
+			if (($attrs[$key] ?? '') !== '') {
+				$attrs['value_source'][$key] = $incoming['source'];
+			}
+		}
 	}
 	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$summary['devices_created']++;
@@ -2458,6 +2488,7 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			'ip_raw' => $row_ip,
 			'sysname' => $row['rem_sysname'] ?? null,
 			'vendor' => 'unknown',
+			'source' => $source,
 		], $local_port_id, $clock);
 		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
 

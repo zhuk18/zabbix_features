@@ -261,4 +261,36 @@ foreach ($cases as $name => [$lldp, $cdp, $outcome]) {
 		"{$name}: the second and third run create no Device and no link");
 	check($c1 === $c2 && $c2 === $c3, "{$name}: topo_nodes, topo_identity_keys and topo_edges counts are equal after every run ".json_encode($c3));
 }
+
+// ============================================================================================================
+echo "\n=== 2: source priority of attributes (model §6.7.1) ===\n";
+$sysname_of = static fn (string $chassis): string => (string) (attrs($pdo, device_id($pdo, $chassis))['sysname'] ?? '');
+$lldp_row = nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'L-name']);
+$cdp_row = nrow(1, 'cdp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'C-name']);
+foreach (['LLDP row first in pass B (item order)' => [1002, 1003], 'CDP row first in pass B (item order)' => [1003, 1002]] as $label => [$lldp_item, $cdp_item]) {
+	reporter($pdo, [], []);
+	snapshot($pdo, $lldp_item, 101, 2, CLOCK + 10, [$lldp_row]);
+	snapshot($pdo, $cdp_item, 101, 2, CLOCK + 10, [$cdp_row]);
+	run_ingest($dsn, $user, $password);
+	check($sysname_of($X) === 'L-name', "{$label}: LLDP and CDP rows of one Device with different rem_sysname -> the LLDP value");
+	run_ingest($dsn, $user, $password);
+	check($sysname_of($X) === 'L-name', "{$label}: and the next run keeps it");
+}
+reporter($pdo, [], [$cdp_row]);
+run_ingest($dsn, $user, $password);
+check($sysname_of($X) === 'C-name', 'CDP only -> the CDP value');
+snapshot($pdo, 1003, 101, 2, CLOCK + 20, [array_merge($cdp_row, ['rem_sysname' => 'C-name-2'])]);
+run_ingest($dsn, $user, $password);
+check($sysname_of($X) === 'C-name-2', 'CDP only, the CDP value changes -> the last CDP row wins (one priority)');
+snapshot($pdo, 1002, 101, 2, CLOCK + 30, [$lldp_row]);
+run_ingest($dsn, $user, $password);
+check($sysname_of($X) === 'L-name', 'then an LLDP row replaces the CDP value');
+snapshot($pdo, 1002, 101, 2, CLOCK + 40, []);
+snapshot($pdo, 1003, 101, 2, CLOCK + 40, [array_merge($cdp_row, ['rem_sysname' => 'C-name-3'])]);
+run_ingest($dsn, $user, $password);
+check($sysname_of($X) === 'L-name', 'a stored LLDP value and a new CDP value -> unchanged');
+$fp = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
+
 echo "\nALL OK\n";
