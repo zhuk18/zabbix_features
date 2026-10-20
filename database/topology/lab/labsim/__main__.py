@@ -87,7 +87,15 @@ def main(argv=None):
             print('\n'.join(diffs) if diffs else 'equivalent: devices, ports, links, represented_by, observation outcomes and identity bytes')
             return 1 if diffs else 0
         elif a.cmd == 'compare-reports':
-            x, y = (runner.normalize_report(json.load(open(f))) for f in (a.a, a.b))
+            reports = [json.load(open(f)) for f in (a.a, a.b)]
+            current = None
+            if any(not any(st.get('id_names') for st in r.get('steps', [])) for r in reports):
+                # a report without id names (before task 041): the keys of its rules come from the current provisioning, read only
+                try:
+                    current = db.current_rule_keys(db.connect(settings))
+                except Exception as e:                    # no database: the names stay <host>:<kind>#<rank>
+                    print('note: rule keys not read (%s); old item ids are named by host, kind and rank' % e)
+            x, y = (runner.normalize_report(runner.name_ids(r, current)) for r in reports)
             diffs, new = runner.diff_reports(x, y)
             for path, only in new:
                 print('new field %s (only in %s)' % (path, 'the first report' if only == 'a' else 'the second report'))

@@ -615,6 +615,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             sr['neighbor_outcomes'] = sorted(([o['reporter'], o['port'], o['device'], o['outcome']] for o in state['observations']),
                                              key=lambda row: [str(v) for v in row])
             sr['snapshot_rows'] = db.snapshot_rows(conn)
+            sr['id_names'] = db.id_names(conn)          # for compare-reports: ids by natural keys (lab spec 8.4)
             derived_cache = {}
 
             def derived():
@@ -752,7 +753,65 @@ def compare_transports(a, b):
 
 _VOLATILE = {'failure_seen', 'id', 'edge_id', 'started_at', 'finished_at', 'run_id', 'snapshot_clocks', 'waited_for', 'last_seen', 'itemids',
              'hostid', 'itemid', 'at', 'device_id', 'end_devices', 'device_nodes', 'waited_seconds', 'wait_rounds', 'load_polls', 'node_ids', 'load_measured',
-             'command_line', 'topo_rows_after_reset'}
+             'command_line', 'topo_rows_after_reset', 'id_names'}
+
+
+ITEM_ID_MAPS = ('by_rule',)                       # maps keyed by an item id
+NODE_ID_FIELDS = ('kept', 'removed', 'kept_target', 'removed_target', 'skipped', 'device', 'port')    # fields that hold node ids
+
+
+def _derived_item_names(report, current=None):
+    """Item names of a report written before `id_names` (task 041): the host and the kind of each rule come from `waited_for` ('<host> <kind> rule
+    <itemid>'); the rank of the rule among the rules of that host and kind (by id) gives its key, from `current` ({(host, kind): [key, ...]} sorted by
+    item id, the rules of the current provisioning; the template creates them in the same order). Without `current`: '<host>:<kind>#<rank>'."""
+    seen = {}
+    for step in report.get('steps', []):
+        for entry in step.get('waited_for') or []:
+            parts = entry.rsplit(' ', 3)
+            if len(parts) == 4 and parts[2] == 'rule':
+                seen.setdefault((parts[0], parts[1]), set()).add(int(parts[3]))
+    names = {}
+    for (host, kind), ids in seen.items():
+        keys = (current or {}).get((host, kind))
+        for rank, itemid in enumerate(sorted(ids)):
+            names[str(itemid)] = '%s:%s' % (host, keys[rank]) if keys and rank < len(keys) else '%s:%s#%d' % (host, kind, rank)
+    return names
+
+
+def name_ids(report, current_rules=None):
+    """A copy of the report where the ids that `normalize_report` keeps are replaced by natural names (lab spec 8.4): the keys of `by_rule` maps (item
+    ids) by `<host>:<item key>`, the node ids of NODE_ID_FIELDS by the natural key of the node. The names come from the report's own `id_names` (written
+    since task 041), else derived (_derived_item_names)."""
+    derived = None
+
+    def items_of(step):
+        nonlocal derived
+        names = (step.get('id_names') or {}).get('items')
+        if names:
+            return names
+        if derived is None:
+            derived = _derived_item_names(report, current_rules)
+        return derived
+
+    def walk(obj, items, nodes, parent=None):
+        if isinstance(obj, dict):
+            out = {}
+            for k, v in obj.items():
+                key = items.get(str(k), k) if parent in ITEM_ID_MAPS else k
+                out[key] = walk(v, items, nodes, k)
+            return out
+        if isinstance(obj, list):
+            return [walk(x, items, nodes, parent) for x in obj]
+        if parent in NODE_ID_FIELDS and isinstance(obj, (int, str)) and str(obj) in nodes:
+            return nodes[str(obj)]
+        return obj
+
+    out = dict(report)
+    out['steps'] = []
+    for step in report.get('steps', []):
+        names = step.get('id_names') or {}
+        out['steps'].append(walk(step, items_of(step), names.get('nodes') or {}))
+    return out
 
 
 def diff_reports(a, b, path=''):

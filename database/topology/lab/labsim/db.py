@@ -42,6 +42,41 @@ def _j(text):
     return json.loads(text) if text else {}
 
 
+def id_names(conn):
+    """Natural names of the ids a report can hold (lab spec 8.4, compare-reports): an item id of a rule with a snapshot as `<host>:<item key>`, a node
+    id as the natural key of the node (a Device: sysname/chassis id; a Port: Device:port name; a Host/Proxy: host:<name> / proxy:<name>)."""
+    items = {str(r['itemid']): '%s:%s' % (r['host'], r['key_']) for r in rows(conn,
+             'SELECT i.itemid, h.host, i.key_ FROM items i JOIN hosts h ON h.hostid = i.hostid WHERE i.itemid IN (SELECT itemid FROM topo_lld_snapshot)')}
+    nodes = {r['id']: r for r in rows(conn, 'SELECT id, type, device_id, host_ref, proxy_ref, attrs FROM topo_nodes')}
+    hosts = {r['hostid']: r['host'] for r in rows(conn, 'SELECT hostid, host FROM hosts WHERE hostid IN (SELECT host_ref FROM topo_nodes WHERE host_ref IS NOT NULL)')}
+
+    def dev(n):
+        a = _j(n['attrs'])
+        return '%s/%s' % (a.get('sysname') or '', a.get('chassis_id') or '')
+
+    names = {}
+    for i, n in nodes.items():
+        if n['type'] == 'device':
+            names[str(i)] = dev(n)
+        elif n['type'] == 'port' and n['device_id'] in nodes:
+            names[str(i)] = '%s:%s' % (dev(nodes[n['device_id']]), _j(n['attrs']).get('name'))
+        elif n['type'] == 'host':
+            names[str(i)] = 'host:%s' % hosts.get(n['host_ref'], n['host_ref'])
+        elif n['type'] == 'proxy':
+            names[str(i)] = 'proxy:%s' % n['proxy_ref']
+    return {'items': items, 'nodes': names}
+
+
+def current_rule_keys(conn):
+    """The topology rules of the current provisioning: {(host, kind): [item key, ...]} sorted by item id; kind is the master item (`core`, `fdb`) of
+    `topology.walk.<kind>`. Read only; used to name the item ids of an old report (compare-reports)."""
+    out = {}
+    for r in rows(conn, "SELECT h.host, m.key_ AS master, i.itemid, i.key_ FROM items i JOIN items m ON m.itemid = i.master_itemid "
+                        "JOIN hosts h ON h.hostid = i.hostid WHERE m.key_ LIKE 'topology.walk.%' ORDER BY h.host, i.itemid"):
+        out.setdefault((r['host'], r['master'].split('.')[-1]), []).append(r['key_'])
+    return out
+
+
 def natural_state(conn):
     """Devices, ports, links, represented_by and observations by natural keys (no ids)."""
     nodes = {r['id']: r for r in rows(conn, 'SELECT * FROM topo_nodes')}
