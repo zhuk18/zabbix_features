@@ -657,23 +657,35 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every
-	 * represented_by pair (same source as getRelations()) plus every device-to-device pair
-	 * implied by a physical_link — the same port.device_id -> physical_link -> port.device_id
-	 * join chain getNeighbors() runs per-device below, but for every physical_link at once
-	 * instead of one device's ports — plus every live-resolved Host->Proxy monitoring pair
-	 * (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": no stored edge for this one, so it's resolved the same way getDevices() does).
+	 * The represented_by pairs (Device node id, Host/Proxy node id). They are not hops (topology-1-model.md §12.1): CTopologyHopScope keeps both ends of a
+	 * pair in the view at the same distance.
 	 *
 	 * @return array list of [id_a, id_b] pairs.
 	 */
-	public static function getAdjacency(): array {
+	public static function getRepresentedPairs(): array {
 		$pairs = [];
-
 		$result = DBselect('SELECT id,represented_by_node_id FROM topo_nodes WHERE type='.zbx_dbstr('device').
 			' AND represented_by_node_id IS NOT NULL');
 		while ($row = DBfetch($result)) {
 			$pairs[] = [$row['id'], $row['represented_by_node_id']];
 		}
+
+		return $pairs;
+	}
+
+	/**
+	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every device-to-device pair
+	 * implied by a physical_link — the same port.device_id -> physical_link -> port.device_id
+	 * join chain getNeighbors() runs per-device below, but for every physical_link at once
+	 * instead of one device's ports — plus every live-resolved Host->Proxy monitoring pair
+	 * (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": no stored edge for this one, so it's resolved the same way getDevices() does).
+	 *
+	 * Not included: the represented_by pairs, getRepresentedPairs().
+	 *
+	 * @return array list of [id_a, id_b] pairs.
+	 */
+	public static function getAdjacency(): array {
+		$pairs = [];
 
 		$result = DBselect(
 			'SELECT src_port.device_id AS device_a,dst_port.device_id AS device_b'.
@@ -747,7 +759,7 @@ class CTopologyPrototype {
 				return [];
 			}
 
-			return CTopologyHopScope::neighborhood([$seed_node['id']], $hops, self::getAdjacency());
+			return CTopologyHopScope::neighborhood([$seed_node['id']], $hops, self::getAdjacency(), self::getRepresentedPairs());
 		}
 
 		if ($groupids) {
@@ -769,7 +781,7 @@ class CTopologyPrototype {
 				return [];
 			}
 
-			return CTopologyHopScope::neighborhood($seed_ids, PHP_INT_MAX, self::getAdjacency());
+			return CTopologyHopScope::neighborhood($seed_ids, PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs());
 		}
 
 		return null;
