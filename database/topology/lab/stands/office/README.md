@@ -66,60 +66,48 @@ reporters, 119 Devices, 69 links.
 2. `labsim run R1 --reset` with `lab-office.yaml` as the lab file.
 3. The 127.0.17.0/24 addresses need no alias (127/8).
 
-## Changes needed in the lab tool (lab spec 2.6, proposal)
+## Lab tool support
 
-The tool as built (spec 2.5) can't run this stand. Proposed text:
+Replay devices, deviations, checks and the end forms are built (task
+034, lab spec 2.6–2.10). The explicit keys `{chassis: …}` of `R1.yaml`
+need lab 2.10 §8.3 (task 038).
 
-> **§4.1a Replay devices.** A device with `replay: <path>` takes its SNMP
-> data from that snmprec file. The generator does not write data for it:
-> it copies the file to `data/<scenario>/<device>/<community>.snmprec`
-> and checks that the file ends with the record of §5.2. A replay device
-> has no `ports`, `chassis`, `lldp`, `cdp`, `fdb` keys; cables can't use
-> its ports. `zabbix` and `ip` are as for other devices.
-> Deviations on a replay device: `omit_mib` (removes the records of the
-> MIB subtree: `lldp` 1.0.8802.1.1.2, `cdp` 1.3.6.1.4.1.9.9.23, `fdb`
-> 1.3.6.1.2.1.17.4 and 1.3.6.1.2.1.17.7, `lag` 1.2.840.10006.300.43) and
-> `override_oid`. Other deviations are rejected (§5.4). A replay device
-> with a deviation that changes in a step is a changing device (§5.3);
-> its subtree files are cut from the replay file.
+Closed points:
 
-Open points for the tool:
-
-- **Q-1. Natural keys with `:`.** §8.3 writes an end as `Device:port`.
-  Here Device names (`18:60:24:b2:bd:06`, FortiAP chassis MACs) and port
-  names (pseudo ports named by a MAC) contain `:`. `R1.yaml` uses the
-  form `{device: "…", port: "…"}` for these ends. Proposal: add this form
-  to §8.3.
-- **Q-2. Device key for duplicate sysnames.** 12 FortiAP-231K and 6
-  FortiAP-231F devices share sysnames; after step 3 two Devices are
-  named NA12501003431. §8.3 says "sysname or chassis"; `R1.yaml` uses
-  the chassis MAC for them. The runner must accept a chassis value as
-  the Device key.
-- **Q-3. Step 2 outcome of the CDP claims.** Model §8.5 says the port
-  is one set when the neighbors from all rules resolve to two or more
-  Devices, and the existing link stays (`applied`, the others
-  `ambiguous`). The bullet before it says: "If P has an active link,
-  §8.4 applies to each candidate", and §8.4 gives `conflict` (the LLDP
-  snapshot supports the link). `R1.yaml` expects `ambiguous`. The model
-  spec must say which bullet wins.
-- `status` assertions on list fields (`identity_keys_shared`) are
+- **Q-1. Natural keys with `:`** — lab 2.6 §8.3 (`{device, port}`).
+- **Q-2. Duplicate sysnames** — lab 2.6 §8.3, and explicit keys in 2.10.
+- **Q-3. Step 2 outcome of the CDP claims** — model 2.29 §8.5: with an
+  active link, a claim of another rule is a §8.4 candidate (`conflict`).
+  With the same-port join (model 2.29 §6.7.1) the CDP claims of R1 now
+  find the same Device, so they are `applied`, not `conflict`.
+- **Rows with a zero chassis (F-2)** — dropped by the server by the
+  contract (model §5.2: an empty identity macro is missing). They never
+  reach ingest; `rows_no_identity` stays 0. (The first version of this
+  README expected 10: wrong.)
+- `status` assertions on list fields (`identity_keys_shared`) stay
   `pending`.
 
 ## Scenario R1
 
-| Step | Change | Expected (by the model spec; my reading) |
+Expected values for model 2.29 and lab 2.10 (decisions of 2026-10-20).
+They need task 038 (ingest). Before 038, R1 fails at least on: twin
+Devices of Windows hosts (F-1), names from CDP (F-10), Device churn.
+
+| Step | Change | Expected |
 |---|---|---|
-| 0 | capture as received + gateways | 69 `physical_link` active (13 switch–switch, 4 core–gateway, 1 gateway HA, 51 endpoint); `rows_no_identity` = 10 (F-2); 26 Windows-host ports on HP: two Devices, observations `ambiguous`, no link (F-1); SW18 port 6: MikroTik `ambiguous` (F-4) |
-| 1 | `omit_mib: cdp` on the 6 HP switches | 26 new links to the Windows hosts; the 69 links stay; MikroTik still `ambiguous` (two LLDP Devices) |
-| 2 | CDP back | same data as step 0, but the 26 links stay active; the CDP claims are `ambiguous` (or `conflict`, Q-3) |
-| 3 | NA12501003431 restarts with a new chassis | new Device and new link on SW15 1/1/1; old link `superseded`; `address_keys_removed` = 1; the old Device stays without a link (ghost, F-7) |
+| 0 | capture as received + gateways | 93 Devices created (14 reporters + 79); 95 `physical_link` active (13 switch–switch, 4 core–gateway, 1 gateway HA, 51 endpoint, 26 Windows hosts on HP ports); LLDP and CDP rows of a Windows host find one Device (same-port join); Lab-u22 and ND names from LLDP; SW18 port 6 MikroTik `ambiguous` (F-4) |
+| 1 | `omit_mib: cdp` on the 6 HP switches | nothing created; the 95 links stay; MikroTik still `ambiguous` |
+| 2 | CDP back | same data and same result as step 0; nothing created |
+| 3 | NA12501003431 restarts with a new chassis | 1 Device, 1 link created on SW15 1/1/1; old link `superseded`; `address_keys_removed` = 1; the old Device stays without a link (ghost, F-7) |
+| 4 | no change, ingest again | nothing created or superseded (task 034 found 26 new Devices per run) |
 
-Step 2 shows that the result depends on history: steps 0 and 2 have the
-same input and different topology (report F-9).
+F-9 (same input, different topology) is gone for the Windows hosts: with
+one Device per host, steps 0 and 2 give the same result.
 
-Expected values come from `analysis/tools/resolve.py`, a simplified
-reading of the spec (step 0 directly; step 1 checked with CDP rows
-removed: +26 links, none lost; step 3 checked without history: one new
-Device and one new link on SW15 1/1/1; the superseded link and the
-address key follow from model §8.4 and §6.7.0, not from the script). A difference in the real run is a
-question for the spec, the ingest code or the script.
+Expected values come from `analysis/tools/resolve.py` with the 2.29
+rules (same-port join, LLDP priority), a simplified reading of the spec:
+step 0 directly; step 1 with the CDP rows removed (same 95 links); step 3
+without history (one new Device, one new link on SW15 1/1/1; the
+superseded link and the address key follow from model §8.4 and §6.7.0,
+not from the script). A difference in a real run is a question for the
+spec, the ingest code or the script.

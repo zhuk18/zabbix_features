@@ -1,47 +1,16 @@
 id: R1
-title: Office capture — baseline, HP without CDP, CDP back, NA restart
+title: Office capture — baseline, HP without CDP, CDP back, NA restart, ingest again
 base: lab-office.yaml
+# Expected values: model v2.29, lab v2.10 (2026-10-20). They need task 038 in ingest.
 settings: {freshness_seconds: null, transport: null, roles: null}
 steps:
   - id: 0
     note: baseline, real capture as received + synthetic gateways
     assert:
-      - status: {field: links_created, equals: 69}
-      - status: {field: rows_no_identity, equals: 10}          # report F-2 (SW12 x5, SW14 x5)
-      - pending: "identity_keys_shared: one key ip:server:192.168.88.1 (report F-4); the runner has no assertion for a list field"
-      - pending: "SW18 CDP port 6: two rows with the same claim key (itemid, num/ifindex:6, ip:server:192.168.88.1) — model §7.1 unique key; expected behaviour not defined (report F-4)"
-      - {link: [SW14-10-ACC-6000-48G:1/1/33, {device: "18:60:24:b2:bd:06", port: "18:60:24:b2:bd:06"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/14, {device: "94:f3:92:df:07:70", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/16, {device: "94:f3:92:df:04:50", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/18, {device: "94:f3:92:df:01:90", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/20, {device: "94:f3:92:de:ff:30", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/21, {device: "94:f3:92:cc:4e:70", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/22, {device: "94:f3:92:cc:3b:30", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/16, {device: "d4:b4:c0:62:ea:90", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/18, {device: "d4:b4:c0:62:82:30", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/20, {device: "d4:b4:c0:62:10:f0", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/22, {device: "d4:b4:c0:61:c5:90", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/23, {device: "d4:b4:c0:62:ea:30", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/24, {device: "d4:b4:c0:61:db:70", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/2, NA12433002908:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/4, NA12433003026:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/9, NA12436002109:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/5, NA12501002071:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/4, NA12501003011:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/2, NA12501003334:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/1, NA12501003348:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/5, NA12501003365:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/7, NA12501003395:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/8, NA12501003402:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/10, NA12501003408:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/6, NA12501003426:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/1, NA12501003431:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/6, NA12501003433:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/2, NA12502000654:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW15-10-POE-6000-24G:1/1/3, NA12502001535:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/3, NA12503002597:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/3, NA12506002897:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW22-07-ACC-2530-48G:1, ND12513000752:eth0], state: active, type: physical_link}   # cdp+lldp
+      - status: {field: devices_created, equals: 93}   # 14 reporters + 79; no twin Devices (model 2.29 §6.7.1 same-port join)
+      - status: {field: links_created, equals: 95}
+      - pending: "10 rows of SW12 and SW14 (chassis subtype local, 6 zero bytes) are dropped by the server: no identity macro, contract model §5.2. No observation, no link on those ports."
+      - pending: "SW18 CDP port 6: two rows with one claim key; model 2.29 §7.1: the first row makes the observation, rows_duplicate_claim = 1 for the rule"
       - {link: [SW12-10-CORE-6000-48G:1/1/35, SW14-10-ACC-6000-48G:1/1/48], state: active, type: physical_link}   # lldp
       - {link: [SW12-10-CORE-6000-48G:1/1/37, zbx-office-gw1:port1], state: active, type: physical_link}   # lldp
       - {link: [SW12-10-CORE-6000-48G:1/1/38, zbx-office-gw1:port2], state: active, type: physical_link}   # lldp
@@ -53,148 +22,128 @@ steps:
       - {link: [SW12-10-CORE-6000-48G:1/1/44, SW18-09-ACC-2530-48G:47], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW12-10-CORE-6000-48G:1/1/45, SW20-07-ACC-2530-48G:47], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW12-10-CORE-6000-48G:1/1/46, SW20-07-ACC-2530-48G:48], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW13-10-ACC-6000-48G:1/1/11, {device: {chassis: "ZBX-BV1DKC4"}, port: "94:bd:be:96:47:c6"}], state: active, type: physical_link}   # lldp
+      - {link: [SW13-10-ACC-6000-48G:1/1/23, {device: {chassis: "ZBX-5CD225BY3Y"}, port: "60:6d:3c:4e:de:b6"}], state: active, type: physical_link}   # lldp
+      - {link: [SW13-10-ACC-6000-48G:1/1/3, {device: {chassis: "ZBX-5CG55240H4"}, port: "60:6d:3c:4e:e3:7d"}], state: active, type: physical_link}   # lldp
+      - {link: [SW13-10-ACC-6000-48G:1/1/40, {device: {chassis: "ZBX-5CD1479M1Q"}, port: "60:6d:3c:4d:cf:e7"}], state: active, type: physical_link}   # lldp
+      - {link: [SW13-10-ACC-6000-48G:1/1/43, {device: {chassis: "ZBX-9V1DKC4"}, port: "98:ee:cb:bc:87:62"}], state: active, type: physical_link}   # lldp
+      - {link: [SW14-10-ACC-6000-48G:1/1/33, {device: {chassis: "18:60:24:b2:bd:06"}, port: "18:60:24:b2:bd:06"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/1, NA12501003431:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/16, {device: {chassis: "d4:b4:c0:62:ea:90"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/18, {device: {chassis: "d4:b4:c0:62:82:30"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/2, NA12502000654:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/20, {device: {chassis: "d4:b4:c0:62:10:f0"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/22, {device: {chassis: "d4:b4:c0:61:c5:90"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/23, {device: {chassis: "d4:b4:c0:62:ea:30"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/24, {device: {chassis: "d4:b4:c0:61:db:70"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/3, NA12502001535:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/4, NA12433003026:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/5, NA12501002071:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW15-10-POE-6000-24G:1/1/6, NA12501003433:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW16-09-ACC-2530-48G:13, {device: {chassis: "ZBX-5CD2461LDQ"}, port: "7c:57:58:70:f8:18"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:15, {device: {chassis: "ZBX-5CD432G3QZ"}, port: "24:6a:0e:26:f8:3d"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:19, {device: {chassis: "ZBX-5CD2246HLQ"}, port: "84:69:93:74:cb:e8"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:21, {device: {chassis: "ZBX-5CD3053MWR"}, port: "7c:4d:8f:1d:f7:1e"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWT"}, port: "7c:4d:8f:1d:f7:20"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD3053MWP"}, port: "7c:4d:8f:1d:f7:1c"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:37, {device: {chassis: "ZBX-4RMLGG4"}, port: "98:ee:cb:bc:5d:eb"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:40, {device: {chassis: "ZBX-5CD3221K0Y"}, port: "bc:0f:f3:7b:1c:53"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:44, {device: {chassis: "ZBX-5CD432G3QY"}, port: "24:6a:0e:1a:64:7c"}], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW16-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:44], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:6, {device: {chassis: "ZBX-5CD1479M2G"}, port: "c8:5a:cf:a4:45:ab"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW16-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD2246HLV"}, port: "84:69:93:74:cb:ec"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW17-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD41943FH"}, port: "60:6d:3c:4e:e3:7b"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW17-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD2246HLN"}, port: "84:69:93:74:cb:e6"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW17-09-ACC-2530-48G:31, {device: {chassis: "ZBX-CND0350YCJ"}, port: "84:2a:fd:ce:64:32"}], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW17-09-ACC-2530-48G:37, ND12513000766:eth0], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW17-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:45], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW17-09-ACC-2530-48G:9, {device: {chassis: "ZBX-5CG62421LB"}, port: "b8:87:88:e4:43:9d"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW18-09-ACC-2530-48G:1, {device: {chassis: "ZBX-5CG5364J67"}, port: "4c:cf:7c:12:e4:26"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW18-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD1277J0B"}, port: "48:9e:bd:2d:64:0b"}], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW18-09-ACC-2530-48G:30, Lab-u22.zabbix.lan:eno1], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW18-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD2246HLS"}, port: "44:67:52:1b:b4:f1"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW18-09-ACC-2530-48G:36, {device: {chassis: "ZBX-5CD43630XQ"}, port: "24:6a:0e:d0:82:4e"}], state: active, type: physical_link}   # cdp+lldp
       - {link: [SW18-09-ACC-2530-48G:46, SW19-09-POE-6000-24G:1/1/24], state: active, type: physical_link}   # cdp+lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/14, {device: "d4:b4:c0:62:ef:10", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/16, {device: "d4:b4:c0:62:ee:10", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/18, {device: "d4:b4:c0:62:e9:10", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/20, {device: "d4:b4:c0:62:c0:70", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/21, {device: "d4:b4:c0:62:ea:10", port: "eth0"}], state: active, type: physical_link}   # lldp
-      - {link: [SW19-09-POE-6000-24G:1/1/22, {device: "d4:b4:c0:61:ff:10", port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW18-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD41943FM"}, port: "30:13:8b:92:bc:fb"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/1, NA12501003348:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/14, {device: {chassis: "d4:b4:c0:62:ef:10"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/16, {device: {chassis: "d4:b4:c0:62:ee:10"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/18, {device: {chassis: "d4:b4:c0:62:e9:10"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/2, NA12433002908:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/20, {device: {chassis: "d4:b4:c0:62:c0:70"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/21, {device: {chassis: "d4:b4:c0:62:ea:10"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/22, {device: {chassis: "d4:b4:c0:61:ff:10"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW19-09-POE-6000-24G:1/1/3, NA12503002597:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/4, NA12501003390:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/5, NA12506001879:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/6, NA12501002290:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/7, NA12502000980:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/8, NA12501002979:eth0], state: active, type: physical_link}   # lldp
       - {link: [SW19-09-POE-6000-24G:1/1/9, NA12501003436:eth0], state: active, type: physical_link}   # lldp
-      - {link: [SW21-07-ACC-2530-48G:48, SW20-07-ACC-2530-48G:42], state: active, type: physical_link}   # cdp+lldp
-      - {link: [SW22-07-ACC-2530-48G:48, SW20-07-ACC-2530-48G:40], state: active, type: physical_link}   # cdp+lldp
-      - {link: [SW23-07-POE-6000-24G:1/1/24, SW20-07-ACC-2530-48G:46], state: active, type: physical_link}   # cdp+lldp
-      - {link: [SW13-10-ACC-6000-48G:1/1/40, {device: "ZBX-5CD1479M1Q", port: "60:6d:3c:4d:cf:e7"}], state: active, type: physical_link}   # lldp
-      - {link: [SW13-10-ACC-6000-48G:1/1/23, {device: "ZBX-5CD225BY3Y", port: "60:6d:3c:4e:de:b6"}], state: active, type: physical_link}   # lldp
-      - {link: [SW13-10-ACC-6000-48G:1/1/3, {device: "ZBX-5CG55240H4", port: "60:6d:3c:4e:e3:7d"}], state: active, type: physical_link}   # lldp
-      - {link: [SW13-10-ACC-6000-48G:1/1/43, {device: "ZBX-9V1DKC4", port: "98:ee:cb:bc:87:62"}], state: active, type: physical_link}   # lldp
-      - {link: [SW13-10-ACC-6000-48G:1/1/11, {device: "ZBX-BV1DKC4", port: "94:bd:be:96:47:c6"}], state: active, type: physical_link}   # lldp
+      - {link: [SW20-07-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWW"}, port: "7c:4d:8f:1d:f7:22"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW20-07-ACC-2530-48G:35, {device: {chassis: "ZBX-5CD41943FG"}, port: "30:13:8b:92:bc:f6"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW20-07-ACC-2530-48G:40, SW22-07-ACC-2530-48G:48], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW20-07-ACC-2530-48G:42, SW21-07-ACC-2530-48G:48], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW20-07-ACC-2530-48G:46, SW23-07-POE-6000-24G:1/1/24], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW21-07-ACC-2530-48G:17, {device: {chassis: "ZBX-5CD519CVHX"}, port: "10:b6:76:99:a1:f0"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW21-07-ACC-2530-48G:29, {device: {chassis: "ZBX-HN7306W"}, port: "34:99:71:e6:34:b2"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW22-07-ACC-2530-48G:1, ND12513000752:eth0], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW22-07-ACC-2530-48G:5, {device: {chassis: "ZBX-5CD3221K14"}, port: "bc:0f:f3:7b:1c:59"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW22-07-ACC-2530-48G:7, {device: {chassis: "ZBX-5CG9150YG9"}, port: "60:6d:3c:4e:e3:7c"}], state: active, type: physical_link}   # cdp+lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/10, NA12501003408:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/14, {device: {chassis: "94:f3:92:df:07:70"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/16, {device: {chassis: "94:f3:92:df:04:50"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/18, {device: {chassis: "94:f3:92:df:01:90"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/2, NA12501003334:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/20, {device: {chassis: "94:f3:92:de:ff:30"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/21, {device: {chassis: "94:f3:92:cc:4e:70"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/22, {device: {chassis: "94:f3:92:cc:3b:30"}, port: "eth0"}], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/3, NA12506002897:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/4, NA12501003011:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/5, NA12501003365:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/6, NA12501003426:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/7, NA12501003395:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/8, NA12501003402:eth0], state: active, type: physical_link}   # lldp
+      - {link: [SW23-07-POE-6000-24G:1/1/9, NA12436002109:eth0], state: active, type: physical_link}   # lldp
       - {link: [zbx-office-gw1:ha1, zbx-office-gw2:ha1], state: active, type: physical_link}   # lldp
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "3", remote: ZBX-5CD3053MWT}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:3, ZBX-5CD3053MWT], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "6", remote: ZBX-5CD1479M2G}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:6, ZBX-5CD1479M2G], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "7", remote: ZBX-5CD2246HLV}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:7, ZBX-5CD2246HLV], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "13", remote: ZBX-5CD2461LDQ}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:13, ZBX-5CD2461LDQ], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "15", remote: ZBX-5CD432G3QZ}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:15, ZBX-5CD432G3QZ], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "19", remote: ZBX-5CD2246HLQ}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:19, ZBX-5CD2246HLQ], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "21", remote: ZBX-5CD3053MWR}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:21, ZBX-5CD3053MWR], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "32", remote: ZBX-5CD3053MWP}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:32, ZBX-5CD3053MWP], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "37", remote: ZBX-4RMLGG4}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:37, ZBX-4RMLGG4], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "40", remote: ZBX-5CD3221K0Y}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:40, ZBX-5CD3221K0Y], state: absent}
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "44", remote: ZBX-5CD432G3QY}, outcome: ambiguous}   # F-1
-      - {link: [SW16-09-ACC-2530-48G:44, ZBX-5CD432G3QY], state: absent}
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "3", remote: ZBX-5CD2246HLN}, outcome: ambiguous}   # F-1
-      - {link: [SW17-09-ACC-2530-48G:3, ZBX-5CD2246HLN], state: absent}
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "9", remote: ZBX-5CG62421LB}, outcome: ambiguous}   # F-1
-      - {link: [SW17-09-ACC-2530-48G:9, ZBX-5CG62421LB], state: absent}
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "29", remote: ZBX-5CD41943FH}, outcome: ambiguous}   # F-1
-      - {link: [SW17-09-ACC-2530-48G:29, ZBX-5CD41943FH], state: absent}
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "31", remote: ZBX-CND0350YCJ}, outcome: ambiguous}   # F-1
-      - {link: [SW17-09-ACC-2530-48G:31, ZBX-CND0350YCJ], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "1", remote: ZBX-5CG5364J67}, outcome: ambiguous}   # F-1
-      - {link: [SW18-09-ACC-2530-48G:1, ZBX-5CG5364J67], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "7", remote: ZBX-5CD41943FM}, outcome: ambiguous}   # F-1
-      - {link: [SW18-09-ACC-2530-48G:7, ZBX-5CD41943FM], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "29", remote: ZBX-5CD1277J0B}, outcome: ambiguous}   # F-1
-      - {link: [SW18-09-ACC-2530-48G:29, ZBX-5CD1277J0B], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "32", remote: ZBX-5CD2246HLS}, outcome: ambiguous}   # F-1
-      - {link: [SW18-09-ACC-2530-48G:32, ZBX-5CD2246HLS], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "36", remote: ZBX-5CD43630XQ}, outcome: ambiguous}   # F-1
-      - {link: [SW18-09-ACC-2530-48G:36, ZBX-5CD43630XQ], state: absent}
-      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "3", remote: ZBX-5CD3053MWW}, outcome: ambiguous}   # F-1
-      - {link: [SW20-07-ACC-2530-48G:3, ZBX-5CD3053MWW], state: absent}
-      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "35", remote: ZBX-5CD41943FG}, outcome: ambiguous}   # F-1
-      - {link: [SW20-07-ACC-2530-48G:35, ZBX-5CD41943FG], state: absent}
-      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "17", remote: ZBX-5CD519CVHX}, outcome: ambiguous}   # F-1
-      - {link: [SW21-07-ACC-2530-48G:17, ZBX-5CD519CVHX], state: absent}
-      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "29", remote: ZBX-HN7306W}, outcome: ambiguous}   # F-1
-      - {link: [SW21-07-ACC-2530-48G:29, ZBX-HN7306W], state: absent}
-      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "5", remote: ZBX-5CD3221K14}, outcome: ambiguous}   # F-1
-      - {link: [SW22-07-ACC-2530-48G:5, ZBX-5CD3221K14], state: absent}
-      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "7", remote: ZBX-5CG9150YG9}, outcome: ambiguous}   # F-1
-      - {link: [SW22-07-ACC-2530-48G:7, ZBX-5CG9150YG9], state: absent}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "6", remote: MikroTik}, outcome: ambiguous}   # F-4
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/11", remote: {chassis: "ZBX-BV1DKC4"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/23", remote: {chassis: "ZBX-5CD225BY3Y"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/3", remote: {chassis: "ZBX-5CG55240H4"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/40", remote: {chassis: "ZBX-5CD1479M1Q"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/43", remote: {chassis: "ZBX-9V1DKC4"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "13", remote: {chassis: "ZBX-5CD2461LDQ"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "15", remote: {chassis: "ZBX-5CD432G3QZ"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "19", remote: {chassis: "ZBX-5CD2246HLQ"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "21", remote: {chassis: "ZBX-5CD3053MWR"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD3053MWT"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "32", remote: {chassis: "ZBX-5CD3053MWP"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "37", remote: {chassis: "ZBX-4RMLGG4"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "40", remote: {chassis: "ZBX-5CD3221K0Y"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "44", remote: {chassis: "ZBX-5CD432G3QY"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "6", remote: {chassis: "ZBX-5CD1479M2G"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CD2246HLV"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-5CD41943FH"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD2246HLN"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "31", remote: {chassis: "ZBX-CND0350YCJ"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "9", remote: {chassis: "ZBX-5CG62421LB"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "1", remote: {chassis: "ZBX-5CG5364J67"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-5CD1277J0B"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "32", remote: {chassis: "ZBX-5CD2246HLS"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "36", remote: {chassis: "ZBX-5CD43630XQ"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CD41943FM"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD3053MWW"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "35", remote: {chassis: "ZBX-5CD41943FG"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "17", remote: {chassis: "ZBX-5CD519CVHX"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-HN7306W"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "5", remote: {chassis: "ZBX-5CD3221K14"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CG9150YG9"}}, outcome: applied}   # one Device per host (on HP: LLDP + CDP rows)
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "6", remote: MikroTik}, outcome: ambiguous}   # two LLDP chassis, one IP (model §6.7.4)
   - id: 1
-    note: CDP removed from the six HP switches (F-1 option b)
+    note: CDP removed from the six HP switches
     deviations: {enable: [no-cdp-sw16, no-cdp-sw17, no-cdp-sw18, no-cdp-sw20, no-cdp-sw21, no-cdp-sw22], disable: []}
     assert:
-      - status: {field: links_created, equals: 26}
-      - {link: [SW16-09-ACC-2530-48G:3, ZBX-5CD3053MWT], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:6, ZBX-5CD1479M2G], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:7, ZBX-5CD2246HLV], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:13, ZBX-5CD2461LDQ], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:15, ZBX-5CD432G3QZ], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:19, ZBX-5CD2246HLQ], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:21, ZBX-5CD3053MWR], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:32, ZBX-5CD3053MWP], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:37, ZBX-4RMLGG4], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:40, ZBX-5CD3221K0Y], state: active, type: physical_link}
-      - {link: [SW16-09-ACC-2530-48G:44, ZBX-5CD432G3QY], state: active, type: physical_link}
-      - {link: [SW17-09-ACC-2530-48G:3, ZBX-5CD2246HLN], state: active, type: physical_link}
-      - {link: [SW17-09-ACC-2530-48G:9, ZBX-5CG62421LB], state: active, type: physical_link}
-      - {link: [SW17-09-ACC-2530-48G:29, ZBX-5CD41943FH], state: active, type: physical_link}
-      - {link: [SW17-09-ACC-2530-48G:31, ZBX-CND0350YCJ], state: active, type: physical_link}
-      - {link: [SW18-09-ACC-2530-48G:1, ZBX-5CG5364J67], state: active, type: physical_link}
-      - {link: [SW18-09-ACC-2530-48G:7, ZBX-5CD41943FM], state: active, type: physical_link}
-      - {link: [SW18-09-ACC-2530-48G:29, ZBX-5CD1277J0B], state: active, type: physical_link}
-      - {link: [SW18-09-ACC-2530-48G:32, ZBX-5CD2246HLS], state: active, type: physical_link}
-      - {link: [SW18-09-ACC-2530-48G:36, ZBX-5CD43630XQ], state: active, type: physical_link}
-      - {link: [SW20-07-ACC-2530-48G:3, ZBX-5CD3053MWW], state: active, type: physical_link}
-      - {link: [SW20-07-ACC-2530-48G:35, ZBX-5CD41943FG], state: active, type: physical_link}
-      - {link: [SW21-07-ACC-2530-48G:17, ZBX-5CD519CVHX], state: active, type: physical_link}
-      - {link: [SW21-07-ACC-2530-48G:29, ZBX-HN7306W], state: active, type: physical_link}
-      - {link: [SW22-07-ACC-2530-48G:5, ZBX-5CD3221K14], state: active, type: physical_link}
-      - {link: [SW22-07-ACC-2530-48G:7, ZBX-5CG9150YG9], state: active, type: physical_link}
-      - {link: [SW14-10-ACC-6000-48G:1/1/33, {device: "18:60:24:b2:bd:06", port: "18:60:24:b2:bd:06"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/14, {device: "94:f3:92:df:07:70", port: "eth0"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/16, {device: "94:f3:92:df:04:50", port: "eth0"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/18, {device: "94:f3:92:df:01:90", port: "eth0"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/20, {device: "94:f3:92:de:ff:30", port: "eth0"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/21, {device: "94:f3:92:cc:4e:70", port: "eth0"}], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/22, {device: "94:f3:92:cc:3b:30", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/16, {device: "d4:b4:c0:62:ea:90", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/18, {device: "d4:b4:c0:62:82:30", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/20, {device: "d4:b4:c0:62:10:f0", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/22, {device: "d4:b4:c0:61:c5:90", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/23, {device: "d4:b4:c0:62:ea:30", port: "eth0"}], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/24, {device: "d4:b4:c0:61:db:70", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/2, NA12433002908:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/4, NA12433003026:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/9, NA12436002109:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/5, NA12501002071:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/4, NA12501003011:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/2, NA12501003334:eth0], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/1, NA12501003348:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/5, NA12501003365:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/7, NA12501003395:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/8, NA12501003402:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/10, NA12501003408:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/6, NA12501003426:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/1, NA12501003431:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/6, NA12501003433:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/2, NA12502000654:eth0], state: active}
-      - {link: [SW15-10-POE-6000-24G:1/1/3, NA12502001535:eth0], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/3, NA12503002597:eth0], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/3, NA12506002897:eth0], state: active}
-      - {link: [SW22-07-ACC-2530-48G:1, ND12513000752:eth0], state: active}
+      - status: {field: links_created, equals: 0}
+      - status: {field: devices_created, equals: 0}
       - {link: [SW12-10-CORE-6000-48G:1/1/35, SW14-10-ACC-6000-48G:1/1/48], state: active}
       - {link: [SW12-10-CORE-6000-48G:1/1/37, zbx-office-gw1:port1], state: active}
       - {link: [SW12-10-CORE-6000-48G:1/1/38, zbx-office-gw1:port2], state: active}
@@ -206,99 +155,174 @@ steps:
       - {link: [SW12-10-CORE-6000-48G:1/1/44, SW18-09-ACC-2530-48G:47], state: active}
       - {link: [SW12-10-CORE-6000-48G:1/1/45, SW20-07-ACC-2530-48G:47], state: active}
       - {link: [SW12-10-CORE-6000-48G:1/1/46, SW20-07-ACC-2530-48G:48], state: active}
+      - {link: [SW13-10-ACC-6000-48G:1/1/11, {device: {chassis: "ZBX-BV1DKC4"}, port: "94:bd:be:96:47:c6"}], state: active}
+      - {link: [SW13-10-ACC-6000-48G:1/1/23, {device: {chassis: "ZBX-5CD225BY3Y"}, port: "60:6d:3c:4e:de:b6"}], state: active}
+      - {link: [SW13-10-ACC-6000-48G:1/1/3, {device: {chassis: "ZBX-5CG55240H4"}, port: "60:6d:3c:4e:e3:7d"}], state: active}
+      - {link: [SW13-10-ACC-6000-48G:1/1/40, {device: {chassis: "ZBX-5CD1479M1Q"}, port: "60:6d:3c:4d:cf:e7"}], state: active}
+      - {link: [SW13-10-ACC-6000-48G:1/1/43, {device: {chassis: "ZBX-9V1DKC4"}, port: "98:ee:cb:bc:87:62"}], state: active}
+      - {link: [SW14-10-ACC-6000-48G:1/1/33, {device: {chassis: "18:60:24:b2:bd:06"}, port: "18:60:24:b2:bd:06"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/1, NA12501003431:eth0], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/16, {device: {chassis: "d4:b4:c0:62:ea:90"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/18, {device: {chassis: "d4:b4:c0:62:82:30"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/2, NA12502000654:eth0], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/20, {device: {chassis: "d4:b4:c0:62:10:f0"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/22, {device: {chassis: "d4:b4:c0:61:c5:90"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/23, {device: {chassis: "d4:b4:c0:62:ea:30"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/24, {device: {chassis: "d4:b4:c0:61:db:70"}, port: "eth0"}], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/3, NA12502001535:eth0], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/4, NA12433003026:eth0], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/5, NA12501002071:eth0], state: active}
+      - {link: [SW15-10-POE-6000-24G:1/1/6, NA12501003433:eth0], state: active}
+      - {link: [SW16-09-ACC-2530-48G:13, {device: {chassis: "ZBX-5CD2461LDQ"}, port: "7c:57:58:70:f8:18"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:15, {device: {chassis: "ZBX-5CD432G3QZ"}, port: "24:6a:0e:26:f8:3d"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:19, {device: {chassis: "ZBX-5CD2246HLQ"}, port: "84:69:93:74:cb:e8"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:21, {device: {chassis: "ZBX-5CD3053MWR"}, port: "7c:4d:8f:1d:f7:1e"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWT"}, port: "7c:4d:8f:1d:f7:20"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD3053MWP"}, port: "7c:4d:8f:1d:f7:1c"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:37, {device: {chassis: "ZBX-4RMLGG4"}, port: "98:ee:cb:bc:5d:eb"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:40, {device: {chassis: "ZBX-5CD3221K0Y"}, port: "bc:0f:f3:7b:1c:53"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:44, {device: {chassis: "ZBX-5CD432G3QY"}, port: "24:6a:0e:1a:64:7c"}], state: active}
       - {link: [SW16-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:44], state: active}
+      - {link: [SW16-09-ACC-2530-48G:6, {device: {chassis: "ZBX-5CD1479M2G"}, port: "c8:5a:cf:a4:45:ab"}], state: active}
+      - {link: [SW16-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD2246HLV"}, port: "84:69:93:74:cb:ec"}], state: active}
+      - {link: [SW17-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD41943FH"}, port: "60:6d:3c:4e:e3:7b"}], state: active}
+      - {link: [SW17-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD2246HLN"}, port: "84:69:93:74:cb:e6"}], state: active}
+      - {link: [SW17-09-ACC-2530-48G:31, {device: {chassis: "ZBX-CND0350YCJ"}, port: "84:2a:fd:ce:64:32"}], state: active}
       - {link: [SW17-09-ACC-2530-48G:37, ND12513000766:eth0], state: active}
       - {link: [SW17-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:45], state: active}
+      - {link: [SW17-09-ACC-2530-48G:9, {device: {chassis: "ZBX-5CG62421LB"}, port: "b8:87:88:e4:43:9d"}], state: active}
+      - {link: [SW18-09-ACC-2530-48G:1, {device: {chassis: "ZBX-5CG5364J67"}, port: "4c:cf:7c:12:e4:26"}], state: active}
+      - {link: [SW18-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD1277J0B"}, port: "48:9e:bd:2d:64:0b"}], state: active}
       - {link: [SW18-09-ACC-2530-48G:30, Lab-u22.zabbix.lan:eno1], state: active}
+      - {link: [SW18-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD2246HLS"}, port: "44:67:52:1b:b4:f1"}], state: active}
+      - {link: [SW18-09-ACC-2530-48G:36, {device: {chassis: "ZBX-5CD43630XQ"}, port: "24:6a:0e:d0:82:4e"}], state: active}
       - {link: [SW18-09-ACC-2530-48G:46, SW19-09-POE-6000-24G:1/1/24], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/14, {device: "d4:b4:c0:62:ef:10", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/16, {device: "d4:b4:c0:62:ee:10", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/18, {device: "d4:b4:c0:62:e9:10", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/20, {device: "d4:b4:c0:62:c0:70", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/21, {device: "d4:b4:c0:62:ea:10", port: "eth0"}], state: active}
-      - {link: [SW19-09-POE-6000-24G:1/1/22, {device: "d4:b4:c0:61:ff:10", port: "eth0"}], state: active}
+      - {link: [SW18-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD41943FM"}, port: "30:13:8b:92:bc:fb"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/1, NA12501003348:eth0], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/14, {device: {chassis: "d4:b4:c0:62:ef:10"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/16, {device: {chassis: "d4:b4:c0:62:ee:10"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/18, {device: {chassis: "d4:b4:c0:62:e9:10"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/2, NA12433002908:eth0], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/20, {device: {chassis: "d4:b4:c0:62:c0:70"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/21, {device: {chassis: "d4:b4:c0:62:ea:10"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/22, {device: {chassis: "d4:b4:c0:61:ff:10"}, port: "eth0"}], state: active}
+      - {link: [SW19-09-POE-6000-24G:1/1/3, NA12503002597:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/4, NA12501003390:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/5, NA12506001879:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/6, NA12501002290:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/7, NA12502000980:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/8, NA12501002979:eth0], state: active}
       - {link: [SW19-09-POE-6000-24G:1/1/9, NA12501003436:eth0], state: active}
-      - {link: [SW21-07-ACC-2530-48G:48, SW20-07-ACC-2530-48G:42], state: active}
-      - {link: [SW22-07-ACC-2530-48G:48, SW20-07-ACC-2530-48G:40], state: active}
-      - {link: [SW23-07-POE-6000-24G:1/1/24, SW20-07-ACC-2530-48G:46], state: active}
-      - {link: [SW13-10-ACC-6000-48G:1/1/40, {device: "ZBX-5CD1479M1Q", port: "60:6d:3c:4d:cf:e7"}], state: active}
-      - {link: [SW13-10-ACC-6000-48G:1/1/23, {device: "ZBX-5CD225BY3Y", port: "60:6d:3c:4e:de:b6"}], state: active}
-      - {link: [SW13-10-ACC-6000-48G:1/1/3, {device: "ZBX-5CG55240H4", port: "60:6d:3c:4e:e3:7d"}], state: active}
-      - {link: [SW13-10-ACC-6000-48G:1/1/43, {device: "ZBX-9V1DKC4", port: "98:ee:cb:bc:87:62"}], state: active}
-      - {link: [SW13-10-ACC-6000-48G:1/1/11, {device: "ZBX-BV1DKC4", port: "94:bd:be:96:47:c6"}], state: active}
+      - {link: [SW20-07-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWW"}, port: "7c:4d:8f:1d:f7:22"}], state: active}
+      - {link: [SW20-07-ACC-2530-48G:35, {device: {chassis: "ZBX-5CD41943FG"}, port: "30:13:8b:92:bc:f6"}], state: active}
+      - {link: [SW20-07-ACC-2530-48G:40, SW22-07-ACC-2530-48G:48], state: active}
+      - {link: [SW20-07-ACC-2530-48G:42, SW21-07-ACC-2530-48G:48], state: active}
+      - {link: [SW20-07-ACC-2530-48G:46, SW23-07-POE-6000-24G:1/1/24], state: active}
+      - {link: [SW21-07-ACC-2530-48G:17, {device: {chassis: "ZBX-5CD519CVHX"}, port: "10:b6:76:99:a1:f0"}], state: active}
+      - {link: [SW21-07-ACC-2530-48G:29, {device: {chassis: "ZBX-HN7306W"}, port: "34:99:71:e6:34:b2"}], state: active}
+      - {link: [SW22-07-ACC-2530-48G:1, ND12513000752:eth0], state: active}
+      - {link: [SW22-07-ACC-2530-48G:5, {device: {chassis: "ZBX-5CD3221K14"}, port: "bc:0f:f3:7b:1c:59"}], state: active}
+      - {link: [SW22-07-ACC-2530-48G:7, {device: {chassis: "ZBX-5CG9150YG9"}, port: "60:6d:3c:4e:e3:7c"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/10, NA12501003408:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/14, {device: {chassis: "94:f3:92:df:07:70"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/16, {device: {chassis: "94:f3:92:df:04:50"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/18, {device: {chassis: "94:f3:92:df:01:90"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/2, NA12501003334:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/20, {device: {chassis: "94:f3:92:de:ff:30"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/21, {device: {chassis: "94:f3:92:cc:4e:70"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/22, {device: {chassis: "94:f3:92:cc:3b:30"}, port: "eth0"}], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/3, NA12506002897:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/4, NA12501003011:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/5, NA12501003365:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/6, NA12501003426:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/7, NA12501003395:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/8, NA12501003402:eth0], state: active}
+      - {link: [SW23-07-POE-6000-24G:1/1/9, NA12436002109:eth0], state: active}
       - {link: [zbx-office-gw1:ha1, zbx-office-gw2:ha1], state: active}
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "6", remote: MikroTik}, outcome: ambiguous}   # two LLDP Devices stay
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "6", remote: MikroTik}, outcome: ambiguous}
   - id: 2
-    note: CDP back — same data as step 0, different history (model §8.5 first bullet)
+    note: CDP back — same data as step 0, same result
     deviations: {enable: [], disable: [no-cdp-sw16, no-cdp-sw17, no-cdp-sw18, no-cdp-sw20, no-cdp-sw21, no-cdp-sw22]}
     assert:
       - status: {field: links_created, equals: 0}
-      - {link: [SW16-09-ACC-2530-48G:3, ZBX-5CD3053MWT], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "3", remote: ZBX-5CD3053MWT}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:6, ZBX-5CD1479M2G], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "6", remote: ZBX-5CD1479M2G}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:7, ZBX-5CD2246HLV], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "7", remote: ZBX-5CD2246HLV}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:13, ZBX-5CD2461LDQ], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "13", remote: ZBX-5CD2461LDQ}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:15, ZBX-5CD432G3QZ], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "15", remote: ZBX-5CD432G3QZ}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:19, ZBX-5CD2246HLQ], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "19", remote: ZBX-5CD2246HLQ}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:21, ZBX-5CD3053MWR], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "21", remote: ZBX-5CD3053MWR}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:32, ZBX-5CD3053MWP], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "32", remote: ZBX-5CD3053MWP}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:37, ZBX-4RMLGG4], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "37", remote: ZBX-4RMLGG4}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:40, ZBX-5CD3221K0Y], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "40", remote: ZBX-5CD3221K0Y}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW16-09-ACC-2530-48G:44, ZBX-5CD432G3QY], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "44", remote: ZBX-5CD432G3QY}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW17-09-ACC-2530-48G:3, ZBX-5CD2246HLN], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "3", remote: ZBX-5CD2246HLN}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW17-09-ACC-2530-48G:9, ZBX-5CG62421LB], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "9", remote: ZBX-5CG62421LB}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW17-09-ACC-2530-48G:29, ZBX-5CD41943FH], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "29", remote: ZBX-5CD41943FH}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW17-09-ACC-2530-48G:31, ZBX-CND0350YCJ], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "31", remote: ZBX-CND0350YCJ}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW18-09-ACC-2530-48G:1, ZBX-5CG5364J67], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "1", remote: ZBX-5CG5364J67}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW18-09-ACC-2530-48G:7, ZBX-5CD41943FM], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "7", remote: ZBX-5CD41943FM}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW18-09-ACC-2530-48G:29, ZBX-5CD1277J0B], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "29", remote: ZBX-5CD1277J0B}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW18-09-ACC-2530-48G:32, ZBX-5CD2246HLS], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "32", remote: ZBX-5CD2246HLS}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW18-09-ACC-2530-48G:36, ZBX-5CD43630XQ], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "36", remote: ZBX-5CD43630XQ}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW20-07-ACC-2530-48G:3, ZBX-5CD3053MWW], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "3", remote: ZBX-5CD3053MWW}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW20-07-ACC-2530-48G:35, ZBX-5CD41943FG], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "35", remote: ZBX-5CD41943FG}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW21-07-ACC-2530-48G:17, ZBX-5CD519CVHX], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "17", remote: ZBX-5CD519CVHX}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW21-07-ACC-2530-48G:29, ZBX-HN7306W], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "29", remote: ZBX-HN7306W}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW22-07-ACC-2530-48G:5, ZBX-5CD3221K14], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "5", remote: ZBX-5CD3221K14}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
-      - {link: [SW22-07-ACC-2530-48G:7, ZBX-5CG9150YG9], state: active, type: physical_link}   # the link of step 1 stays
-      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "7", remote: ZBX-5CG9150YG9}, outcome: ambiguous}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)
+      - status: {field: devices_created, equals: 0}
+      - {link: [SW13-10-ACC-6000-48G:1/1/11, {device: {chassis: "ZBX-BV1DKC4"}, port: "94:bd:be:96:47:c6"}], state: active, type: physical_link}
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/11", remote: {chassis: "ZBX-BV1DKC4"}}, outcome: applied}
+      - {link: [SW13-10-ACC-6000-48G:1/1/23, {device: {chassis: "ZBX-5CD225BY3Y"}, port: "60:6d:3c:4e:de:b6"}], state: active, type: physical_link}
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/23", remote: {chassis: "ZBX-5CD225BY3Y"}}, outcome: applied}
+      - {link: [SW13-10-ACC-6000-48G:1/1/3, {device: {chassis: "ZBX-5CG55240H4"}, port: "60:6d:3c:4e:e3:7d"}], state: active, type: physical_link}
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/3", remote: {chassis: "ZBX-5CG55240H4"}}, outcome: applied}
+      - {link: [SW13-10-ACC-6000-48G:1/1/40, {device: {chassis: "ZBX-5CD1479M1Q"}, port: "60:6d:3c:4d:cf:e7"}], state: active, type: physical_link}
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/40", remote: {chassis: "ZBX-5CD1479M1Q"}}, outcome: applied}
+      - {link: [SW13-10-ACC-6000-48G:1/1/43, {device: {chassis: "ZBX-9V1DKC4"}, port: "98:ee:cb:bc:87:62"}], state: active, type: physical_link}
+      - {observation: {reporter: SW13-10-ACC-6000-48G, port: "1/1/43", remote: {chassis: "ZBX-9V1DKC4"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:13, {device: {chassis: "ZBX-5CD2461LDQ"}, port: "7c:57:58:70:f8:18"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "13", remote: {chassis: "ZBX-5CD2461LDQ"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:15, {device: {chassis: "ZBX-5CD432G3QZ"}, port: "24:6a:0e:26:f8:3d"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "15", remote: {chassis: "ZBX-5CD432G3QZ"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:19, {device: {chassis: "ZBX-5CD2246HLQ"}, port: "84:69:93:74:cb:e8"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "19", remote: {chassis: "ZBX-5CD2246HLQ"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:21, {device: {chassis: "ZBX-5CD3053MWR"}, port: "7c:4d:8f:1d:f7:1e"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "21", remote: {chassis: "ZBX-5CD3053MWR"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWT"}, port: "7c:4d:8f:1d:f7:20"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD3053MWT"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD3053MWP"}, port: "7c:4d:8f:1d:f7:1c"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "32", remote: {chassis: "ZBX-5CD3053MWP"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:37, {device: {chassis: "ZBX-4RMLGG4"}, port: "98:ee:cb:bc:5d:eb"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "37", remote: {chassis: "ZBX-4RMLGG4"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:40, {device: {chassis: "ZBX-5CD3221K0Y"}, port: "bc:0f:f3:7b:1c:53"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "40", remote: {chassis: "ZBX-5CD3221K0Y"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:44, {device: {chassis: "ZBX-5CD432G3QY"}, port: "24:6a:0e:1a:64:7c"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "44", remote: {chassis: "ZBX-5CD432G3QY"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:6, {device: {chassis: "ZBX-5CD1479M2G"}, port: "c8:5a:cf:a4:45:ab"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "6", remote: {chassis: "ZBX-5CD1479M2G"}}, outcome: applied}
+      - {link: [SW16-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD2246HLV"}, port: "84:69:93:74:cb:ec"}], state: active, type: physical_link}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CD2246HLV"}}, outcome: applied}
+      - {link: [SW17-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD41943FH"}, port: "60:6d:3c:4e:e3:7b"}], state: active, type: physical_link}
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-5CD41943FH"}}, outcome: applied}
+      - {link: [SW17-09-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD2246HLN"}, port: "84:69:93:74:cb:e6"}], state: active, type: physical_link}
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD2246HLN"}}, outcome: applied}
+      - {link: [SW17-09-ACC-2530-48G:31, {device: {chassis: "ZBX-CND0350YCJ"}, port: "84:2a:fd:ce:64:32"}], state: active, type: physical_link}
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "31", remote: {chassis: "ZBX-CND0350YCJ"}}, outcome: applied}
+      - {link: [SW17-09-ACC-2530-48G:9, {device: {chassis: "ZBX-5CG62421LB"}, port: "b8:87:88:e4:43:9d"}], state: active, type: physical_link}
+      - {observation: {reporter: SW17-09-ACC-2530-48G, port: "9", remote: {chassis: "ZBX-5CG62421LB"}}, outcome: applied}
+      - {link: [SW18-09-ACC-2530-48G:1, {device: {chassis: "ZBX-5CG5364J67"}, port: "4c:cf:7c:12:e4:26"}], state: active, type: physical_link}
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "1", remote: {chassis: "ZBX-5CG5364J67"}}, outcome: applied}
+      - {link: [SW18-09-ACC-2530-48G:29, {device: {chassis: "ZBX-5CD1277J0B"}, port: "48:9e:bd:2d:64:0b"}], state: active, type: physical_link}
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-5CD1277J0B"}}, outcome: applied}
+      - {link: [SW18-09-ACC-2530-48G:32, {device: {chassis: "ZBX-5CD2246HLS"}, port: "44:67:52:1b:b4:f1"}], state: active, type: physical_link}
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "32", remote: {chassis: "ZBX-5CD2246HLS"}}, outcome: applied}
+      - {link: [SW18-09-ACC-2530-48G:36, {device: {chassis: "ZBX-5CD43630XQ"}, port: "24:6a:0e:d0:82:4e"}], state: active, type: physical_link}
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "36", remote: {chassis: "ZBX-5CD43630XQ"}}, outcome: applied}
+      - {link: [SW18-09-ACC-2530-48G:7, {device: {chassis: "ZBX-5CD41943FM"}, port: "30:13:8b:92:bc:fb"}], state: active, type: physical_link}
+      - {observation: {reporter: SW18-09-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CD41943FM"}}, outcome: applied}
+      - {link: [SW20-07-ACC-2530-48G:3, {device: {chassis: "ZBX-5CD3053MWW"}, port: "7c:4d:8f:1d:f7:22"}], state: active, type: physical_link}
+      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "3", remote: {chassis: "ZBX-5CD3053MWW"}}, outcome: applied}
+      - {link: [SW20-07-ACC-2530-48G:35, {device: {chassis: "ZBX-5CD41943FG"}, port: "30:13:8b:92:bc:f6"}], state: active, type: physical_link}
+      - {observation: {reporter: SW20-07-ACC-2530-48G, port: "35", remote: {chassis: "ZBX-5CD41943FG"}}, outcome: applied}
+      - {link: [SW21-07-ACC-2530-48G:17, {device: {chassis: "ZBX-5CD519CVHX"}, port: "10:b6:76:99:a1:f0"}], state: active, type: physical_link}
+      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "17", remote: {chassis: "ZBX-5CD519CVHX"}}, outcome: applied}
+      - {link: [SW21-07-ACC-2530-48G:29, {device: {chassis: "ZBX-HN7306W"}, port: "34:99:71:e6:34:b2"}], state: active, type: physical_link}
+      - {observation: {reporter: SW21-07-ACC-2530-48G, port: "29", remote: {chassis: "ZBX-HN7306W"}}, outcome: applied}
+      - {link: [SW22-07-ACC-2530-48G:5, {device: {chassis: "ZBX-5CD3221K14"}, port: "bc:0f:f3:7b:1c:59"}], state: active, type: physical_link}
+      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "5", remote: {chassis: "ZBX-5CD3221K14"}}, outcome: applied}
+      - {link: [SW22-07-ACC-2530-48G:7, {device: {chassis: "ZBX-5CG9150YG9"}, port: "60:6d:3c:4e:e3:7c"}], state: active, type: physical_link}
+      - {observation: {reporter: SW22-07-ACC-2530-48G, port: "7", remote: {chassis: "ZBX-5CG9150YG9"}}, outcome: applied}
   - id: 3
     note: NA12501003431 restarts with a new chassis MAC (synthetic, F-7)
     deviations: {enable: [na-reboot-sw15-1-1-1], disable: []}
     assert:
-      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: "3a:5c:91:e2:07:4b", port: "eth0"}], state: active, type: physical_link}
-      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: "12:bf:b8:b9:6a:f5", port: "eth0"}], state: superseded}   # no other rule supports it (§8.4)
-      - {observation: {reporter: SW15-10-POE-6000-24G, port: "1/1/1", remote: "3a:5c:91:e2:07:4b"}, outcome: applied}
+      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: {chassis: "3a:5c:91:e2:07:4b"}, port: "eth0"}], state: active, type: physical_link}
+      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: {chassis: "12:bf:b8:b9:6a:f5"}, port: "eth0"}], state: superseded}   # no other rule supports it (§8.4)
+      - {observation: {reporter: SW15-10-POE-6000-24G, port: "1/1/1", remote: {chassis: "3a:5c:91:e2:07:4b"}}, outcome: applied}
       - status: {field: links_created, equals: 1}
       - status: {field: links_superseded, equals: 1}
       - status: {field: devices_created, equals: 1}
-      - status: {field: address_keys_removed, equals: 1}   # ip:server:192.168.131.84 leaves the old Device (it keeps its chassis key)
-      - pending: "the old Device NA12501003431 (chassis 12:bf:…) stays with no active link: a ghost after each restart; the model has no rule to remove it (§6.7.1: Devices are never deleted by ingest)"
+      - status: {field: address_keys_removed, equals: 1}   # ip:server:192.168.131.84 leaves the old Device
+      - pending: "the old Device (chassis 12:bf:…) stays without an active link: a ghost after each restart (model §6.7.1: ingest never deletes Devices)"
+  - id: 4
+    note: no change; poll and ingest again on the same data (task 034 found 26 new Devices per run)
+    assert:
+      - status: {field: devices_created, equals: 0}
+      - status: {field: links_created, equals: 0}
+      - status: {field: links_superseded, equals: 0}

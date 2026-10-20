@@ -65,87 +65,102 @@ w('    row: 1/1/1')
 w('    value_hex: "3a5c91e2074b"        # invented; old value 12bfb8b96af5')
 open(os.path.join(stand, 'lab-office.yaml'), 'w').write('\n'.join(lines) + '\n')
 
-# ---------- scenario ----------
+# ---------- scenario (model 2.29, lab 2.10) ----------
+alldev = res['devices']
+sn_count = {}
+for d in alldev:
+    k = d['name'] if d['reporter'] else d['attrs'].get('sysname')
+    if k: sn_count[k] = sn_count.get(k, 0) + 1
+
+def dkey(e):
+    if e['reporter']: return e['device']
+    if (e['chassis'] or '').startswith('ZBX-'): return {'chassis': e['chassis']}   # Windows host: name only in the chassis id
+    sn = e['sysname']
+    if sn and sn_count.get(sn) == 1 and ':' not in sn: return sn
+    return {'chassis': e['chassis']}
+
+def yv(v):
+    if isinstance(v, dict): return '{' + ', '.join(f'{k}: "{x}"' for k, x in v.items()) + '}'
+    return v
+
+def end(e):
+    k = dkey(e); p = e['port']
+    if isinstance(k, str) and ':' not in k and (p is None or ':' not in p):
+        return f'{k}:{p}' if p else k
+    return '{device: ' + yv(k) + (f', port: "{p}"' if p else '') + '}'
+
 links = []
 for l in res['physical_links']:
-    a, b = l['a'], l['b']
-    rep = {m['device'] for m in man}
-    # reporter side first
-    if a.split(':')[0] not in rep: a, b = b, a
-    dn, dp = natural(b)
-    if dn is None:
-        nm = b.split(':')[0]
-        ch = chassis_of(nm, dp, a)
-        dn = ch
-    if ':' in dn or ':' in dp:
-        far = '{device: "%s"%s}' % (dn, f', port: "{dp}"' if dp else '')   # lab spec §8.3 has no form for ':' in a name (README)
-    else:
-        far = f'{dn}:{dp}' if dp else dn
-    links.append((a, far, sorted(l['sources'])))
+    a, b = l['ends']
+    if not a['reporter'] or (b['reporter'] and a['device'] > b['device']): a, b = b, a
+    links.append((end(a), end(b), '+'.join(sorted(l['sources'])), a, b))
+links.sort(key=lambda x: (x[0], x[1]))
 
-ws_ports = []      # F-1
-mikrotik = []
-for o in res['observations']:
-    if o.get('outcome') == 'ambiguous':
-        key = (o['reporter'], o['local_name'])
-        if 'MikroTik' in json.dumps(o['row']) or '64:d1:54' in json.dumps(o['row']):
-            if key not in mikrotik: mikrotik.append(key)
-        elif key not in [k for k, _ in ws_ports]:
-            ws_ports.append((key, o['row'].get('REM_CHASSIS') or o['row'].get('REM_SYSNAME')))
+def is_ws(b): return (b['chassis'] or '').startswith('ZBX-')
+ws = [(a, b) for _, _, _, a, b in links if is_ws(b)]
+mik = [('SW18-09-ACC-2530-48G', '6')]
+NA_OLD, NA_NEW = '12:bf:b8:b9:6a:f5', '3a:5c:91:e2:07:4b'
+ndev = len(alldev)
 
-S = []
-s = S.append
-s('id: R1')
-s('title: Office capture — baseline, HP without CDP, CDP back, NA restart')
-s('base: lab-office.yaml')
-s('settings: {freshness_seconds: null, transport: null, roles: null}')
-s('steps:')
-s('  - id: 0')
-s('    note: baseline, real capture as received + synthetic gateways')
-s('    assert:')
-s(f'      - status: {{field: links_created, equals: {len(links)}}}')
-s('      - status: {field: rows_no_identity, equals: 10}          # report F-2 (SW12 x5, SW14 x5)')
-s('      - pending: "identity_keys_shared: one key ip:server:192.168.88.1 (report F-4); the runner has no assertion for a list field"')
-s('      - pending: "SW18 CDP port 6: two rows with the same claim key (itemid, num/ifindex:6, ip:server:192.168.88.1) — model §7.1 unique key; expected behaviour not defined (report F-4)"')
-for a, far, src in links:
-    s(f'      - {{link: [{a}, {far}], state: active, type: physical_link}}   # {"+".join(src)}')
-for (rep, port), remote in ws_ports:
-    s(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: {remote}}}, outcome: ambiguous}}   # F-1')
-    s(f'      - {{link: [{rep}:{port}, {remote}], state: absent}}')
-for rep, port in mikrotik:
-    s(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: MikroTik}}, outcome: ambiguous}}   # F-4')
-s('  - id: 1')
-s('    note: CDP removed from the six HP switches (F-1 option b)')
-s('    deviations: {enable: [%s], disable: []}' % ', '.join('no-cdp-'+h[:4].lower() for h in HP))
-s('    assert:')
-s(f'      - status: {{field: links_created, equals: {len(ws_ports)}}}')
-for (rep, port), remote in ws_ports:
-    s(f'      - {{link: [{rep}:{port}, {remote}], state: active, type: physical_link}}')
-for a, far, src in links:
-    s(f'      - {{link: [{a}, {far}], state: active}}')
-for rep, port in mikrotik:
-    s(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: MikroTik}}, outcome: ambiguous}}   # two LLDP Devices stay')
-s('  - id: 2')
-s('    note: CDP back — same data as step 0, different history (model §8.5 first bullet)')
-s('    deviations: {enable: [], disable: [%s]}' % ', '.join('no-cdp-'+h[:4].lower() for h in HP))
-s('    assert:')
-s('      - status: {field: links_created, equals: 0}')
-for (rep, port), remote in ws_ports:
-    s(f'      - {{link: [{rep}:{port}, {remote}], state: active, type: physical_link}}   # the link of step 1 stays')
-    s(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: {remote}}}, outcome: ambiguous}}   # the CDP claim; conflict if §8.5 bullet 3 -> §8.4 is read (README Q-3)')
-s('  - id: 3')
-s('    note: NA12501003431 restarts with a new chassis MAC (synthetic, F-7)')
-s('    deviations: {enable: [na-reboot-sw15-1-1-1], disable: []}')
-s('    assert:')
-s('      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: "3a:5c:91:e2:07:4b", port: "eth0"}], state: active, type: physical_link}')
-s('      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: "12:bf:b8:b9:6a:f5", port: "eth0"}], state: superseded}   # no other rule supports it (§8.4)')
-s('      - {observation: {reporter: SW15-10-POE-6000-24G, port: "1/1/1", remote: "3a:5c:91:e2:07:4b"}, outcome: applied}')
-s('      - status: {field: links_created, equals: 1}')
-s('      - status: {field: links_superseded, equals: 1}')
-s('      - status: {field: devices_created, equals: 1}')
-s('      - status: {field: address_keys_removed, equals: 1}   # ip:server:192.168.131.84 leaves the old Device (it keeps its chassis key)')
-s('      - pending: "the old Device NA12501003431 (chassis 12:bf:…) stays with no active link: a ghost after each restart; the model has no rule to remove it (§6.7.1: Devices are never deleted by ingest)"')
+S = []; s_ = S.append
+s_('id: R1')
+s_('title: Office capture — baseline, HP without CDP, CDP back, NA restart, ingest again')
+s_('base: lab-office.yaml')
+s_('# Expected values: model v2.29, lab v2.10 (2026-10-20). They need task 038 in ingest.')
+s_('settings: {freshness_seconds: null, transport: null, roles: null}')
+s_('steps:')
+s_('  - id: 0')
+s_('    note: baseline, real capture as received + synthetic gateways')
+s_('    assert:')
+s_(f'      - status: {{field: devices_created, equals: {ndev}}}   # 14 reporters + {ndev-14}; no twin Devices (model 2.29 §6.7.1 same-port join)')
+s_(f'      - status: {{field: links_created, equals: {len(links)}}}')
+s_('      - pending: "10 rows of SW12 and SW14 (chassis subtype local, 6 zero bytes) are dropped by the server: no identity macro, contract model §5.2. No observation, no link on those ports."')
+s_('      - pending: "SW18 CDP port 6: two rows with one claim key; model 2.29 §7.1: the first row makes the observation, rows_duplicate_claim = 1 for the rule"')
+for x, y, src, a, b in links:
+    s_(f'      - {{link: [{x}, {y}], state: active, type: physical_link}}   # {src}')
+for a, b in ws:
+    s_(f'      - {{observation: {{reporter: {a["device"]}, port: "{a["port"]}", remote: {yv(dkey(b))}}}, outcome: applied}}   # one Device per host (on HP: LLDP + CDP rows)')
+for rep, port in mik:
+    s_(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: MikroTik}}, outcome: ambiguous}}   # two LLDP chassis, one IP (model §6.7.4)')
+HPS = [m['device'] for m in man if '-2530-' in m['device']]
+ids = ', '.join('no-cdp-' + h[:4].lower() for h in HPS)
+s_('  - id: 1')
+s_('    note: CDP removed from the six HP switches')
+s_(f'    deviations: {{enable: [{ids}], disable: []}}')
+s_('    assert:')
+s_('      - status: {field: links_created, equals: 0}')
+s_('      - status: {field: devices_created, equals: 0}')
+for x, y, src, a, b in links:
+    s_(f'      - {{link: [{x}, {y}], state: active}}')
+for rep, port in mik:
+    s_(f'      - {{observation: {{reporter: {rep}, port: "{port}", remote: MikroTik}}, outcome: ambiguous}}')
+s_('  - id: 2')
+s_('    note: CDP back — same data as step 0, same result')
+s_(f'    deviations: {{enable: [], disable: [{ids}]}}')
+s_('    assert:')
+s_('      - status: {field: links_created, equals: 0}')
+s_('      - status: {field: devices_created, equals: 0}')
+for a, b in ws:
+    s_(f'      - {{link: [{end(a)}, {end(b)}], state: active, type: physical_link}}')
+    s_(f'      - {{observation: {{reporter: {a["device"]}, port: "{a["port"]}", remote: {yv(dkey(b))}}}, outcome: applied}}')
+s_('  - id: 3')
+s_('    note: NA12501003431 restarts with a new chassis MAC (synthetic, F-7)')
+s_('    deviations: {enable: [na-reboot-sw15-1-1-1], disable: []}')
+s_('    assert:')
+s_(f'      - {{link: [SW15-10-POE-6000-24G:1/1/1, {{device: {{chassis: "{NA_NEW}"}}, port: "eth0"}}], state: active, type: physical_link}}')
+s_(f'      - {{link: [SW15-10-POE-6000-24G:1/1/1, {{device: {{chassis: "{NA_OLD}"}}, port: "eth0"}}], state: superseded}}   # no other rule supports it (§8.4)')
+s_(f'      - {{observation: {{reporter: SW15-10-POE-6000-24G, port: "1/1/1", remote: {{chassis: "{NA_NEW}"}}}}, outcome: applied}}')
+s_('      - status: {field: links_created, equals: 1}')
+s_('      - status: {field: links_superseded, equals: 1}')
+s_('      - status: {field: devices_created, equals: 1}')
+s_('      - status: {field: address_keys_removed, equals: 1}   # ip:server:192.168.131.84 leaves the old Device')
+s_('      - pending: "the old Device (chassis 12:bf:…) stays without an active link: a ghost after each restart (model §6.7.1: ingest never deletes Devices)"')
+s_('  - id: 4')
+s_('    note: no change; poll and ingest again on the same data (task 034 found 26 new Devices per run)')
+s_('    assert:')
+s_('      - status: {field: devices_created, equals: 0}')
+s_('      - status: {field: links_created, equals: 0}')
+s_('      - status: {field: links_superseded, equals: 0}')
 os.makedirs(os.path.join(stand, 'scenarios'), exist_ok=True)
 open(os.path.join(stand, 'scenarios', 'R1.yaml'), 'w').write('\n'.join(S) + '\n')
-print('links', len(links), 'ws ports', len(ws_ports), 'mikrotik', mikrotik)
-print([x for x in links if x[1] is None or x[1].startswith('None')])
+print('links', len(links), 'ws', len(ws), 'devices', ndev)
