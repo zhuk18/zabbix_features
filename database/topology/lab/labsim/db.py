@@ -143,11 +143,14 @@ def counts(conn):
     return out
 
 
+DISCARD_UNCHANGED_HEARTBEAT = 20       # item_preproc.type "Discard unchanged with heartbeat" (ZBX_PREPROC_THROTTLE_TIMED_VALUE)
+
+
 def reset_topo(conn, keep_hosts=()):
-    """topology-4-lab-simulator.md "Reset": clear topo_* state (the same as the 'clean topo_* state' of the equivalence tests).
-    The snapshots of the topology rules go. Those of the standard interface discovery rule (net.if.discovery) of `keep_hosts` stay: the rule keeps "Discard
-    unchanged with heartbeat" (FR-B D-23), so after a reset it would not store an unchanged value again and the ports would have no item ids (model §3.2).
-    A changed value replaces the row. A host that the scenario does not use keeps nothing (it would be a reporter in a scenario that does not have it)."""
+    """topology-4-lab-simulator.md "Reset": delete every row of every topo_* table, except the topo_lld_snapshot rows of the rules that have the step "Discard unchanged
+    with heartbeat" (FR-B D-23): such a rule does not store an unchanged value again, so after a full clean its ports would have no item ids (model §3.2) until the
+    heartbeat. The rule is found by its preprocessing step (item_preproc), not by its key. Only the rules of the hosts in `keep_hosts` (the hosts of the scenario)
+    keep their row: the snapshot of a host that the scenario does not use would be a reporter in a scenario that does not have it. No `keep_hosts`: nothing stays."""
     cur = conn.cursor()
     cur.execute('SET FOREIGN_KEY_CHECKS = 0')
     for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'):
@@ -155,7 +158,7 @@ def reset_topo(conn, keep_hosts=()):
     keep = list(keep_hosts)
     if keep:
         cur.execute("DELETE FROM topo_lld_snapshot WHERE itemid NOT IN (SELECT i.itemid FROM items i JOIN hosts h ON h.hostid = i.hostid "
-                    "WHERE i.key_ = 'net.if.discovery' AND h.host IN (%s))" % ','.join(['%s'] * len(keep)), keep)
+                    "JOIN item_preproc p ON p.itemid = i.itemid WHERE p.type = %d AND h.host IN (%s))" % (DISCARD_UNCHANGED_HEARTBEAT, ','.join(['%s'] * len(keep))), keep)
     else:
         cur.execute('DELETE FROM topo_lld_snapshot')
     cur.execute('SET FOREIGN_KEY_CHECKS = 1')
