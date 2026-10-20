@@ -812,4 +812,18 @@ port($pdo, $D2, 1, 'Gi0/1');
 $answer = call(CControllerTopologyPortsGet::class, ['id' => (string) $D2]);
 check(array_keys($answer['groups']) === ['no_neighbor'], 'an empty group is not given: only No neighbor here');
 
+// ============================================================================================================
+echo "\n=== step 14: order in a group (topology-1-model.md §12.5): up first, then the others; natural order of the name ===\n";
+reset_topology($pdo);
+login();
+$D3 = device($pdo, 'Dev O');
+foreach ([[1, '1/1/10', 'down'], [2, '1/2/1', 'up'], [3, '1/1/2', 'down'], [4, '1/1/10', 'up'], [5, '10', 'down'], [6, '2', 'down'], [7, '1/1/2', 'up'], [8, 'lag16', 'down'], [9, 'lag7', 'down'], [10, '1/1/3', 'lowerLayerDown']] as [$if, $name, $status]) {
+	node($pdo, 'port', ['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => $status, 'if_type' => 'physical'], $D3);
+}
+$order = array_map(static fn (array $port): string => $port['port'].'/'.$port['status'], call(CControllerTopologyPortsGet::class, ['id' => (string) $D3])['groups']['no_neighbor']);
+echo '  order: '.implode(', ', $order)."\n";
+check(array_slice($order, 0, 3) === ['1/1/2/up', '1/1/10/up', '1/2/1/up'], 'up ports first, in natural order (1/1/2, 1/1/10, 1/2/1)');
+check(array_slice($order, 3) === ['1/1/2/down', '1/1/3/lowerLayerDown', '1/1/10/down', '2/down', '10/down', 'lag7/down', 'lag16/down'],
+	'then the others (down or any other status), in natural order: 1/1/2 before 1/1/10, 2 before 10, lag7 before lag16');
+
 echo "\nAll topology model tests passed.\n";

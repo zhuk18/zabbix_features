@@ -1149,6 +1149,16 @@ class CTopologyPrototype {
 			];
 		}
 
+		// Order in a group (§12.5): ports with oper_status up first, then the others; in each part the natural order of the port name (1/1/2 before 1/1/10)
+		foreach ($groups as &$ports) {
+			usort($ports, static function (array $a, array $b): int {
+				$up = ($b['status'] === 'up') <=> ($a['status'] === 'up');
+
+				return $up ?: (strnatcasecmp((string) $a['port'], (string) $b['port']) ?: (int) $a['id'] <=> (int) $b['id']);
+			});
+		}
+		unset($ports);
+
 		return array_filter($groups, static fn (array $ports): bool => (bool) $ports);
 	}
 
