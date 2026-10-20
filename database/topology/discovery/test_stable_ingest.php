@@ -293,4 +293,50 @@ $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
 
+// ============================================================================================================
+echo "\n=== 3: same-port join (model §6.7.1, §6.5) ===\n";
+$obs_outcomes = static fn (): array => $pdo->query('SELECT outcome FROM topo_observations ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+$phys = static fn (): int => (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type IN ('physical_link','device_link')");
+$non_reporter_devices = static fn (): int => (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device' AND represented_by_node_id IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) <> 'a0:00:00:00:00:01'");
+$lldp_local = nrow(1, 'lldp', ['rem_chassis' => 'PC-7', 'rem_chassis_type' => 'local', 'rem_sysname' => '']);
+$cdp_name = nrow(1, 'cdp', ['rem_sysname' => 'PC-7']);
+
+foreach (['LLDP item first' => [1002, 1003], 'CDP item first' => [1003, 1002]] as $label => [$lldp_item, $cdp_item]) {
+	reporter($pdo, [], []);
+	snapshot($pdo, $lldp_item, 101, 2, CLOCK + 10, [$lldp_local]);
+	snapshot($pdo, $cdp_item, 101, 2, CLOCK + 10, [$cdp_name]);
+	run_ingest($dsn, $user, $password);
+	$r = run_ingest($dsn, $user, $password);
+	check($non_reporter_devices() === 1 && $phys() === 1 && $obs_outcomes() === ['applied', 'applied'] && $r['summary']['devices_created'] === 0,
+		"{$label}: LLDP chassis-local PC-7 + CDP device id PC-7 on one port -> one Device, one link, both observations applied");
+}
+reporter($pdo, [$lldp_local], [nrow(2, 'cdp', ['rem_sysname' => 'PC-7'])]);
+run_ingest($dsn, $user, $password);
+check($non_reporter_devices() === 2 && $phys() === 2, 'the same on two different ports -> no join: two Devices, two links');
+
+// two Devices of the port match the sysname: the CDP row is ambiguous
+reporter($pdo, [$lldp_local, nrow(1, 'lldp', ['rem_chassis' => 'c0:00:00:00:00:07', 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'PC-7'])], [$cdp_name]);
+$r = run_ingest($dsn, $user, $password);
+$cdp_outcome = scalar($pdo, "SELECT outcome FROM topo_observations WHERE remote_key = 'sysname:PC-7'");
+check($cdp_outcome === 'ambiguous' && $non_reporter_devices() === 2 && ($r['summary']['identity_keys_shared']['count'] ?? 0) >= 1,
+	'two Devices on the port match (chassis id PC-7, sysname PC-7) -> the CDP row is ambiguous, nothing is created for it');
+$r = run_ingest($dsn, $user, $password);
+check($non_reporter_devices() === 2 && $r['summary']['devices_created'] === 0, 'and a rerun creates nothing');
+
+// the MikroTik case of R1 step 0 (SW18 port 6): two LLDP chassis with one IP, and the CDP row with that IP
+$mk = ['rem_mgmt_ip' => '192.168.88.1', 'rem_sysname' => 'MikroTik', 'rem_port' => 'bridge/ether1'];
+reporter($pdo, [nrow(1, 'lldp', $mk + ['rem_chassis' => 'MikroTik', 'rem_chassis_type' => 'local']),
+	nrow(1, 'lldp', $mk + ['rem_chassis' => '64:d1:54:69:9f:cf', 'rem_chassis_type' => 'macAddress'])], [nrow(1, 'cdp', $mk)]);
+run_ingest($dsn, $user, $password);
+$r = run_ingest($dsn, $user, $password);
+$o = $pdo->query('SELECT remote_key, outcome FROM topo_observations ORDER BY remote_key')->fetchAll(PDO::FETCH_KEY_PAIR);
+check(count($o) === 3 && array_unique(array_values($o)) === ['ambiguous'] && $r['summary']['devices_created'] === 0, 'MikroTik: two LLDP chassis, one IP -> all three observations stay ambiguous, a rerun creates nothing '.json_encode($o));
+
+// the order inside one port: the sysname-only row after the rows with a chassis or IP key (explicit sort rank)
+reporter($pdo, [], []);
+snapshot($pdo, 1000, 101, 2, CLOCK + 10, [$cdp_name]);           // the lowest item id, but a sysname-only row
+snapshot($pdo, 1004, 101, 2, CLOCK + 10, [$lldp_local]);
+run_ingest($dsn, $user, $password);
+check($non_reporter_devices() === 1 && $phys() === 1, 'the sysname-only row of the lowest rule is resolved after the chassis row of the highest rule: one Device');
+
 echo "\nALL OK\n";

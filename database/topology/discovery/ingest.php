@@ -1387,7 +1387,7 @@ $note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
 $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use (
 	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $convert_leftover_pseudo_ports, $key_holders, $device_has_kind,
-	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys, &$run_port_devices, &$run_sysname_keys
+	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys
 ): ?int {
 	if (!$chassis_key || !$ip_key) {
 		return null;
@@ -1602,7 +1602,8 @@ $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = []) use (
-	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary, &$current_ip_keys
+	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary, &$current_ip_keys,
+	&$run_port_devices, &$run_sysname_keys
 ): ?int {
 	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity keys of the row: chassis_key / chassis_raw,
 	// ip_key / ip_raw (§6.7.0).
@@ -2456,7 +2457,10 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
 		}
 	}
-	usort($sorted_rows, static fn (array $a, array $b): int => [$a[0], $a[1], $a[2]] <=> [$b[0], $b[1], $b[2]]);
+	// Within one local port the rows with a chassis or IP key come before the sysname-only rows (rank 0, 1), so the same-port join (§6.7.1) finds the Devices
+	// of the port first. The remote keys sort that way by their prefix (chassis: < ip: < sysname:); the rank states it, so a new key prefix cannot change it.
+	$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'sysname:') ? 1 : 0, $r[1], $r[2]];
+	usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
 	foreach ($sorted_rows as [, , $itemid, $clock, $row]) {
 		$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
 			'pseudo' => false], ['name' => $row['if_name'] ?? null]);
