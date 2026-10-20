@@ -39,4 +39,14 @@ check(scope([1, 9], 1, $links, $represented) === ['1', '2', '3', '4', '7', '8', 
 check(scope([1], PHP_INT_MAX, $links, $represented) === ['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'unlimited scope (a host group view): everything reachable');
 check(scope([1], 1, $links, []) === ['1'], 'without any association (no represented pairs) the Host node has no link: only itself');
 check(scope([2], 1, $links, []) === ['2', '3'], 'old behavior of a pair list without free pairs is unchanged (Device seed, one hop)');
+
+// topology-1-model.md §12.1 "View scope" (2.32): a Host monitored by a Proxy. The scope is walked over links and represented_by pairs only
+// (CTopologyPrototype::getAdjacency() has no monitoring pair, getRepresentedPairs() only Device <-> Host/Proxy): the Proxy is no hop.
+// Host 21 (Device 22) is monitored by Proxy 30 (Device 31); Device 31 -- cable -- Device 32. Device 22 -- cable -- Device 23.
+$links2 = [[22, 23], [31, 32]];
+$represented2 = [[22, 21], [31, 30]];
+check(scope([21], 1, $links2, $represented2) === ['21', '22', '23'], 'a Host monitored by a Proxy: the Proxy (and what is behind it) is not in a scope of 1');
+check(scope([21], PHP_INT_MAX, $links2, $represented2) === ['21', '22', '23'], 'not even without a limit: the monitoring assignment is not walked');
+check(scope([30], 1, $links2, $represented2) === ['30', '31', '32'], 'a Proxy as a node of the scope is drawn as itself (its Device at the same distance)');
+
 echo "\nALL OK\n";

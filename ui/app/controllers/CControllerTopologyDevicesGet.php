@@ -8,9 +8,7 @@ class CControllerTopologyDevicesGet extends CController {
 	}
 	protected function checkInput(): bool {
 		return $this->validateJsonInput([
-			// Hostgroup filter mode, ignored when 'hostid' is also set — a selected host
-			// overrides the group selection, same precedence as the community network_topology
-			// module's own filter.
+			// topology-1-model.md §12.1 "View scope": the Hosts of the groups and the focus host are the start nodes, together.
 			'groupids' => 'array_id',
 			'hostid' => 'id',
 			'hops' => 'int32'
@@ -20,18 +18,12 @@ class CControllerTopologyDevicesGet extends CController {
 	protected function doAction() {
 		$groupids = $this->getInput('groupids', []);
 		$hostid = (string) $this->getInput('hostid', '');
-		// 1-6, matching the community module's own hop-radius range; a stray/garbage value
-		// falls back to 1 rather than silently expanding to an unbounded walk.
-		$hops = min(6, max(1, (int) $this->getInput('hops', 1)));
+		// Depth: absent = no limit (§12.1); otherwise 1-6, the values of the page's Depth select.
+		$hops = $this->hasInput('hops') ? min(6, max(1, (int) $this->getInput('hops'))) : null;
 
-		$node_ids = CTopologyPrototype::resolveScope($groupids, $hostid, $hops);
-
-		$this->setResponse(new CControllerResponseData(['main_block' => json_encode([
-			'devices' => CTopologyPrototype::getDevices($node_ids),
-			'relations' => CTopologyPrototype::getRelations($node_ids),
-			// Manual links hidden-behind by discovery (topology-1-model.md "Contradiction"): badges, ghost links
-			// and details. Strings inside come from the network and are escaped where they are rendered.
-			'contradictions' => CTopologyPrototype::getContradictions()
-		], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE)]));
+		$this->setResponse(new CControllerResponseData(['main_block' => json_encode(
+			CTopologyPrototype::getView($groupids, $hostid, $hops),
+			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
+		)]));
 	}
 }

@@ -10,11 +10,10 @@
  * module, generalized to start from MULTIPLE seed nodes at once (needed for the group-filter
  * case: every host in the selected group(s) is a seed) rather than a single host.
  *
- * The graph is treated as undirected: a represented_by/physical_link edge, or a live-resolved
- * Host->Proxy monitoring pair (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored"), counts as one hop in either
- * direction. A represented_by pair is not a hop (topology-1-model.md §12.1: a Device with an active association is drawn as its Host/Proxy, in every view):
- * the two are one place, so a view that reaches one of them contains both, at the same distance. Kept free of API calls and controller state itself — CTopologyPrototype::getAdjacency()
- * is the one that resolves the live piece; this class only walks the flat pairs it returns.
+ * The graph is treated as undirected. Only links are hops (topology-1-model.md §12.1 "View scope"): a physical_link or device_link pair counts as one hop in
+ * either direction. A represented_by pair is not a hop: the Device and its Host/Proxy are one place, so a view that reaches one of them contains both, at the
+ * same distance (a Device with an active association is drawn as its Host/Proxy, in every view). A Host->Proxy monitoring assignment is not walked at all.
+ * Kept free of API calls and controller state itself — CTopologyPrototype::getAdjacency() and getRepresentedPairs() give the pairs; this class only walks them.
  */
 class CTopologyHopScope {
 

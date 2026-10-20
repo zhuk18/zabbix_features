@@ -677,8 +677,8 @@ class CTopologyPrototype {
 	 * Flat undirected adjacency over topo_nodes.id, for CTopologyHopScope's BFS: every device-to-device pair
 	 * implied by a physical_link — the same port.device_id -> physical_link -> port.device_id
 	 * join chain getNeighbors() runs per-device below, but for every physical_link at once
-	 * instead of one device's ports — plus every live-resolved Host->Proxy monitoring pair
-	 * (topology-1-model.md "Monitoring assignment (`MONITORED_BY`) — live, not stored": no stored edge for this one, so it's resolved the same way getDevices() does).
+	 * instead of one device's ports, and every device_link. Only links count as hops (topology-1-model.md §12.1 "View scope"): a Host->Proxy
+	 * monitoring assignment is never a hop and is not walked at all; its line is drawn when both ends are in the scope.
 	 *
 	 * Not included: the represented_by pairs, getRepresentedPairs().
 	 *
@@ -709,20 +709,6 @@ class CTopologyPrototype {
 			$pairs[] = [$row['device_a'], $row['device_b']];
 		}
 
-		$host_nodes = []; // hostid => topo_nodes.id
-		$result = DBselect('SELECT id,host_ref FROM topo_nodes WHERE type='.zbx_dbstr('host'));
-		while ($row = DBfetch($result)) {
-			$host_nodes[$row['host_ref']] = $row['id'];
-		}
-		if ($host_nodes) {
-			$assignments = self::getMonitoringAssignments(array_keys($host_nodes));
-			foreach ($assignments as $hostid => $assignment) {
-				if ($assignment['target_node_id'] !== null) {
-					$pairs[] = [$host_nodes[$hostid], $assignment['target_node_id']];
-				}
-			}
-		}
-
 		return $pairs;
 	}
 
@@ -739,7 +725,30 @@ class CTopologyPrototype {
 	 *
 	 * @return array|null topo_nodes.id values in scope, or null when neither filter is active
 	 */
-	public static function resolveScope(array $groupids, string $hostid, int $hops): ?array {
+	/**
+	 * The answer of topology.devices.get (the view page, topology-1-model.md §12.1): the nodes and relations of the view scope and the contradictions.
+	 * $hops null: no limit. Nothing selected: every node.
+	 */
+	public static function getView(array $groupids, string $hostid, ?int $hops): array {
+		$node_ids = self::resolveScope($groupids, $hostid, $hops);
+
+		return [
+			'devices' => self::getDevices($node_ids),
+			'relations' => self::getRelations($node_ids),
+			// Manual links hidden-behind by discovery (topology-1-model.md "Contradiction"): badges, ghost links
+			// and details. Strings inside come from the network and are escaped where they are rendered.
+			'contradictions' => self::getContradictions()
+		];
+	}
+
+	public static function resolveScope(array $groupids, string $hostid, ?int $hops): ?array {
+		// topology-1-model.md §12.1 "View scope": the start nodes are the Hosts of the selected groups and the focus host, together. Nothing selected:
+		// no scope (every node). $hops null: no limit.
+		if ($hostid === '' && !$groupids) {
+			return null;
+		}
+
+		$seed_hostids = [];
 		if ($hostid !== '') {
 			// API::Host()->get() first, not a raw topo_nodes lookup — a hostid the caller isn't
 			// permitted to see must behave exactly like a hostid that doesn't exist at all
@@ -748,44 +757,32 @@ class CTopologyPrototype {
 			// returns, but without this check a restricted user could use it as a topology
 			// pivot — learning which unrelated devices sit near a host they can't otherwise see,
 			// even though the host's own data stays hidden.
-			if (!API::Host()->get(['hostids' => [$hostid], 'output' => []])) {
-				return [];
-			}
-
-			$seed_node = DBfetch(DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
-				' AND host_ref='.zbx_dbstr($hostid), 1));
-			if (!$seed_node) {
-				// Host has no pointer node yet (never pulled) — nothing can be in scope of it.
-				return [];
-			}
-
-			return CTopologyHopScope::neighborhood([$seed_node['id']], $hops, self::getAdjacency(), self::getRepresentedPairs());
+			$seed_hostids = array_column(API::Host()->get(['hostids' => [$hostid], 'output' => ['hostid']]), 'hostid');
 		}
-
 		if ($groupids) {
-			$seed_hostids = array_column(API::Host()->get([
+			$seed_hostids = array_merge($seed_hostids, array_column(API::Host()->get([
 				'output' => ['hostid'],
 				'groupids' => $groupids
-			]), 'hostid');
-			if (!$seed_hostids) {
-				return [];
-			}
-
-			$seed_ids = [];
-			$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
-				' AND '.dbConditionId('host_ref', $seed_hostids));
-			while ($row = DBfetch($result)) {
-				$seed_ids[] = $row['id'];
-			}
-			if (!$seed_ids) {
-				return [];
-			}
-
-			return CTopologyHopScope::neighborhood($seed_ids, PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs());
+			]), 'hostid'));
+		}
+		if (!$seed_hostids) {
+			return [];
 		}
 
-		return null;
+		// A Host without a pointer node yet (never pulled) is no start node.
+		$seed_ids = [];
+		$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
+			' AND '.dbConditionId('host_ref', array_unique($seed_hostids)));
+		while ($row = DBfetch($result)) {
+			$seed_ids[] = $row['id'];
+		}
+		if (!$seed_ids) {
+			return [];
+		}
+
+		return CTopologyHopScope::neighborhood($seed_ids, $hops ?? PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs());
 	}
+
 
 	public static function getNeighbors(string $deviceid): array {
 		// No DISTINCT here (unlike before the severity field existed): a neighbor reached via more than one

@@ -141,15 +141,16 @@ $page_styles = '
 							->setId('topology-filter-hops')
 							->setValue('1')
 							->addOptions(CSelect::createOptionsFromArray([
-								1 => '1', 2 => '2', 3 => '3', 4 => '4', 5 => '5', 6 => '6'
+								'' => _('No limit'), 1 => '1', 2 => '2', 3 => '3', 4 => '4', 5 => '5', 6 => '6'
 							]))
 					]))->addClass('topology-filter-field'),
 					(new CButton('topology-filter-apply', _('Apply filter')))->addClass(ZBX_STYLE_BTN_ALT),
 					(new CButton('topology-filter-clear', _('Show all')))->addClass(ZBX_STYLE_BTN_ALT),
-					(new CDiv(_('Show whole host groups, or center the map on one host and limit how far out it '.
-						'expands — depth counts represented_by/monitored_by links and LLDP-derived physical links '.
-						'alike. A focus host overrides the group selection. "Show all" clears both and displays '.
-						'every relation at once.')))
+					(new CDiv(_('The Hosts of the selected host groups and the focus host are the start nodes. The view shows every '.
+						'node at a distance of Depth or less from a start node (no Depth: no limit). Distance counts only links: one '.
+						'physical link or device-level link is 1; a Device and its Host or Proxy, and a Host and its monitoring Proxy, '.
+						'are never a hop. Only links whose two ends are in the view are drawn. Each node is drawn as its Host or Proxy, '.
+						'also at the edge of the view. "Show all" clears the selection and displays every node.')))
 						->addClass('topology-filter-hint')
 				]),
 			(new CDiv([

@@ -100,10 +100,22 @@ class API {
 
 	public static function Host() {
 		return new class {
+			// every host is visible; the filters `hostids` and `groupids` are applied as host.get applies them (the view scope uses both, model §12.1)
 			public function get($options) {
+				$sql = 'SELECT DISTINCT h.hostid,h.monitored_by,h.proxyid,h.proxy_groupid FROM hosts h';
+				$where = [];
+				if (array_key_exists('groupids', $options)) {
+					$sql .= ' JOIN hosts_groups hg ON hg.hostid=h.hostid';
+					$where[] = $options['groupids'] ? 'hg.groupid IN ('.implode(',', array_map('intval', (array) $options['groupids'])).')' : '1=0';
+				}
+				if (array_key_exists('hostids', $options)) {
+					$where[] = $options['hostids'] ? 'h.hostid IN ('.implode(',', array_map('intval', (array) $options['hostids'])).')' : '1=0';
+				}
 				$hosts = [];
-				foreach (DBselect('SELECT hostid FROM hosts') as $row) {
-					$hosts[] = ['hostid' => (string) $row['hostid']];
+				foreach (DBselect($sql.($where ? ' WHERE '.implode(' AND ', $where) : '').' ORDER BY h.hostid') as $row) {
+					// the monitoring assignment fields that CTopologyPrototype reads (getMonitoringAssignments); assigned_proxyid is runtime data, not here
+					$hosts[] = ['hostid' => (string) $row['hostid'], 'monitored_by' => (string) $row['monitored_by'],
+						'proxyid' => (string) ($row['proxyid'] ?? 0), 'proxy_groupid' => (string) ($row['proxy_groupid'] ?? 0), 'assigned_proxyid' => '0'];
 				}
 				return $hosts;
 			}

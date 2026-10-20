@@ -271,14 +271,20 @@ const view = new class {
 	// tracked separately — they're already the single source of truth for what's selected, and
 	// a selected host overrides the group selection (same precedence as the community
 	// network_topology module's own filter).
+	// topology-1-model.md §12.1 "View scope": the Hosts of the selected groups and the focus host are the start nodes, together; Depth empty = no limit.
+	// Nothing selected: no scope parameters, every node.
 	filterQuery() {
 		const hostid = jQuery('#hostid').multiSelect('getData')[0]?.id;
-		if (hostid) {
-			const hops = document.getElementById('topology-filter-hops').value;
-			return `&hostid=${encodeURIComponent(hostid)}&hops=${encodeURIComponent(hops)}`;
-		}
 		const groupids = jQuery('#groupids_').multiSelect('getData').map(item => item.id);
-		return groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
+		let query = groupids.map(id => `&groupids[]=${encodeURIComponent(id)}`).join('');
+		if (hostid) {
+			query += `&hostid=${encodeURIComponent(hostid)}`;
+		}
+		const hops = document.getElementById('topology-filter-hops').value;
+		if (query !== '' && hops !== '') {
+			query += `&hops=${encodeURIComponent(hops)}`;
+		}
+		return query;
 	}
 
 	async loadDevices({reselect_edge = null, reselect_device = null} = {}) {
@@ -619,14 +625,19 @@ const view = new class {
 		this.showPorts(node, groups);
 	}
 
-	// Fetches /neighbors for `device` and folds each one into this.nodes/this.links — shared by a
+	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
 	// standalone Device click and a Host/Proxy click whose represented Device's neighbors need the
 	// same treatment. Caller is responsible for this.render() afterwards (both callers already need to
 	// do other awaited work first, so this doesn't render on their behalf).
+	// topology-1-model.md §12.1 "View scope": the view draws the nodes of its scope and only the links whose two ends are in it. A neighbor that is not
+	// in this.nodes is outside the scope: it is not added (before task 040 it was added as a bare Device, drawn dashed even when it is a lab host), and
+	// a node that is in the scope keeps its own object (its Host/Proxy association comes from topology.devices.get).
 	async mergeNeighbors(device) {
 		const {neighbors} = await this.request(`topology.neighbors.get&id=${encodeURIComponent(device.id)}`);
 		neighbors.forEach(neighbor => {
-			this.nodes.set(String(neighbor.id), neighbor);
+			if (!this.nodes.has(String(neighbor.id))) {
+				return;
+			}
 			// A neighbor reached only through a device-level link: the node is all that is missing, the line comes
 			// from the relations (they bundle device-level links) and must not become a physical_link here.
 			if (neighbor.link_type === 'device_link') {
