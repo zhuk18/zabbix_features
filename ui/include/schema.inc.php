@@ -10618,6 +10618,97 @@ return [
 			]
 		]
 	],
+	'topo_nodes' => [
+		'key' => 'id',
+		'fields' => [
+			'id' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20
+			],
+			'type' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_CHAR,
+				'length' => 32,
+				'default' => ''
+			],
+			'host_ref' => [
+				'null' => true,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20,
+				'default' => NULL,
+				'ref_table' => 'hosts',
+				'ref_field' => 'hostid'
+			],
+			'proxy_ref' => [
+				'null' => true,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20,
+				'default' => NULL,
+				'ref_table' => 'proxy',
+				'ref_field' => 'proxyid'
+			],
+			'attrs' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_JSON,
+				'length' => 134217728
+			],
+			'created_at' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_INT,
+				'length' => 10,
+				'default' => '0'
+			],
+			'updated_at' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_INT,
+				'length' => 10,
+				'default' => '0'
+			]
+		]
+	],
+	'topo_edges' => [
+		'key' => 'id',
+		'fields' => [
+			'id' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20
+			],
+			'type' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_CHAR,
+				'length' => 32,
+				'default' => ''
+			],
+			'src_id' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20,
+				'ref_table' => 'topo_nodes',
+				'ref_field' => 'id'
+			],
+			'dst_id' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_ID,
+				'length' => 20,
+				'ref_table' => 'topo_nodes',
+				'ref_field' => 'id'
+			],
+			'attrs' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_JSON,
+				'length' => 134217728,
+				'default' => '{}'
+			],
+			'created_at' => [
+				'null' => false,
+				'type' => DB::FIELD_TYPE_INT,
+				'length' => 10,
+				'default' => '0'
+			]
+		]
+	],
 	'trigger_rtdata' => [
 		'key' => 'triggerid',
 		'fields' => [
