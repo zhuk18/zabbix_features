@@ -10,10 +10,9 @@ $this->includeJsFile('monitoring.topology.view.js.php', ['legend_collapsed' => (
 // (below, via CTag('style', true, ...), same pattern as monitoring.dashboard.print.php) is required instead.
 // CTag::addItem() also HTML-escapes a string body, so '>' combinators must be avoided here — #topology-canvas
 // (an id selector) is used instead of '.topology-workspace>svg' for exactly that reason.
-// topology-1-model.md §12.1 "Width": from a window width of 1280 px the page has no horizontal scroll. Zabbix gives main, header and footer a
-// min-width of 1200 px (blue-theme.css); with the menu open that is wider than the content area of a 1280 px window, so this page sets it to 0.
+// topology-1-model.md §12.1 "Width" (2.38): the page keeps the Zabbix minimum width (main, header and footer have min-width 1200 px in
+// blue-theme.css); from there the page has no horizontal scroll: the header row wraps, the port table fits the side panel.
 $page_styles = '
-main,header,footer{min-width:0}
 .topology-prototype{display:flex;flex-direction:column;height:calc(100vh - 180px);min-height:520px}
 .topology-header{display:flex;flex:0 0 auto;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px;margin-bottom:12px}
 .topology-header h1{margin:0}

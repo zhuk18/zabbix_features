@@ -128,7 +128,27 @@ CHECKS = {
             headers_cut: Array.from(new Set(Array.from(panel.querySelectorAll('table th')).filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim()))),
             panel_tables: panel.querySelectorAll('table').length,
             workspace_bottom: Math.round(ws.bottom), below: Math.round((document.querySelector('footer') || {getBoundingClientRect: () => ({top: H})}).getBoundingClientRect().top), canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
-        r.ok = d.scrollWidth <= W && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
+        // model §12.1 "Width" (2.38): the page keeps the Zabbix minimum width of main (1200 px). When the content area is narrower (for example a
+        // 1280 px window with the menu open), the page scrolls horizontally like every Zabbix page: that is said, not a failure; the other checks are
+        // made against the width of the page instead of the window.
+        const main = document.querySelector('main');
+        const ms = getComputedStyle(main);
+        // the width Zabbix needs: min-width of main plus its horizontal padding and border (main is content-box: 1200 + 2 x 10 = 1220 px)
+        const main_min = (parseFloat(ms.minWidth) || 0) + (ms.boxSizing === 'border-box' ? 0 : parseFloat(ms.paddingLeft) + parseFloat(ms.paddingRight)
+            + parseFloat(ms.borderLeftWidth) + parseFloat(ms.borderRightWidth));
+        const content_w = Math.round(document.querySelector('.wrapper').clientWidth);
+        r.menu = document.querySelector('.sidebar').classList.contains('is-compact') ? 'collapsed' : 'open';
+        r.zabbix_min_width = main_min;
+        r.content_w = content_w;
+        r.zabbix_min_width_scroll = content_w < main_min;
+        if (r.zabbix_min_width_scroll) {
+            const page_right = main.getBoundingClientRect().left + main.scrollWidth;
+            r.note = 'the content area (' + content_w + ' px) is narrower than the Zabbix minimum width of main with its padding (' + main_min + ' px): the page scrolls horizontally, as every Zabbix page';
+            r.container_overflow_x = r.container_overflow_x.filter(name => !name.startsWith('DIV.wrapper'));
+            r.outside_window = Array.from(document.querySelectorAll('.topology-prototype *')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right + 1; }).map(name).slice(0, 10);
+            r.header_buttons_out = Array.from(document.querySelectorAll('.topology-header button, .topology-filter-bar button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right; }).map(name);
+        }
+        r.ok = (d.scrollWidth <= W || r.zabbix_min_width_scroll) && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
             && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
             && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
         return r;
@@ -163,6 +183,9 @@ def main():
     ap.add_argument('--height', type=int, default=900)
     ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
     ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
+    ap.add_argument('--action', default='topology.view', help='the page (zabbix.php?action=...); another page than topology.view gets no filter (to compare with stock Zabbix pages)')
+    ap.add_argument('--menu', choices=('open', 'collapsed'), help='the Zabbix main menu: open (full) or collapsed (compact), set in this page only (the class of'
+                    ' .sidebar, as Zabbix sets it; the user profile is not written)')
     ap.add_argument('--check', choices=sorted(CHECKS), help='a named check on the real page (model §12.1 "Layout"); exit 1 when it fails')
     ap.add_argument('--eval', help='a JavaScript expression evaluated before the screenshot; its value is printed (layout checks)')
     ap.add_argument('--full', action='store_true', help='capture the whole page height (the side panel with its port table)')
@@ -189,7 +212,7 @@ def main():
         ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=BASE)
         ws.call('Emulation.setDeviceMetricsOverride', width=a.width, height=a.height, deviceScaleFactor=1, mobile=False)
         ws.call('Page.enable')
-        ws.call('Page.navigate', url=BASE + 'zabbix.php?action=topology.view')
+        ws.call('Page.navigate', url=BASE + 'zabbix.php?action=' + a.action)
         time.sleep(4)
 
         def js(expr):
@@ -215,7 +238,12 @@ def main():
             document.getElementById('topology-filter-apply').click();
             return [jQuery('#hostid').multiSelect('getData'), jQuery('#groupids_').multiSelect('getData'), document.getElementById('topology-filter-hops').value];
         })()''' % (json.dumps(host), json.dumps(groups), json.dumps(a.depth))
-        print('filter:', json.dumps(js(filter_js)))
+        if a.menu:
+            js('''(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden');
+                window.dispatchEvent(new Event('resize')); })()''' % ('true' if a.menu == 'collapsed' else 'false'))
+            time.sleep(1)
+        if a.action == 'topology.view':
+            print('filter:', json.dumps(js(filter_js)))
         time.sleep(a.settle)
         if a.select:
             picked = js('''(async () => {
