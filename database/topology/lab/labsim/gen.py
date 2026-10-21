@@ -252,12 +252,18 @@ def device_records(lab, name):
         silent = b if writer == a else a
         sd, sp = split_port(silent)
         neighbors[(sd, sp)] = [n for n in neighbors.get((sd, sp), []) if '%s:%s' % n != writer]
+    # An extra neighbor with `protocols` is written only to the tables of these protocols (a lab extension, task 047: the LLDP rule of a reporter shows X on a port while
+    # its CDP rule shows Y). Without the key it is in both, as before.
+    only_in = {}      # (near device, near port, far device, far port) -> protocols that carry it
     for d in lab.active_deviations('extra_lldp_neighbor'):
         nd, np_ = split_port(d['port'])
         for far in d['neighbors']:
             fd, fp = split_port(far)
             if (fd, fp) not in neighbors.setdefault((nd, np_), []):
                 neighbors[(nd, np_)].append((fd, fp))
+            if d.get('protocols') is not None:
+                only_in[(nd, np_, fd, fp)] = set(d['protocols'])
+    carries = lambda near_port, far_dev, far_port, protocol: protocol in only_in.get((name, near_port, far_dev, far_port), (protocol,))
 
     # LLDP
     if dev['lldp'] and 'lldp' not in omit:
@@ -278,6 +284,8 @@ def device_records(lab, name):
         for p in ports:
             n = _loc_port_num(dev, p)
             for k, (fd, fp) in enumerate(neighbors.get((name, p['name']), []), 1):
+                if not carries(p['name'], fd, fp, 'lldp'):
+                    continue
                 if fd not in lab.devices:
                     raise LabError('cable to unknown device %s' % fd)
                 far = lab.devices[fd]
@@ -306,7 +314,7 @@ def device_records(lab, name):
         for p in ports:
             for k, (fd, fp) in enumerate(neighbors.get((name, p['name']), []), 1):
                 far = lab.devices[fd]
-                if not far['cdp']:
+                if not far['cdp'] or not carries(p['name'], fd, fp, 'cdp'):
                     continue
                 ix = (p['ifindex'], k)
                 r.put_str(cb + (6,) + ix, far['sysname'])

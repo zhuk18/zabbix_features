@@ -102,6 +102,9 @@ class Lab:
             raise LabError('deviation %s has no reason' % d['id'])
         if d.get('type') not in DEVIATION_TYPES:
             raise LabError('deviation %s: unknown type %r' % (d['id'], d.get('type')))
+        if d.get('protocols') is not None and (d['type'] != 'extra_lldp_neighbor' or not isinstance(d['protocols'], list) or not d['protocols']
+                                                or set(d['protocols']) - {'lldp', 'cdp'}):
+            raise LabError('deviation %s: protocols is only for extra_lldp_neighbor and is a non-empty list of lldp, cdp, got %r' % (d['id'], d['protocols']))
         from . import replay
         replay.check_deviation(d, self.devices)
         self.deviations[d['id']] = d

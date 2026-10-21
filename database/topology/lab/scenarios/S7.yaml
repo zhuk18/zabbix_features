@@ -1,0 +1,94 @@
+id: S7
+title: Two Devices from different rules on a port with an active link (model 2.40, 8.5)
+base: lab.yaml
+# topology-1-model.md §8.5 (2.40): port P = Switch1:Gi0/2 has the active link L = Switch1:Gi0/2 <-> Switch2:Gi0/24. The LLDP rule of Switch1 shows PC1 on P and its CDP rule shows PC2
+# (a lab extension of the deviation extra_lldp_neighbor, `protocols`: PC1 only in the LLDP table, PC2 only in the CDP table). Switch1 does not show L's other end on P (one_sided_cable:
+# only Switch2 writes the cable). While Switch2 still reports L, L has support.
+patch:
+  devices:
+    Switch1:
+      cdp: true
+    PC1:
+      ip: 127.0.0.90
+      chassis: {subtype: mac, value: "00:11:22:33:44:31"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    PC2:
+      ip: 127.0.0.91
+      chassis: {subtype: mac, value: "00:11:22:33:44:32"}
+      cdp: true
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+  deviations:
+    - id: switch1-silent-on-l
+      reason: "model §8.5 (2.40): no rule on P shows L's other end"
+      type: one_sided_cable
+      cable: [Switch1:Gi0/2, Switch2:Gi0/24]
+      writes: Switch2:Gi0/24
+    - id: pc1-in-lldp-on-gi02
+      reason: "model §8.5 (2.40): the LLDP rule shows PC1 on P"
+      type: extra_lldp_neighbor
+      port: Switch1:Gi0/2
+      neighbors: [PC1:eth0]
+      protocols: [lldp]
+    - id: pc2-in-cdp-on-gi02
+      reason: "model §8.5 (2.40): the CDP rule shows PC2 on P"
+      type: extra_lldp_neighbor
+      port: Switch1:Gi0/2
+      neighbors: [PC2:eth0]
+      protocols: [cdp]
+    - id: switch2-no-lldp
+      reason: "model §8.5 (2.40): the far end no longer supports L"
+      type: omit_mib
+      device: Switch2
+      mib: lldp
+steps:
+  - id: 0
+    note: baseline, L is active
+    assert:
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: active
+  - id: 1
+    note: case A - Switch1 shows PC1 (LLDP) and PC2 (CDP) on Gi0/2, none of them Switch2; Switch2 still reports L
+    deviations: {enable: [switch1-silent-on-l, pc1-in-lldp-on-gi02, pc2-in-cdp-on-gi02]}
+    assert:
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: active
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC1}
+        outcome: ambiguous
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC2}
+        outcome: ambiguous
+      - link: [Switch1:Gi0/2, PC1]
+        state: absent
+      - link: [Switch1:Gi0/2, PC2]
+        state: absent
+      - status: {field: links_created, equals: 0}
+  - id: 2
+    note: "case B - Switch2 no longer reports L (no LLDP); L is superseded, nothing replaces it"
+    deviations: {enable: [switch2-no-lldp]}
+    assert:
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: superseded
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC1}
+        outcome: ambiguous
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC2}
+        outcome: ambiguous
+      - link: [Switch1:Gi0/2, PC1]
+        state: absent
+      - link: [Switch1:Gi0/2, PC2]
+        state: absent
+      - status: {field: links_superseded, equals: 1}
+      - status: {field: links_created, equals: 0}
+  - id: 3
+    note: the same data again - nothing changes (R-3)
+    assert:
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: superseded
+      - edge_id_same_as: {step: 2, link: [Switch1:Gi0/2, Switch2:Gi0/24]}
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC1}
+        outcome: ambiguous
+      - observation: {reporter: Switch1, port: Gi0/2, remote: PC2}
+        outcome: ambiguous
+      - status: {field: links_superseded, equals: 0}
+      - status: {field: links_created, equals: 0}
+      - status: {field: devices_created, equals: 0}

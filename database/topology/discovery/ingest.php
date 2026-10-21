@@ -3098,6 +3098,69 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		unset($claims[$key]);
 	}
 
+	// 4c. topology-1-model.md §8.5 (2.40, 2.41): a port P with an active discovered link L, where the claims on P (the neighbors that the rules of the reporter show on P) resolve to
+	//     two or more different Devices and NO rule on P shows L's other end. The claims do not compete one by one against L (§8.4): the port is in the same state as a port
+	//     without an active link, so all of them are `ambiguous` (no edge_id) and none makes a link. L stays while something supports it (the far end's latest snapshot, or a
+	//     held link of a failed reporter); with no support it is superseded at T = the newest clock of the snapshots on P that contradict it, and nothing replaces it. The next
+	//     run sees P without an active link: 4b gives the same result. Not changed: a rule on P still shows L's other end, or the claims resolve to one Device (§8.4 per candidate).
+	$linked_ambiguous_supersede = []; // link key => T
+	$port_candidates = [];            // local port => candidate indexes that are claims on it (not fixed by a pre-outcome, not shadowed)
+	foreach ($candidates as $i => $candidate) {
+		if ($candidate['pre_outcome'] === null && ($candidate_entity($candidate)[0] ?? null) !== null
+				&& (!isset($result[$i]) || $result[$i]['outcome'] === 'ambiguous')) {
+			$port_candidates[$candidate['local_port_id']][] = $i;
+		}
+	}
+	ksort($port_candidates);
+	foreach ($port_candidates as $port => $indexes) {
+		$active = [];
+		foreach ($by_port[$port] ?? [] as $lid) {
+			if ($is_active_discovered($links[$lid])) {
+				$active[] = $links[$lid];
+			}
+		}
+		if (count($active) !== 1) {
+			continue;
+		}
+		$link = $active[0];
+		$devices = [];
+		$shows_link = false;
+		foreach ($indexes as $i) {
+			$c = $candidates[$i];
+			$devices[$c['remote_device_id']] = true;
+			[$entity_key] = $candidate_entity($c);
+			// a rule on P shows L's other end: the same entity, or the same Device at device level (the same cable at a lower precision, 4a)
+			if ($entity_key === $link['key'] || ($c['level'] === 'device' && $link['type'] === 'physical_link'
+					&& $far_device_from($link, $port) === $c['remote_device_id'])) {
+				$shows_link = true;
+			}
+		}
+		if ($shows_link || count($devices) < 2) {
+			continue;
+		}
+		if (!isset($counted_groups[$port]) && !isset($claimants_counted[$port])) {
+			$claimants_counted[$port] = true;
+			$summary['ports_ambiguous']++;
+		}
+		$newest = 0;
+		foreach ($indexes as $i) {
+			$result[$i] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
+			$newest = max($newest, $candidates[$i]['clock']);
+			// a claim entity that these candidates feed is no claim any more: the far end's candidate of the same entity must not make the link either
+			[$entity_key] = $candidate_entity($candidates[$i]);
+			if (isset($claims[$entity_key])) {
+				foreach ($claims[$entity_key]['indexes'] as $j) {
+					$result[$j] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
+				}
+				unset($claims[$entity_key]);
+			}
+		}
+		$supported = isset($frozen_keys[$link['key']]) || !empty($rules_of[$link['key']]);
+		if (!$supported && $replacement_enabled) {
+			$linked_ambiguous_supersede[$link['key']] = min($linked_ambiguous_supersede[$link['key']] ?? PHP_INT_MAX, $newest);
+		}
+	}
+
 	// 5. Which claims win, and which existing links they supersede. A device_link that is the same cable as a
 	//    port-level claim (forward half R:P -> D, or reverse half D:Q -> R) is refined by that claim (topology-1-model.md "Refinement: device-level → port-level"), not
 	//    contradicted by it.
@@ -3139,7 +3202,7 @@ $snap_resolve_links = static function (array $candidates, array $neighbor_snapsh
 		$wins[$key] = $ok;
 	}
 
-	$superseded = []; // link key => T (the earliest winning contradiction)
+	$superseded = $linked_ambiguous_supersede; // link key => T (the earliest winning contradiction; 4c: the newest clock of the claims on its port, nothing replaces it)
 	$superseded_by = [];
 	foreach ($claims as $key => $claim) {
 		if (!$wins[$key]) {

@@ -477,7 +477,12 @@ check(isset(ports_of($pdo, $C)['eth0']) && link_between($pdo, $P, ports_of($pdo,
 check((int) $r['summary']['ports_ambiguous'] === 1, 'ports_ambiguous is counted');
 snapshot($pdo, 1002, 101, 2, CLOCK + 200, [nbr($R, 1, $C, 'eth0'), nbr($R, 1, $D, 'eth1')]);
 ingest($dsn, $user, $password, $pdo, 'two neighbors, none of them the existing link');
-check(is_active(link_between($pdo, $P, $Q)), 'no link change on the port');
+// topology-1-model.md §8.5 (2.41; before: "the existing link is never replaced here"): nothing supports the link (B reports nothing), so it is superseded at the clock of the
+// snapshot on the port, and no link replaces it
+$superseded = link_between($pdo, $P, $Q);
+check(!is_active($superseded) && ($superseded['superseded_at'] ?? null) === CLOCK + 200, 'no support: the existing link is superseded at the clock of the snapshot (2.41)');
+check(isset(ports_of($pdo, $C)['eth0']) && link_between($pdo, $P, ports_of($pdo, $C)['eth0']) === null
+	&& isset(ports_of($pdo, $D)['eth1']) && link_between($pdo, $P, ports_of($pdo, $D)['eth1']) === null, 'and no link replaces it');
 check(observation($pdo, 1002, $C)['outcome'] === 'ambiguous' && observation($pdo, 1002, $D)['outcome'] === 'ambiguous'
 	&& observation($pdo, 1002, $C)['edge_id'] === null, 'both are ambiguous with no edge');
 $picture = natural_picture($pdo);

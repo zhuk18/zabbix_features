@@ -187,6 +187,31 @@ class TestDeviationsAndMibs(unittest.TestCase):
         self.assertEqual(r[self.REM + (9, 0, 2, 1)], ('4', 'C'))
         self.assertEqual(r[self.REM + (9, 0, 2, 2)], ('4', 'B'))
 
+    CDP = (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 2, 1, 1)
+
+    def test_extra_neighbors_with_protocols_go_to_those_tables_only(self):
+        # task 047: the LLDP rule shows C on the port, the CDP rule shows B (the lab extension `protocols`); without the key a neighbor is in both tables
+        l = lab(deviations=[{'id': 'e1', 'reason': 'r', 'type': 'extra_lldp_neighbor', 'port': 'A:Gi0/2', 'neighbors': ['C:eth0'], 'protocols': ['lldp']},
+                            {'id': 'e2', 'reason': 'r', 'type': 'extra_lldp_neighbor', 'port': 'A:Gi0/2', 'neighbors': ['B:Gi0/1'], 'protocols': ['cdp']}])
+        l.devices['A']['cdp'] = l.devices['B']['cdp'] = l.devices['C']['cdp'] = True
+        l.active.update(['e1', 'e2'])
+        l.validate()
+        r = gen.device_records(l, 'A')
+        lldp_rows = {o: v for o, v in r.items() if o[:len(self.REM) + 1] == self.REM + (9,) and o[len(self.REM) + 1:len(self.REM) + 3] == (0, 2)}
+        self.assertEqual(sorted(v[1] for v in lldp_rows.values()), ['C'])                  # LLDP of Gi0/2: C only
+        cdp_rows = {o: v for o, v in r.items() if o[:len(self.CDP)] == self.CDP + () and o[len(self.CDP)] == 6 and o[len(self.CDP) + 1] == 2}
+        self.assertEqual(sorted(v[1] for v in cdp_rows.values()), ['B'])                   # CDP of ifIndex 2: B only
+        # the cable A:Gi0/1 - B:Gi0/1 (no `protocols`) is still in both tables
+        self.assertEqual(r[self.REM + (9, 0, 1, 1)], ('4', 'B'))
+        self.assertEqual(r[self.CDP + (6, 1, 1)], ('4', 'B'))
+
+    def test_protocols_is_only_for_extra_neighbors_and_must_be_lldp_or_cdp(self):
+        for bad in (['bgp'], [], 'lldp'):
+            with self.assertRaises(model.LabError):
+                lab(deviations=[{'id': 'e', 'reason': 'r', 'type': 'extra_lldp_neighbor', 'port': 'A:Gi0/2', 'neighbors': ['C:eth0'], 'protocols': bad}])
+        with self.assertRaises(model.LabError):
+            lab(deviations=[{'id': 'o', 'reason': 'r', 'type': 'omit_mib', 'device': 'A', 'mib': 'lldp', 'protocols': ['lldp']}])
+
     def test_omit_mib(self):
         l = lab(deviations=[{'id': 'm', 'reason': 'r', 'type': 'omit_mib', 'device': 'A', 'mib': 'lldp'}])
         l.active.add('m')
