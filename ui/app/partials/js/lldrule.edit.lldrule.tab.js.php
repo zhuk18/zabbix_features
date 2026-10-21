@@ -111,7 +111,7 @@ var LldRuleEditLldRuleTab = class {
 
 		const input_selectors = ['[name="authtype"]', '[name="custom_timeout"]', '[name="lifetime_type"]',
 			'[name="enabled_lifetime_type"]', '[name="key"]', '[name="request_method"]',
-			'[name="topology_role"]'
+			'[name="topology_type"]'
 		];
 		const inputs = this.#container.querySelectorAll(input_selectors.join(','));
 
@@ -173,13 +173,13 @@ var LldRuleEditLldRuleTab = class {
 		this.#container.querySelector('label[for="ipmi_sensor"]').classList
 			.toggle('<?= ZBX_STYLE_FIELD_LABEL_ASTERISK ?>', ipmi_sensor_required);
 
-		const topology_role = this.#container.querySelector('[name="topology_role"]').value;
+		const topology_type = this.#container.querySelector('[name="topology_type"]').value;
 
-		this.#container.querySelectorAll('.js-topology-role-hint').forEach(hint =>
-			hint.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', hint.dataset.topologyRole != topology_role)
+		this.#container.querySelectorAll('.js-topology-type-hint').forEach(hint =>
+			hint.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', hint.dataset.topologyType != topology_type)
 		);
-		this.#container.querySelectorAll('.js-topology-role-note').forEach(note =>
-			note.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', topology_role == <?= ZBX_TOPOLOGY_ROLE_NONE ?>)
+		this.#container.querySelectorAll('.js-topology-type-note').forEach(note =>
+			note.classList.toggle('<?= ZBX_STYLE_DISPLAY_NONE ?>', topology_type == <?= ZBX_TOPOLOGY_TYPE_NONE ?>)
 		);
 
 		const lifetime_type = this.#container.querySelector('[name="lifetime_type"]:checked').value;

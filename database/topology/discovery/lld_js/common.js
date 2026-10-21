@@ -5,7 +5,7 @@
  *
  * Input: `value` is the text of an SNMP walk[] item, one variable per line: ".1.3.6.1... = TYPE: value".
  *
- * Contract with the server (topology_role): a rule returns an array of LLD rows. It returns [] when the source table
+ * Contract with the server (topology_type): a rule returns an array of LLD rows. It returns [] when the source table
  * is simply empty (the device has no neighbors / no MACs) and THROWS when the walk itself is unusable — an empty
  * result is a valid snapshot, a thrown error leaves the last good snapshot untouched.
  */

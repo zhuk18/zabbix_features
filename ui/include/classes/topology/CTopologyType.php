@@ -15,27 +15,27 @@
 
 
 /**
- * Topology roles of discovery rules and the LLD macro contract of each role.
+ * Topology types of discovery rules and the LLD macro contract of each topology type.
  *
  * Single source of truth for the UI hint, the Test dialog contract check and export strings. The server-side
- * processing of role rows (C) must stay in sync with the data below.
+ * processing of the rows of a topology type (C) must stay in sync with the data below.
  */
-class CTopologyRole {
+class CTopologyType {
 
 	/**
-	 * Macro that may stand in for {#IFINDEX}, only for roles listed in $snmpindex_fallback.
+	 * Macro that may stand in for {#IFINDEX}, only for topology types listed in $snmpindex_fallback.
 	 */
 	public const SNMPINDEX_MACRO = '{#SNMPINDEX}';
 
 	/**
-	 * Role definitions:
+	 * Topology type definitions:
 	 *   export   - export/import string;
 	 *   required - macros that must be present and non-empty;
 	 *   one_of   - groups of macros, at least one macro of each group must be present and non-empty;
 	 *   optional - macros with a defined meaning that are not required.
 	 */
-	private const ROLES = [
-		ZBX_TOPOLOGY_ROLE_PORTS => [
+	private const TYPES = [
+		ZBX_TOPOLOGY_TYPE_PORTS => [
 			'export' => 'PORTS',
 			'required' => ['{#IFINDEX}'],
 			'one_of' => [],
@@ -43,7 +43,7 @@ class CTopologyRole {
 				'{#IFSPEED}', '{#LOC_CHASSIS}', '{#LOC_CHASSIS_TYPE}'
 			]
 		],
-		ZBX_TOPOLOGY_ROLE_NEIGHBORS => [
+		ZBX_TOPOLOGY_TYPE_NEIGHBORS => [
 			'export' => 'NEIGHBORS',
 			'required' => [],
 			'one_of' => [['{#IFINDEX}', '{#LOC_PORT_NUM}'],
@@ -54,13 +54,13 @@ class CTopologyRole {
 				'{#LOC_CHASSIS_TYPE}', '{#SOURCE}'
 			]
 		],
-		ZBX_TOPOLOGY_ROLE_LEARNED_MACS => [
+		ZBX_TOPOLOGY_TYPE_LEARNED_MACS => [
 			'export' => 'LEARNED_MACS',
 			'required' => ['{#IFINDEX}'],
 			'one_of' => [['{#MAC}', '{#PORT_MAC_COUNT}']],
 			'optional' => ['{#VLAN}']
 		],
-		ZBX_TOPOLOGY_ROLE_LAG => [
+		ZBX_TOPOLOGY_TYPE_LAG => [
 			'export' => 'LAG',
 			'required' => ['{#IFINDEX}', '{#LAG_IFINDEX}'],
 			'one_of' => [],
@@ -69,83 +69,83 @@ class CTopologyRole {
 	];
 
 	/**
-	 * Roles for which {#SNMPINDEX} is accepted in place of a missing {#IFINDEX}. Stock IF-MIB interface discovery
-	 * rules emit {#SNMPINDEX} = ifIndex; for other roles {#SNMPINDEX} is a different table index.
+	 * Topology types for which {#SNMPINDEX} is accepted in place of a missing {#IFINDEX}. Stock IF-MIB interface discovery
+	 * rules emit {#SNMPINDEX} = ifIndex; for other topology types {#SNMPINDEX} is a different table index.
 	 */
-	private const SNMPINDEX_FALLBACK = [ZBX_TOPOLOGY_ROLE_PORTS];
+	private const SNMPINDEX_FALLBACK = [ZBX_TOPOLOGY_TYPE_PORTS];
 
-	public static function getRoles(): array {
-		return array_merge([ZBX_TOPOLOGY_ROLE_NONE], array_keys(self::ROLES));
+	public static function getTypes(): array {
+		return array_merge([ZBX_TOPOLOGY_TYPE_NONE], array_keys(self::TYPES));
 	}
 
 	public static function getLabels(): array {
 		return [
-			ZBX_TOPOLOGY_ROLE_NONE => _('None'),
-			ZBX_TOPOLOGY_ROLE_PORTS => _('Ports'),
-			ZBX_TOPOLOGY_ROLE_NEIGHBORS => _('Neighbors'),
-			ZBX_TOPOLOGY_ROLE_LEARNED_MACS => _('Learned MACs'),
-			ZBX_TOPOLOGY_ROLE_LAG => _('LAG membership')
+			ZBX_TOPOLOGY_TYPE_NONE => _('None'),
+			ZBX_TOPOLOGY_TYPE_PORTS => _('Ports'),
+			ZBX_TOPOLOGY_TYPE_NEIGHBORS => _('Neighbors'),
+			ZBX_TOPOLOGY_TYPE_LEARNED_MACS => _('Learned MACs'),
+			ZBX_TOPOLOGY_TYPE_LAG => _('LAG membership')
 		];
 	}
 
 	/**
-	 * Why "Discard unchanged with heartbeat" is refused for a role, or null when the role accepts it (LLD spec 2.3). PORTS accepts it: the PORTS snapshot
-	 * clock is not used for link freshness (FR-B D-23). For the other roles every value confirms the topology data.
+	 * Why "Discard unchanged with heartbeat" is refused for a topology type, or null when the topology type accepts it (LLD spec 2.3). PORTS accepts it: the PORTS snapshot
+	 * clock is not used for link freshness (FR-B D-23). For the other topology types every value confirms the topology data.
 	 */
-	public static function getDiscardRefusal(int $role): ?string {
-		switch ($role) {
-			case ZBX_TOPOLOGY_ROLE_NEIGHBORS:
+	public static function getDiscardRefusal(int $topology_type): ?string {
+		switch ($topology_type) {
+			case ZBX_TOPOLOGY_TYPE_NEIGHBORS:
 				return _('every value must confirm the neighbors');
-			case ZBX_TOPOLOGY_ROLE_LEARNED_MACS:
+			case ZBX_TOPOLOGY_TYPE_LEARNED_MACS:
 				return _('every value must confirm the learned MACs');
-			case ZBX_TOPOLOGY_ROLE_LAG:
+			case ZBX_TOPOLOGY_TYPE_LAG:
 				return _('every value must confirm the LAG membership');
 		}
 
 		return null;
 	}
 
-	public static function getLabel(int $role): string {
-		return self::getLabels()[$role] ?? _('Unknown');
+	public static function getLabel(int $topology_type): string {
+		return self::getLabels()[$topology_type] ?? _('Unknown');
 	}
 
 	/**
-	 * Export strings indexed by role value, including NONE.
+	 * Export strings indexed by topology type value, including NONE.
 	 */
 	public static function getExportStrings(): array {
-		return [ZBX_TOPOLOGY_ROLE_NONE => 'NONE'] + array_map(static fn(array $role) => $role['export'], self::ROLES);
+		return [ZBX_TOPOLOGY_TYPE_NONE => 'NONE'] + array_map(static fn(array $definition) => $definition['export'], self::TYPES);
 	}
 
 	/**
-	 * Contract of a role, or null for NONE and unknown roles.
+	 * Contract of a topology type, or null for NONE and unknown topology types.
 	 *
 	 * @return array|null  ['required' => [], 'one_of' => [[]], 'optional' => [], 'snmpindex_fallback' => bool]
 	 */
-	public static function getContract(int $role): ?array {
-		if (!array_key_exists($role, self::ROLES)) {
+	public static function getContract(int $topology_type): ?array {
+		if (!array_key_exists($topology_type, self::TYPES)) {
 			return null;
 		}
 
 		return [
-			'required' => self::ROLES[$role]['required'],
-			'one_of' => self::ROLES[$role]['one_of'],
-			'optional' => self::ROLES[$role]['optional'],
-			'snmpindex_fallback' => in_array($role, self::SNMPINDEX_FALLBACK)
+			'required' => self::TYPES[$topology_type]['required'],
+			'one_of' => self::TYPES[$topology_type]['one_of'],
+			'optional' => self::TYPES[$topology_type]['optional'],
+			'snmpindex_fallback' => in_array($topology_type, self::SNMPINDEX_FALLBACK)
 		];
 	}
 
 	/**
-	 * Check LLD rows against the contract of a role.
+	 * Check LLD rows against the contract of a topology type.
 	 *
-	 * @param int   $role
+	 * @param int   $topology_type
 	 * @param array $rows          Decoded LLD rows.
 	 * @param array $path_macros   Macros defined on the rule's LLD macros tab; treated as available, not evaluated.
 	 *
 	 * @return array  ['rows' => int, 'passed' => int, 'failed' => int, 'snmpindex_fallback_rows' => int,
 	 *                 'path_macros' => [], 'failures' => [<requirement> => [<row index>, ...]]]
 	 */
-	public static function checkRows(int $role, array $rows, array $path_macros): array {
-		$contract = self::getContract($role);
+	public static function checkRows(int $topology_type, array $rows, array $path_macros): array {
+		$contract = self::getContract($topology_type);
 
 		$result = [
 			'rows' => count($rows),

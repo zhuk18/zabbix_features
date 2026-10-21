@@ -2150,7 +2150,7 @@ function getMainItemFieldNames(array $input): array {
 		case ZBX_FLAG_DISCOVERY_RULE:
 			if ($input['templateid'] == 0) {
 				$field_names = ['name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-					'enabled_lifetime','description', 'status', 'topology_role', 'preprocessing', 'lld_macro_paths',
+					'enabled_lifetime','description', 'status', 'topology_type', 'preprocessing', 'lld_macro_paths',
 					'overrides'
 				];
 			}
@@ -2169,7 +2169,7 @@ function getMainItemFieldNames(array $input): array {
 		case ZBX_FLAG_DISCOVERY_RULE_PROTOTYPE:
 			if ($input['templateid'] == 0) {
 				$field_names = ['name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-					'enabled_lifetime','description', 'status', 'discover', 'topology_role', 'preprocessing',
+					'enabled_lifetime','description', 'status', 'discover', 'topology_type', 'preprocessing',
 					'lld_macro_paths', 'overrides'
 				];
 			}

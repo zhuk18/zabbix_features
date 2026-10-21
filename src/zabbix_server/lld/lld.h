@@ -134,7 +134,7 @@ ZBX_PTR_VECTOR_DECL(lld_row_ptr, zbx_lld_row_t*)
 
 void	lld_row_free(zbx_lld_row_t *lld_row);
 
-void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int role,
+void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int topology_type,
 		const zbx_vector_lld_row_ptr_t *lld_rows, int value_clock, int server_time, char **info);
 
 typedef struct
@@ -249,7 +249,7 @@ typedef struct
 	int					lifetime_type;
 	int					enabled_lifetime_type;
 	int					evaltype;
-	int					topology_role;
+	int					topology_type;
 	int					item_flags;
 
 #define ZBX_LLD_ITEM_PROTOTYPE_MACRO_PATH_COLS_NUM	2
@@ -325,7 +325,7 @@ struct zbx_lld_item_full_s
 #define ZBX_FLAG_LLD_ITEM_UPDATE_TIME_SHIFT		__UINT64_C(0x0008000000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE_LOOKBACK_LIMIT		__UINT64_C(0x0010000000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE_GRANULARITY		__UINT64_C(0x0020000000000000)
-#define ZBX_FLAG_LLD_ITEM_UPDATE_TOPOLOGY_ROLE		__UINT64_C(0x0040000000000000)
+#define ZBX_FLAG_LLD_ITEM_UPDATE_TOPOLOGY_TYPE		__UINT64_C(0x0040000000000000)
 #define ZBX_FLAG_LLD_ITEM_UPDATE			(~ZBX_FLAG_LLD_ITEM_DISCOVERED)
 	zbx_uint64_t				flags;
 	char					*key_proto;
@@ -424,7 +424,7 @@ struct zbx_lld_item_full_s
 	int					lifetime_type_orig;
 	int					enabled_lifetime_type_orig;
 	int					evaltype_orig;
-	int					topology_role_orig;
+	int					topology_type_orig;
 	int					item_flags;		/* discovery flag - lld rule/prototype */
 
 	zbx_sync_rowset_t			macro_paths;

@@ -10,7 +10,7 @@ zabbix_export:
       description: |
         TEMPORARY lab template (topology-2-lld-delivery.md "Template Topology by SNMP"): collects topology through Zabbix low-level discovery
         with no external scripts. Two SNMP walk[] master items feed four dependent discovery rules, one per
-        topology role; each rule's JavaScript emits the rows of that role's macro contract. The master items store
+        topology type; each rule's JavaScript emits the rows of the macro contract of that topology type. The master items store
         no history.
 
         Replaced by the preset preprocessing step — the JavaScript is the reference implementation of it.
@@ -49,7 +49,7 @@ zabbix_export:
           name: 'Topology ports'
           type: DEPENDENT
           key: topology.ports
-          topology_role: PORTS
+          topology_type: PORTS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           master_item:
@@ -65,7 +65,7 @@ zabbix_export:
                    *
                    * Input: `value` is the text of an SNMP walk[] item, one variable per line: ".1.3.6.1... = TYPE: value".
                    *
-                   * Contract with the server (topology_role): a rule returns an array of LLD rows. It returns [] when the source table
+                   * Contract with the server (topology_type): a rule returns an array of LLD rows. It returns [] when the source table
                    * is simply empty (the device has no neighbors / no MACs) and THROWS when the walk itself is unusable — an empty
                    * result is a valid snapshot, a thrown error leaves the last good snapshot untouched.
                    */
@@ -294,7 +294,7 @@ zabbix_export:
           name: 'Topology neighbors (LLDP)'
           type: DEPENDENT
           key: topology.neighbors
-          topology_role: NEIGHBORS
+          topology_type: NEIGHBORS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           master_item:
@@ -310,7 +310,7 @@ zabbix_export:
                    *
                    * Input: `value` is the text of an SNMP walk[] item, one variable per line: ".1.3.6.1... = TYPE: value".
                    *
-                   * Contract with the server (topology_role): a rule returns an array of LLD rows. It returns [] when the source table
+                   * Contract with the server (topology_type): a rule returns an array of LLD rows. It returns [] when the source table
                    * is simply empty (the device has no neighbors / no MACs) and THROWS when the walk itself is unusable — an empty
                    * result is a valid snapshot, a thrown error leaves the last good snapshot untouched.
                    */
@@ -663,7 +663,7 @@ zabbix_export:
           name: 'Topology learned MACs'
           type: DEPENDENT
           key: topology.learned_macs
-          topology_role: LEARNED_MACS
+          topology_type: LEARNED_MACS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           master_item:
@@ -679,7 +679,7 @@ zabbix_export:
                    *
                    * Input: `value` is the text of an SNMP walk[] item, one variable per line: ".1.3.6.1... = TYPE: value".
                    *
-                   * Contract with the server (topology_role): a rule returns an array of LLD rows. It returns [] when the source table
+                   * Contract with the server (topology_type): a rule returns an array of LLD rows. It returns [] when the source table
                    * is simply empty (the device has no neighbors / no MACs) and THROWS when the walk itself is unusable — an empty
                    * result is a valid snapshot, a thrown error leaves the last good snapshot untouched.
                    */
@@ -944,7 +944,7 @@ zabbix_export:
           name: 'Topology LAG membership'
           type: DEPENDENT
           key: topology.lag
-          topology_role: LAG
+          topology_type: LAG
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           master_item:
@@ -960,7 +960,7 @@ zabbix_export:
                    *
                    * Input: `value` is the text of an SNMP walk[] item, one variable per line: ".1.3.6.1... = TYPE: value".
                    *
-                   * Contract with the server (topology_role): a rule returns an array of LLD rows. It returns [] when the source table
+                   * Contract with the server (topology_type): a rule returns an array of LLD rows. It returns [] when the source table
                    * is simply empty (the device has no neighbors / no MACs) and THROWS when the walk itself is unusable — an empty
                    * result is a valid snapshot, a thrown error leaves the last good snapshot untouched.
                    */

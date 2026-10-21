@@ -26,7 +26,7 @@ $form = (new CForm())
 	->addVar('hostid', $data['hostid'])
 	->addVar('interfaceid', $data['interfaceid'])
 	->addVar('valuemapid', $data['valuemapid'])
-	->addVar('topology_role', $data['topology_role'])
+	->addVar('topology_type', $data['topology_type'])
 	->addVar('test_type', $data['test_type'])
 	->addVar('show_final_result', $data['show_final_result'])
 	->addStyle('display: none;');
@@ -571,7 +571,7 @@ if ($data['show_final_result']) {
 	]);
 }
 
-if ($data['show_final_result'] && $data['topology_role'] != ZBX_TOPOLOGY_ROLE_NONE) {
+if ($data['show_final_result'] && $data['topology_type'] != ZBX_TOPOLOGY_TYPE_NONE) {
 	$form_grid->addItem([
 		(new CLabel(_('Topology contract')))->addClass('js-topology-check')->addStyle('display: none'),
 		(new CFormField())

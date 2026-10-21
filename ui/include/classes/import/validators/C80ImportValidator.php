@@ -1058,7 +1058,7 @@ class C80ImportValidator extends CImportValidatorGeneral {
 															]],
 															['else' => true, 'type' => XML_IGNORE_TAG]
 							]],
-							'topology_role' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_ROLE_NONE, 'in' => CTopologyRole::getExportStrings()],
+							'topology_type' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_TYPE_NONE, 'in' => CTopologyType::getExportStrings()],
 							'description' =>			['type' => XML_STRING, 'default' => ''],
 							'interface_ref' =>			['type' => XML_MULTIPLE, 'rules' => [
 															['if' => ['tag' => 'type', 'in' => $this->ITEM_TYPE_INTERFACE], 'type' => XML_STRING],
@@ -2328,7 +2328,7 @@ class C80ImportValidator extends CImportValidatorGeneral {
 															]],
 															['else' => true, 'type' => XML_IGNORE_TAG]
 							]],
-							'topology_role' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_ROLE_NONE, 'in' => CTopologyRole::getExportStrings()],
+							'topology_type' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_TYPE_NONE, 'in' => CTopologyType::getExportStrings()],
 							'description' =>			['type' => XML_STRING, 'default' => ''],
 							'item_prototypes' =>		['type' => XML_INDEXED_ARRAY, 'prefix' => 'item_prototype', 'rules' => [
 								'item_prototype' =>			['type' => XML_ARRAY, 'rules' => [

@@ -320,7 +320,7 @@ class CItemPrototype extends CItemGeneral {
 	private function prepareChunkObjects(array &$items, array $options): void {
 		$items = $this->addRelatedObjects($options, $items);
 		$items = $this->unsetExtraFields($items, ['hostid', 'valuemapid'], $options['output']);
-		$items = $this->unsetExtraFields($items, ['name_upper', 'topology_role']);
+		$items = $this->unsetExtraFields($items, ['name_upper', 'topology_type']);
 
 		self::prepareItemsForApi($items, false);
 

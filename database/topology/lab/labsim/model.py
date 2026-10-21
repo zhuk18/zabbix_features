@@ -320,11 +320,12 @@ def load_lab(path=None):
 
 
 TRANSPORTS = ('lld', 'push')
-RULE_ROLES = ('ports', 'lldp', 'cdp', 'fdb', 'lag')       # the discovery rules of "Topology by SNMP": topology.<role>
+SCENARIO_SETTINGS = {'freshness_seconds', 'transport', 'sources'}
+RULE_SOURCES = ('ports', 'lldp', 'cdp', 'fdb', 'lag')       # the discovery rules of "Topology by SNMP": topology.<source>
 
 
 class Scenario:
-    def __init__(self, data, base_lab, transport=None, roles=None):
+    def __init__(self, data, base_lab, transport=None, sources=None):
         self.id = data['id']
         self.title = data.get('title', '')
         self.steps = data['steps']
@@ -338,14 +339,18 @@ class Scenario:
             for a in step.get('assert') or []:
                 validate_assertion(self.id, i, a)
         settings = data.get('settings') or {}
-        # Scenario-level overrides (the CLI options --transport and --roles replace the settings): every monitored device on one
-        # transport, and only some roles collected. The equivalence runs of topology-3-push-delivery.md "Acceptance criteria" use them.
+        unknown = set(settings) - SCENARIO_SETTINGS
+        if unknown:
+            # lab spec 2.16: no alias for an old name (the setting `roles` is `sources` now); an unknown key is an error, not ignored
+            raise LabError('scenario %s: unknown settings %s (allowed: %s)' % (self.id, sorted(unknown), sorted(SCENARIO_SETTINGS)))
+        # Scenario-level overrides (the CLI options --transport and --sources replace the settings): every monitored device on one
+        # transport, and only some sources collected. The equivalence runs of topology-3-push-delivery.md "Acceptance criteria" use them.
         self.transport = transport or settings.get('transport')
         if self.transport is not None and self.transport not in TRANSPORTS:
             raise LabError('scenario %s: settings.transport must be one of %s or null, got %r' % (self.id, list(TRANSPORTS), self.transport))
-        self.roles = roles if roles is not None else settings.get('roles')
-        if self.roles is not None and (not isinstance(self.roles, list) or set(self.roles) - set(RULE_ROLES)):
-            raise LabError('scenario %s: settings.roles must be a list of %s or null, got %r' % (self.id, list(RULE_ROLES), self.roles))
+        self.sources = sources if sources is not None else settings.get('sources')
+        if self.sources is not None and (not isinstance(self.sources, list) or set(self.sources) - set(RULE_SOURCES)):
+            raise LabError('scenario %s: settings.sources must be a list of %s or null, got %r' % (self.id, list(RULE_SOURCES), self.sources))
         self.base = base_lab.copy()
         self.base.apply_patch(data.get('patch'))
         if self.transport:
@@ -363,7 +368,7 @@ class Scenario:
             lab.validate()
 
 
-def load_scenario(sid, lab=None, directory=None, transport=None, roles=None):
+def load_scenario(sid, lab=None, directory=None, transport=None, sources=None):
     lab = lab or load_lab()
     if directory is None:
         # the scenarios next to the lab file (a stand has its own), else the ones of the lab tool
@@ -372,4 +377,4 @@ def load_scenario(sid, lab=None, directory=None, transport=None, roles=None):
     path = os.path.join(directory, '%s.yaml' % sid)
     if not os.path.exists(path):
         raise LabError('no scenario %s (%s)' % (sid, path))
-    return Scenario(load_yaml(path), lab, transport, roles)
+    return Scenario(load_yaml(path), lab, transport, sources)

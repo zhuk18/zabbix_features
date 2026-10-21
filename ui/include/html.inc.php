@@ -1173,19 +1173,19 @@ function makeHelpIcon($help_text): CSimpleButton {
 }
 
 /**
- * Form grid rows for the discovery rule "Topology role" field: the role select with the macro contract hint of each
- * role, and the note shown next to the lost resources settings.
+ * Form grid rows for the discovery rule "Topology type" field: the topology type select with the macro contract hint of each
+ * topology type, and the note shown next to the lost resources settings.
  *
- * @param int  $topology_role
+ * @param int  $topology_type
  * @param bool $readonly
  *
- * @return array  ['role' => [CLabel, CFormField], 'note' => [CLabel, CFormField]]
+ * @return array  ['type' => [CLabel, CFormField], 'note' => [CLabel, CFormField]]
  */
-function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
+function makeTopologyTypeFormRows(int $topology_type, bool $readonly): array {
 	$hints = [];
 
-	foreach (CTopologyRole::getRoles() as $role) {
-		$contract = CTopologyRole::getContract($role);
+	foreach (CTopologyType::getTypes() as $type_value) {
+		$contract = CTopologyType::getContract($type_value);
 
 		if ($contract === null) {
 			continue;
@@ -1194,7 +1194,7 @@ function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
 		$required = implode(', ', $contract['required']);
 
 		if ($contract['snmpindex_fallback']) {
-			$required .= ' '._s('(%1$s is accepted when %2$s is absent)', CTopologyRole::SNMPINDEX_MACRO, '{#IFINDEX}');
+			$required .= ' '._s('(%1$s is accepted when %2$s is absent)', CTopologyType::SNMPINDEX_MACRO, '{#IFINDEX}');
 		}
 
 		$lines = [new CDiv([bold(_('Required').': '), $required])];
@@ -1210,45 +1210,45 @@ function makeTopologyRoleFormRows(int $topology_role, bool $readonly): array {
 		$hints[] = (new CDiv($lines))
 			->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
 			->addClass(ZBX_STYLE_GREY)
-			->addClass('js-topology-role-hint')
-			->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
-			->setAttribute('data-topology-role', $role);
+			->addClass('js-topology-type-hint')
+			->addClass($type_value == $topology_type ? null : ZBX_STYLE_DISPLAY_NONE)
+			->setAttribute('data-topology-type', $type_value);
 
-		// LLD spec 2.6: under the role field for the roles that refuse the throttling step
-		if (CTopologyRole::getDiscardRefusal((int) $role) !== null) {
+		// LLD spec 2.6: under the topology type field for the topology types that refuse the throttling step
+		if (CTopologyType::getDiscardRefusal((int) $type_value) !== null) {
 			$hints[] = (new CDiv(_('Do not use "Discard unchanged" preprocessing: every value confirms the topology data.')))
 				->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
 				->addClass(ZBX_STYLE_GREY)
-				->addClass('js-topology-role-hint')
-				->addClass($role == $topology_role ? null : ZBX_STYLE_DISPLAY_NONE)
-				->setAttribute('data-topology-role', $role);
+				->addClass('js-topology-type-hint')
+				->addClass($type_value == $topology_type ? null : ZBX_STYLE_DISPLAY_NONE)
+				->setAttribute('data-topology-type', $type_value);
 		}
 	}
 
-	$note_class = $topology_role == ZBX_TOPOLOGY_ROLE_NONE ? ZBX_STYLE_DISPLAY_NONE : null;
+	$note_class = $topology_type == ZBX_TOPOLOGY_TYPE_NONE ? ZBX_STYLE_DISPLAY_NONE : null;
 
 	return [
-		'role' => [
-			new CLabel(_('Topology role'), 'label-topology_role'),
+		'type' => [
+			new CLabel(_('Topology type'), 'label-topology_type'),
 			new CFormField([
-				(new CSelect('topology_role'))
-					->setId('topology_role')
-					->setFocusableElementId('label-topology_role')
-					->setValue($topology_role)
-					->addOptions(CSelect::createOptionsFromArray(CTopologyRole::getLabels()))
+				(new CSelect('topology_type'))
+					->setId('topology_type')
+					->setFocusableElementId('label-topology_type')
+					->setValue($topology_type)
+					->addOptions(CSelect::createOptionsFromArray(CTopologyType::getLabels()))
 					->setReadonly($readonly),
 				$hints
 			])
 		],
 		'note' => [
 			(new CLabel(''))
-				->addClass('js-topology-role-note')
+				->addClass('js-topology-type-note')
 				->addClass($note_class),
 			(new CFormField(
 				(new CDiv(_('Lost resources settings apply to discovered prototypes only, not to topology data.')))
 					->addClass(ZBX_STYLE_GREY)
 			))
-				->addClass('js-topology-role-note')
+				->addClass('js-topology-type-note')
 				->addClass($note_class)
 		]
 	];

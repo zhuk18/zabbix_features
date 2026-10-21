@@ -43,21 +43,21 @@ foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes',
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
-$pdo->exec("CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, key_ VARCHAR(2048) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)");
+$pdo->exec("CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, key_ VARCHAR(2048) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE history_text (itemid BIGINT UNSIGNED NOT NULL, clock INT NOT NULL DEFAULT 0, value TEXT NOT NULL, ns INT NOT NULL DEFAULT 0)');
 $pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
 $pdo->exec("CREATE TABLE host_inventory (hostid BIGINT UNSIGNED PRIMARY KEY, macaddress_a VARCHAR(64) NOT NULL DEFAULT '', macaddress_b VARCHAR(64) NOT NULL DEFAULT '')");
-$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 	' rows_valid INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 
 // a reporter with one PORTS snapshot, and a template that carries a rule (a template is not a reporter)
 $pdo->exec("INSERT INTO hosts (hostid, host, name, status) VALUES (501, 'snap-sw', 'snap-sw', 0), (502, 'A template', 'tpl', 3)");
-$pdo->exec("INSERT INTO items (itemid, hostid, key_, topology_role) VALUES (5001, 501, 'topology.ports', 1), (5002, 502, 'topology.ports', 1)");
+$pdo->exec("INSERT INTO items (itemid, hostid, key_, topology_type) VALUES (5001, 501, 'topology.ports', 1), (5002, 502, 'topology.ports', 1)");
 $rows = [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'mac' => '02:aa:00:00:00:11', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => '02:aa:00:00:00:01']];
 foreach ([5001 => 501, 5002 => 502] as $itemid => $hostid) {
-	$pdo->prepare('INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid) VALUES (?, ?, 1, ?, ?, ?, 1, 1)')
+	$pdo->prepare('INSERT INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json, rows_total, rows_valid) VALUES (?, ?, 1, ?, ?, ?, 1, 1)')
 		->execute([$itemid, $hostid, time(), 'h', json_encode($rows)]);
 }
 

@@ -270,7 +270,7 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 				)
 			],
 			'timeout' => ['string'],
-			'topology_role' => ['integer', 'in' => CTopologyRole::getRoles()],
+			'topology_type' => ['integer', 'in' => CTopologyType::getTypes()],
 			'topology_macros' => ['array', 'field' => ['string']],
 			'username' => ['string'],
 			'url' => ['string'],
@@ -579,13 +579,13 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 	}
 
 	/**
-	 * Check the tested LLD rule value against the macro contract of the rule's topology role.
+	 * Check the tested LLD rule value against the macro contract of the rule's topology type.
 	 * Informational only; macros defined on the LLD macros tab are treated as available without evaluating paths.
 	 */
 	private function addTopologyCheck(string $value, array &$output): void {
-		$role = (int) $this->getInput('topology_role', ZBX_TOPOLOGY_ROLE_NONE);
+		$topology_type = (int) $this->getInput('topology_type', ZBX_TOPOLOGY_TYPE_NONE);
 
-		if ($role == ZBX_TOPOLOGY_ROLE_NONE
+		if ($topology_type == ZBX_TOPOLOGY_TYPE_NONE
 				|| !in_array($this->test_type, [self::ZBX_TEST_TYPE_LLD, self::ZBX_TEST_TYPE_LLD_PROTOTYPE])) {
 			return;
 		}
@@ -600,7 +600,7 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 			return;
 		}
 
-		$check = CTopologyRole::checkRows($role, $rows, $this->getInput('topology_macros', []));
+		$check = CTopologyType::checkRows($topology_type, $rows, $this->getInput('topology_macros', []));
 
 		$lines = [
 			new CDiv(_s('Rows: %1$s, passing: %2$s, failing: %3$s.', $check['rows'], $check['passed'],
@@ -618,7 +618,7 @@ class CControllerPopupItemTestSend extends CControllerPopupItemTest {
 
 		if ($check['snmpindex_fallback_rows'] > 0) {
 			$lines[] = new CDiv(_n('%1$s used as %2$s in %3$s row.', '%1$s used as %2$s in %3$s rows.',
-				CTopologyRole::SNMPINDEX_MACRO, '{#IFINDEX}', $check['snmpindex_fallback_rows']
+				CTopologyType::SNMPINDEX_MACRO, '{#IFINDEX}', $check['snmpindex_fallback_rows']
 			));
 		}
 

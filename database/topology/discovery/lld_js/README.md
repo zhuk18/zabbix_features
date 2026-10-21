@@ -1,8 +1,8 @@
 # Topology by SNMP (temporary JS)
 
 Temporary lab template for topology-2-lld-delivery.md "Template Topology by SNMP". Zabbix collects the topology itself: two SNMP `walk[]`
-master items feed four dependent discovery rules, one per `topology_role` (PORTS, NEIGHBORS, LEARNED_MACS, LAG). Each
-rule's JavaScript turns the walk text into the rows of that role's macro contract (see `CTopologyRole.php`).
+master items feed four dependent discovery rules, one per `topology_type` (PORTS, NEIGHBORS, LEARNED_MACS, LAG). Each
+rule's JavaScript turns the walk text into the rows of the macro contract of that topology type (see `CTopologyType.php`).
 
 This JavaScript is the reference implementation for the preset preprocessing step of topology-2-lld-delivery.md (`../step_golden/` holds the
 golden comparison). The native template `../template_topology_by_snmp.yaml` (`../build_template.php`) replaces this

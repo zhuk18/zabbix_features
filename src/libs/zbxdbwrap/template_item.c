@@ -199,7 +199,7 @@ static void	get_template_items(zbx_uint64_t hostid, const zbx_vector_uint64_t *t
 				"hi.retrieve_mode,hi.request_method,hi.output_format,hi.ssl_cert_file,hi.ssl_key_file,"
 				"hi.ssl_key_password,hi.verify_peer,hi.verify_host,hi.allow_traps,hi.discover,"
 				"hi.lifetime_type,hi.enabled_lifetime,hi.enabled_lifetime_type,hi.query,hi.time_shift,"
-				"hi.lookback_limit,hi.granularity,ti.topology_role,hi.topology_role"
+				"hi.lookback_limit,hi.granularity,ti.topology_type,hi.topology_type"
 			" from items ti"
 			" left join items hi on hi.key_=ti.key_"
 				" and hi.hostid=" ZBX_FS_UI64
@@ -324,8 +324,8 @@ static void	get_template_items(zbx_uint64_t hostid, const zbx_vector_uint64_t *t
 		item->enabled_lifetime_type_orig = 0;
 		ZBX_STR2UCHAR(item->enabled_lifetime_type, row[51]);
 
-		item->topology_role_orig = 0;
-		ZBX_STR2UCHAR(item->topology_role, row[111]);
+		item->topology_type_orig = 0;
+		ZBX_STR2UCHAR(item->topology_type, row[111]);
 
 		item->jmx_endpoint_orig = NULL;
 		item->jmx_endpoint = zbx_strdup(NULL, row[28]);
@@ -501,7 +501,7 @@ static void	get_template_items(zbx_uint64_t hostid, const zbx_vector_uint64_t *t
 			SET_FLAG_STR(row[108], item->time_shift, ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TIME_SHIFT);
 			SET_FLAG_STR(row[109], item->lookback_limit, ZBX_FLAG_TEMPLATE_ITEM_UPDATE_LOOKBACK_LIMIT);
 			SET_FLAG_STR(row[110], item->granularity, ZBX_FLAG_TEMPLATE_ITEM_UPDATE_GRANULARITY);
-			SET_FLAG_UCHAR(row[112], item->topology_role, ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TOPOLOGY_ROLE);
+			SET_FLAG_UCHAR(row[112], item->topology_type, ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TOPOLOGY_TYPE);
 		}
 		else
 		{
@@ -962,7 +962,7 @@ static void	save_template_item(zbx_uint64_t hostid, zbx_uint64_t *itemid, zbx_te
 		PREPARE_UPDATE_STR(TIME_SHIFT, time_shift)
 		PREPARE_UPDATE_STR(LOOKBACK_LIMIT, lookback_limit)
 		PREPARE_UPDATE_STR(GRANULARITY, granularity)
-		PREPARE_UPDATE_UC(TOPOLOGY_ROLE, topology_role)
+		PREPARE_UPDATE_UC(TOPOLOGY_TYPE, topology_type)
 		ZBX_UNUSED(d);
 
 		zbx_snprintf_alloc(sql, sql_alloc, sql_offset, " where itemid=" ZBX_FS_UI64 ";\n", item->itemid);
@@ -1000,7 +1000,7 @@ static void	save_template_item(zbx_uint64_t hostid, zbx_uint64_t *itemid, zbx_te
 				item->output_format, item->ssl_cert_file, item->ssl_key_file, item->ssl_key_password,
 				item->verify_peer, item->verify_host, item->allow_traps, item->discover, item->query,
 				item->time_shift, item->lookback_limit, item->granularity,
-				(int)item->topology_role);
+				(int)item->topology_type);
 
 
 		if (0 == (item->flags & ZBX_FLAG_DISCOVERY_PROTOTYPE))
@@ -1090,7 +1090,7 @@ static void	save_template_items(zbx_uint64_t hostid, zbx_vector_template_item_pt
 				"follow_redirects", "post_type", "http_proxy", "headers", "retrieve_mode",
 				"request_method", "output_format", "ssl_cert_file", "ssl_key_file", "ssl_key_password",
 				"verify_peer", "verify_host", "allow_traps", "discover", "query", "time_shift",
-				"lookback_limit", "granularity", "topology_role",
+				"lookback_limit", "granularity", "topology_type",
 				(char *)NULL);
 
 		zbx_db_insert_prepare(&db_insert_irtdata, "item_rtdata", "itemid", (char *)NULL);

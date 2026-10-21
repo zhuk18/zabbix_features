@@ -31,7 +31,7 @@ ZBX_TOKEN=... python -m labsim run S1 --reset [--timeout 120] [--report path]
 python -m labsim compare-reports a.json b.json    # equal except clocks and ids
 python -m labsim compare-transports lld.json push.json   # one scenario run on each transport: state by natural keys, identity bytes
 ZBX_TOKEN=... python -m labsim provision S1 --transport push   # every monitored host on one transport (or settings.transport in the scenario)
-ZBX_TOKEN=... python -m labsim run S1 --reset --transport push --roles ports,lldp   # only these roles on LLD hosts (the other rules are off for the run)
+ZBX_TOKEN=... python -m labsim run S1 --reset --transport push --sources ports,lldp   # only these sources on LLD hosts (the other rules are off for the run)
 python3 -m unittest discover -s tests             # generator, validation, DB guard
 python3 -m unittest tests/test_labmultiplex.py    # the snmpsim variation module (needs snmpsim + net-snmp)
 ```

@@ -63,10 +63,10 @@ $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR
 	" monitored_by INT NOT NULL DEFAULT 0, proxyid BIGINT UNSIGNED NULL, proxy_groupid BIGINT UNSIGNED NULL)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 $pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
 $pdo->exec("CREATE TABLE host_inventory (hostid BIGINT UNSIGNED PRIMARY KEY, macaddress_a VARCHAR(64) NOT NULL DEFAULT '', macaddress_b VARCHAR(64) NOT NULL DEFAULT '')");
-$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 	' rows_valid INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
@@ -81,15 +81,15 @@ function add_host(PDO $pdo, int $hostid, string $host, string $name, ?string $ip
 	}
 }
 
-function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, array $rows, int $current_role = null,
+function snapshot(PDO $pdo, int $itemid, int $hostid, int $topology_type, int $clock, array $rows, int $current_topology_type = null,
 		int $status = 0): void {
 	// an upsert, not REPLACE: REPLACE deletes the items row and the foreign key removes the observations of the rule, which a real item never does
-	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role) VALUES (?, ?, ?, ?)'.
-		' ON DUPLICATE KEY UPDATE hostid = VALUES(hostid), status = VALUES(status), topology_role = VALUES(topology_role)')
-		->execute([$itemid, $hostid, $status, $current_role ?? $role]);
+	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_type) VALUES (?, ?, ?, ?)'.
+		' ON DUPLICATE KEY UPDATE hostid = VALUES(hostid), status = VALUES(status), topology_type = VALUES(topology_type)')
+		->execute([$itemid, $hostid, $status, $current_topology_type ?? $topology_type]);
 	$json = json_encode($rows, JSON_THROW_ON_ERROR);
-	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid)'.
-		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $role, $clock, hash('sha256', $json), $json,
+	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json, rows_total, rows_valid)'.
+		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $topology_type, $clock, hash('sha256', $json), $json,
 		count($rows), count($rows)]);
 }
 
@@ -308,24 +308,24 @@ function h_tick(): void {
 	$H['step']++;
 }
 
-function h_itemid(string $rep, int $role, string $source, bool $trapper): int {
+function h_itemid(string $rep, int $topology_type, string $source, bool $trapper): int {
 	global $H;
-	$slot = $role === ROLE_PORTS ? 1 : ($role === ROLE_NEIGHBORS ? ($source === 'cdp' ? 3 : 2) : ($role === ROLE_LAG ? 4 : 5));
+	$slot = $topology_type === ROLE_PORTS ? 1 : ($topology_type === ROLE_NEIGHBORS ? ($source === 'cdp' ? 3 : 2) : ($topology_type === ROLE_LAG ? 4 : 5));
 	return $H['reps'][$rep]['id'] * 100 + $slot + ($trapper ? 10 : 0);
 }
 
 /** Writes a snapshot of one rule of reporter $rep. loc_chassis is added to the PORTS and NEIGHBORS rows. */
-function h_snap(string $rep, int $role, array $rows, ?int $clock = null, string $source = 'lldp', bool $trapper = false, int $status = 0): int {
+function h_snap(string $rep, int $topology_type, array $rows, ?int $clock = null, string $source = 'lldp', bool $trapper = false, int $status = 0): int {
 	global $pdo, $H;
 	$r = $H['reps'][$rep];
-	if ($r['chassis'] !== null && in_array($role, [ROLE_PORTS, ROLE_NEIGHBORS], true)) {
+	if ($r['chassis'] !== null && in_array($topology_type, [ROLE_PORTS, ROLE_NEIGHBORS], true)) {
 		$rows = array_map(static fn (array $row): array => $row + ['loc_chassis' => $r['chassis']], $rows);
 	}
-	if ($role === ROLE_NEIGHBORS) {
+	if ($topology_type === ROLE_NEIGHBORS) {
 		$rows = array_map(static fn (array $row): array => $row + ['source' => $source], $rows);
 	}
-	$itemid = h_itemid($rep, $role, $source, $trapper);
-	snapshot($pdo, $itemid, $r['id'], $role, $clock ?? h_clock($role === ROLE_PORTS ? -10 : 0), $rows, null, $status);
+	$itemid = h_itemid($rep, $topology_type, $source, $trapper);
+	snapshot($pdo, $itemid, $r['id'], $topology_type, $clock ?? h_clock($topology_type === ROLE_PORTS ? -10 : 0), $rows, null, $status);
 	$pdo->prepare('UPDATE items SET type = ? WHERE itemid = ?')->execute([$trapper ? 2 : 0, $itemid]);
 	return $itemid;
 }
@@ -2347,12 +2347,12 @@ c('C-15', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, mac(10), 'X', 'Gi0/24')]);
 	h_ingest('baseline');
-	$pdo->exec('UPDATE items SET topology_role = 1 WHERE itemid = '.h_itemid('R', ROLE_NEIGHBORS, 'lldp', false));
+	$pdo->exec('UPDATE items SET topology_type = 1 WHERE itemid = '.h_itemid('R', ROLE_NEIGHBORS, 'lldp', false));
 	h_tick();
-	h_ingest('the rule\'s topology_role changed: its snapshot (role 2) is ignored');
-	ex(h_state()['obs'] === [] && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'the snapshot with another role is ignored: no observations, the link stays');
-	ex((int) ($GLOBALS['H']['last_summary']['snapshots_ignored_role_mismatch'] ?? 0) >= 1, 'counted as snapshots_ignored_role_mismatch');
-}, 'test_snapshot_ingest.php §12 (the deletion of the snapshot on a role change is the API\'s job)');
+	h_ingest('the rule\'s topology_type changed: its snapshot (topology type 2) is ignored');
+	ex(h_state()['obs'] === [] && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'the snapshot with another topology type is ignored: no observations, the link stays');
+	ex((int) ($GLOBALS['H']['last_summary']['snapshots_ignored_type_mismatch'] ?? 0) >= 1, 'counted as snapshots_ignored_type_mismatch');
+}, 'test_snapshot_ingest.php §12 (the deletion of the snapshot on a topology type change is the API\'s job)');
 
 c('C-16', 'Правило', function () {
 	base_r();
@@ -2390,7 +2390,7 @@ c('C-21', 'Правило', function () {
 	h_snap('R', ROLE_PORTS, PR([1 => 'Gi0/1', 2 => 'Gi0/2']), h_clock(-1000));
 	h_ingest('the snapshots of one reporter have five different ages');
 	$lag = $GLOBALS['pdo']->query('SELECT COUNT(*) FROM topo_nodes WHERE lag_id IS NOT NULL')->fetchColumn();
-	ex(port_attr('R', 'Gi0/1', 'learned_macs') === ['aa:aa:aa:aa:aa:01'] && (int) $lag === 2 && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'every role is applied by natural keys, whatever the order of the clocks');
+	ex(port_attr('R', 'Gi0/1', 'learned_macs') === ['aa:aa:aa:aa:aa:01'] && (int) $lag === 2 && count(h_links('R:Gi0/1', 'X', null, 'active')) === 1, 'every topology type is applied by natural keys, whatever the order of the clocks');
 }, 'test_snapshot_ingest.php §1');
 
 c('C-22', 'Правило', function () {

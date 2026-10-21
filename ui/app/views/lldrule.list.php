@@ -241,7 +241,7 @@ $discoveryTable = (new CTableInfo())
 		make_sorting_header(_('Key'), 'key_', $data['sort'], $data['sortorder'], $url),
 		make_sorting_header(_('Interval'), 'delay', $data['sort'], $data['sortorder'], $url),
 		make_sorting_header(_('Type'), 'type', $data['sort'], $data['sortorder'], $url),
-		_('Topology role'),
+		_('Topology type'),
 		make_sorting_header(_('Status'), 'status', $data['sort'], $data['sortorder'], $url),
 		($data['context'] === 'host') ? _('Info') : null
 	])
@@ -415,8 +415,8 @@ foreach ($data['discoveries'] as $discovery) {
 		(new CDiv($discovery['key_']))->addClass(ZBX_STYLE_WORDWRAP),
 		$discovery['delay'],
 		item_type2str($discovery['type']),
-		$discovery['topology_role'] != ZBX_TOPOLOGY_ROLE_NONE
-			? CTopologyRole::getLabel((int) $discovery['topology_role'])
+		$discovery['topology_type'] != ZBX_TOPOLOGY_TYPE_NONE
+			? CTopologyType::getLabel((int) $discovery['topology_type'])
 			: '',
 		[
 			$status,

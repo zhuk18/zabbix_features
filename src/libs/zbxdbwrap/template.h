@@ -86,7 +86,7 @@ struct _zbx_template_item_t
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TIME_SHIFT		__UINT64_C(0x10000000000000)
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_LOOKBACK_LIMIT		__UINT64_C(0x20000000000000)
 #define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_GRANULARITY		__UINT64_C(0x40000000000000)
-#define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TOPOLOGY_ROLE		__UINT64_C(0x80000000000000)
+#define ZBX_FLAG_TEMPLATE_ITEM_UPDATE_TOPOLOGY_TYPE		__UINT64_C(0x80000000000000)
 
 	zbx_uint64_t			upd_flags;
 	zbx_uint64_t			valuemapid_orig;
@@ -200,8 +200,8 @@ struct _zbx_template_item_t
 	char				*lookback_limit;
 	char				*granularity_orig;
 	char				*granularity;
-	unsigned char			topology_role_orig;
-	unsigned char			topology_role;
+	unsigned char			topology_type_orig;
+	unsigned char			topology_type;
 
 	zbx_vector_template_item_ptr_t	dependent_items;
 	zbx_vector_item_preproc_ptr_t	item_preprocs;

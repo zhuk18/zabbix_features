@@ -2,7 +2,7 @@
 """corpus_run.py — the three implementations on every file of the vendor corpus (handoff 020 section 1).
 
 For each snmprec file and each source (ports, lldp, cdp, fdb, lag): the walk text (corpus_walk.py), the native C step (step_golden/topo_step),
-push.py (build_role_values: ports and lldp; it has no CDP), and the PHP ingest normalization (corpus_normalize.php) of the rows of the two. Records
+push.py (build_rule_values: ports and lldp; it has no CDP), and the PHP ingest normalization (corpus_normalize.php) of the rows of the two. Records
 rows out, rows dropped with the reason (the server contract of lld_topology.c, then the PHP normalization), errors, and every difference between
 the implementations. Output goes to out/ (git ignores it): results.json and summary.md. Nothing of the corpus is committed.
 
@@ -35,15 +35,15 @@ CONTRACT = {   # lld_topology.c: macro -> (field, uint, required, group)
 }
 
 
-def contract_rows(role, rows):
+def contract_rows(topology_type, rows):
     """The server contract (lld_topology.c lld_topology_row_build): [fields rows], [(row, reason)] dropped."""
-    spec = CONTRACT[role]
+    spec = CONTRACT[topology_type]
     kept, dropped = [], []
     for row in rows:
         out, reason = {}, None
         for macro, field, uint, required, group in spec:
             value = row.get(macro)
-            if value is None and field == "if_index" and role == "ports":
+            if value is None and field == "if_index" and topology_type == "ports":
                 value = row.get("{#SNMPINDEX}")
             if value is None and field == "source":
                 value = "lldp"
@@ -80,13 +80,13 @@ def run_native(topo_step, walk, source, missing="error"):
 
 def run_push(text):
     try:
-        values, problems = push.build_role_values(text)
+        values, problems = push.build_rule_values(text)
     except Exception as e:  # noqa: BLE001
         return {}, "%s: %s" % (type(e).__name__, str(e)[:200])
     out = {}
-    for key, role in ((push.ROLE_PORTS_KEY, "ports"), (push.ROLE_LLDP_KEY, "lldp")):
+    for key, topology_type in ((push.RULE_PORTS_KEY, "ports"), (push.RULE_LLDP_KEY, "lldp")):
         if key in values:
-            out[role] = json.loads(values[key])
+            out[topology_type] = json.loads(values[key])
     return out, ("; ".join(problems) if problems else None)
 
 
@@ -174,9 +174,9 @@ def main():
             rec["native_rows"] = None if native is None else len(native)
             if native is None:
                 continue
-            role = "ports" if source == "ports" else "neighbors"
+            topology_type = "ports" if source == "ports" else "neighbors"
             if source in ("ports", "lldp", "cdp"):
-                fields, dropped = contract_rows(role, native)
+                fields, dropped = contract_rows(topology_type, native)
                 rec["contract_dropped"] = [(d[1]) for d in dropped]
                 normalized = php_normalize(args, fields)
                 rec["php_rows"] = sum(1 for r, why in normalized if r is not None)
@@ -186,7 +186,7 @@ def main():
                     prow = pushed[source]
                     rec["push_rows"] = len(prow)
                     rec["push_vs_native"] = [d for d in diff_rows(native, prow)]
-                    pf, _ = contract_rows(role, prow)
+                    pf, _ = contract_rows(topology_type, prow)
                     pn = php_normalize(args, pf)
                     rec["push_php_rows"] = sum(1 for r, why in pn if r is not None)
                     rec["push_php_vs_native"] = [d for d in diff_rows([r for r, w in normalized if r is not None],

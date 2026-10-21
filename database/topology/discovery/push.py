@@ -3,10 +3,10 @@
 push.py — topology discovery "push" component (topology-3-push-delivery.md, Trapper delivery mechanism).
 
 Runs near a reporter/segment: walks a device with net-snmp's snmpbulkwalk, decodes the walk the way the native step "SNMP walk to topology rows"
-does (extract and decode only, LLD spec §4), and sends the contract rows per role (ports, LLDP) to Zabbix trapper DISCOVERY rules with a
-topology_role (template "Topology by push": topology.push.ports, topology.push.lldp), each with the time the walk finished (zabbix_sender -T),
+does (extract and decode only, LLD spec §4), and sends the contract rows per rule (ports, LLDP) to Zabbix trapper DISCOVERY rules with a
+topology_type (template "Topology by push": topology.push.ports, topology.push.lldp), each with the time the walk finished (zabbix_sender -T),
 plus the heartbeat (topology.push.heartbeat). The server stores them as topo_lld_snapshot rows, the same table the SNMP-walk LLD template fills,
-so ingest.php reconciles both transports on one path. A role whose collection failed is left out of the call (failed != empty, FR 5.d): the last
+so ingest.php reconciles both transports on one path. A rule whose collection failed is left out of the call (failed != empty, FR 5.d): the last
 snapshot then stays. The rows are the output of the native step (src/libs/zbxpreproc/preproc_topology.c) for the same walk; step_golden/ is the
 test (test_push.py).
 
@@ -131,8 +131,8 @@ def load_reporters(config_path: str) -> list[ReporterConfig]:
 # text the walk[] item returns, one variable per line: ".1.3.6... = TYPE: value". Identity strings (chassis ids, MACs,
 # management IPs) must come out byte for byte as the step emits them; step_golden/expected/ is the test.
 
-ROLE_PORTS_KEY = "topology.push.ports"
-ROLE_LLDP_KEY = "topology.push.lldp"
+RULE_PORTS_KEY = "topology.push.ports"
+RULE_LLDP_KEY = "topology.push.lldp"
 # Heartbeat of the template "Topology by push" (topology-3-push-delivery.md "Template Topology by push").
 HEARTBEAT_KEY = "topology.push.heartbeat"
 
@@ -152,7 +152,7 @@ IF_TYPE_BASE = "1.3.6.1.2.1.2.2.1.3"
 
 
 class WalkUnusable(Exception):
-    """The walk holds no variables, or no ifType: the roles cannot be told from an empty device."""
+    """The walk holds no variables, or no ifType: the rules cannot be told from an empty device."""
 
 
 _WALK_LINE = re.compile(r"^\s*\.?([0-9][0-9.]*)\s*=\s*(?:([A-Za-z][\w-]*):\s*)?(.*)$")
@@ -391,26 +391,26 @@ def rows_lldp(rows: dict) -> list[dict]:
     return out
 
 
-# What each role needs from the walk. A role is sent only when every OID it reads was walked completely.
-ROLE_OIDS = {
-    ROLE_PORTS_KEY: ["1.3.6.1.2.1.2.2.1", "1.3.6.1.2.1.31.1.1.1.1", "1.3.6.1.2.1.31.1.1.1.15", "1.0.8802.1.1.2.1.3.2"],
-    ROLE_LLDP_KEY: ["1.3.6.1.2.1.2.2.1", "1.3.6.1.2.1.31.1.1.1.1", "1.0.8802.1.1.2.1.3.2", "1.0.8802.1.1.2.1.3.7",
+# What each rule needs from the walk. A rule is sent only when every OID it reads was walked completely.
+RULE_OIDS = {
+    RULE_PORTS_KEY: ["1.3.6.1.2.1.2.2.1", "1.3.6.1.2.1.31.1.1.1.1", "1.3.6.1.2.1.31.1.1.1.15", "1.0.8802.1.1.2.1.3.2"],
+    RULE_LLDP_KEY: ["1.3.6.1.2.1.2.2.1", "1.3.6.1.2.1.31.1.1.1.1", "1.0.8802.1.1.2.1.3.2", "1.0.8802.1.1.2.1.3.7",
                     "1.0.8802.1.1.2.1.4.1", "1.0.8802.1.1.2.1.4.2"],
 }
 
 
-def build_role_values(walk_text: str, failed_oids: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
-    """{trapper key: JSON array} for every role that was collected, and the problems of the roles that were not.
-    A role that failed is absent (failed != empty, FR 5.d); an empty table gives "[]". `failed_oids` are the walks that
-    did not complete (timeout, truncated, non-increasing OID, early endOfMibView): a role that reads one of them is not
-    sent, the other roles are."""
+def build_rule_values(walk_text: str, failed_oids: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
+    """{trapper key: JSON array} for every rule that was collected, and the problems of the rules that were not.
+    A rule that failed is absent (failed != empty, FR 5.d); an empty table gives "[]". `failed_oids` are the walks that
+    did not complete (timeout, truncated, non-increasing OID, early endOfMibView): a rule that reads one of them is not
+    sent, the other rules are."""
     failed_oids = failed_oids or {}
     rows = parse_walk(walk_text)
     if not rows and not failed_oids:
         raise WalkUnusable("the SNMP walk holds no variables (device unreachable or wrong OIDs)")
     values, problems = {}, []
-    for key, builder in ((ROLE_PORTS_KEY, rows_ports), (ROLE_LLDP_KEY, rows_lldp)):
-        broken = [f"{oid}: {failed_oids[oid]}" for oid in ROLE_OIDS[key] if oid in failed_oids]
+    for key, builder in ((RULE_PORTS_KEY, rows_ports), (RULE_LLDP_KEY, rows_lldp)):
+        broken = [f"{oid}: {failed_oids[oid]}" for oid in RULE_OIDS[key] if oid in failed_oids]
         if broken:
             problems.append(f"{key}: " + "; ".join(broken))
             continue
@@ -484,9 +484,9 @@ def collect_walk(target: str, port: int, community: str, version: str) -> tuple[
 
 
 
-def send_role_values(zabbix_host: str, values: dict[str, str], collected_at: int, heartbeat_at: int, server: str,
+def send_rule_values(zabbix_host: str, values: dict[str, str], collected_at: int, heartbeat_at: int, server: str,
                      port: int, sender_bin: str) -> None:
-    """One zabbix_sender call: every collected role with the time the walk finished (-T), and the heartbeat."""
+    """One zabbix_sender call: every collected rule with the time the walk finished (-T), and the heartbeat."""
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
         for key, value in values.items():
             fh.write(f"{zabbix_host}\t{key}\t{collected_at}\t{value}\n")
@@ -508,7 +508,7 @@ def send_role_values(zabbix_host: str, values: dict[str, str], collected_at: int
 
 
 def run_reporter_rows(cfg: ReporterConfig, args) -> bool:
-    """The default transport: contract rows per role. Nothing is sent for a role that could not be collected."""
+    """The default transport: contract rows per rule. Nothing is sent for a rule that could not be collected."""
     print(f"--- {cfg.name} ({cfg.snmp_target}:{cfg.snmp_port}) ---")
     values: dict[str, str] = {}
     ok = True
@@ -516,12 +516,12 @@ def run_reporter_rows(cfg: ReporterConfig, args) -> bool:
     try:
         text, failed_oids = collect_walk(cfg.snmp_target, cfg.snmp_port, cfg.snmp_community, cfg.snmp_version)
         collected_at = int(time.time())                       # the time the walk finished
-        values, problems = build_role_values(text, failed_oids)
+        values, problems = build_rule_values(text, failed_oids)
         for problem in problems:
             print(f"ERROR: nothing sent for {problem}", file=sys.stderr)
             ok = False
     except (SnmpError, WalkUnusable) as exc:
-        print(f"ERROR: nothing sent for any role of reporter '{cfg.name}': {exc}", file=sys.stderr)
+        print(f"ERROR: nothing sent for any rule of reporter '{cfg.name}': {exc}", file=sys.stderr)
         ok = False
 
     if args.dry_run:
@@ -530,14 +530,14 @@ def run_reporter_rows(cfg: ReporterConfig, args) -> bool:
         return ok
 
     try:
-        send_role_values(cfg.zabbix_host, values, collected_at, int(time.time()), args.sender_server,
+        send_rule_values(cfg.zabbix_host, values, collected_at, int(time.time()), args.sender_server,
                          args.sender_port, args.sender_bin)
     except (RuntimeError, OSError) as exc:
         print(f"ERROR: failed to send for reporter '{cfg.name}': {exc}", file=sys.stderr)
         return False
 
     state = 'OK' if ok else ('PARTIAL' if values else 'FAILED')
-    print(f"{state}: sent {len(values)} role(s) for '{cfg.name}': {', '.join(values) or '-'} (+ heartbeat).")
+    print(f"{state}: sent {len(values)} rule(s) for '{cfg.name}': {', '.join(values) or '-'} (+ heartbeat).")
     return ok
 
 

@@ -35,7 +35,7 @@ class CLldRulePrototypeHelper extends CItemGeneralHelper {
 		$item['lifetime'] = DB::getDefault('items', 'lifetime');
 		$item['enabled_lifetime_type'] = DB::getDefault('items', 'enabled_lifetime_type');
 		$item['enabled_lifetime'] = DB::getDefault('items', 'enabled_lifetime');
-		$item['topology_role'] = DB::getDefault('items', 'topology_role');
+		$item['topology_type'] = DB::getDefault('items', 'topology_type');
 		$item['discover'] = DB::getDefault('items', 'discover');
 
 		return $item;

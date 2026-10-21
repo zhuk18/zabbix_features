@@ -143,7 +143,7 @@ def log_problems(offset):
 
 
 def anchors_in(records):
-    return {role: any(o[:len(a)] == a for o in records for a in roots) for role, roots in ANCHORS.items()}
+    return {source: any(o[:len(a)] == a for o in records for a in roots) for source, roots in ANCHORS.items()}
 
 
 def delete_hosts(api, names, log):
@@ -258,14 +258,14 @@ def run_batch(sc, settings, api, conn, timeout, log, stall=()):
                 row['rules'][key] = dict(status[rid], rows_total=snap['rows_total'] if snap else None, rows_valid=snap['rows_valid'] if snap else None,
                                          rows_identity_invalid=bad_ident.get(int(rid), bad_ident.get(str(rid), 0)))
             result['devices'][n] = row
-            for role in ('ports', 'lldp'):
-                r = row['rules'].get('topology.%s' % role) or row['rules'].get('topology.push.%s' % role)
-                if r and anchors[role] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result') and 'walk holds no ' in r['error']:
+            for source in ('ports', 'lldp'):
+                r = row['rules'].get('topology.%s' % source) or row['rules'].get('topology.push.%s' % source)
+                if r and anchors[source] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result') and 'walk holds no ' in r['error']:
                     # the corpus lacks an OID the template needs (for example ifType): not a defect, listed on its own
-                    result.setdefault('template_oid_missing', []).append({'device': n, 'rule': role, 'error': r['error'][:200]})
-                elif r and anchors[role] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result'):
+                    result.setdefault('template_oid_missing', []).append({'device': n, 'rule': source, 'error': r['error'][:200]})
+                elif r and anchors[source] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result'):
                     result.setdefault('rule_failed', []).append(n)
-                    result['errors'].append('%s: the %s rule is %s (%s) while its anchor is in the walk' % (n, role, r['state'], r['error'][:150]))
+                    result['errors'].append('%s: the %s rule is %s (%s) while its anchor is in the walk' % (n, source, r['state'], r['error'][:150]))
         result['ingest'] = {k: ingest.get(k) for k in ('status', 'error')}
         result['ingest']['summary'] = {k: v for k, v in (ingest.get('summary') or {}).items() if not isinstance(v, (dict, list)) or v in ({}, [])}
         if ingest.get('status') != 'done':

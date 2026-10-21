@@ -29,7 +29,7 @@ def main(argv=None):
     p = sub.add_parser('run'); p.add_argument('scenario'); p.add_argument('--reset', action='store_true')
     p.add_argument('--timeout', type=int, default=None, help='seconds to wait for the snapshots of one master item after its check now; wins over settings.timeout of the lab file (default 60)'); p.add_argument('--report')
     p.add_argument('--transport', choices=model.TRANSPORTS, help='every monitored host on this transport (replaces settings.transport); provision with the same option first')
-    p.add_argument('--roles', help='comma-separated roles to collect on LLD hosts (%s); the other rules are disabled for the run' % ','.join(model.RULE_ROLES))
+    p.add_argument('--sources', help='comma-separated sources to collect on LLD hosts (%s); the other rules are disabled for the run' % ','.join(model.RULE_SOURCES))
     p = sub.add_parser('corpus-smoke', help='scenario SC: every file of the vendor corpus as a lab device, in batches, step 0 only')
     p.add_argument('--corpus', default=corpus.CORPUS_DEFAULT); p.add_argument('--files', help='comma-separated file names (without .snmprec)')
     p.add_argument('--batch-size', type=int, default=corpus.BATCH); p.add_argument('--no-push', action='store_true', help='skip the push run of the core set')
@@ -79,8 +79,8 @@ def main(argv=None):
             api = zbx.Api(settings['zabbix']['url'])
             schedule = zbx.restore_schedule(api, runner.SCHEDULE_FILE)
             macro = zbx.restore_fresh_macro(api, runner.FRESH_FILE)
-            roles = zbx.restore_roles(api, runner.ROLES_FILE)
-            if not schedule and macro is None and not roles:
+            sources = zbx.restore_sources(api, runner.SOURCES_FILE)
+            if not schedule and macro is None and not sources:
                 print('nothing to restore')
         elif a.cmd == 'compare-transports':
             diffs = runner.compare_transports(json.load(open(a.lld)), json.load(open(a.push)))
@@ -117,7 +117,7 @@ def main(argv=None):
             sc = model.load_scenario(a.scenario, lab, transport=a.transport)
             zbx.provision(zbx.Api(settings['zabbix']['url']), sc, prune=a.prune)
         elif a.cmd == 'run':
-            sc = model.load_scenario(a.scenario, lab, transport=a.transport, roles=a.roles.split(',') if a.roles else None)
+            sc = model.load_scenario(a.scenario, lab, transport=a.transport, sources=a.sources.split(',') if a.sources else None)
             conn = db.connect(settings)
             rep = runner.run(sc, settings, zbx.Api(settings['zabbix']['url']), conn, reset=a.reset, timeout=runner.effective_timeout(a.timeout, settings), argv=sys.argv)
             path = a.report or os.path.join(model.HERE, 'reports', '%s.json' % sc.id)

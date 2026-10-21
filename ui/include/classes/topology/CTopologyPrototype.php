@@ -1620,7 +1620,7 @@ class CTopologyPrototype {
 					'h.hostid,h.name AS host_name'.
 				' FROM topo_observations o'.
 				' JOIN items i ON i.itemid=o.itemid AND i.status='.ITEM_STATUS_ACTIVE.
-				' JOIN topo_lld_snapshot snapshot ON snapshot.itemid=o.itemid AND snapshot.role=i.topology_role'.
+				' JOIN topo_lld_snapshot snapshot ON snapshot.itemid=o.itemid AND snapshot.topology_type=i.topology_type'.
 				' JOIN hosts h ON h.hostid=i.hostid AND h.status='.HOST_STATUS_MONITORED.
 				' WHERE '.dbConditionId('o.edge_id', array_keys($manual)).
 					' AND '.dbConditionString('o.outcome', ['shadowed', 'applied']).
@@ -2451,10 +2451,10 @@ class CTopologyPrototype {
 				'port.device_id AS local_device_id,'.
 				'remote.attrs AS device_attrs'.
 			' FROM topo_observations o'.
-			// Only observations of a rule that still has a usable snapshot: enabled rule on an enabled host, snapshot of its current role
+			// Only observations of a rule that still has a usable snapshot: enabled rule on an enabled host, snapshot of its current topology type
 			// (the ingest removes the others at the next full run; this keeps them out of sight until then).
 			' JOIN items i ON i.itemid=o.itemid AND i.status='.ITEM_STATUS_ACTIVE.
-			' JOIN topo_lld_snapshot snapshot ON snapshot.itemid=o.itemid AND snapshot.role=i.topology_role'.
+			' JOIN topo_lld_snapshot snapshot ON snapshot.itemid=o.itemid AND snapshot.topology_type=i.topology_type'.
 			' JOIN hosts h ON h.hostid=i.hostid AND h.status='.HOST_STATUS_MONITORED.
 			' JOIN topo_nodes port ON port.id=o.local_port_id'.
 			' LEFT JOIN topo_nodes remote ON remote.id=o.device_id'.

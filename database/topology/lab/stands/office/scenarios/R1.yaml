@@ -2,7 +2,7 @@ id: R1
 title: Office capture — baseline, HP without CDP, CDP back, NA restart, ingest again
 base: lab-office.yaml
 # Expected values: model v2.29, lab v2.10 (2026-10-20). They need task 038 in ingest.
-settings: {freshness_seconds: null, transport: null, roles: null}
+settings: {freshness_seconds: null, transport: null, sources: null}
 steps:
   - id: 0
     note: baseline, real capture as received + synthetic gateways

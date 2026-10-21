@@ -1413,7 +1413,7 @@ return [
 				'length' => 10,
 				'default' => '0'
 			],
-			'topology_role' => [
+			'topology_type' => [
 				'null' => false,
 				'type' => DB::FIELD_TYPE_INT,
 				'length' => 10,
@@ -11072,7 +11072,7 @@ return [
 				'ref_table' => 'hosts',
 				'ref_field' => 'hostid'
 			],
-			'role' => [
+			'topology_type' => [
 				'null' => false,
 				'type' => DB::FIELD_TYPE_INT,
 				'length' => 10,

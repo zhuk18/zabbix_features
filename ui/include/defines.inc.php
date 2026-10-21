@@ -17,7 +17,7 @@ define('ZABBIX_VERSION',		'8.0.0rc1');
 define('ZABBIX_API_VERSION',	'8.0.0');
 define('ZABBIX_EXPORT_VERSION',	'8.0');
 
-define('ZABBIX_DB_VERSION',		7050195);
+define('ZABBIX_DB_VERSION',		7050197);
 
 define('DB_VERSION_SUPPORTED',						0);
 define('DB_VERSION_LOWER_THAN_MINIMUM',				1);
@@ -844,11 +844,11 @@ define('ZBX_LLD_STATUS_LOST',			1);
 
 define('ZBX_LLD_RULE_ENABLED_LIFETIME',	'1h');
 
-define('ZBX_TOPOLOGY_ROLE_NONE',			0);
-define('ZBX_TOPOLOGY_ROLE_PORTS',			1);
-define('ZBX_TOPOLOGY_ROLE_NEIGHBORS',		2);
-define('ZBX_TOPOLOGY_ROLE_LEARNED_MACS',	3);
-define('ZBX_TOPOLOGY_ROLE_LAG',				4);
+define('ZBX_TOPOLOGY_TYPE_NONE',			0);
+define('ZBX_TOPOLOGY_TYPE_PORTS',			1);
+define('ZBX_TOPOLOGY_TYPE_NEIGHBORS',		2);
+define('ZBX_TOPOLOGY_TYPE_LEARNED_MACS',	3);
+define('ZBX_TOPOLOGY_TYPE_LAG',				4);
 
 // "SNMP walk to topology rows" preprocessing step: source table set and what to do when its MIB is absent.
 define('ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS',	'ports');

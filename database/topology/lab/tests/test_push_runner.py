@@ -32,10 +32,10 @@ class PushCommand(unittest.TestCase):
 
     def test_exit_status_is_the_result(self):
         done = lambda code, out, err: subprocess.CompletedProcess([], code, out, err)           # noqa: E731
-        with mock.patch.object(runner.subprocess, 'run', return_value=done(0, 'OK: sent 2 role(s)\n', '')) as run:
-            self.assertEqual(runner.run_push('Switch1', DEV, SETTINGS), (True, 'OK: sent 2 role(s)'))
+        with mock.patch.object(runner.subprocess, 'run', return_value=done(0, 'OK: sent 2 rule(s)\n', '')) as run:
+            self.assertEqual(runner.run_push('Switch1', DEV, SETTINGS), (True, 'OK: sent 2 rule(s)'))
             self.assertEqual(run.call_args[0][0], runner.push_command(DEV, 'Switch1', SETTINGS))
-        with mock.patch.object(runner.subprocess, 'run', return_value=done(1, '', "ERROR: nothing sent for any role of reporter 'S'\n")):
+        with mock.patch.object(runner.subprocess, 'run', return_value=done(1, '', "ERROR: nothing sent for any rule of reporter 'S'\n")):
             ok, detail = runner.run_push('Switch1', DEV, SETTINGS)
             self.assertFalse(ok)
             self.assertIn('nothing sent', detail)
@@ -77,30 +77,39 @@ class UpdateApi:
         self.updates.append(params)
 
 
-class Roles(unittest.TestCase):
+class Sources(unittest.TestCase):
     def test_other_rules_are_disabled_and_enabled_again(self):
         import tempfile
         ms = zbx.masters(FakeApi(), ['Switch1', 'Router1'])
-        api, path = UpdateApi(), os.path.join(tempfile.mkdtemp(), 'roles.json')
-        zbx.set_roles(api, ms, ['ports'], path, lambda *_: None)
+        api, path = UpdateApi(), os.path.join(tempfile.mkdtemp(), 'sources.json')
+        zbx.set_sources(api, ms, ['ports'], path, lambda *_: None)
         self.assertEqual(api.updates, [{'itemid': '23', 'status': 1}])          # cdp; lag was already off; push rules are not touched
         self.assertEqual(ms['Router1']['rules']['core'], ['20'])
-        self.assertTrue(zbx.restore_roles(api, path, lambda *_: None))
+        self.assertTrue(zbx.restore_sources(api, path, lambda *_: None))
         self.assertEqual(api.updates[-1], {'itemid': '23', 'status': 0})
         self.assertFalse(os.path.exists(path))
 
 
 class Overrides(unittest.TestCase):
-    def test_transport_and_roles(self):
+    def test_transport_and_sources(self):
         from labsim import model
         s = model.load_scenario('S1')
         self.assertTrue(all(d['zabbix']['transport'] == 'lld' for d in s.states[0].monitored().values()))
-        s = model.load_scenario('S1', transport='push', roles=['ports', 'lldp'])
+        s = model.load_scenario('S1', transport='push', sources=['ports', 'lldp'])
         self.assertTrue(s.states[0].monitored() and all(d['zabbix']['transport'] == 'push' for d in s.states[-1].monitored().values()))
         self.assertTrue(all(d['zabbix']['transport'] == 'lld' for d in model.load_scenario('S1').states[0].monitored().values()))
-        for bad in ({'transport': 'snmp'}, {'roles': ['bgp']}):
+        for bad in ({'transport': 'snmp'}, {'sources': ['bgp']}):
             with self.assertRaises(model.LabError):
                 model.load_scenario('S1', **bad)
+
+    def test_the_old_names_are_refused(self):
+        # lab spec 2.16: the scenario setting is `sources` now; no alias: an unknown setting (the old name too) is an error
+        from labsim import model
+        import yaml
+        data = yaml.safe_load(open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scenarios', 'S1.yaml')))
+        data['settings'] = {'roles': ['ports']}
+        with self.assertRaisesRegex(model.LabError, 'unknown settings'):
+            model.Scenario(data, model.load_lab())
 
 
 def report(transport, **over):

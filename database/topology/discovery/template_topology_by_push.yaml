@@ -9,15 +9,15 @@ zabbix_export:
       name: 'Topology by push'
       description: |
         Receives the network topology from push.py (topology-3-push-delivery.md). push.py walks the device near
-        the segment and sends the rows of each topology role with zabbix_sender; every role is a Zabbix trapper
-        discovery rule with a topology_role, so the server stores the same topo_lld_snapshot rows as the "Topology by
+        the segment and sends the rows of each rule with zabbix_sender; every rule is a Zabbix trapper
+        discovery rule with a topology_type, so the server stores the same topo_lld_snapshot rows as the "Topology by
         SNMP" template and ingest.php reconciles both on one path.
 
-        One rule per role, LLDP and CDP separately, as in "Topology by SNMP": the rules are what "support from
-        another NEIGHBORS rule" counts. push.py sends a role only when it was collected: a failed walk sends nothing
+        One rule per topology type, LLDP and CDP separately, as in "Topology by SNMP": the rules are what "support from
+        another NEIGHBORS rule" counts. push.py sends a rule only when it was collected: a failed walk sends nothing
         and the last snapshot stays; "[]" means the table was read and has no rows.
 
-        Do not link this template together with "Topology by SNMP" for the same role and protocol (two rules would
+        Do not link this template together with "Topology by SNMP" for the same topology type and protocol (two rules would
         report the same data; ingest reports such a host as hosts_duplicate_transport). Different protocols are fine:
         LLDP by SNMP and CDP by push on one host.
         Who may send is set by {$TOPOLOGY.PUSH.ALLOWED_HOSTS} ("Allowed hosts" of the rules; an empty value allows nobody).
@@ -29,7 +29,7 @@ zabbix_export:
           type: TRAP
           key: topology.push.heartbeat
           allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
-          description: 'Sent by push.py on every run, even when every role failed: the trigger below tells a stalled collector from a quiet network.'
+          description: 'Sent by push.py on every run, even when every rule failed: the trigger below tells a stalled collector from a quiet network.'
           triggers:
             - uuid: 9010b8413aeb491dbfb0314af3c71cec
               expression: 'nodata(/Topology by push/topology.push.heartbeat,{$TOPOLOGY.PUSH.NODATA})'
@@ -42,7 +42,7 @@ zabbix_export:
           type: TRAP
           key: topology.push.ports
           allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
-          topology_role: PORTS
+          topology_type: PORTS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'One row per interface, sent by push.py.'
@@ -51,7 +51,7 @@ zabbix_export:
           type: TRAP
           key: topology.push.lldp
           allowed_hosts: '{$TOPOLOGY.PUSH.ALLOWED_HOSTS}'
-          topology_role: NEIGHBORS
+          topology_type: NEIGHBORS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'LLDP neighbors, sent by push.py with {#SOURCE} = lldp.'

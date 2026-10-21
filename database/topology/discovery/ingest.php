@@ -6,7 +6,7 @@ declare(strict_types=1);
 /**
  * ingest.php — topology discovery "ingest" component (topology-1-model.md "Ingest").
  *
- * Reads the LLD snapshots (topo_lld_snapshot: the rows of discovery rules with a topology_role, written by the server, from the native step or from
+ * Reads the LLD snapshots (topo_lld_snapshot: the rows of discovery rules with a topology_type, written by the server, from the native step or from
  * "Topology by push"), applies the reconciliation rules (topology-1-model.md "Far Device": upsert by identity key; the inventory MAC match
  * of Devices to Hosts (§10.2); never-delete-on-unlink; manual links are never downgraded (§9.2)), and writes to topo_nodes/topo_edges.
  * There is no other input (the Trapper blob path was removed, model §5.7).
@@ -1091,15 +1091,15 @@ $far_pseudo_name = static function (array $row) use ($norm_numeric_id): string {
 
 // ============================================================================================================
 // LLD snapshot path (topology-1-model.md "Ingest"). A host with rows in topo_lld_snapshot is a reporter whose
-// data comes from discovery rules with a topology_role (the only input). It reuses the closures defined earlier
+// data comes from discovery rules with a topology_type (the only input). It reuses the closures defined earlier
 // (pseudo-port merge, promote, keys). Every last_seen written here comes from the snapshot's own
 // clock, never from $now (topology-1-model.md "Snapshot rules", rule 3): running ingest twice over unchanged snapshots changes nothing.
 // ============================================================================================================
 
-const TOPO_ROLE_PORTS = 1;
-const TOPO_ROLE_NEIGHBORS = 2;
-const TOPO_ROLE_LEARNED_MACS = 3;
-const TOPO_ROLE_LAG = 4;
+const TOPO_TYPE_PORTS = 1;
+const TOPO_TYPE_NEIGHBORS = 2;
+const TOPO_TYPE_LEARNED_MACS = 3;
+const TOPO_TYPE_LAG = 4;
 
 // topology-1-model.md "`device_link` (Port → Device)": why a link ends at a Device instead of a Port. fdb_mac_only is
 // reserved: validation accepts it, nothing in this script produces it.
@@ -1121,9 +1121,9 @@ $summary += [
 	'identity_keys_orphaned' => 0,
 	'address_keys_removed' => 0,
 	'reporters_failed' => ['count' => 0, 'list' => []],
-	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the role PORTS): their links cannot be coloured (model §3.2)
+	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the topology type PORTS): their links cannot be coloured (model §3.2)
 	'hosts_ports_without_items' => ['count' => 0, 'list' => []],
-	'snapshots_ignored_role_mismatch' => 0,
+	'snapshots_ignored_type_mismatch' => 0,
 	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
 	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
 	'links_superseded' => 0,
@@ -1131,14 +1131,14 @@ $summary += [
 	'ports_ambiguous' => 0,
 	// topology-1-model.md "Run summary": manual links that discovery contradicts and nobody acknowledged.
 	'manual_links_contradicted' => 0,
-	// Observations of rules that have no usable snapshot any more (rule or host disabled, role changed, reporter skipped,
+	// Observations of rules that have no usable snapshot any more (rule or host disabled, topology type changed, reporter skipped,
 	// snapshot gone): removed by a full run, see $clean_stale_observations.
 	'observations_removed' => 0,
 	// topology-1-model.md "Run summary": active device-level links at the end of the run, links converted to
 	// port level (topology-1-model.md "Refinement: device-level → port-level") in this run, and the device-level links per reason.
 	'links_device_level' => 0,
 	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
-	// rule: itemid => count), and hosts that report one role through both transports (SNMP rule and trapper rule).
+	// rule: itemid => count), and hosts that report one topology type through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
 	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
 	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
@@ -1951,8 +1951,8 @@ $snap_remote_key = static function (array $row, string $segment) use ($chassis_k
 };
 
 // Reporters = hosts with at least one usable snapshot. Snapshots of disabled rules are skipped; a snapshot
-// written under a role the rule no longer has is ignored (the API also deletes it on a role change — this is
-// the defense in depth from topology-2-lld-delivery.md "Role change"). Returns [hostid => reporter].
+// written under a topology type the rule no longer has is ignored (the API also deletes it on a change of the topology type — this is
+// the defense in depth from topology-2-lld-delivery.md "Topology type change"). Returns [hostid => reporter].
 // Identity normalization of a snapshot row (topology-1-model.md "Identity normalization"): the
 // one place that decides how identity strings are spelled, whatever transport produced the snapshot. On the output of
 // the native step it is a no-op (that output is already in the normal form: test_push.php runs every golden output
@@ -2060,12 +2060,12 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 
 $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_normalize_row, &$summary): array {
 	$rows = $pdo->query(
-		'SELECT s.itemid, s.hostid, s.role, s.clock, s.rows_json, i.topology_role AS rule_role, i.type AS rule_type,'.
+		'SELECT s.itemid, s.hostid, s.topology_type, s.clock, s.rows_json, i.topology_type AS rule_topology_type, i.type AS rule_type,'.
 		' i.status AS rule_status, h.status AS host_status, h.host, h.name AS host_name'.
 		' FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid JOIN hosts h ON h.hostid = s.hostid'.
-		' ORDER BY s.hostid, s.role, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
+		' ORDER BY s.hostid, s.topology_type, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
 	$reporters = [];
-	$transports = []; // hostid => role => source => transport => itemids
+	$transports = []; // hostid => topology type => source => transport => itemids
 	foreach ($rows as $row) {
 		if ($host_filter && !in_array($row['host'], $host_filter, true)) {
 			continue;
@@ -2075,10 +2075,10 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 		if ((int) $row['rule_status'] !== 0 || (int) $row['host_status'] !== 0) {
 			continue;
 		}
-		if ((int) $row['role'] !== (int) $row['rule_role']) {
-			$summary['snapshots_ignored_role_mismatch']++;
-			echo "SKIP: snapshot of rule #{$row['itemid']} was written for role {$row['role']} but the rule now has ".
-				"role {$row['rule_role']}\n";
+		if ((int) $row['topology_type'] !== (int) $row['rule_topology_type']) {
+			$summary['snapshots_ignored_type_mismatch']++;
+			echo "SKIP: snapshot of rule #{$row['itemid']} was written for topology type {$row['topology_type']} but the rule now has ".
+				"topology type {$row['rule_topology_type']}\n";
 			continue;
 		}
 		$decoded = json_decode($row['rows_json'], true);
@@ -2100,31 +2100,31 @@ $snap_load_reporters = static function (array $host_filter) use ($pdo, $snap_nor
 		$hostid = (int) $row['hostid'];
 		$reporters[$hostid] ??= ['hostid' => $hostid, 'host' => $row['host'], 'name' => $row['host_name'],
 			'snapshots' => []];
-		$reporters[$hostid]['snapshots'][(int) $row['role']][] = ['itemid' => (int) $row['itemid'],
+		$reporters[$hostid]['snapshots'][(int) $row['topology_type']][] = ['itemid' => (int) $row['itemid'],
 			'clock' => (int) $row['clock'], 'rows' => $normalized];
 		// ITEM_TYPE_TRAPPER = 2; every other rule type (SNMP agent, dependent on an SNMP walk, ...) is the LLD transport.
-		// The same data from two transports is what is reported: the same role and, for NEIGHBORS, the same protocol
+		// The same data from two transports is what is reported: the same topology type and, for NEIGHBORS, the same protocol
 		// (the row's source, 'lldp' when absent). LLDP by SNMP and CDP by push is not a duplicate. An empty snapshot
 		// has no rows, so no known source: it is not compared.
 		$transport = (int) $row['rule_type'] === 2 ? 'trapper' : 'snmp';
-		if ((int) $row['role'] === 2) {
+		if ((int) $row['topology_type'] === TOPO_TYPE_NEIGHBORS) {
 			$sources = array_unique(array_map(static fn(array $r): string => (string) ($r['source'] ?? 'lldp'), $normalized));
 		}
 		else {
 			$sources = [''];
 		}
 		foreach ($sources as $source) {
-			$transports[$hostid][(int) $row['role']][$source][$transport][] = (int) $row['itemid'];
+			$transports[$hostid][(int) $row['topology_type']][$source][$transport][] = (int) $row['itemid'];
 		}
 	}
-	// One host, one role (and protocol), rules of both transports: both are processed, the host is reported
+	// One host, one topology type (and protocol), rules of both transports: both are processed, the host is reported
 	// (topology-1-model.md "Duplicate transports").
-	foreach ($transports as $hostid => $by_role) {
-		foreach ($by_role as $role => $by_source) {
+	foreach ($transports as $hostid => $by_type) {
+		foreach ($by_type as $topology_type => $by_source) {
 			foreach ($by_source as $source => $by_transport) {
 				if (count($by_transport) > 1) {
 					$summary['hosts_duplicate_transport'][] = ['hostid' => $hostid, 'host' => $reporters[$hostid]['host'],
-						'role' => $role, 'source' => $source, 'itemids' => $by_transport];
+						'topology_type' => $topology_type, 'source' => $source, 'itemids' => $by_transport];
 				}
 			}
 		}
@@ -2301,7 +2301,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 	// PORTS rules (the topology template and the standard interface discovery): their rows join by if_index, the ids come from the one with item
 	// prototypes (the other has []). The list is replaced by every run; a row without the field (an older snapshot) has none.
 	$port_items = [];
-	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+	foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
 		foreach ($snapshot['rows'] as $row) {
 			$port_items[(int) $row['if_index']] = array_values(array_unique(array_merge($port_items[(int) $row['if_index']] ?? [],
 				array_map('intval', is_array($row['itemids'] ?? null) ? $row['itemids'] : []))));
@@ -2314,7 +2314,7 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 			$summary['hosts_ports_without_items']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
 		}
 	}
-	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+	foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
 		foreach ($snapshot['rows'] as $row) {
 			$if_index = (int) $row['if_index'];
 			$overlay = ['if_index' => $if_index, 'pseudo' => false, 'zabbix_itemids' => $port_items[$if_index] ?? []];
@@ -2353,14 +2353,14 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 	}
 
 	// A Device with real ports keeps no pseudo-Port made from an advertisement (see $convert_leftover_pseudo_ports).
-	if (!empty($snapshots[TOPO_ROLE_PORTS])) {
+	if (!empty($snapshots[TOPO_TYPE_PORTS])) {
 		$convert_leftover_pseudo_ports($device_id);
 	}
 
 	// ---- LAG (only when the reporter has a LAG snapshot; otherwise no lag_id is ever touched) ----
-	if (!empty($snapshots[TOPO_ROLE_LAG])) {
+	if (!empty($snapshots[TOPO_TYPE_LAG])) {
 		$member_ids = [];
-		foreach ($snapshots[TOPO_ROLE_LAG] as $snapshot) {
+		foreach ($snapshots[TOPO_TYPE_LAG] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$member_index = (int) $row['if_index'];
 				$lag_index = (int) $row['lag_if_index'];
@@ -2387,9 +2387,9 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 	}
 
 	// ---- LEARNED_MACS (only when the reporter has such a snapshot) ----
-	if (!empty($snapshots[TOPO_ROLE_LEARNED_MACS])) {
+	if (!empty($snapshots[TOPO_TYPE_LEARNED_MACS])) {
 		$per_port = [];
-		foreach ($snapshots[TOPO_ROLE_LEARNED_MACS] as $snapshot) {
+		foreach ($snapshots[TOPO_TYPE_LEARNED_MACS] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$entry = &$per_port[(int) $row['if_index']];
 				$entry ??= ['macs' => [], 'count' => null];
@@ -2448,7 +2448,7 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 	$sorted_rows = [];
 	// the reporter's ports from its PORTS snapshots (pass A): rows of several rules join by if_index, the first value of a field wins
 	$ports = [];
-	foreach ($snapshots[TOPO_ROLE_PORTS] ?? [] as $snapshot) {
+	foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
 		foreach ($snapshot['rows'] as $row) {
 			$port = &$ports[(int) $row['if_index']];
 			$port ??= ['if_index' => (int) $row['if_index']];
@@ -2461,7 +2461,7 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 		}
 	}
 	$ports = array_values($ports);
-	foreach ($snapshots[TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
+	foreach ($snapshots[TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
 		$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
 		foreach ($snapshot['rows'] as $row) {
 			[$resolved, $reason] = $resolve_local_port($row, $ports);
@@ -3475,7 +3475,7 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 	foreach ($pdo->query("SELECT o.edge_id, o.device_id, o.local_port_id, p.device_id AS local_device_id FROM topo_observations o".
 			" JOIN items i ON i.itemid = o.itemid AND i.status = 0".
 			" JOIN hosts h ON h.hostid = i.hostid AND h.status = 0".
-			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.role = i.topology_role".
+			" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.topology_type = i.topology_type".
 			" LEFT JOIN topo_nodes p ON p.id = o.local_port_id".
 			" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
 		$edge_id = (int) $observation['edge_id'];
@@ -3495,12 +3495,12 @@ $count_contradicted_manual_links = static function () use ($pdo): int {
 };
 
 // An observation mirrors the latest snapshot of its rule (topology-1-model.md "Observations"). When the rule has no usable snapshot any more —
-// disabled (the rule or its host), its role changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
+// disabled (the rule or its host), its topology type changed, its reporter skipped (identity), the snapshot invalid or gone — nothing refreshes the
 // rows and they would keep saying what the rule said last: a stale shadow would keep a manual link contradicted, a
 // stale conflict would keep blocking an operator's eye. A FULL run therefore removes the observations of every rule
 // that did not contribute a snapshot to it; a run scoped with --zabbix-host cannot tell "not selected" from "not
 // usable" and leaves them alone. The readers (topology.observations.get, the contradictions) apply the same test at
-// read time (enabled rule, snapshot of the rule's current role), so a stale row is not shown even before the next run.
+// read time (enabled rule, snapshot of the rule's current topology type), so a stale row is not shown even before the next run.
 $clean_stale_observations = static function (array $usable_itemids) use ($pdo, &$summary): void {
 	$usable = array_fill_keys(array_map('intval', $usable_itemids), true);
 	$stale = [];
@@ -3538,7 +3538,7 @@ $failed_hosts = [];
 $frozen_itemids = [];
 $note_failed_reporter = static function ($hostid, array $reporter, string $step, string $error) use (&$failed_hosts, &$frozen_itemids, &$summary): void {
 	$failed_hosts[(int) $hostid] = true;
-	foreach ($reporter['snapshots'][TOPO_ROLE_NEIGHBORS] ?? [] as $snapshot) {
+	foreach ($reporter['snapshots'][TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
 		$frozen_itemids[(int) $snapshot['itemid']] = true;
 	}
 	$summary['reporters_failed']['count']++;
@@ -3698,7 +3698,7 @@ foreach ($identified as $hostid => $result) {
 		$pdo->commit();
 		$summary['reporters_processed']++;
 		$processed++;
-		echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, roles: ".
+		echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, topology types: ".
 			implode(',', array_keys($reporter['snapshots']))."\n";
 	}
 	catch (Throwable $exception) {

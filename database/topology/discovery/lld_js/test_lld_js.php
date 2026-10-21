@@ -26,10 +26,10 @@ function check(bool $ok, string $what, $detail = null): void {
 	$failures += $ok ? 0 : 1;
 }
 
-function run_rule(string $zabbix_js, string $role, string $walk): array {
+function run_rule(string $zabbix_js, string $topology_type, string $walk): array {
 	$script = tempnam(sys_get_temp_dir(), 'rule');
 	$input = tempnam(sys_get_temp_dir(), 'walk');
-	file_put_contents($script, file_get_contents(__DIR__.'/common.js')."\n".file_get_contents(__DIR__."/{$role}.js"));
+	file_put_contents($script, file_get_contents(__DIR__.'/common.js')."\n".file_get_contents(__DIR__."/{$topology_type}.js"));
 	file_put_contents($input, $walk);
 	$process = proc_open([$zabbix_js, '-s', $script, '-i', $input], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
 	$out = stream_get_contents($pipes[1]);
@@ -66,9 +66,9 @@ $macs = run_rule($zabbix_js, 'learned_macs', $switch2);
 check($macs['ok'] && $macs['rows'] === [], 'LEARNED_MACS: no bridge tables -> [] (valid, empty)');
 $lag = run_rule($zabbix_js, 'lag', $switch2);
 check($lag['ok'] && $lag['rows'] === [], 'LAG: no aggregation table -> []');
-foreach (['ports', 'neighbors', 'lag'] as $role) {
-	$empty = run_rule($zabbix_js, $role, "# nothing\n");
-	check(!$empty['ok'] && str_contains($empty['error'], 'holds no variables'), "{$role}: a walk without variables throws (last snapshot stays)");
+foreach (['ports', 'neighbors', 'lag'] as $topology_type) {
+	$empty = run_rule($zabbix_js, $topology_type, "# nothing\n");
+	check(!$empty['ok'] && str_contains($empty['error'], 'holds no variables'), "{$topology_type}: a walk without variables throws (last snapshot stays)");
 }
 $empty = run_rule($zabbix_js, 'learned_macs', "# device has no bridge tables\n");
 check($empty['ok'] && $empty['rows'] === [], 'learned_macs: an empty walk is valid (device without bridge tables)');

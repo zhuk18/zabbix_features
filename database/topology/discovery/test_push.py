@@ -7,9 +7,9 @@ test_push.py — tests of push.py's contract rows (topology-3-push-delivery.md "
 * Equivalence: for every walk of lld_js/fixtures and step_golden/fixtures, the ports and LLDP rows push.py builds
   equal step_golden/expected/*.json (the output of the reference JavaScript and of the native step), as sets. This
   covers "identity bytes": every {#LOC_CHASSIS}, {#REM_CHASSIS}, {#IFMAC} and {#REM_MGMT_IP} is the step's.
-* Failed != empty (FR 5.d): an unusable walk, or a walk without IF-MIB, sends nothing for the role; an LLDP table
+* Failed != empty (FR 5.d): an unusable walk, or a walk without IF-MIB, sends nothing for the rule; an LLDP table
   without rows is "[]".
-* Sending: one zabbix_sender call with -T, a value per collected role, the heartbeat always.
+* Sending: one zabbix_sender call with -T, a value per collected rule, the heartbeat always.
 
 No SNMP device and no Zabbix server are needed (the walk text and the zabbix_sender call are stubbed).
 """
@@ -50,8 +50,8 @@ for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
     text = open(path, encoding="utf-8").read()
     rows = push.parse_walk(text)
-    for role, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
-        expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{role}.json")
+    for rule, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
+        expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{rule}.json")
         if not os.path.exists(expected_path):
             continue
         expected = json.load(open(expected_path, encoding="utf-8"))
@@ -59,12 +59,12 @@ for path in walks:
             got = builder(rows)
         except push.WalkUnusable:
             # ports without IF-MIB: the step's `error` anchor gives no snapshot; the expected file is the JS' empty result
-            check(role == "ports" and expected == [], f"{name} {role}: no IF-MIB, nothing sent (JS gives {len(expected)} rows)")
+            check(rule == "ports" and expected == [], f"{name} {rule}: no IF-MIB, nothing sent (JS gives {len(expected)} rows)")
             continue
         compared += 1
-        check(canonical(got) == canonical(expected), f"{name} {role}: {len(got)} rows equal the reference",
+        check(canonical(got) == canonical(expected), f"{name} {rule}: {len(got)} rows equal the reference",
               f"push: {canonical(got)[:3]}\n        ref:  {canonical(expected)[:3]}")
-check(compared >= 20, f"{compared} fixture x role comparisons were made")
+check(compared >= 20, f"{compared} fixture x rule comparisons were made")
 
 print("\n=== identity bytes ===")
 identity_keys = ("{#LOC_CHASSIS}", "{#REM_CHASSIS}", "{#REM_CHASSIS_TYPE}", "{#REM_MGMT_IP}", "{#IFMAC}")
@@ -72,8 +72,8 @@ seen = 0
 for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
     rows = push.parse_walk(open(path, encoding="utf-8").read())
-    for role, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
-        expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{role}.json")
+    for rule, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
+        expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{rule}.json")
         if not os.path.exists(expected_path):
             continue
         try:
@@ -89,25 +89,25 @@ for path in walks:
                 if key in r or key in ref:
                     seen += 1
                     if r.get(key) != ref.get(key):
-                        check(False, f"{name} {role} {key}: {r.get(key)!r} != {ref.get(key)!r}")
+                        check(False, f"{name} {rule} {key}: {r.get(key)!r} != {ref.get(key)!r}")
 check(seen > 50, f"{seen} identity values compared byte for byte, none differs")
 
 print("\n=== failed is not empty ===")
 lab = open(os.path.join(HERE, "lld_js", "fixtures", "lab-router1.walk"), encoding="utf-8").read()
-values, problems = push.build_role_values(lab)
-check(set(values) == {push.ROLE_PORTS_KEY, push.ROLE_LLDP_KEY} and not problems, "a healthy walk gives both roles")
+values, problems = push.build_rule_values(lab)
+check(set(values) == {push.RULE_PORTS_KEY, push.RULE_LLDP_KEY} and not problems, "a healthy walk gives both rules")
 try:
-    push.build_role_values("")
+    push.build_rule_values("")
     check(False, "an empty walk is unusable")
 except push.WalkUnusable:
-    check(True, "an empty walk is unusable: nothing for any role")
+    check(True, "an empty walk is unusable: nothing for any rule")
 no_ifmib = "\n".join(l for l in lab.splitlines() if "1.3.6.1.2.1.2.2.1" not in l and "1.3.6.1.2.1.31.1.1.1" not in l)
-values, problems = push.build_role_values(no_ifmib)
-check(push.ROLE_PORTS_KEY not in values and len(problems) == 1 and push.ROLE_LLDP_KEY in values,
-      "no IF-MIB: the ports role is left out, LLDP is still sent")
+values, problems = push.build_rule_values(no_ifmib)
+check(push.RULE_PORTS_KEY not in values and len(problems) == 1 and push.RULE_LLDP_KEY in values,
+      "no IF-MIB: the ports rule is left out, LLDP is still sent")
 no_neighbors = "\n".join(l for l in lab.splitlines() if "1.0.8802.1.1.2.1.4." not in l)
-values, problems = push.build_role_values(no_neighbors)
-check(values.get(push.ROLE_LLDP_KEY) == "[]" and not problems, "LLDP read and without rows: \"[]\" (empty is empty)")
+values, problems = push.build_rule_values(no_neighbors)
+check(values.get(push.RULE_LLDP_KEY) == "[]" and not problems, "LLDP read and without rows: \"[]\" (empty is empty)")
 
 
 print("\n=== sending ===")
@@ -123,37 +123,37 @@ def fake_run(cmd, **kwargs):
 real_run = push.subprocess.run
 push.subprocess.run = fake_run
 try:
-    values = {push.ROLE_PORTS_KEY: '[{"{#IFINDEX}":"1"}]', push.ROLE_LLDP_KEY: "[]"}
-    push.send_role_values("Router1", values, 1790000000, 1790000100, "127.0.0.1", 10051, "zabbix_sender")
+    values = {push.RULE_PORTS_KEY: '[{"{#IFINDEX}":"1"}]', push.RULE_LLDP_KEY: "[]"}
+    push.send_rule_values("Router1", values, 1790000000, 1790000100, "127.0.0.1", 10051, "zabbix_sender")
 finally:
     push.subprocess.run = real_run
 lines = [l.split("\t", 3) for l in captured["input"].splitlines()]
 check("-T" in captured["cmd"], "zabbix_sender is called with -T (value timestamps)")
-check(lines[0] == ["Router1", push.ROLE_PORTS_KEY, "1790000000", '[{"{#IFINDEX}":"1"}]'], "ports value carries the collection time")
-check(lines[1] == ["Router1", push.ROLE_LLDP_KEY, "1790000000", "[]"], "LLDP value carries the collection time")
+check(lines[0] == ["Router1", push.RULE_PORTS_KEY, "1790000000", '[{"{#IFINDEX}":"1"}]'], "ports value carries the collection time")
+check(lines[1] == ["Router1", push.RULE_LLDP_KEY, "1790000000", "[]"], "LLDP value carries the collection time")
 check(lines[2][:2] == ["Router1", push.HEARTBEAT_KEY] and lines[2][2] == "1790000100", "the heartbeat is in the same call")
 captured.clear()
 push.subprocess.run = fake_run
 try:
-    push.send_role_values("Router1", {}, 1790000000, 1790000100, "127.0.0.1", 10051, "zabbix_sender")
+    push.send_rule_values("Router1", {}, 1790000000, 1790000100, "127.0.0.1", 10051, "zabbix_sender")
 finally:
     push.subprocess.run = real_run
 check(len(captured["input"].splitlines()) == 1 and push.HEARTBEAT_KEY in captured["input"],
-      "every role failed: only the heartbeat is sent")
+      "every rule failed: only the heartbeat is sent")
 
 
 print("\n=== a failed walk sends nothing but the heartbeat ===")
 sent = {}
-real_collect, real_send = push.collect_walk, push.send_role_values
+real_collect, real_send = push.collect_walk, push.send_rule_values
 push.collect_walk = lambda *a, **k: (_ for _ in ()).throw(push.SnmpError("snmpbulkwalk failed: Timeout"))
-push.send_role_values = lambda host, values, *a, **k: sent.update(values=values)
+push.send_rule_values = lambda host, values, *a, **k: sent.update(values=values)
 try:
     cfg = push.ReporterConfig(name="R", zabbix_host="R", mgmt_ip="192.0.2.1", snmp_target="127.0.0.1", snmp_port=1611)
     ok = push.run_reporter_rows(cfg, argparse.Namespace(dry_run=False, sender_server="x", sender_port=1,
                                                    sender_bin="x"))
 finally:
-    push.collect_walk, push.send_role_values = real_collect, real_send
-check(ok is False and sent.get("values") == {}, "SNMP failure: no role values, the call still happens (heartbeat), run reports failure")
+    push.collect_walk, push.send_rule_values = real_collect, real_send
+check(ok is False and sent.get("values") == {}, "SNMP failure: no rule values, the call still happens (heartbeat), run reports failure")
 
 print("\n=== heartbeat key ===")
 check(push.HEARTBEAT_KEY == "topology.push.heartbeat", "push sends topology.push.heartbeat")
@@ -186,48 +186,48 @@ rem_lines = walk_by_root[rem]
 check(len(rem_lines) >= 4, f"the lab LLDP table has {len(rem_lines)} variables to truncate")
 
 text, failed = run_with({})
-values, problems = push.build_role_values(text, failed)
-check(not failed and set(values) == {push.ROLE_PORTS_KEY, push.ROLE_LLDP_KEY}, "control: an intact walk gives both roles")
+values, problems = push.build_rule_values(text, failed)
+check(not failed and set(values) == {push.RULE_PORTS_KEY, push.RULE_LLDP_KEY}, "control: an intact walk gives both rules")
 
 swapped = rem_lines[:2] + [rem_lines[3], rem_lines[2]] + rem_lines[4:]
 text, failed = run_with({rem: swapped})
-values, problems = push.build_role_values(text, failed)
+values, problems = push.build_rule_values(text, failed)
 check(rem in failed and "non-increasing" in failed[rem], "a non-increasing OID in lldpRemTable fails that walk")
-check(push.ROLE_LLDP_KEY not in values and push.ROLE_PORTS_KEY in values and len(problems) == 1,
-      "the LLDP role is not sent, the ports role still is")
+check(push.RULE_LLDP_KEY not in values and push.RULE_PORTS_KEY in values and len(problems) == 1,
+      "the LLDP rule is not sent, the ports rule still is")
 
 early = rem_lines[:3] + [" ." + rem_lines[2].lstrip(" .").split(" =")[0] + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
 text, failed = run_with({rem: early})
-values, problems = push.build_role_values(text, failed)
-check(rem in failed and "endOfMibView" in failed[rem] and push.ROLE_LLDP_KEY not in values,
-      "an early endOfMibView after rows of lldpRemTable fails the role: the table is not shorter, it is cut")
+values, problems = push.build_rule_values(text, failed)
+check(rem in failed and "endOfMibView" in failed[rem] and push.RULE_LLDP_KEY not in values,
+      "an early endOfMibView after rows of lldpRemTable fails the rule: the table is not shorter, it is cut")
 
 empty_end = [" ." + rem + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
 text, failed = run_with({rem: empty_end})
-values, problems = push.build_role_values(text, failed)
-check(not failed and values.get(push.ROLE_LLDP_KEY) == "[]",
+values, problems = push.build_rule_values(text, failed)
+check(not failed and values.get(push.RULE_LLDP_KEY) == "[]",
       "an empty subtree at the end of the MIB view (endOfMibView for the root itself) is an empty table: \"[]\"")
 
 ports_oid = push.CONTRACT_WALK_OIDS[1]                              # ifTable
 bad_ports = list(reversed(walk_by_root[ports_oid]))
 text, failed = run_with({ports_oid: bad_ports})
-values, problems = push.build_role_values(text, failed)
-check(push.ROLE_PORTS_KEY not in values and push.ROLE_LLDP_KEY not in values,
-      "a broken ifTable fails every role that reads it (ports and LLDP)")
+values, problems = push.build_rule_values(text, failed)
+check(push.RULE_PORTS_KEY not in values and push.RULE_LLDP_KEY not in values,
+      "a broken ifTable fails every rule that reads it (ports and LLDP)")
 
-# end to end: the run sends the heartbeat and only the intact role
+# end to end: the run sends the heartbeat and only the intact rule
 sent = {}
-real_collect, real_send = push.collect_walk, push.send_role_values
+real_collect, real_send = push.collect_walk, push.send_rule_values
 push.collect_walk = lambda *a, **k: run_with({rem: swapped})
-push.send_role_values = lambda host, values, *a, **k: sent.update(values=dict(values))
+push.send_rule_values = lambda host, values, *a, **k: sent.update(values=dict(values))
 try:
     cfg = push.ReporterConfig(name="R", zabbix_host="R", mgmt_ip="192.0.2.1", snmp_target="127.0.0.1", snmp_port=1611)
     ok = push.run_reporter_rows(cfg, argparse.Namespace(dry_run=False, sender_server="x", sender_port=1,
                                                    sender_bin="x"))
 finally:
-    push.collect_walk, push.send_role_values = real_collect, real_send
-check(ok is False and list(sent.get("values", {})) == [push.ROLE_PORTS_KEY],
-      "the run sends the ports role (and the heartbeat), not the LLDP role")
+    push.collect_walk, push.send_rule_values = real_collect, real_send
+check(ok is False and list(sent.get("values", {})) == [push.RULE_PORTS_KEY],
+      "the run sends the ports rule (and the heartbeat), not the LLDP rule")
 
 # Decoding cases shared with the native step (step_golden/decoding_cases.json; push.py has no CDP)
 print("\n=== decoding (decoding_cases.json) ===")

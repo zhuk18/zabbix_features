@@ -2153,7 +2153,7 @@ static int	DBpatch_7050190(void)
 
 static int	DBpatch_7050191(void)
 {
-	const zbx_db_field_t	field = {"topology_role", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0};
+	const zbx_db_field_t	field = {"topology_type", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0};
 
 	return DBadd_field("items", &field);
 }
@@ -2165,7 +2165,7 @@ static int	DBpatch_7050192(void)
 				{
 					{"itemid", NULL, NULL, NULL, 0, ZBX_TYPE_ID, ZBX_NOTNULL, 0},
 					{"hostid", NULL, NULL, NULL, 0, ZBX_TYPE_ID, ZBX_NOTNULL, 0},
-					{"role", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
+					{"topology_type", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
 					{"clock", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0},
 					{"rows_hash", "", NULL, NULL, 64, ZBX_TYPE_CHAR, ZBX_NOTNULL, 0},
 					{"rows_json", "", NULL, NULL, 0, ZBX_TYPE_LONGTEXT, ZBX_NOTNULL, 0},
@@ -2196,6 +2196,28 @@ static int	DBpatch_7050194(void)
 static int	DBpatch_7050195(void)
 {
 	return DBcreate_index("topo_lld_snapshot", "topo_lld_snapshot_1", "hostid", 0);
+}
+
+/* The rule property "topology role" is renamed "topology type" (topology model 2.37). Patches 7050191 and 7050192 create the new names; a */
+/* database that ran them with the old names (a development database of this branch) gets its columns renamed here, with their data. */
+static int	DBpatch_7050196(void)
+{
+	const zbx_db_field_t	field = {"topology_type", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0};
+
+	if (SUCCEED != zbx_db_field_exists("items", "topology_role"))
+		return SUCCEED;
+
+	return DBrename_field("items", "topology_role", &field);
+}
+
+static int	DBpatch_7050197(void)
+{
+	const zbx_db_field_t	field = {"topology_type", "0", NULL, NULL, 0, ZBX_TYPE_INT, ZBX_NOTNULL, 0};
+
+	if (SUCCEED != zbx_db_field_exists("topo_lld_snapshot", "role"))
+		return SUCCEED;
+
+	return DBrename_field("topo_lld_snapshot", "role", &field);
 }
 
 #endif
@@ -2400,5 +2422,7 @@ DBPATCH_ADD(7050192, 0, 1)
 DBPATCH_ADD(7050193, 0, 1)
 DBPATCH_ADD(7050194, 0, 1)
 DBPATCH_ADD(7050195, 0, 1)
+DBPATCH_ADD(7050196, 0, 1)
+DBPATCH_ADD(7050197, 0, 1)
 
 DBPATCH_END()

@@ -119,8 +119,8 @@ void	zbx_audit_item_update_json_add_lld_data(const zbx_lld_item_full_t *item,
 
 	if (0 != (item->item_flags & ZBX_FLAG_DISCOVERY_RULE))
 	{
-		zbx_audit_entry_add_int(audit_entry, AUDIT_TABLE_NAME, "topology_role", "topology_role",
-				item_prototype->topology_role);
+		zbx_audit_entry_add_int(audit_entry, AUDIT_TABLE_NAME, "topology_type", "topology_type",
+				item_prototype->topology_type);
 	}
 
 	if (0 != (item->item_flags & ZBX_FLAG_DISCOVERY_PROTOTYPE))

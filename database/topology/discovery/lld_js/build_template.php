@@ -10,7 +10,7 @@ declare(strict_types=1);
  * implementation of the contract rows (topology-2-lld-delivery.md "Template Topology by SNMP") — keep it readable.
  *
  * Layout: two SNMP walk[] master items (interfaces + LLDP + LAG every 30m, bridge/FDB tables every 10m, no history)
- * and four DEPENDENT discovery rules, one per role, each with one JavaScript step made of common.js + <role>.js.
+ * and four DEPENDENT discovery rules, one per topology type, each with one JavaScript step made of common.js + <script>.js.
  *
  * Usage: build_template.php  [output-file]   (default: ../template_topology_by_snmp_js.yaml)
  */
@@ -37,8 +37,8 @@ $uuid = static function (string $seed): string {
 	return substr($hex, 0, 12).'4'.substr($hex, 13, 3).dechex(8 + (hexdec($hex[16]) & 3)).substr($hex, 17, 15);
 };
 
-$script = static function (string $role) use ($dir): string {
-	$text = file_get_contents($dir.'/common.js')."\n".file_get_contents($dir."/{$role}.js");
+$script = static function (string $name) use ($dir): string {
+	$text = file_get_contents($dir.'/common.js')."\n".file_get_contents($dir."/{$name}.js");
 	$lines = [];
 	foreach (explode("\n", rtrim($text)) as $line) {
 		// Leading tabs -> 4 spaces (YAML block scalars are safest with plain spaces); no trailing blanks.
@@ -53,10 +53,10 @@ $indent = static function (string $text, int $spaces): string {
 };
 
 $rules = [
-	['role' => 'ports', 'name' => 'Topology ports', 'role_name' => 'PORTS', 'master' => 'topology.walk.core'],
-	['role' => 'neighbors', 'name' => 'Topology neighbors (LLDP)', 'role_name' => 'NEIGHBORS', 'master' => 'topology.walk.core'],
-	['role' => 'learned_macs', 'name' => 'Topology learned MACs', 'role_name' => 'LEARNED_MACS', 'master' => 'topology.walk.fdb'],
-	['role' => 'lag', 'name' => 'Topology LAG membership', 'role_name' => 'LAG', 'master' => 'topology.walk.core'],
+	['script' => 'ports', 'name' => 'Topology ports', 'type' => 'PORTS', 'master' => 'topology.walk.core'],
+	['script' => 'neighbors', 'name' => 'Topology neighbors (LLDP)', 'type' => 'NEIGHBORS', 'master' => 'topology.walk.core'],
+	['script' => 'learned_macs', 'name' => 'Topology learned MACs', 'type' => 'LEARNED_MACS', 'master' => 'topology.walk.fdb'],
+	['script' => 'lag', 'name' => 'Topology LAG membership', 'type' => 'LAG', 'master' => 'topology.walk.core'],
 ];
 
 $yaml = <<<YAML
@@ -72,7 +72,7 @@ zabbix_export:
       description: |
         TEMPORARY lab template (topology-2-lld-delivery.md "Template Topology by SNMP"): collects topology through Zabbix low-level discovery
         with no external scripts. Two SNMP walk[] master items feed four dependent discovery rules, one per
-        topology role; each rule's JavaScript emits the rows of that role's macro contract. The master items store
+        topology type; each rule's JavaScript emits the rows of the macro contract of that topology type. The master items store
         no history.
 
         Replaced by the preset preprocessing step — the JavaScript is the reference implementation of it.
@@ -117,18 +117,18 @@ $yaml .= <<<YAML
 YAML;
 
 foreach ($rules as $rule) {
-	$yaml .= "        - uuid: {$uuid('rule:'.$rule['role'])}\n";
+	$yaml .= "        - uuid: {$uuid('rule:'.$rule['script'])}\n";
 	$yaml .= "          name: '{$rule['name']}'\n";
 	$yaml .= "          type: DEPENDENT\n";
-	$yaml .= "          key: topology.{$rule['role']}\n";
-	$yaml .= "          topology_role: {$rule['role_name']}\n";
+	$yaml .= "          key: topology.{$rule['script']}\n";
+	$yaml .= "          topology_type: {$rule['type']}\n";
 	$yaml .= "          lifetime_type: DELETE_NEVER\n";
 	$yaml .= "          enabled_lifetime_type: DISABLE_NEVER\n";
 	$yaml .= "          master_item:\n            key: {$rule['master']}\n";
 	$yaml .= "          preprocessing:\n";
 	$yaml .= "            - type: JAVASCRIPT\n";
 	$yaml .= "              parameters:\n";
-	$yaml .= "                - |\n".$indent($script($rule['role']), 18)."\n";
+	$yaml .= "                - |\n".$indent($script($rule['script']), 18)."\n";
 }
 
 file_put_contents($output, $yaml);

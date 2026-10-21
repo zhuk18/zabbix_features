@@ -15,7 +15,7 @@
 /*
  * "SNMP walk to topology rows" preprocessing step (topology-2-lld-delivery.md).
  *
- * Turns the text of an SNMP walk[] item into the rows of a topology role's macro contract (see CTopologyRole.php):
+ * Turns the text of an SNMP walk[] item into the rows of a topology type's macro contract (see CTopologyType.php):
  * a JSON array of objects whose keys are LLD macros. The reference implementation is the temporary JavaScript of
  * database/topology/discovery/lld_js; the golden tests hold this file to its output. Where the JavaScript does
  * something the specification does not say, the JavaScript wins and the place is marked "as the JS".

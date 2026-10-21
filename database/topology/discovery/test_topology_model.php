@@ -51,9 +51,9 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
-$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 	' rows_valid INT NOT NULL DEFAULT 0)');
 
@@ -474,8 +474,8 @@ $Up = port($pdo, $Ud, 1, 'eth0');
 $Pp = port($pdo, $Pd, 1, 'Gi0/1');
 foreach ([[101, 'Router1', 1002], [103, 'Switch2', 3002]] as [$hostid, $hostname, $itemid]) {
 	$pdo->prepare('INSERT INTO hosts (hostid, host, name, status) VALUES (?, ?, ?, 0)')->execute([$hostid, $hostname, $hostname]);
-	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role, type) VALUES (?, ?, 0, 2, 0)')->execute([$itemid, $hostid]);
-	$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json) VALUES (?, ?, 2, 1, 'h', '[]')")
+	$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_type, type) VALUES (?, ?, 0, 2, 0)')->execute([$itemid, $hostid]);
+	$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json) VALUES (?, ?, 2, 1, 'h', '[]')")
 		->execute([$itemid, $hostid]);
 }
 API::$visible = [101, 103];
@@ -570,8 +570,8 @@ $Up = port($pdo, $Ud, 1, 'eth0');
 $Pp = port($pdo, $Pd, 1, 'Gi0/1');
 $Ap = port($pdo, $Ad, 1, 'eth0');
 $pdo->prepare('INSERT INTO hosts (hostid, host, name, status) VALUES (101, ?, ?, 0)')->execute(['Router1', 'Router1']);
-$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_role, type) VALUES (1002, 101, 0, 2, 0)')->execute();
-$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json) VALUES (1002, 101, 2, 1, 'h', '[]')")->execute();
+$pdo->prepare('INSERT INTO items (itemid, hostid, status, topology_type, type) VALUES (1002, 101, 0, 2, 0)')->execute();
+$pdo->prepare("INSERT INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json) VALUES (1002, 101, 2, 1, 'h', '[]')")->execute();
 API::$visible = [101];
 $now = time();
 // M: manual Gi0/1 <-> UPS1:eth0, shadowed by Printer1; Gi0/2 <-> Printer1 discovered, seen at device level only by one

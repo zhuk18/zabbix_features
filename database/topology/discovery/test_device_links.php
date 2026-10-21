@@ -45,10 +45,10 @@ function reset_db(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 	$pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 	$pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
-	$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+	$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 	$pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
 	$pdo->exec("CREATE TABLE host_inventory (hostid BIGINT UNSIGNED PRIMARY KEY, macaddress_a VARCHAR(64) NOT NULL DEFAULT '', macaddress_b VARCHAR(64) NOT NULL DEFAULT '')");
-	$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+	$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 		' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 		' rows_valid INT NOT NULL DEFAULT 0)');
 	$pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
@@ -64,13 +64,13 @@ function add_host(PDO $pdo, int $hostid, string $host, string $name, ?string $ip
 	}
 }
 
-function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, array $rows, int $current_role = null,
+function snapshot(PDO $pdo, int $itemid, int $hostid, int $topology_type, int $clock, array $rows, int $current_topology_type = null,
 		int $status = 0, int $item_type = 0): void {
-	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_role, type) VALUES (?, ?, ?, ?, ?)')
-		->execute([$itemid, $hostid, $status, $current_role ?? $role, $item_type]);
+	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type, type) VALUES (?, ?, ?, ?, ?)')
+		->execute([$itemid, $hostid, $status, $current_topology_type ?? $topology_type, $item_type]);
 	$json = json_encode($rows, JSON_THROW_ON_ERROR);
-	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid)'.
-		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $role, $clock, hash('sha256', $json), $json,
+	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json, rows_total, rows_valid)'.
+		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $topology_type, $clock, hash('sha256', $json), $json,
 		count($rows), count($rows)]);
 }
 
@@ -973,7 +973,7 @@ $link = link_between($pdo, ports_by_name($pdo, $R)['Gi0/1'], ports_by_name($pdo,
 check($link !== null && max($link['last_seen_src'] ?? 0, $link['last_seen_dst'] ?? 0) === $past && $link['last_seen'] === $past,
 	'link last_seen_* come from the snapshot clock, not from the time of the run');
 
-// -- one host, one role, both transports: both processed, the host is reported
+// -- one host, one topology type, both transports: both processed, the host is reported
 reset_db($pdo);
 reporters($pdo, $R, $D);
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']), null, 0, 18);                // dependent (SNMP walk)
@@ -982,15 +982,15 @@ snapshot($pdo, 4001, 104, 1, CLOCK, ports_rows($D, [1 => 'Gi0/1']), null, 0, TRA
 snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1')], null, 0, 18);
 $r = run($dsn, $user, $password, $pdo, 'one host with both transports');
 $dups = $r['summary']['hosts_duplicate_transport'] ?? [];
-check(count($dups) === 1 && $dups[0]['host'] === 'SwR' && $dups[0]['role'] === 1 && count($dups[0]['itemids']) === 2,
-	'SwR is reported once, for the PORTS role, with the rules of both transports');
+check(count($dups) === 1 && $dups[0]['host'] === 'SwR' && $dups[0]['topology_type'] === 1 && count($dups[0]['itemids']) === 2,
+	'SwR is reported once, for the PORTS topology type, with the rules of both transports');
 check(is_active(link_between($pdo, ports_by_name($pdo, $R)['Gi0/1'], ports_by_name($pdo, $D)['Gi0/1'])), 'both snapshots were processed');
 check(($r['summary']['reporters_processed'] ?? 0) === 2, 'and both hosts were ingested');
 snapshot($pdo, 1501, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']), null, 0, 18);                // same transport twice
 $r = run($dsn, $user, $password, $pdo, 'two rules of one transport');
 check(($r['summary']['hosts_duplicate_transport'] ?? []) === [], 'two rules of the same transport are not a duplicate transport');
 
-$dup_summary = static fn(array $r): array => array_map(static fn(array $d): string => $d['host'].':'.$d['role'].':'.$d['source'],
+$dup_summary = static fn(array $r): array => array_map(static fn(array $d): string => $d['host'].':'.$d['topology_type'].':'.$d['source'],
 	$r['summary']['hosts_duplicate_transport'] ?? []);
 
 // -- the same protocol over both transports is reported, with its source (topology-1-model.md "Duplicate transports")
@@ -1000,14 +1000,14 @@ snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']), null, 0, 18)
 snapshot($pdo, 1002, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1', 'lldp')], null, 0, 18);          // LLDP by SNMP
 snapshot($pdo, 1502, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1', 'lldp')], null, 0, TRAPPER);     // LLDP by push
 $r = run($dsn, $user, $password, $pdo, 'LLDP by SNMP and LLDP by push');
-check($dup_summary($r) === ['SwR:2:lldp'], 'LLDP by SNMP + LLDP by push is reported: role NEIGHBORS, source lldp');
+check($dup_summary($r) === ['SwR:2:lldp'], 'LLDP by SNMP + LLDP by push is reported: topology type NEIGHBORS, source lldp');
 
 // -- different protocols are not a duplicate
 snapshot($pdo, 1502, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1', 'cdp')], null, 0, TRAPPER);      // CDP by push
 $r = run($dsn, $user, $password, $pdo, 'LLDP by SNMP and CDP by push');
 check($dup_summary($r) === [], 'LLDP by SNMP + CDP by push is not reported');
 
-// -- the same transport pair on different roles is not a duplicate either
+// -- the same transport pair on different topology types is not a duplicate either
 snapshot($pdo, 1502, 101, 2, CLOCK + 10, [], null, 0, TRAPPER);                                    // empty: no known source
 $r = run($dsn, $user, $password, $pdo, 'an empty trapper NEIGHBORS snapshot next to an SNMP one');
 check($dup_summary($r) === [], 'an empty snapshot has no source and is not compared');
@@ -1015,8 +1015,8 @@ reset_db($pdo);
 reporters($pdo, $R, $D);
 snapshot($pdo, 1001, 101, 1, CLOCK, ports_rows($R, [1 => 'Gi0/1']), null, 0, 18);                // PORTS by SNMP
 snapshot($pdo, 1502, 101, 2, CLOCK + 10, [nb($R, 1, $D, 'Gi0/1')], null, 0, TRAPPER);            // NEIGHBORS by push
-$r = run($dsn, $user, $password, $pdo, 'different roles over different transports');
-check($dup_summary($r) === [], 'PORTS by SNMP + NEIGHBORS by push is not reported: the roles differ');
+$r = run($dsn, $user, $password, $pdo, 'different topology types over different transports');
+check($dup_summary($r) === [], 'PORTS by SNMP + NEIGHBORS by push is not reported: the topology types differ');
 
 // -- normalization runs before the reporter identity (topology-1-model.md "Identity normalization"): one Device, not identity_ambiguous
 reset_db($pdo);

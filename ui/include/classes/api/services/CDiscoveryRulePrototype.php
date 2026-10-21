@@ -29,7 +29,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 		'enabled_lifetime', 'jmx_endpoint', 'master_itemid', 'timeout', 'url', 'query_fields', 'posts', 'status_codes',
 		'follow_redirects', 'post_type', 'http_proxy', 'headers', 'retrieve_mode', 'request_method', 'output_format',
 		'ssl_cert_file', 'ssl_key_file', 'ssl_key_password', 'verify_peer', 'verify_host', 'allow_traps', 'parameters',
-		'discover', 'uuid', 'topology_role'
+		'discover', 'uuid', 'topology_type'
 	];
 
 	/**
@@ -381,7 +381,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 			'description' =>			['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'description')],
 			'status' =>					['type' => API_INT32, 'in' => implode(',', [ITEM_STATUS_ACTIVE, ITEM_STATUS_DISABLED])],
 			'discover' =>				['type' => API_INT32, 'in' => implode(',', [ITEM_DISCOVER, ITEM_NO_DISCOVER])],
-			'topology_role' =>			['type' => API_INT32, 'in' => implode(',', CTopologyRole::getRoles()), 'default' => DB::getDefault('items', 'topology_role')],
+			'topology_type' =>			['type' => API_INT32, 'in' => implode(',', CTopologyType::getTypes()), 'default' => DB::getDefault('items', 'topology_type')],
 			'preprocessing' =>			self::getPreprocessingValidationRules(API_ALLOW_LLD_MACRO),
 			'lld_macro_paths' =>		self::getLldMacroPathsValidationRules(),
 			'filter' =>					self::getFilterValidationRules('items', 'item_condition'),
@@ -527,7 +527,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 
 		$db_items = DB::select('items', [
 			'output' => array_merge(['uuid', 'itemid', 'name', 'type', 'key_', 'lifetime_type', 'lifetime',
-				'enabled_lifetime_type', 'enabled_lifetime', 'description', 'status', 'discover', 'topology_role'],
+				'enabled_lifetime_type', 'enabled_lifetime', 'description', 'status', 'discover', 'topology_type'],
 				array_diff(CItemType::FIELD_NAMES, ['parameters'])
 			),
 			'itemids' => array_column($items, 'itemid'),
@@ -612,7 +612,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 			'description' =>			['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'description')],
 			'status' =>					['type' => API_INT32, 'in' => implode(',', [ITEM_STATUS_ACTIVE, ITEM_STATUS_DISABLED])],
 			'discover' =>				['type' => API_INT32, 'in' => implode(',', [ITEM_DISCOVER, ITEM_NO_DISCOVER])],
-			'topology_role' =>			['type' => API_INT32, 'in' => implode(',', CTopologyRole::getRoles())],
+			'topology_type' =>			['type' => API_INT32, 'in' => implode(',', CTopologyType::getTypes())],
 			'preprocessing' =>			self::getPreprocessingValidationRules(API_ALLOW_LLD_MACRO),
 			'lld_macro_paths' =>		self::getLldMacroPathsValidationRules(),
 			'filter' =>					self::getFilterValidationRules('items', 'item_condition'),
@@ -650,7 +650,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 			'description' =>			['type' => API_STRING_UTF8, 'length' => DB::getFieldLength('items', 'description')],
 			'status' =>					['type' => API_INT32, 'in' => implode(',', [ITEM_STATUS_ACTIVE, ITEM_STATUS_DISABLED])],
 			'discover' =>				['type' => API_INT32, 'in' => implode(',', [ITEM_DISCOVER, ITEM_NO_DISCOVER])],
-			'topology_role' =>			['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
+			'topology_type' =>			['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
 			'preprocessing' =>			['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
 			'lld_macro_paths' =>		['type' => API_UNEXPECTED, 'error_type' => API_ERR_INHERITED],
 			'filter' =>					self::getFilterValidationRules('items', 'item_condition'),
@@ -747,7 +747,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 	public static function linkTemplateObjects(array $ruleids, array $hostids): void {
 		$fields = array_merge(
 			['itemid', 'name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-				'enabled_lifetime', 'description', 'status', 'discover', 'topology_role'
+				'enabled_lifetime', 'description', 'status', 'discover', 'topology_type'
 			],
 			array_diff(CItemType::FIELD_NAMES, ['interfaceid', 'parameters']),
 			['hostid', 'templateid', 'flags']
@@ -979,7 +979,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 		$options = [
 			'output' => array_merge(
 				['uuid', 'itemid', 'name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-					'enabled_lifetime', 'description', 'status', 'discover', 'topology_role'
+					'enabled_lifetime', 'description', 'status', 'discover', 'topology_type'
 				],
 				array_diff(CItemType::FIELD_NAMES, ['parameters'])
 			),
@@ -1113,7 +1113,7 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 		$upd_db_items = DB::select('items', [
 			'output' => array_merge(
 				['itemid', 'name', 'type', 'key_', 'lifetime_type', 'lifetime', 'enabled_lifetime_type',
-					'enabled_lifetime', 'description', 'status', 'discover', 'topology_role'
+					'enabled_lifetime', 'description', 'status', 'discover', 'topology_type'
 				],
 				array_diff(CItemType::FIELD_NAMES, ['parameters'])
 			),

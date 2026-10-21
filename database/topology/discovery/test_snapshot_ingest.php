@@ -46,10 +46,10 @@ foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes',
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_role INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
 $pdo->exec("CREATE TABLE interface (interfaceid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, type INT NOT NULL, useip INT NOT NULL DEFAULT 1, ip VARCHAR(64) NOT NULL DEFAULT '', main INT NOT NULL DEFAULT 1)");
 $pdo->exec("CREATE TABLE host_inventory (hostid BIGINT UNSIGNED PRIMARY KEY, macaddress_a VARCHAR(64) NOT NULL DEFAULT '', macaddress_b VARCHAR(64) NOT NULL DEFAULT '')");
-$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, role INT NOT NULL DEFAULT 0,'.
+$pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 	' rows_valid INT NOT NULL DEFAULT 0)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
@@ -64,13 +64,13 @@ function add_host(PDO $pdo, int $hostid, string $host, string $name, ?string $ip
 	}
 }
 
-function snapshot(PDO $pdo, int $itemid, int $hostid, int $role, int $clock, array $rows, int $current_role = null,
+function snapshot(PDO $pdo, int $itemid, int $hostid, int $topology_type, int $clock, array $rows, int $current_topology_type = null,
 		int $status = 0): void {
-	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_role) VALUES (?, ?, ?, ?)')
-		->execute([$itemid, $hostid, $status, $current_role ?? $role]);
+	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type) VALUES (?, ?, ?, ?)')
+		->execute([$itemid, $hostid, $status, $current_topology_type ?? $topology_type]);
 	$json = json_encode($rows, JSON_THROW_ON_ERROR);
-	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, role, clock, rows_hash, rows_json, rows_total, rows_valid)'.
-		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $role, $clock, hash('sha256', $json), $json,
+	$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json, rows_total, rows_valid)'.
+		' VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute([$itemid, $hostid, $topology_type, $clock, hash('sha256', $json), $json,
 		count($rows), count($rows)]);
 }
 
@@ -355,11 +355,11 @@ check(device_id($pdo, 'f0:00:00:00:00:01') === null && device_id($pdo, 'f0:00:00
 $pdo->exec('DELETE FROM topo_lld_snapshot WHERE itemid IN (4001, 5001)');
 
 // ============================================================================================================
-echo "\n=== 10: stale roles, disabled rules, status counters ===\n";
+echo "\n=== 10: stale topology types, disabled rules, status counters ===\n";
 snapshot($pdo, 6001, 101, 2, CLOCK + 500, [['if_index' => 3, 'rem_chassis' => 'ab:00:00:00:00:0b', 'rem_port' => 'x', 'loc_chassis' => $A]], 1);
 $r = run_ingest($dsn, $user, $password);
-check(device_id($pdo, 'ab:00:00:00:00:0b') === null, 'a snapshot whose role no longer matches the rule is ignored');
-check(($r['summary']['snapshots_ignored_role_mismatch'] ?? 0) === 1, 'and counted in the status summary');
+check(device_id($pdo, 'ab:00:00:00:00:0b') === null, 'a snapshot whose topology type no longer matches the rule is ignored');
+check(($r['summary']['snapshots_ignored_type_mismatch'] ?? 0) === 1, 'and counted in the status summary');
 snapshot($pdo, 6001, 101, 2, CLOCK + 500, [['if_index' => 3, 'rem_chassis' => 'ab:00:00:00:00:0b', 'rem_port' => 'x', 'loc_chassis' => $A]], 2, 1);
 run_ingest($dsn, $user, $password);
 check(device_id($pdo, 'ab:00:00:00:00:0b') === null, 'a snapshot of a disabled rule is skipped');
@@ -389,11 +389,11 @@ check(($r['summary']['observations_removed'] ?? 0) >= 1, 'the status counts the 
 $pdo->exec('UPDATE items SET status=0 WHERE itemid=1001');
 run_ingest($dsn, $user, $password);
 check($obs_of(1001) >= 1, 'an enabled rule with a snapshot has its observations again');
-// (d) the rule's role changed: its snapshot is ignored, so its observations go
-$pdo->exec('UPDATE items SET topology_role=1 WHERE itemid=1001');
+// (d) the rule's topology type changed: its snapshot is ignored, so its observations go
+$pdo->exec('UPDATE items SET topology_type=1 WHERE itemid=1001');
 run_ingest($dsn, $user, $password);
-check($obs_of(1001) === 0, 'a rule whose role changed loses its observations');
-$pdo->exec('UPDATE items SET topology_role=2 WHERE itemid=1001');
+check($obs_of(1001) === 0, 'a rule whose topology type changed loses its observations');
+$pdo->exec('UPDATE items SET topology_type=2 WHERE itemid=1001');
 run_ingest($dsn, $user, $password);
 // (e) the snapshot is gone
 $pdo->exec('DELETE FROM topo_lld_snapshot WHERE itemid=1001');

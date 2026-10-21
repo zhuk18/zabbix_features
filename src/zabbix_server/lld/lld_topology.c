@@ -24,20 +24,20 @@
 #include "zbxstr.h"
 
 /*
- * Topology role snapshots.
+ * Topology type snapshots.
  *
- * A discovery rule with topology_role != NONE writes the rows that survived the LLD filter into
+ * A discovery rule with topology_type != NONE writes the rows that survived the LLD filter into
  * topo_lld_snapshot, as objects with normalized field names. The server never reads topology tables; matching
  * and reconciliation stay in ingest.php.
  *
- * The contract table below MUST be kept in sync with ui/include/classes/topology/CTopologyRole.php (macros,
+ * The contract table below MUST be kept in sync with ui/include/classes/topology/CTopologyType.php (macros,
  * required fields and "one of" groups) and with the field names read by database/topology/discovery/ingest.php.
  */
 
-#define ZBX_LLD_TOPO_ROLE_PORTS		1
-#define ZBX_LLD_TOPO_ROLE_NEIGHBORS	2
-#define ZBX_LLD_TOPO_ROLE_LEARNED_MACS	3
-#define ZBX_LLD_TOPO_ROLE_LAG		4
+#define ZBX_LLD_TOPO_TYPE_PORTS		1
+#define ZBX_LLD_TOPO_TYPE_NEIGHBORS	2
+#define ZBX_LLD_TOPO_TYPE_LEARNED_MACS	3
+#define ZBX_LLD_TOPO_TYPE_LAG		4
 
 #define ZBX_LLD_TOPO_STR	0	/* emitted as JSON string */
 #define ZBX_LLD_TOPO_UINT	1	/* emitted as JSON number; a non-numeric value invalidates the row */
@@ -112,37 +112,37 @@ static const zbx_lld_topo_field_t	topo_lag[] = {
 };
 
 /* {#SNMPINDEX} stands in for a missing {#IFINDEX} for PORTS only: stock IF-MIB discovery emits it as the ifIndex. */
-/* For other roles it is a different table index (for NEIGHBORS - TimeMark.LocalPortNum.RemIndex).                */
+/* For other topology types it is a different table index (for NEIGHBORS - TimeMark.LocalPortNum.RemIndex).          */
 #define ZBX_LLD_TOPO_SNMPINDEX_MACRO	"{#SNMPINDEX}"
 
-static const char	*lld_topology_role_name(int role)
+static const char	*lld_topology_type_name(int topology_type)
 {
-	switch (role)
+	switch (topology_type)
 	{
-		case ZBX_LLD_TOPO_ROLE_PORTS:
+		case ZBX_LLD_TOPO_TYPE_PORTS:
 			return "PORTS";
-		case ZBX_LLD_TOPO_ROLE_NEIGHBORS:
+		case ZBX_LLD_TOPO_TYPE_NEIGHBORS:
 			return "NEIGHBORS";
-		case ZBX_LLD_TOPO_ROLE_LEARNED_MACS:
+		case ZBX_LLD_TOPO_TYPE_LEARNED_MACS:
 			return "LEARNED_MACS";
-		case ZBX_LLD_TOPO_ROLE_LAG:
+		case ZBX_LLD_TOPO_TYPE_LAG:
 			return "LAG";
 		default:
 			return NULL;
 	}
 }
 
-static const zbx_lld_topo_field_t	*lld_topology_contract(int role)
+static const zbx_lld_topo_field_t	*lld_topology_contract(int topology_type)
 {
-	switch (role)
+	switch (topology_type)
 	{
-		case ZBX_LLD_TOPO_ROLE_PORTS:
+		case ZBX_LLD_TOPO_TYPE_PORTS:
 			return topo_ports;
-		case ZBX_LLD_TOPO_ROLE_NEIGHBORS:
+		case ZBX_LLD_TOPO_TYPE_NEIGHBORS:
 			return topo_neighbors;
-		case ZBX_LLD_TOPO_ROLE_LEARNED_MACS:
+		case ZBX_LLD_TOPO_TYPE_LEARNED_MACS:
 			return topo_learned_macs;
-		case ZBX_LLD_TOPO_ROLE_LAG:
+		case ZBX_LLD_TOPO_TYPE_LAG:
 			return topo_lag;
 		default:
 			return NULL;
@@ -193,8 +193,8 @@ static char	*lld_topology_macro_get(const zbx_lld_entry_t *entry, const char *ma
  *                                                                            *
  * Purpose: build one normalized snapshot row from an LLD entry               *
  *                                                                            *
- * Parameters: role     - [IN]                                                *
- *             contract - [IN] fields of the role                             *
+ * Parameters: topology_type - [IN]                                           *
+ *             contract      - [IN] fields of the topology type               *
  *             entry    - [IN] LLD entry                                      *
  *             reasons  - [IN/OUT] per-reason counters of dropped rows        *
  *             row      - [OUT] built row on success                          *
@@ -203,7 +203,7 @@ static char	*lld_topology_macro_get(const zbx_lld_entry_t *entry, const char *ma
  *               FAIL    - row is invalid (reasons updated)                   *
  *                                                                            *
  ******************************************************************************/
-static int	lld_topology_row_build(int role, const zbx_lld_topo_field_t *contract, const zbx_lld_row_t *lld_row,
+static int	lld_topology_row_build(int topology_type, const zbx_lld_topo_field_t *contract, const zbx_lld_row_t *lld_row,
 		int *reasons, zbx_lld_topo_row_t **row)
 {
 	const zbx_lld_entry_t	*entry = lld_row->data;
@@ -218,7 +218,7 @@ static int	lld_topology_row_build(int role, const zbx_lld_topo_field_t *contract
 		values[n] = lld_topology_macro_get(entry, contract[n].macro);
 
 		if (NULL == values[n] && 0 == strcmp(contract[n].field, "if_index") &&
-				ZBX_LLD_TOPO_ROLE_PORTS == role)
+				ZBX_LLD_TOPO_TYPE_PORTS == topology_type)
 		{
 			values[n] = lld_topology_macro_get(entry, ZBX_LLD_TOPO_SNMPINDEX_MACRO);
 		}
@@ -281,7 +281,7 @@ static int	lld_topology_row_build(int role, const zbx_lld_topo_field_t *contract
 
 		/* topology-2-lld-delivery.md §3.4 "Item ids of a PORTS row": the items this LLD run created or kept from the row (items only), sorted;  */
 		/* [] for a rule without item prototypes. The links are filled by lld_update_items(), so the snapshot is written after it.             */
-		if (ZBX_LLD_TOPO_ROLE_PORTS == role)
+		if (ZBX_LLD_TOPO_TYPE_PORTS == topology_type)
 		{
 			zbx_vector_uint64_t	itemids;
 
@@ -358,14 +358,14 @@ static void	lld_topology_reasons_format(const zbx_lld_topo_field_t *contract, co
 	*out = buf;
 }
 
-static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid, int role, int now, int server_time,
+static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid, int topology_type, int now, int server_time,
 		const char *rows_json, const char *hash, int rows_total, int rows_valid)
 {
 	zbx_db_result_t	result;
 	zbx_db_row_t	db_row;
 	int		exists = 0, same = 0, ret = SUCCEED, stored;
 
-	result = zbx_db_select("select role,rows_hash,clock from topo_lld_snapshot where itemid=" ZBX_FS_UI64, itemid);
+	result = zbx_db_select("select topology_type,rows_hash,clock from topo_lld_snapshot where itemid=" ZBX_FS_UI64, itemid);
 
 	if (NULL != (db_row = zbx_db_fetch(result)))
 	{
@@ -383,7 +383,7 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 		}
 
 		exists = 1;
-		same = role == atoi(db_row[0]) && 0 == strcmp(hash, db_row[1]);
+		same = topology_type == atoi(db_row[0]) && 0 == strcmp(hash, db_row[1]);
 	}
 
 	zbx_db_free_result(result);
@@ -408,9 +408,9 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 		rows_esc = zbx_db_dyn_escape_string(rows_json);
 
 		zbx_snprintf_alloc(&sql, &sql_alloc, &sql_offset,
-				"update topo_lld_snapshot set hostid=" ZBX_FS_UI64 ",role=%d,clock=%d,rows_hash='%s',"
+				"update topo_lld_snapshot set hostid=" ZBX_FS_UI64 ",topology_type=%d,clock=%d,rows_hash='%s',"
 				"rows_total=%d,rows_valid=%d,rows_json='%s' where itemid=" ZBX_FS_UI64,
-				hostid, role, now, hash, rows_total, rows_valid, rows_esc, itemid);
+				hostid, topology_type, now, hash, rows_total, rows_valid, rows_esc, itemid);
 
 		if (ZBX_DB_OK > zbx_db_execute("%s", sql))
 			ret = FAIL;
@@ -423,9 +423,9 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 
 	zbx_db_insert_t	db_insert;
 
-	zbx_db_insert_prepare(&db_insert, "topo_lld_snapshot", "itemid", "hostid", "role", "clock", "rows_hash",
+	zbx_db_insert_prepare(&db_insert, "topo_lld_snapshot", "itemid", "hostid", "topology_type", "clock", "rows_hash",
 			"rows_json", "rows_total", "rows_valid", (char *)NULL);
-	zbx_db_insert_add_values(&db_insert, itemid, hostid, role, now, hash, rows_json, rows_total, rows_valid);
+	zbx_db_insert_add_values(&db_insert, itemid, hostid, topology_type, now, hash, rows_json, rows_total, rows_valid);
 
 	if (ZBX_DB_OK > zbx_db_insert_execute(&db_insert))
 		ret = FAIL;
@@ -437,11 +437,11 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 
 /******************************************************************************
  *                                                                            *
- * Purpose: store the LLD rows of a rule with a topology role as a snapshot   *
+ * Purpose: store the LLD rows of a rule with a topology type as a snapshot   *
  *                                                                            *
  * Parameters: itemid   - [IN] discovery rule                                 *
  *             hostid   - [IN] host of the rule                               *
- *             role     - [IN] topology_role of the rule                      *
+ *             topology_type - [IN] topology type of the rule                 *
  *             lld_rows - [IN] rows that passed the LLD filter                *
  *             value_clock - [IN] the timestamp of the value (or the server time  *
  *                           when it has none)                                *
@@ -453,10 +453,10 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
  *           good one. A failure here must not affect prototype processing.   *
  *                                                                            *
  ******************************************************************************/
-void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int role,
+void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int topology_type,
 		const zbx_vector_lld_row_ptr_t *lld_rows, int value_clock, int server_time, char **info)
 {
-	const zbx_lld_topo_field_t	*contract = lld_topology_contract(role);
+	const zbx_lld_topo_field_t	*contract = lld_topology_contract(topology_type);
 	zbx_vector_lld_topo_row_ptr_t	rows;
 	int				reasons[ZBX_LLD_TOPO_MAX_REASONS] = {0}, rows_total = lld_rows->values_num;
 	char				*rows_json = NULL, hash[2 * ZBX_SHA256_DIGEST_SIZE + 1];
@@ -480,7 +480,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	{
 		zbx_lld_topo_row_t	*row;
 
-		if (SUCCEED == lld_topology_row_build(role, contract, lld_rows->values[i], reasons, &row))
+		if (SUCCEED == lld_topology_row_build(topology_type, contract, lld_rows->values[i], reasons, &row))
 			zbx_vector_lld_topo_row_ptr_append(&rows, row);
 	}
 
@@ -502,7 +502,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	zbx_sha256_hash_len(rows_json, offset, (char *)digest);
 	zbx_bin2hex(digest, sizeof(digest), hash, sizeof(hash));
 
-	if (SUCCEED != lld_topology_snapshot_write(itemid, hostid, role, value_clock, server_time, rows_json, hash, rows_total,
+	if (SUCCEED != lld_topology_snapshot_write(itemid, hostid, topology_type, value_clock, server_time, rows_json, hash, rows_total,
 			rows.values_num))
 	{
 		zabbix_log(LOG_LEVEL_WARNING, "cannot store topology snapshot of discovery rule " ZBX_FS_UI64,
@@ -515,7 +515,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 
 		lld_topology_reasons_format(contract, reasons, &text);
 
-		*info = zbx_dsprintf(*info, "Topology (%s): %d of %d rows skipped: %s\n", lld_topology_role_name(role),
+		*info = zbx_dsprintf(*info, "Topology (%s): %d of %d rows skipped: %s\n", lld_topology_type_name(topology_type),
 				rows_total - rows.values_num, rows_total, ZBX_NULL2EMPTY_STR(text));
 		zbx_free(text);
 	}

@@ -19,7 +19,7 @@ class CControllerTopologyCleanAll extends CController {
 	}
 
 	protected function checkInput(): bool { return true; }
-	// Super admin only until the topology role rules exist (topology-5-access-control.md §4: it is not an action of the ordinary users)
+	// Super admin only until the topology type rules exist (topology-5-access-control.md §4: it is not an action of the ordinary users)
 	protected function checkPermissions(): bool { return CWebUser::getType() == USER_TYPE_SUPER_ADMIN; }
 
 	protected function doAction(): void {

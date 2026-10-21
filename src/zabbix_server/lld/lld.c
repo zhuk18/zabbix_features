@@ -1130,7 +1130,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 	zbx_vector_lld_override_ptr_t	overrides;
 	zbx_vector_lld_row_ptr_t	lld_rows;
 	zbx_vector_lld_macro_t		exported_macros;
-	int				topology_role = 0;
+	int				topology_type = 0;
 
 	zabbix_log(LOG_LEVEL_DEBUG, "In %s() itemid:" ZBX_FS_UI64, __func__, item->itemid);
 
@@ -1146,7 +1146,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 
 	result = zbx_db_select(
 			"select hostid,key_,evaltype,formula,lifetime_type,lifetime,enabled_lifetime_type,"
-				"enabled_lifetime,topology_role"
+				"enabled_lifetime,topology_type"
 			" from items"
 			" where itemid=" ZBX_FS_UI64,
 			item->itemid);
@@ -1159,7 +1159,7 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 		filter.expression = zbx_strdup(NULL, row[3]);
 		lld_lifetime_init(&lifetime, discovery_key, hostid, atoi(row[4]), row[5], um_handle);
 		lld_lifetime_init(&enabled_lifetime, discovery_key, hostid, atoi(row[6]), row[7], um_handle);
-		topology_role = atoi(row[8]);
+		topology_type = atoi(row[8]);
 	}
 	zbx_db_free_result(result);
 
@@ -1204,13 +1204,13 @@ int	lld_process_discovery_rule(zbx_dc_item_t *item, zbx_vector_lld_entry_ptr_t *
 
 	/* rows are stored only after successful processing; problems are reported, the rule stays supported. After the items: the PORTS rows */
 	/* carry the ids of the items made from them (topology-2-lld-delivery.md §3.4), known only when lld_update_items() has saved them */
-	if (0 != topology_role)
+	if (0 != topology_type)
 	{
 		char	*topology_info = NULL;
 
 		/* the snapshot is dated by when the value was observed, not when it was processed (topology-1-model.md "Snapshot rules", */
 		/* rule 3): a value sent with an old timestamp must not look fresh; no timestamp falls back to now */
-		lld_topology_snapshot_update(item->itemid, hostid, topology_role, &lld_rows,
+		lld_topology_snapshot_update(item->itemid, hostid, topology_type, &lld_rows,
 				0 < ts->sec ? (int)ts->sec : (int)now, (int)now, &topology_info);
 
 		if (NULL != topology_info)

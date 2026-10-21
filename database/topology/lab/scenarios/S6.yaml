@@ -1,7 +1,7 @@
 id: S6
 title: Release 1 view - link severity and load
 base: lab.yaml
-# topology-4-lab-simulator.md §9 S6. Every lab host has "Network Generic Device by SNMP" (the role PORTS is in the template file, FR-B D-49) next to "Topology by SNMP".
+# topology-4-lab-simulator.md §9 S6. Every lab host has "Network Generic Device by SNMP" (the topology type PORTS is in the template file, FR-B D-49) next to "Topology by SNMP".
 # The counters of IF-MIB grow with the port `load` (labmultiplex, counters.json); the items of that template poll every 3 minutes and take the rate between two
 # values, so step 0 waits for at least two polls. The trigger "High bandwidth usage" is the template's own: avg over 15 minutes above {$IF.UTIL.MAX} and
 # recovery below {$IF.UTIL.MAX} - 3. The real values: {$IF.UTIL.MAX} of "Network Generic Device by SNMP" is 95, so the problem is above 95 % and the recovery below 92 %

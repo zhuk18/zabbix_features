@@ -77,24 +77,24 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 
 	public static function getSources(): array {
 		return [
-			'ports' => ['ports', ZBX_TOPOLOGY_ROLE_PORTS],
-			'lldp' => ['lldp', ZBX_TOPOLOGY_ROLE_NEIGHBORS],
-			'cdp' => ['cdp', ZBX_TOPOLOGY_ROLE_NEIGHBORS],
-			'fdb' => ['fdb', ZBX_TOPOLOGY_ROLE_LEARNED_MACS],
-			'lag' => ['lag', ZBX_TOPOLOGY_ROLE_LAG]
+			'ports' => ['ports', ZBX_TOPOLOGY_TYPE_PORTS],
+			'lldp' => ['lldp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
+			'cdp' => ['cdp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
+			'fdb' => ['fdb', ZBX_TOPOLOGY_TYPE_LEARNED_MACS],
+			'lag' => ['lag', ZBX_TOPOLOGY_TYPE_LAG]
 		];
 	}
 
 	/**
 	 * @dataProvider getSources
 	 */
-	public function testDiscoveryRuleTopologyStep_CreateForEverySource(string $source, int $role): void {
+	public function testDiscoveryRuleTopologyStep_CreateForEverySource(string $source, int $topology_type): void {
 		$itemid = $this->call('discoveryrule.create', [
 			'hostid' => self::$ids['templateid'],
 			'name' => 'Rule '.$source,
 			'key_' => 'topo.step.'.$source,
 			'type' => ITEM_TYPE_TRAPPER,
-			'topology_role' => $role,
+			'topology_type' => $topology_type,
 			'preprocessing' => self::step($source."\nempty\n50")
 		])['result']['itemids'][0];
 
@@ -190,7 +190,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'name' => 'Rule prototype {#N}',
 			'key_' => 'topo.step.ruleproto[{#N}]',
 			'type' => ITEM_TYPE_TRAPPER,
-			'topology_role' => ZBX_TOPOLOGY_ROLE_NEIGHBORS,
+			'topology_type' => ZBX_TOPOLOGY_TYPE_NEIGHBORS,
 			'preprocessing' => self::step("lldp\nempty\n20")
 		])['result']['itemids'][0];
 
@@ -228,7 +228,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'name' => 'To update',
 			'key_' => 'topo.step.update',
 			'type' => ITEM_TYPE_TRAPPER,
-			'topology_role' => ZBX_TOPOLOGY_ROLE_LEARNED_MACS,
+			'topology_type' => ZBX_TOPOLOGY_TYPE_LEARNED_MACS,
 			'preprocessing' => self::step("fdb\nempty\n20")
 		])['result']['itemids'][0];
 
@@ -294,11 +294,11 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			$result = [];
 
 			foreach ($this->call('discoveryrule.get', [
-				'output' => ['key_', 'topology_role'],
+				'output' => ['key_', 'topology_type'],
 				'hostids' => $templateid,
 				'selectPreprocessing' => ['type', 'params']
 			])['result'] as $rule) {
-				$result[$rule['key_']] = [$rule['topology_role'], $rule['preprocessing']];
+				$result[$rule['key_']] = [$rule['topology_type'], $rule['preprocessing']];
 			}
 
 			ksort($result);

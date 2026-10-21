@@ -39,11 +39,11 @@ class testTopologyBySnmpTemplate extends CAPITest {
 	}
 
 	private const RULES = [
-		'topology.ports' => [ZBX_TOPOLOGY_ROLE_PORTS, 'topology.walk.core', "ports\nerror\n20"],
-		'topology.lldp' => [ZBX_TOPOLOGY_ROLE_NEIGHBORS, 'topology.walk.core', "lldp\nempty\n20"],
-		'topology.cdp' => [ZBX_TOPOLOGY_ROLE_NEIGHBORS, 'topology.walk.core', "cdp\nempty\n20"],
-		'topology.fdb' => [ZBX_TOPOLOGY_ROLE_LEARNED_MACS, 'topology.walk.fdb', "fdb\nempty\n20"],
-		'topology.lag' => [ZBX_TOPOLOGY_ROLE_LAG, 'topology.walk.core', "lag\nempty\n20"]
+		'topology.ports' => [ZBX_TOPOLOGY_TYPE_PORTS, 'topology.walk.core', "ports\nerror\n20"],
+		'topology.lldp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "lldp\nempty\n20"],
+		'topology.cdp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "cdp\nempty\n20"],
+		'topology.fdb' => [ZBX_TOPOLOGY_TYPE_LEARNED_MACS, 'topology.walk.fdb', "fdb\nempty\n20"],
+		'topology.lag' => [ZBX_TOPOLOGY_TYPE_LAG, 'topology.walk.core', "lag\nempty\n20"]
 	];
 
 	public static function prepareTestData(): void {
@@ -155,7 +155,7 @@ class testTopologyBySnmpTemplate extends CAPITest {
 	 */
 	public function testTopologyBySnmpTemplate_Rules(): void {
 		$rules = $this->call('discoveryrule.get', [
-			'output' => ['key_', 'type', 'topology_role', 'master_itemid', 'lifetime_type', 'enabled_lifetime_type'],
+			'output' => ['key_', 'type', 'topology_type', 'master_itemid', 'lifetime_type', 'enabled_lifetime_type'],
 			'hostids' => self::$ids['templateid'],
 			'selectPreprocessing' => ['type', 'params', 'error_handler'],
 			'selectLLDMacroPaths' => ['lld_macro', 'path'],
@@ -170,10 +170,10 @@ class testTopologyBySnmpTemplate extends CAPITest {
 		$this->assertEqualsCanonicalizing(array_keys(self::RULES), array_column($rules, 'key_'));
 
 		foreach ($rules as $rule) {
-			[$role, $master, $params] = self::RULES[$rule['key_']];
+			[$topology_type, $master, $params] = self::RULES[$rule['key_']];
 
 			$this->assertEquals(ITEM_TYPE_DEPENDENT, $rule['type'], $rule['key_']);
-			$this->assertEquals($role, $rule['topology_role'], $rule['key_'].' role');
+			$this->assertEquals($topology_type, $rule['topology_type'], $rule['key_'].' topology type');
 			$this->assertSame($master, $masters[$rule['master_itemid']], $rule['key_'].' master');
 
 			// exactly one step: the native one, with no custom on-fail, no JS and no LLD macro paths

@@ -36,15 +36,15 @@ def _has_tag(h):
     return any(t['tag'] == TAG and t['value'] == '1' for t in h.get('tags', []))
 
 
-def _check_ports_role(api, templateid, name):
-    """The role PORTS is a property of the template (FR-B D-49: `topology_role: PORTS` on the interface discovery rule in the template file), so that the ports of
-    the hosts get items (model §3.2). The tool does not set it any more: a rule of a host that inherits it is read-only. A template without the role is an error."""
-    rules = api.call('discoveryrule.get', {'hostids': [templateid], 'output': ['itemid', 'key_', 'topology_role'],
+def _check_ports_type(api, templateid, name):
+    """The topology type PORTS is a property of the template (FR-B D-49: `topology_type: PORTS` on the interface discovery rule in the template file), so that the ports of
+    the hosts get items (model §3.2). The tool does not set it any more: a rule of a host that inherits it is read-only. A template without the topology type is an error."""
+    rules = api.call('discoveryrule.get', {'hostids': [templateid], 'output': ['itemid', 'key_', 'topology_type'],
                                            'filter': {'key_': 'net.if.discovery'}})
     if not rules:
         raise LabError('template %r has no interface discovery rule (net.if.discovery)' % name)
-    if str(rules[0]['topology_role']) != '1':
-        raise LabError('the interface discovery rule of template %r has no topology role PORTS; import the template file of the tree (templates/net/generic_snmp)' % name)
+    if str(rules[0]['topology_type']) != '1':
+        raise LabError('the interface discovery rule of template %r has no topology type PORTS; import the template file of the tree (templates/net/generic_snmp)' % name)
 
 
 def provision(api, scenario, prune=False, log=print):
@@ -66,7 +66,7 @@ def provision(api, scenario, prune=False, log=print):
     if z.get('template_interfaces'):
         if not tmpl['template_interfaces']:
             raise LabError('template %r does not exist' % z['template_interfaces'])
-        _check_ports_role(api, tmpl['template_interfaces'], z['template_interfaces'])
+        _check_ports_type(api, tmpl['template_interfaces'], z['template_interfaces'])
     proxies = {p['name']: p['proxyid'] for p in api.call('proxy.get', {'output': ['proxyid', 'name']})}
 
     existing = {h['host']: h for h in api.call('host.get', {
@@ -167,14 +167,14 @@ def masters(api, hostnames):
     hosts = api.call('host.get', {'filter': {'host': list(hostnames)}, 'output': ['hostid', 'host']})
     for h in hosts:
         items = api.call('item.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'state', 'error', 'status', 'lastclock']})
-        rules = api.call('discoveryrule.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'master_itemid', 'status', 'topology_role']})
+        rules = api.call('discoveryrule.get', {'hostids': h['hostid'], 'output': ['itemid', 'key_', 'master_itemid', 'status', 'topology_type']})
         core = next((i for i in items if i['key_'] == 'topology.walk.core'), None)
         fdb = next((i for i in items if i['key_'] == 'topology.walk.fdb'), None)
         # "Topology by push": the trapper discovery rules (topology.push.ports, topology.push.lldp, ...), by key
         push = {i['key_']: i['itemid'] for i in rules if i['key_'].startswith(PUSH_RULE_PREFIX)}
         info = {i['itemid']: {'key': i['key_'], 'status': i['status']} for i in rules}
-        # the standard interface discovery rule with the role PORTS (its snapshot carries the item ids of the ports): "check now" runs the rule itself
-        ifdisc = next((i for i in rules if i['key_'] == 'net.if.discovery' and i['status'] == '0' and str(i['topology_role']) == '1'), None)
+        # the standard interface discovery rule with the topology type PORTS (its snapshot carries the item ids of the ports): "check now" runs the rule itself
+        ifdisc = next((i for i in rules if i['key_'] == 'net.if.discovery' and i['status'] == '0' and str(i['topology_type']) == '1'), None)
         out[h['host']] = {'hostid': h['hostid'], 'core': core, 'fdb': fdb, 'push': push, 'rule_info': info,
                           'ifdisc': {'itemid': ifdisc['itemid']} if ifdisc else None,
                           'rules': {'core': [i['itemid'] for i in rules if core and i['master_itemid'] == core['itemid'] and i['status'] == '0'],
@@ -183,17 +183,17 @@ def masters(api, hostnames):
     return out
 
 
-def set_roles(api, masters_by_host, roles, state_file, log=print):
-    """Collect only `roles` (rule keys topology.<role>) on the LLD hosts for the run: the other discovery rules are disabled. The
-    ids go to state_file first, so restore_roles() can enable them again after a failure or a killed run. Push hosts have only
+def set_sources(api, masters_by_host, sources, state_file, log=print):
+    """Collect only `sources` (rule keys topology.<source>) on the LLD hosts for the run: the other discovery rules are disabled. The
+    ids go to state_file first, so restore_sources() can enable them again after a failure or a killed run. Push hosts have only
     the rules the template defines (topology.push.*); they are not touched. Updates masters_by_host to the enabled rules."""
     if os.path.exists(state_file):
-        restore_roles(api, state_file, log)
+        restore_sources(api, state_file, log)
     off = []
     for m in masters_by_host.values():
         for itemid, i in m['rule_info'].items():
-            role = i['key'][len('topology.'):] if i['key'].startswith('topology.') and not i['key'].startswith(PUSH_RULE_PREFIX) else None
-            if role in ('ports', 'lldp', 'cdp', 'fdb', 'lag') and role not in roles and i['status'] == '0':
+            source = i['key'][len('topology.'):] if i['key'].startswith('topology.') and not i['key'].startswith(PUSH_RULE_PREFIX) else None
+            if source in ('ports', 'lldp', 'cdp', 'fdb', 'lag') and source not in sources and i['status'] == '0':
                 off.append(itemid)
         for kind in ('core', 'fdb'):
             m['rules'][kind] = [r for r in m['rules'][kind] if r not in off]
@@ -204,10 +204,10 @@ def set_roles(api, masters_by_host, roles, state_file, log=print):
         json.dump(off, f)
     for itemid in off:
         api.call('discoveryrule.update', {'itemid': itemid, 'status': 1})
-    log('  %d discovery rule(s) disabled for the run (only %s collected)' % (len(off), ', '.join(roles)))
+    log('  %d discovery rule(s) disabled for the run (only %s collected)' % (len(off), ', '.join(sources)))
 
 
-def restore_roles(api, state_file, log=print):
+def restore_sources(api, state_file, log=print):
     if not os.path.exists(state_file):
         return False
     with open(state_file) as f:

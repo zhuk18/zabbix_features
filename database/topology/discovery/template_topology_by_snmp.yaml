@@ -10,7 +10,7 @@ zabbix_export:
       description: |
         Collects the network topology through Zabbix low-level discovery (topology-2-lld-delivery.md). Two SNMP
         walk[] master items feed five dependent discovery rules, one per data set; each rule has one preprocessing
-        step "SNMP walk to topology rows" that turns the walk into the rows of its topology role. The master items
+        step "SNMP walk to topology rows" that turns the walk into the rows of its topology type. The master items
         store no history and have no discard steps: every value is a confirmation that the links are alive.
 
         The rules for LLDP, CDP, learned MACs and LAG return an empty result when the device does not have that MIB,
@@ -52,7 +52,7 @@ zabbix_export:
           name: 'Topology ports'
           type: DEPENDENT
           key: topology.ports
-          topology_role: PORTS
+          topology_type: PORTS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'One row per interface (IF-MIB ifTable / ifXTable).'
@@ -68,7 +68,7 @@ zabbix_export:
           name: 'Topology neighbors (LLDP)'
           type: DEPENDENT
           key: topology.lldp
-          topology_role: NEIGHBORS
+          topology_type: NEIGHBORS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'LLDP neighbors (LLDP-MIB lldpRemTable), joined to the local ifIndex.'
@@ -84,7 +84,7 @@ zabbix_export:
           name: 'Topology neighbors (CDP)'
           type: DEPENDENT
           key: topology.cdp
-          topology_role: NEIGHBORS
+          topology_type: NEIGHBORS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'CDP neighbors (CISCO-CDP-MIB cdpCacheTable).'
@@ -100,7 +100,7 @@ zabbix_export:
           name: 'Topology learned MACs'
           type: DEPENDENT
           key: topology.fdb
-          topology_role: LEARNED_MACS
+          topology_type: LEARNED_MACS
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'MAC addresses learned per port (Q-BRIDGE-MIB, else BRIDGE-MIB); a port with more MACs than the limit is reported by count only.'
@@ -116,7 +116,7 @@ zabbix_export:
           name: 'Topology LAG membership'
           type: DEPENDENT
           key: topology.lag
-          topology_role: LAG
+          topology_type: LAG
           lifetime_type: DELETE_NEVER
           enabled_lifetime_type: DISABLE_NEVER
           description: 'Member ports of link aggregations (IEEE8023-LAG-MIB).'

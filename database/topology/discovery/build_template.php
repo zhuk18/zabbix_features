@@ -39,23 +39,23 @@ $uuid = static function (string $seed): string {
 	return substr($hex, 0, 12).'4'.substr($hex, 13, 3).dechex(8 + (hexdec($hex[16]) & 3)).substr($hex, 17, 15);
 };
 
-// key, name, role, step source, missing MIB action, master. An empty result for everything but ports: a template
+// key, name, topology type, step source, missing MIB action, master. An empty result for everything but ports: a template
 // applied to a mixed fleet must not turn "the device has no CDP / LAG / bridge tables" into an unsupported rule.
 // Ports stay "error": no IF-MIB means the walk itself is broken.
 $rules = [
-	['key' => 'topology.ports', 'name' => 'Topology ports', 'role' => 'PORTS', 'source' => 'ports',
+	['key' => 'topology.ports', 'name' => 'Topology ports', 'topology_type' => 'PORTS', 'source' => 'ports',
 		'missing' => 'error', 'master' => 'topology.walk.core',
 		'description' => 'One row per interface (IF-MIB ifTable / ifXTable).'],
-	['key' => 'topology.lldp', 'name' => 'Topology neighbors (LLDP)', 'role' => 'NEIGHBORS', 'source' => 'lldp',
+	['key' => 'topology.lldp', 'name' => 'Topology neighbors (LLDP)', 'topology_type' => 'NEIGHBORS', 'source' => 'lldp',
 		'missing' => 'empty', 'master' => 'topology.walk.core',
 		'description' => 'LLDP neighbors (LLDP-MIB lldpRemTable), joined to the local ifIndex.'],
-	['key' => 'topology.cdp', 'name' => 'Topology neighbors (CDP)', 'role' => 'NEIGHBORS', 'source' => 'cdp',
+	['key' => 'topology.cdp', 'name' => 'Topology neighbors (CDP)', 'topology_type' => 'NEIGHBORS', 'source' => 'cdp',
 		'missing' => 'empty', 'master' => 'topology.walk.core',
 		'description' => 'CDP neighbors (CISCO-CDP-MIB cdpCacheTable).'],
-	['key' => 'topology.fdb', 'name' => 'Topology learned MACs', 'role' => 'LEARNED_MACS', 'source' => 'fdb',
+	['key' => 'topology.fdb', 'name' => 'Topology learned MACs', 'topology_type' => 'LEARNED_MACS', 'source' => 'fdb',
 		'missing' => 'empty', 'master' => 'topology.walk.fdb',
 		'description' => 'MAC addresses learned per port (Q-BRIDGE-MIB, else BRIDGE-MIB); a port with more MACs than the limit is reported by count only.'],
-	['key' => 'topology.lag', 'name' => 'Topology LAG membership', 'role' => 'LAG', 'source' => 'lag',
+	['key' => 'topology.lag', 'name' => 'Topology LAG membership', 'topology_type' => 'LAG', 'source' => 'lag',
 		'missing' => 'empty', 'master' => 'topology.walk.core',
 		'description' => 'Member ports of link aggregations (IEEE8023-LAG-MIB).']
 ];
@@ -73,7 +73,7 @@ zabbix_export:
       description: |
         Collects the network topology through Zabbix low-level discovery (topology-2-lld-delivery.md). Two SNMP
         walk[] master items feed five dependent discovery rules, one per data set; each rule has one preprocessing
-        step "SNMP walk to topology rows" that turns the walk into the rows of its topology role. The master items
+        step "SNMP walk to topology rows" that turns the walk into the rows of its topology type. The master items
         store no history and have no discard steps: every value is a confirmation that the links are alive.
 
         The rules for LLDP, CDP, learned MACs and LAG return an empty result when the device does not have that MIB,
@@ -125,7 +125,7 @@ foreach ($rules as $rule) {
 	$yaml .= "          name: '{$rule['name']}'\n";
 	$yaml .= "          type: DEPENDENT\n";
 	$yaml .= "          key: {$rule['key']}\n";
-	$yaml .= "          topology_role: {$rule['role']}\n";
+	$yaml .= "          topology_type: {$rule['topology_type']}\n";
 	$yaml .= "          lifetime_type: DELETE_NEVER\n";
 	$yaml .= "          enabled_lifetime_type: DISABLE_NEVER\n";
 	$yaml .= "          description: '{$rule['description']}'\n";
