@@ -37,7 +37,7 @@ def q(sql):
 
 def snapshot_rows(key):
     res = q("select s.rows_json, i.itemid from topo_lld_snapshot s join items i on i.itemid=s.itemid join hosts h on h.hostid=i.hostid "
-            f"where h.host='{args.host}' and i.key_='{key}' and s.topology type=1")
+            f"where h.host='{args.host}' and i.key_='{key}' and s.topology_type=1")
     return (json.loads(res[0][0]), res[0][1]) if res else (None, None)
 
 

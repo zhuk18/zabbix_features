@@ -447,7 +447,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 				'preprocessing' => [self::heartbeatStep()]
 			])['result']['itemids'][0];
 			$with_type = $this->call('discoveryrule.create', [
-				'hostid' => $hostid, 'name' => 'Has topology type '.$topology_type, 'key_' => 'topo.discard.topology type'.$topology_type, 'type' => ITEM_TYPE_TRAPPER,
+				'hostid' => $hostid, 'name' => 'Has topology type '.$topology_type, 'key_' => 'topo.discard.type'.$topology_type, 'type' => ITEM_TYPE_TRAPPER,
 				'topology_type' => $topology_type
 			])['result']['itemids'][0];
 
