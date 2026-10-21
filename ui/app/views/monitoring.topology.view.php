@@ -45,6 +45,15 @@ $page_styles = '
 .topology-link{stroke:#77818d;stroke-width:2}
 .topology-group{margin:14px 0}
 .topology-group h3{font-size:14px;margin:0 0 6px}
+.topology-address-list{list-style:none;margin:0;padding:0}
+.topology-address{padding:6px 0;border-bottom:1px solid #e5e7eb}
+.topology-address-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.topology-address-value{font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;word-break:break-all}
+.topology-address-source{font-size:11px;color:#55606b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;font-size:11.5px;margin-bottom:6px}
+.topology-address-identity th{text-align:left;font-weight:600;padding:3px 6px 3px 0;white-space:nowrap;width:1%}
+.topology-address-identity td{padding:3px 4px 3px 0;vertical-align:middle}
+.topology-copy-button{font-size:10px;padding:1px 7px;white-space:nowrap;margin-left:auto}
 .topology-group-help{font-size:11.5px;color:var(--topology-muted,#666);margin:0 0 6px}
 .topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
 .topology-col-port{width:22%}

@@ -413,4 +413,16 @@ $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
 
+// ============================================================================================================
+echo "\n=== 6: the observation keeps the raw rem_man_addrs (task 049, model §12.5 \"Addresses\"); the management address is still the first IPv4 (normalization §4.4) ===\n";
+$entries = 'lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.10.0.0.9 lldp:1.4.10.0.0.5 cdp:1:0a:00:00:63';
+reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X', 'rem_man_addrs' => $entries])], []);
+run_ingest($dsn, $user, $password);
+$obs = json_decode((string) scalar($pdo, 'SELECT remote_attrs FROM topo_observations WHERE itemid = 1002'), true);
+check(($obs['rem_man_addrs'] ?? null) === $entries, 'the observation has every entry as received');
+check(($obs['rem_mgmt_ip'] ?? null) === '10.0.0.9' && attrs($pdo, device_id($pdo, $X))['mgmt_ip'] === '10.0.0.9', 'rem_mgmt_ip and the Device mgmt_ip: the first IPv4, as before');
+$fp = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
+
 echo "\nALL OK\n";

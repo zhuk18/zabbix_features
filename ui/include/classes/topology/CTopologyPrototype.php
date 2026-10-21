@@ -1181,6 +1181,134 @@ class CTopologyPrototype {
 	}
 
 	/**
+	 * topology-1-model.md §11 `GET /topo/devices/{id}/addresses`, §12.5 "Addresses": the addresses of a Device as its neighbors report them, so that the operator can create a
+	 * Zabbix host for it with the right interface and proxy. Read only.
+	 *
+	 * Source: the current observations of the Device (getObservations(): only observations of a rule that still has a usable snapshot, only reporters that the user can read),
+	 * field `rem_man_addrs` (every usable entry, decoded by CTopologyAddress, the code of normalization §4.4 that ingest also uses) and `rem_mgmt_ip`. A placeholder or
+	 * invalid address is not shown. One line per address; per address every source (reporter, local port, source, monitoring of the reporter).
+	 * Order: the Device's `mgmt_ip` first (`management` true), then IPv4, then IPv6, each in numeric order.
+	 *
+	 * The monitoring of the reporters is read live in one go for the whole answer: one host.get for all reporter hosts, then one proxy.get and one proxygroup.get for the names
+	 * (never one call per source).
+	 *
+	 * Every string comes from the network (sysname, chassis id, host and port names): data, escaped by whoever renders it (§13).
+	 *
+	 * @return array  ['sysname' => ?string, 'chassis_id' => ?string, 'mgmt_ip' => ?string, 'addresses' => [...]]
+	 */
+	public static function getAddresses(string $device_id): array {
+		$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE id='.zbx_dbstr($device_id).' AND type='.zbx_dbstr('device')), false);
+		$attrs = $row ? (json_decode((string) $row['attrs'], true) ?: []) : [];
+		$sysname = ($attrs['sysname'] ?? '') !== '' ? (string) $attrs['sysname'] : null;
+		$chassis_id = ($attrs['chassis_id'] ?? '') !== '' ? self::chassisLabel((string) $attrs['chassis_id']) : null;
+		$mgmt_ip = ($attrs['mgmt_ip'] ?? '') !== '' ? (string) $attrs['mgmt_ip'] : null;
+		if ($mgmt_ip !== null && (CTopologyAddress::ipText($mgmt_ip) === null || CTopologyAddress::isPlaceholder($mgmt_ip))) {
+			$mgmt_ip = null;
+		}
+
+		$lines = [];     // address => ['address', 'family', 'management', 'sources' => [key => source]]
+		$add = static function (string $address, int $family, array $source) use (&$lines, $mgmt_ip): void {
+			$lines[$address] ??= ['address' => $address, 'family' => $family, 'management' => $address === $mgmt_ip, 'sources' => []];
+			$lines[$address]['sources'][$source['reporter']['hostid'].'|'.$source['local_port'].'|'.$source['source']] = $source;
+		};
+		$hostids = [];
+
+		if ($row) {
+			foreach (self::getObservations(self::OBSERVATION_OUTCOMES, $device_id, 5000) as $observation) {
+				$remote = $observation['remote_attrs'];
+				$source = ['reporter' => ['hostid' => (string) $observation['reporter']['hostid'], 'name' => $observation['reporter']['name']],
+					'local_port' => $observation['local_port']['name'], 'source' => (string) ($remote['source'] ?? 'lldp')];
+				$found = [];
+				if (is_string($remote['rem_man_addrs'] ?? null)) {
+					$found = CTopologyAddress::decodeEntries($remote['rem_man_addrs']);
+				}
+				if (is_string($remote['rem_mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($remote['rem_mgmt_ip'])) !== null) {
+					$found[] = ['address' => $text, 'family' => str_contains($text, ':') ? 6 : 4];
+				}
+				foreach ($found as $entry) {
+					if (!CTopologyAddress::isPlaceholder($entry['address'])) {
+						$add($entry['address'], $entry['family'], $source);
+						$hostids[$source['reporter']['hostid']] = true;
+					}
+				}
+			}
+		}
+
+		// the Device's own management address is the first line even when no current observation reports it
+		if ($mgmt_ip !== null && !isset($lines[$mgmt_ip])) {
+			$lines[$mgmt_ip] = ['address' => $mgmt_ip, 'family' => str_contains($mgmt_ip, ':') ? 6 : 4, 'management' => true, 'sources' => []];
+		}
+
+		$monitoring = self::getReporterMonitoring(array_keys($hostids));
+
+		uasort($lines, static function (array $a, array $b): int {
+			return [$a['management'] ? 0 : 1, CTopologyAddress::sortKey($a['address'])] <=> [$b['management'] ? 0 : 1, CTopologyAddress::sortKey($b['address'])];
+		});
+
+		$addresses = [];
+		foreach ($lines as $line) {
+			$sources = array_values($line['sources']);
+			usort($sources, static fn (array $a, array $b): int => [$a['reporter']['name'], $a['local_port'], $a['source']] <=> [$b['reporter']['name'], $b['local_port'], $b['source']]);
+			foreach ($sources as &$source) {
+				$source['monitoring'] = $monitoring[$source['reporter']['hostid']] ?? ['mode' => 'server', 'proxy' => null, 'proxy_group' => null];
+			}
+			unset($source);
+			$addresses[] = ['address' => $line['address'], 'family' => $line['family'], 'management' => $line['management'], 'sources' => $sources];
+		}
+
+		return ['sysname' => $sysname, 'chassis_id' => $chassis_id, 'mgmt_ip' => $mgmt_ip, 'addresses' => $addresses];
+	}
+
+	/**
+	 * How the reporter hosts are monitored, live (topology-1-model.md §4.6): hostid => ['mode' => 'server'|'proxy'|'proxy_group', 'proxy' => ['id', 'name']|null,
+	 * 'proxy_group' => ['id', 'name']|null]; for a proxy group `proxy` is the proxy that serves the host now (host.get `assigned_proxyid`). One host.get for all hosts, one
+	 * proxy.get and one proxygroup.get for the names.
+	 */
+	private static function getReporterMonitoring(array $hostids): array {
+		if (!$hostids) {
+			return [];
+		}
+
+		$hosts = API::Host()->get([
+			'output' => ['hostid', 'monitored_by', 'proxyid', 'proxy_groupid', 'assigned_proxyid'],
+			'hostids' => $hostids
+		]);
+
+		$proxyids = [];
+		$groupids = [];
+		foreach ($hosts as $host) {
+			switch ((int) $host['monitored_by']) {
+				case ZBX_MONITORED_BY_PROXY:
+					$proxyids[$host['proxyid']] = true;
+					break;
+
+				case ZBX_MONITORED_BY_PROXY_GROUP:
+					$groupids[$host['proxy_groupid']] = true;
+					if (($host['assigned_proxyid'] ?? '0') !== '0' && ($host['assigned_proxyid'] ?? '') !== '') {
+						$proxyids[$host['assigned_proxyid']] = true;
+					}
+					break;
+			}
+		}
+
+		$proxy_names = $proxyids ? array_column(API::Proxy()->get(['output' => ['proxyid', 'name'], 'proxyids' => array_keys($proxyids)]), 'name', 'proxyid') : [];
+		$group_names = $groupids ? array_column(API::ProxyGroup()->get(['output' => ['proxy_groupid', 'name'], 'proxy_groupids' => array_keys($groupids)]), 'name', 'proxy_groupid') : [];
+
+		$result = [];
+		foreach ($hosts as $host) {
+			$proxy = static fn (?string $id): ?array => $id !== null && $id !== '0' && $id !== '' ? ['id' => (string) $id, 'name' => $proxy_names[$id] ?? null] : null;
+			$result[$host['hostid']] = match ((int) $host['monitored_by']) {
+				ZBX_MONITORED_BY_PROXY => ['mode' => 'proxy', 'proxy' => $proxy($host['proxyid']), 'proxy_group' => null],
+				ZBX_MONITORED_BY_PROXY_GROUP => ['mode' => 'proxy_group', 'proxy' => $proxy($host['assigned_proxyid'] ?? null),
+					'proxy_group' => ['id' => (string) $host['proxy_groupid'], 'name' => $group_names[$host['proxy_groupid']] ?? null]],
+				default => ['mode' => 'server', 'proxy' => null, 'proxy_group' => null]
+			};
+		}
+
+		return $result;
+	}
+
+	/**
 	 * A manual physical_link between two ports. When the active discovered link on the port already joins these two
 	 * ports, nothing changes and that link is returned (topology-1-model.md "Manual links": creation, "Same ends already
 	 * discovered").

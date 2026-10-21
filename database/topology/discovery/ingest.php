@@ -49,6 +49,7 @@ if (isset($options['help'])) {
 // directory only (a web-started run to the web page; a CLI run is reported on the CLI) — see the loser's branch. ----
 
 require_once __DIR__.'/../topology_contradiction.inc.php';
+require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyAddress.php';      // the decoder of the addresses of a neighbor (§4.3, §4.4), shared with the side panel
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
 const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.json';
@@ -714,93 +715,10 @@ $norm_port_mac = static function (string $mac, array $port_macs) use ($is_placeh
 	$hits = array_keys(array_filter($port_macs, static fn ($m): bool => $m === $mac));
 	return count($hits) === 1 ? (int) $hits[0] : null;
 };
-/** §4.3: IPv4 dotted decimal, IPv6 as RFC 5952 text (inet_ntop would write an IPv4-compatible address with a dotted tail); null when it is not an address */
-$norm_ip_text = static function (string $text): ?string {
-	if (filter_var($text, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-		return $text;
-	}
-	$packed = filter_var($text, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false ? @inet_pton($text) : false;
-	if ($packed === false) {
-		return null;
-	}
-	$groups = array_values(unpack('n8', $packed));
-	$best = -1;
-	$best_len = 0;
-	$run = -1;
-	$run_len = 0;
-	foreach ($groups as $i => $group) {
-		if ($group === 0) {
-			if ($run === -1) {
-				$run = $i;
-				$run_len = 0;
-			}
-			if (++$run_len > $best_len) {
-				$best = $run;
-				$best_len = $run_len;
-			}
-		}
-		else {
-			$run = -1;
-		}
-	}
-	$hex = static fn (array $list): string => implode(':', array_map(static fn (int $g): string => dechex($g), $list));
-	if ($best_len < 2) {
-		return $hex($groups);
-	}
-	return $hex(array_slice($groups, 0, $best)).'::'.$hex(array_slice($groups, $best + $best_len));
-};
-/** §4.4: the management address from the raw `rem_man_addrs` entries ("lldp:<family.[len.]addr>" / "cdp:<type>:<hex octets>", space-separated, in order): the first IPv4, else the first IPv6; null = none usable */
-$norm_man_addrs = static function (string $entries) use ($norm_ip_text): ?string {
-	$v4 = null;
-	$v6 = null;
-	foreach (preg_split('/\s+/', trim($entries), -1, PREG_SPLIT_NO_EMPTY) as $entry) {
-		$octets = null;
-		$family = null;
-		if (str_starts_with($entry, 'lldp:')) {
-			$numbers = explode('.', substr($entry, 5));
-			if ($numbers !== array_filter($numbers, static fn (string $n): bool => preg_match('/^[0-9]{1,3}$/D', $n) === 1 && (int) $n <= 255)) {
-				continue;
-			}
-			$numbers = array_map('intval', $numbers);
-			$family = array_shift($numbers);
-			$length = $family === 1 ? 4 : ($family === 2 ? 16 : null);
-			if ($length === null) {
-				continue;
-			}
-			if (count($numbers) === $length) {                              // no length octet
-				$octets = $numbers;
-			}
-			elseif (count($numbers) > $length && $numbers[0] === count($numbers) - 1) {   // a length octet; IPv4 with length 5: the first 4 octets (§4.4)
-				$octets = array_slice($numbers, 1, $length);
-				if (!($family === 1 && $numbers[0] === 5) && $numbers[0] !== $length) {
-					continue;
-				}
-			}
-			else {
-				continue;
-			}
-		}
-		elseif (str_starts_with($entry, 'cdp:')) {
-			$parts = explode(':', substr($entry, 4));
-			$type = array_shift($parts);
-			if ($type !== '1' || count($parts) !== 4 || preg_grep('/^[0-9a-f]{2}$/Di', $parts) !== $parts) {
-				continue;
-			}
-			$octets = array_map('hexdec', $parts);
-			$family = 1;
-		}
-		else {
-			continue;
-		}
-		if ($family === 1) {
-			$v4 ??= implode('.', $octets);
-		}
-		else {
-			$v6 ??= implode(':', array_map(static fn (array $p): string => dechex($p[0] * 256 + $p[1]), array_chunk($octets, 2)));
-		}
-	}
-	return $v4 ?? ($v6 !== null ? $norm_ip_text($v6) : null);
-};
+/** §4.3: IPv4 dotted decimal, IPv6 as RFC 5952 text; null when it is not an address. The decoder is shared with the side panel (ui/include/classes/topology/CTopologyAddress.php). */
+$norm_ip_text = static fn (string $text): ?string => CTopologyAddress::ipText($text);
+/** §4.4: the management address from the raw `rem_man_addrs` entries: the first IPv4, else the first IPv6; null = none usable (CTopologyAddress, shared with the side panel) */
+$norm_man_addrs = static fn (string $entries): ?string => CTopologyAddress::management($entries);
 /** Model §6.7.6: [if_index, null] or [null, reason] for a NEIGHBORS row with `loc_port_num`; $ports = PORTS rows [if_index, name, descr, mac] (cleaned) */
 $resolve_local_port = static function (array $row, array $ports) use ($norm_clean, $norm_name_key, $norm_numeric_id, $norm_port_mac): array {
 	if (isset($row['if_index']) && $row['if_index'] !== '') {
@@ -2053,7 +1971,10 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 			$row['rem_mgmt_ip'] = $address;      // no usable entry: no address, not an invalid row (§4.4)
 		}
 	}
-	unset($row['rem_man_addrs']);
+	// the raw entries stay in the row: the observation keeps them as received (model §7.1 remote_attrs), so the side panel can show every address the neighbor reports (§12.5 "Addresses")
+	if (isset($row['rem_man_addrs']) && !is_string($row['rem_man_addrs'])) {
+		unset($row['rem_man_addrs']);
+	}
 
 	return [$row, null];
 };
@@ -2499,7 +2420,7 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 		}
 		$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
 		$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
-			'rem_mgmt_ip', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
+			'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
 			static fn ($value): bool => $value !== '' && $value !== null);
 		$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
 

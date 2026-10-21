@@ -623,12 +623,13 @@ const view = new class {
 			return;
 		}
 
-		const [{groups}] = await Promise.all([
+		const [{groups}, addresses] = await Promise.all([
 			this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`),
+			this.request(`topology.addresses.get&id=${encodeURIComponent(node.id)}`),
 			this.mergeNeighbors(node)
 		]);
 		this.render();
-		this.showPorts(node, groups);
+		this.showPorts(node, groups, addresses);
 	}
 
 	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
@@ -1398,10 +1399,65 @@ const view = new class {
 
 	// Side panel — standalone Device (no represented_by): unchanged by the topology-1-model.md "UI" rewrite, since this only
 	// ever applies to a Device with no on-screen Host/Proxy counterpart to begin with.
-	showPorts(node, groups) {
+	showPorts(node, groups, addresses = null) {
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
-		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${this.buildPortsFragment(node, groups)}`;
+		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${addresses ? this.buildAddressesFragment(addresses) : ''}${this.buildPortsFragment(node, groups)}`;
 		this.wirePortsFragment(node, node);
+		this.wireCopyButtons();
+	}
+
+	// topology-1-model.md §12.5 "Addresses": the addresses of a Device without association as its neighbors report them (topology.addresses.get), above the port table: the
+	// sysname and the chassis id (the name for a new host), the addresses (management first, then IPv4, then IPv6) each with a Copy control, and per address who reported it
+	// (reporter, local port, LLDP / CDP / push) and how that reporter is monitored (the proxy for the new host). Read only. Every value comes from the network and is
+	// escaped (§13): nothing here is markup.
+	buildAddressesFragment(data) {
+		const escape = value => this.escape(value);
+		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${escape(text)}" title="${escape(label)}">${escape(<?= json_encode(_('Copy')) ?>)}</button>`;
+		const monitoring = (m) => {
+			const name = item => item ? (item.name ?? item.id) : null;
+			if (m.mode === 'proxy_group') {
+				return `${<?= json_encode(_('proxy group')) ?>} ${name(m.proxy_group) ?? '?'}` + (m.proxy ? ` (${<?= json_encode(_('proxy')) ?>} ${name(m.proxy)})` : '');
+			}
+			if (m.mode === 'proxy') {
+				return `${<?= json_encode(_('proxy')) ?>} ${name(m.proxy) ?? '?'}`;
+			}
+			return <?= json_encode(_('server')) ?>;
+		};
+		const identity = [[<?= json_encode(_('System name')) ?>, data.sysname], [<?= json_encode(_('Hardware ID')) ?>, data.chassis_id]].filter(([, value]) => value)
+			.map(([label, value]) => `<tr><th>${escape(label)}</th><td class="topology-address-value" title="${escape(value)}">${escape(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
+		const lines = data.addresses.map(line => `<li class="topology-address">
+			<div class="topology-address-head"><span class="topology-address-value" title="${escape(line.address)}">${escape(line.address)}</span>
+				${line.management ? `<span class="topology-source-badge">${escape(<?= json_encode(_('management')) ?>)}</span>` : ''}${copy(line.address, line.address)}</div>
+			${line.sources.map(source => `<div class="topology-address-source" title="${escape(`${source.reporter.name}, ${source.local_port ?? ''}, ${source.source}`)}">` +
+				`${escape(source.reporter.name)} · ${escape(source.local_port ?? '?')} · ${escape(String(source.source).toUpperCase())} · ${escape(<?= json_encode(_('monitored by')) ?>)} ${escape(monitoring(source.monitoring))}</div>`).join('')}
+		</li>`).join('');
+		return `<section class="topology-group topology-addresses"><h3>${escape(<?= json_encode(_('Addresses')) ?>)}</h3>` +
+			(identity ? `<table class="topology-address-identity"><tbody>${identity}</tbody></table>` : '') +
+			(data.addresses.length ? `<ul class="topology-address-list">${lines}</ul>`
+				: `<div class="topology-empty">${escape(<?= json_encode(_('No address reported')) ?>)}</div>`) + `</section>`;
+	}
+
+	// The Copy controls of the Addresses section: the text goes to the clipboard (the Clipboard API where the page is a secure context, else a hidden textarea).
+	wireCopyButtons() {
+		this.details.querySelectorAll('.topology-copy-button').forEach(button => button.addEventListener('click', async () => {
+			const text = button.dataset.copy ?? '';
+			try {
+				await navigator.clipboard.writeText(text);
+			}
+			catch (error) {
+				const area = document.createElement('textarea');
+				area.value = text;
+				area.style.position = 'fixed';
+				area.style.opacity = '0';
+				document.body.appendChild(area);
+				area.select();
+				document.execCommand('copy');
+				area.remove();
+			}
+			const label = button.textContent;
+			button.textContent = <?= json_encode(_('Copied')) ?>;
+			setTimeout(() => button.textContent = label, 1200);
+		}));
 	}
 
 	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
