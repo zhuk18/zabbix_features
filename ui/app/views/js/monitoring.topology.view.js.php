@@ -1125,7 +1125,15 @@ const view = new class {
 			return;
 		}
 		const top = page.getBoundingClientRect().top + window.scrollY;
-		page.style.height = `${Math.max(520, Math.floor(window.innerHeight - top - 8))}px`;
+		let height = Math.max(520, Math.floor(window.innerHeight - top - 8));
+		page.style.height = `${height}px`;
+		// what Zabbix puts below the page (the footer) must fit too: Zabbix scrolls .wrapper, not the document
+		const wrapper = document.querySelector('.wrapper');
+		const excess = wrapper ? wrapper.scrollHeight - wrapper.clientHeight : 0;
+		if (excess > 0) {
+			height = Math.max(520, height - excess);
+			page.style.height = `${height}px`;
+		}
 	}
 
 	// A node label is wrapped and can be cut by the node box: the node has the full label as its tooltip (§12.1 "Layout"), written with text(), so
@@ -1223,12 +1231,13 @@ const view = new class {
 			<section class="topology-group"><h3>${this.escape(labels[group] ?? group)}</h3>${help[group] ? `<p class="topology-group-help">${this.escape(help[group])}</p>` : ''}<table><colgroup>
 				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected">
 				<col class="topology-col-source"><col class="topology-col-action">
-			</colgroup><thead><tr><th>Port</th><th>Status</th><th>Connected to</th><th>Source</th><th></th></tr></thead><tbody>
+			</colgroup><thead><tr>${[<?= json_encode(_('Port')) ?>, <?= json_encode(_('Status')) ?>, <?= json_encode(_('Connected to')) ?>, <?= json_encode(_('Source')) ?>]
+				.map(header => `<th title="${this.escape(header)}">${this.escape(header)}</th>`).join('')}<th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
 				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
-				<td>${status_cell(port)}</td>
+				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
-				<td>${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
+				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
 				<td>${port_action(port)}</td>
 			</tr>`).join('')}
 			</tbody></table></section>`).join('');

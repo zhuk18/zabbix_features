@@ -106,13 +106,31 @@ class WebSocket:
 # Checks of model §12.1 "Layout" (task 042), run in the real page after the filter (and --select)
 CHECKS = {
     # the graph area ends at the bottom of the window; the side panel scrolls inside it; the page itself does not scroll
+    # model §12.1 "Layout" and "Width" (tasks 042, 043): no page scroll in either direction (the document and Zabbix's own scroll containers), the graph
+    # area ends at the bottom of the window (above Zabbix's footer), the side panel scrolls inside it; every element of the page inside the window; every button of the header
+    # and the filter bar inside the window; every button and column header of the port table inside the side panel, no column header cut
     'layout': '''(() => {
+        const d = document.documentElement, W = d.clientWidth, H = d.clientHeight;
         const ws = document.querySelector('.topology-workspace').getBoundingClientRect();
         const canvas = document.querySelector('#topology-canvas').getBoundingClientRect();
         const panel = document.querySelector('.topology-panel');
-        const r = {window_h: innerHeight, page_h: document.documentElement.scrollHeight, workspace_bottom: Math.round(ws.bottom),
-            canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
-        r.ok = r.page_h <= r.window_h + 1 && r.workspace_bottom <= r.window_h && r.workspace_bottom >= r.window_h - 40 && r.canvas_h === r.panel_h;
+        const pr = panel.getBoundingClientRect();
+        const panel_right = pr.left + panel.clientLeft + panel.clientWidth;
+        const name = e => e.id ? '#' + e.id : (e.textContent || '').trim().slice(0, 24) || e.tagName;
+        const containers = ['main', '.wrapper', 'body'].map(sel => document.querySelector(sel)).filter(Boolean);
+        const r = {window: W + 'x' + H, doc_scroll: d.scrollWidth + 'x' + d.scrollHeight,
+            container_overflow_x: containers.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.tagName + '.' + e.className),
+            container_overflow_y: containers.filter(e => e.scrollHeight > e.clientHeight + 1 && getComputedStyle(e).overflowY !== 'visible').map(e => e.tagName + '.' + e.className),
+            outside_window: Array.from(document.querySelectorAll('.topology-prototype *')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > W + 1; }).map(name).slice(0, 10),
+            header_buttons_out: Array.from(document.querySelectorAll('.topology-header button, .topology-filter-bar button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.right > W || b.left < 0); }).map(name),
+            panel_buttons_out: Array.from(panel.querySelectorAll('table button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
+            panel_headers_out: Array.from(panel.querySelectorAll('table th')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
+            headers_cut: Array.from(new Set(Array.from(panel.querySelectorAll('table th')).filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim()))),
+            panel_tables: panel.querySelectorAll('table').length,
+            workspace_bottom: Math.round(ws.bottom), below: Math.round((document.querySelector('footer') || {getBoundingClientRect: () => ({top: H})}).getBoundingClientRect().top), canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
+        r.ok = d.scrollWidth <= W && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
+            && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
+            && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table

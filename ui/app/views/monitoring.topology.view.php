@@ -10,9 +10,12 @@ $this->includeJsFile('monitoring.topology.view.js.php', ['legend_collapsed' => (
 // (below, via CTag('style', true, ...), same pattern as monitoring.dashboard.print.php) is required instead.
 // CTag::addItem() also HTML-escapes a string body, so '>' combinators must be avoided here — #topology-canvas
 // (an id selector) is used instead of '.topology-workspace>svg' for exactly that reason.
+// topology-1-model.md §12.1 "Width": from a window width of 1280 px the page has no horizontal scroll. Zabbix gives main, header and footer a
+// min-width of 1200 px (blue-theme.css); with the menu open that is wider than the content area of a 1280 px window, so this page sets it to 0.
 $page_styles = '
+main,header,footer{min-width:0}
 .topology-prototype{display:flex;flex-direction:column;height:calc(100vh - 180px);min-height:520px}
-.topology-header{display:flex;flex:0 0 auto;justify-content:space-between;align-items:center;margin-bottom:12px}
+.topology-header{display:flex;flex:0 0 auto;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px;margin-bottom:12px}
 .topology-header h1{margin:0}
 .topology-header-field{display:flex;align-items:center;gap:8px;font-size:12px}
 .topology-header-field label{margin:0}
@@ -45,11 +48,10 @@ $page_styles = '
 .topology-group h3{font-size:14px;margin:0 0 6px}
 .topology-group-help{font-size:11.5px;color:var(--topology-muted,#666);margin:0 0 6px}
 .topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
-.topology-col-port{width:24%}
-.topology-col-status{width:19%}
-.topology-col-connected{width:24%}
-.topology-col-source{width:17%}
-.topology-col-action{width:64px}
+.topology-col-port{width:22%}
+.topology-col-status{width:18%}
+.topology-col-source{width:58px}
+.topology-col-action{width:58px}
 .topology-group th,.topology-group td{padding:6px 6px;border-bottom:1px solid #e5e7eb;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
 .topology-group td.topology-mac-list{white-space:normal;word-break:break-all;font-family:monospace;font-size:11px}
 .topology-port-name{font-family:monospace;font-size:11px}
