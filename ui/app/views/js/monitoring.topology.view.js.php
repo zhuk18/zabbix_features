@@ -1253,7 +1253,6 @@ const view = new class {
 				<div class="topology-promote-results"></div>
 				<div class="topology-promote-selected"></div>
 				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
-				<button type="button" class="btn-alt topology-create-host-button">${this.escape(<?= json_encode(_('+ Create host')) ?>)}</button>
 			</div>`;
 		// A pick started on another Device's port can also end at this Device as a whole (a manual device-level link,
 		// topology-1-model.md "Manual links" (creation)): the far port is not chosen.
@@ -1329,12 +1328,6 @@ const view = new class {
 				const {type: target_type, id: target_id} = this.promote_selection;
 				await this.request('topology.promote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id, target_type, target_id})});
 				await this.loadDevices();
-			}));
-		}
-		const create_host_button = this.details.querySelector('.topology-create-host-button');
-		if (create_host_button) {
-			create_host_button.addEventListener('click', () => this.guard(async () => {
-				await this.createHostForDevice(device);
 			}));
 		}
 		const depromote_button = this.details.querySelector('.topology-depromote-button');
@@ -1459,35 +1452,6 @@ const view = new class {
 			button.textContent = <?= json_encode(_('Copied')) ?>;
 			setTimeout(() => button.textContent = label, 1200);
 		}));
-	}
-
-	// "+ Create host" on an unrepresented device: opens Zabbix's own host-creation popup prefilled with the
-	// device's LLDP name, then tries to promote the result automatically. The create response carries no
-	// hostid (see CControllerHostCreate), so the only way back to it is a name lookup — which only works if
-	// the name wasn't changed in the popup. The /topo/hosts/search endpoint (topology-1-model.md "API") queries Zabbix directly (host.get), so
-	// this needs no pull first, unlike the old tray-backed flow. If the name doesn't match exactly, we
-	// don't guess: the new host is still promotable manually via the search picker above.
-	async createHostForDevice(node) {
-		const overlay = ZABBIX.PopupManager.open('host.edit', {host: node.name});
-		if (!overlay) {
-			return;
-		}
-
-		await new Promise(resolve => {
-			overlay.$dialogue[0].addEventListener('dialogue.submit', resolve, {once: true});
-		});
-
-		const {hosts = []} = await this.request(`topology.hosts.search&q=${encodeURIComponent(node.name)}`);
-		const match = hosts.find(host => host.name === node.name);
-
-		if (match) {
-			await this.request('topology.promote', {
-				method: 'POST', headers: {'Content-Type': 'application/json'},
-				body: JSON.stringify({id: node.id, target_type: 'host', target_id: match.hostid})
-			});
-		}
-
-		await this.loadDevices();
 	}
 
 	render() {
