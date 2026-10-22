@@ -153,6 +153,25 @@ CHECKS = {
             && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
         return r;
     })()''',
+    # model §12.5 "Addresses" (task 051): with a Device without association selected, the labels of the section are the full text ("System name", "Hardware ID": not cut
+    # to "S." / "H."), no text of the section is wider than the side panel, the section has an address list or "No address reported"
+    'addresses': '''(() => {
+        const panel = document.querySelector('.topology-panel');
+        const section = panel.querySelector('.topology-addresses');
+        if (!section) {
+            return {ok: false, error: 'no section Addresses: select a Device without association (--select)'};
+        }
+        const pr = panel.getBoundingClientRect();
+        const panel_right = pr.left + panel.clientLeft + panel.clientWidth;
+        const labels = Array.from(section.querySelectorAll('.topology-address-identity th'));
+        const r = {window: document.documentElement.clientWidth + 'x' + document.documentElement.clientHeight,
+            labels: labels.map(t => t.textContent),
+            labels_cut: labels.filter(t => t.scrollWidth > t.clientWidth + 1).map(t => t.textContent),
+            out_of_panel: Array.from(section.querySelectorAll('*')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).map(e => e.className || e.tagName).slice(0, 5),
+            addresses: section.querySelectorAll('.topology-address').length, empty: !!section.querySelector('.topology-empty')};
+        r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID') && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty);
+        return r;
+    })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
     'escape': '''(() => {
         const evil = '<img src=x onerror="window.__xss=1">SW-<b>very</b>-long-name-for-a-node';

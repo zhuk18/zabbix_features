@@ -52,6 +52,8 @@ $page_styles = '
 .topology-address-source{font-size:11px;color:#55606b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;font-size:11.5px;margin-bottom:6px}
 .topology-address-identity th{text-align:left;font-weight:600;padding:3px 6px 3px 0;white-space:nowrap;width:1%}
+.topology-group .topology-address-identity{table-layout:auto}
+.topology-group .topology-address-identity th{overflow:visible;text-overflow:clip}
 .topology-address-identity td{padding:3px 4px 3px 0;vertical-align:middle}
 .topology-copy-button{font-size:10px;padding:1px 7px;white-space:nowrap;margin-left:auto}
 .topology-group-help{font-size:11.5px;color:var(--topology-muted,#666);margin:0 0 6px}
