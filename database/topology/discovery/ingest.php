@@ -1303,7 +1303,8 @@ $note_chassis_change = static function (int $device_id, string $chassis, string 
 
 // A neighbor row with chassis + IP: Y finds Device A, IP 1 finds exactly one other Device B that has no chassis -> the duplicate candidate
 // `split_identity` on both. Nothing is merged (only the reporter's own identity joins automatically, $join_split_identity).
-$note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use ($key_holders, $device_has_kind, $note_duplicate): void {
+$split_evidence = [];      // [A, B, ip key, address]: what each split_identity candidate rests on (§6.10: it must hold at the end of the run, see the candidate write)
+$note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use ($key_holders, $device_has_kind, $note_duplicate, &$split_evidence): void {
 	if (!$chassis_key || !$ip_key) {
 		return;
 	}
@@ -1315,6 +1316,7 @@ $note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 	if (count($others) === 1) {
 		$note_duplicate($with_chassis[0], $others[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
 		$note_duplicate($others[0], $with_chassis[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
+		$split_evidence[] = [$with_chassis[0], $others[0], $ip_key, (string) $ip_raw];
 	}
 };
 
@@ -3884,6 +3886,14 @@ if (!$zabbix_host_filter) {
 				$attrs['mgmt_ip'] = $m[1];
 				$snap_write_attrs((int) $device_id, $attrs, $before);
 			}
+		}
+	}
+	// `split_identity` is current evidence only while the other Device still holds the address after the run (§6.7.0: an `ip:` key that no current row gives
+	// is removed at the end of the run). The row finds Device A by its chassis and the address on Device B in the run that still has B's stale key; the next
+	// run gives the address to A and finds no split, so the entry must not be written by the first run either (§6.10: the second run gives the first run's list).
+	foreach ($split_evidence as [$split_a, $split_b, $split_key, $split_address]) {
+		if (!in_array($split_b, $key_holders($split_key), true)) {
+			unset($duplicate_candidates[$split_a]['split_identity|'.$split_b.'|mgmt_ip|'.$split_address], $duplicate_candidates[$split_b]['split_identity|'.$split_a.'|mgmt_ip|'.$split_address]);
 		}
 	}
 	foreach ($chassis_changes as $s_id => [$chassis, $chassis_key_y]) {

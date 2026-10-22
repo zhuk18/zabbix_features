@@ -567,4 +567,53 @@ login();
 $r = call(CControllerTopologyDevicesMergeGroup::class, ['keep_id' => (string) $A, 'remove_ids' => []]);
 check(is_array($r) && isset($r['error']) || $r === null, 'the endpoint answers an empty list with an error');
 
+// ============================================================================================================
+echo "\n=== 7: the second run over the same snapshots gives the same list as the first (model 2.45 section 6.10, 052) ===\n";
+// The office case (R1 step 3 and back): a neighbor restarted with a new chassis and the same address. Device B (chassis Y) holds the address; the snapshot now shows
+// chassis X (Device A, no address key) with that address. The row finds A by the chassis and the address on B; B's key is stale (no current row gives it) and goes at the
+// end of the run, so the next run finds no split. The first run must not write a split_identity that the end of its own run no longer supports.
+function list_of(PDO $pdo, array $ids): array {
+	$all = [];
+	foreach ($ids as $name => $id) {
+		$all[$name] = array_map(static fn (array $c): array => [$c['reason'], $c['key'], $c['value'], array_search($c['device_id'], $ids, true)], candidates($pdo, $id));
+	}
+	return $all;
+}
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, $X, null, 'N');
+$B = device($pdo, $Y, $IP, 'N');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
+$lists = [];
+$prints = [];
+for ($i = 1; $i <= 5; $i++) {
+	run_ingest($dsn, $user, $password);
+	$lists[$i] = list_of($pdo, ['A' => $A, 'B' => $B]);
+	$prints[$i] = md5(json_encode($pdo->query('SELECT id, attrs FROM topo_nodes WHERE type = \'device\' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)));
+}
+check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list of every Device is the same after each of 5 runs: '.json_encode($lists[1]));
+check($lists[1] === ['A' => [], 'B' => []], 'it is the list of the end state: B lost its address key at the end of run 1, so there is no split (A got the address in run 2)');
+check(count(array_unique($prints)) === 1, 'all attrs of every Device are the same after each run');
+check(exists($pdo, $A) && exists($pdo, $B), 'both Devices stay');
+
+echo "  -- the address is still given to B by a current row of another reporter: the split stays, in every run --\n";
+reset_all($pdo);
+setup_r($pdo, $R);
+add_host($pdo, 102, 'SwS', 'Switch S', '10.0.0.2');
+API::$visible[] = 102;
+snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:02']]);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, $X, null, 'N');
+$B = device($pdo, $Y, $IP, 'N');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
+snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N', $Y, $IP)]);
+$lists = [];
+for ($i = 1; $i <= 5; $i++) {
+	run_ingest($dsn, $user, $password);
+	$lists[$i] = list_of($pdo, ['A' => $A, 'B' => $B]);
+}
+check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list is the same after each of 5 runs: '.json_encode($lists[1]));
+check($lists[1] === ['A' => [['split_identity', 'mgmt_ip', $IP, 'B']], 'B' => [['split_identity', 'mgmt_ip', $IP, 'A']]], 'the pair stays listed on both Devices while B still holds the address');
+
 echo "\nAll duplicate candidate checks passed.\n";
