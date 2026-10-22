@@ -214,7 +214,10 @@ $insert_key = static function (int $device_id, string $key, string $kind, int $s
 };
 // The keys a row or a reporter gives to the Device it found or created. A Device keeps the chassis it has (a stored stronger key is never replaced by a
 // different value); a key another Device holds is not copied (it would make the value shared; the duplicate candidate is recorded elsewhere).
-$register_keys = static function (int $device_id, array $incoming, int $seen_at, bool $by_reporter = false) use ($pdo, $q_key, $key_holders, $device_has_kind, $device_holds_key, $insert_key): void {
+// An address key that a row could not take because another Device holds it is remembered ($deferred_ip_keys): when the run removes that other Device's key as stale
+// (§6.7.0), the row takes it at the end of the same run (§6.10: the first run gives the key rows of the second), see the end of the run.
+$deferred_ip_keys = [];      // [[device id, key, seen_at], ...]
+$register_keys = static function (int $device_id, array $incoming, int $seen_at, bool $by_reporter = false) use ($pdo, $q_key, $key_holders, $device_has_kind, $device_holds_key, $insert_key, &$deferred_ip_keys): void {
 	if (!$by_reporter) {
 		// §6.4 step 6, §6.7.1: a neighbor row never adds a key to a reporter's Device, in any segment; the reporter writes its own keys
 		$reporter = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
@@ -237,6 +240,9 @@ $register_keys = static function (int $device_id, array $incoming, int $seen_at,
 		}
 		// the reporter's own key is always on its Device, even when another Device holds it (then the key is shared, §6.4 step 5)
 		if (!$by_reporter && array_diff($key_holders($key), [$device_id])) {
+			if ($kind === 'ip') {
+				$deferred_ip_keys[] = [$device_id, $key, $seen_at];
+			}
 			continue;
 		}
 		$insert_key($device_id, $key, $kind, $seen_at);
@@ -1301,22 +1307,18 @@ $note_chassis_change = static function (int $device_id, string $chassis, string 
 	$chassis_changes[$device_id] = [$chassis, $key];
 };
 
-// A neighbor row with chassis + IP: Y finds Device A, IP 1 finds exactly one other Device B that has no chassis -> the duplicate candidate
-// `split_identity` on both. Nothing is merged (only the reporter's own identity joins automatically, $join_split_identity).
-$split_evidence = [];      // [A, B, ip key, address]: what each split_identity candidate rests on (§6.10: it must hold at the end of the run, see the candidate write)
-$note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use ($key_holders, $device_has_kind, $note_duplicate, &$split_evidence): void {
+// A neighbor row with chassis + IP: Y finds Device A, IP 1 finds exactly one other Device B -> the duplicate candidate `split_identity` on both. Nothing is
+// merged (only the reporter's own identity joins automatically, $join_split_identity). The row only records what it found ($split_evidence: A, the address
+// key, the address); the candidates are made at the end of the run from the keys as the run leaves them (§6.7.5, §6.10: an address key that the run removes
+// as stale is not evidence, and the Device that takes it at the end is).
+$split_evidence = [];
+$note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use ($key_holders, &$split_evidence): void {
 	if (!$chassis_key || !$ip_key) {
 		return;
 	}
 	$with_chassis = $key_holders($chassis_key);
-	if (count($with_chassis) !== 1) {
-		return;
-	}
-	$others = array_values(array_diff($key_holders($ip_key), [$with_chassis[0]]));
-	if (count($others) === 1) {
-		$note_duplicate($with_chassis[0], $others[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
-		$note_duplicate($others[0], $with_chassis[0], 'split_identity', 'mgmt_ip', (string) $ip_raw);
-		$split_evidence[] = [$with_chassis[0], $others[0], $ip_key, (string) $ip_raw];
+	if (count($with_chassis) === 1) {
+		$split_evidence[] = [$with_chassis[0], $ip_key, (string) $ip_raw];
 	}
 };
 
@@ -3704,7 +3706,7 @@ foreach ($identified as $hostid => $result) {
 // ---- pass B: the NEIGHBORS rows of all reporters (reporters in hostid order, rows sorted) ----
 foreach ($identified as $hostid => $result) {
 	$reporter = $snapshot_reporters[$hostid];
-	$mark = [count($link_candidates), $neighbor_snapshots];
+	$mark = [count($link_candidates), $neighbor_snapshots, count($deferred_ip_keys)];
 	try {
 		$pdo->beginTransaction();
 		$snap_reporter_neighbors($reporter, (int) $result['device_id'], (string) $result['segment']);
@@ -3723,6 +3725,7 @@ foreach ($identified as $hostid => $result) {
 		}
 		$link_candidates = array_slice($link_candidates, 0, $mark[0]);
 		$neighbor_snapshots = $mark[1];
+		$deferred_ip_keys = array_slice($deferred_ip_keys, 0, $mark[2]);      // what the rolled-back rows wanted is not taken
 		fwrite(STDERR, "ERROR: failed to ingest the neighbors of '{$reporter['host']}': {$exception->getMessage()}\n");
 		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
 		$skipped++;
@@ -3837,6 +3840,24 @@ if (!$zabbix_host_filter) {
 			->execute(array_merge(...$chunk));
 	}
 	$summary['address_keys_removed'] = count($stale);
+
+	// A key that the run removed as stale does not block a row of the same run from taking it (§6.10): the Device a row found takes the address key that was
+	// held by another Device when the row came, if nobody holds it now. Several Devices that wait for one key: the lowest id takes it (the same whatever the order
+	// of the reporters and rows; the next run, which starts from this state, keeps it).
+	usort($deferred_ip_keys, static fn (array $a, array $b): int => [$a[1], $a[0]] <=> [$b[1], $b[0]]);
+	$taken_keys = [];
+	foreach ($deferred_ip_keys as [$device_id, $key, $seen_at]) {
+		if (isset($taken_keys[$key]) || $key_holders($key)) {
+			continue;
+		}
+		$alive = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND type = 'device'");
+		$alive->execute([$device_id]);
+		if ($alive->fetchColumn() === false) {
+			continue;
+		}
+		$insert_key($device_id, $key, 'ip', $seen_at);
+		$taken_keys[$key] = true;
+	}
 }
 
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
@@ -3888,12 +3909,13 @@ if (!$zabbix_host_filter) {
 			}
 		}
 	}
-	// `split_identity` is current evidence only while the other Device still holds the address after the run (§6.7.0: an `ip:` key that no current row gives
-	// is removed at the end of the run). The row finds Device A by its chassis and the address on Device B in the run that still has B's stale key; the next
-	// run gives the address to A and finds no split, so the entry must not be written by the first run either (§6.10: the second run gives the first run's list).
-	foreach ($split_evidence as [$split_a, $split_b, $split_key, $split_address]) {
-		if (!in_array($split_b, $key_holders($split_key), true)) {
-			unset($duplicate_candidates[$split_a]['split_identity|'.$split_b.'|mgmt_ip|'.$split_address], $duplicate_candidates[$split_b]['split_identity|'.$split_a.'|mgmt_ip|'.$split_address]);
+	// `split_identity` (§6.7.5): the rows recorded Device A (found by its chassis) and the address key; the other holder of that key is read now, after the stale
+	// keys went and the Devices that waited for them took theirs, so the list is the one the next run over the same snapshots gives (§6.10).
+	foreach ($split_evidence as [$split_a, $split_key, $split_address]) {
+		$others = array_values(array_diff($key_holders($split_key), [$split_a]));
+		if (count($others) === 1) {
+			$note_duplicate($split_a, $others[0], 'split_identity', 'mgmt_ip', $split_address);
+			$note_duplicate($others[0], $split_a, 'split_identity', 'mgmt_ip', $split_address);
 		}
 	}
 	foreach ($chassis_changes as $s_id => [$chassis, $chassis_key_y]) {

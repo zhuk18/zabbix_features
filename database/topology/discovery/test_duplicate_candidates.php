@@ -579,6 +579,10 @@ function list_of(PDO $pdo, array $ids): array {
 	}
 	return $all;
 }
+/** Every row of topo_identity_keys, for "the key rows are the same" comparisons. */
+function all_keys(PDO $pdo): array {
+	return $pdo->query('SELECT device_id, `key`, kind, first_seen, replaced FROM topo_identity_keys ORDER BY device_id, `key`')->fetchAll(PDO::FETCH_ASSOC);
+}
 reset_all($pdo);
 setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
@@ -587,11 +591,16 @@ $B = device($pdo, $Y, $IP, 'N');
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
 $lists = [];
 $prints = [];
+$key_rows = [];
 for ($i = 1; $i <= 5; $i++) {
 	run_ingest($dsn, $user, $password);
 	$lists[$i] = list_of($pdo, ['A' => $A, 'B' => $B]);
-	$prints[$i] = md5(json_encode($pdo->query('SELECT id, attrs FROM topo_nodes WHERE type = \'device\' ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)));
+	$prints[$i] = md5(json_encode($pdo->query('SELECT id, attrs FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)));
+	$key_rows[$i] = all_keys($pdo);
 }
+check(count(array_unique(array_map('json_encode', $key_rows))) === 1, 'all topo_identity_keys rows (ids, keys, first_seen) are the same after each of 5 runs: the first run already gives the keys of the second (054)');
+check(in_array('ip:server:'.$IP, array_column(array_filter($key_rows[1], static fn (array $k): bool => (int) $k['device_id'] === $A), 'key'), true)
+	&& !array_filter($key_rows[1], static fn (array $k): bool => (int) $k['device_id'] === $B && $k['kind'] === 'ip'), 'A took the address key in run 1; B lost it (stale)');
 check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list of every Device is the same after each of 5 runs: '.json_encode($lists[1]));
 check($lists[1] === ['A' => [], 'B' => []], 'it is the list of the end state: B lost its address key at the end of run 1, so there is no split (A got the address in run 2)');
 check(count(array_unique($prints)) === 1, 'all attrs of every Device are the same after each run');
@@ -609,11 +618,58 @@ $B = device($pdo, $Y, $IP, 'N');
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
 snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N', $Y, $IP)]);
 $lists = [];
+$key_rows = [];
 for ($i = 1; $i <= 5; $i++) {
 	run_ingest($dsn, $user, $password);
 	$lists[$i] = list_of($pdo, ['A' => $A, 'B' => $B]);
+	$key_rows[$i] = all_keys($pdo);
 }
+check(count(array_unique(array_map('json_encode', $key_rows))) === 1, 'all topo_identity_keys rows are the same after each of 5 runs');
+check(array_column(array_filter($key_rows[1], static fn (array $k): bool => $k['kind'] === 'ip' && $k['key'] === 'ip:server:'.$IP), 'device_id') === [$B],
+	'a key that a current row still gives to B stays on B, and A does not get it');
 check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list is the same after each of 5 runs: '.json_encode($lists[1]));
 check($lists[1] === ['A' => [['split_identity', 'mgmt_ip', $IP, 'B']], 'B' => [['split_identity', 'mgmt_ip', $IP, 'A']]], 'the pair stays listed on both Devices while B still holds the address');
+
+echo "  -- two Devices wait for the address that B's stale key held: the same result in every reporter order --\n";
+$X2 = 'b0:00:00:00:00:0c';
+$orders = [];
+foreach (['hostid order' => null, 'reporters 102, 101' => '102,101'] as $label => $order) {
+	reset_all($pdo);
+	setup_r($pdo, $R);
+	add_host($pdo, 102, 'SwS', 'Switch S', '10.0.0.2');
+	API::$visible[] = 102;
+	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:02']]);
+	run_ingest($dsn, $user, $password);
+	$A = device($pdo, $X, null, 'N');
+	$A2 = device($pdo, $X2, null, 'N2');
+	$B = device($pdo, $Y, $IP, 'N');
+	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N2', $X2, $IP)]);
+	$states = [];
+	for ($i = 1; $i <= 3; $i++) {
+		run_ingest($dsn, $user, $password, [], $order);
+		// the Devices by name, not by id (the ids of the two orders differ: the test makes the Devices again)
+		$names = [];
+		foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $d) {
+			$names[(int) $d['id']] = ($id_attrs = json_decode($d['attrs'], true))['sysname'].'/'.$id_attrs['chassis_id'];
+		}
+		$named = static fn ($id): string => $names[(int) $id] ?? 'id'.$id;
+		$states[$i] = [
+			array_map(static fn (array $k): array => [$named($k['device_id']), $k['key'], $k['kind'], $k['first_seen'], $k['replaced']], all_keys($pdo)),
+			array_map(static function (array $d) use ($named): array {
+				$attrs = json_decode($d['attrs'], true);
+				foreach ($attrs['duplicate_candidates'] ?? [] as $n => $c) {
+					$attrs['duplicate_candidates'][$n]['device_id'] = $named($c['device_id']);
+				}
+				return [$named($d['id']), $d['type'], $attrs];
+			}, $pdo->query("SELECT id, type, attrs FROM topo_nodes WHERE type = 'device' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC))
+		];
+	}
+	check(count(array_unique(array_map('json_encode', $states))) === 1, "{$label}: the key rows and the nodes are the same after each of 3 runs");
+	$holders = array_column(array_filter($states[1][0], static fn (array $k): bool => $k[1] === 'ip:server:'.$IP), 0);
+	check($holders === ['N/'.$X], "{$label}: the lowest Device id (A) takes the address; B lost it, A2 does not have it");
+	$orders[$label] = json_encode($states[1]);
+}
+check($orders['hostid order'] === $orders['reporters 102, 101'], 'the two reporter orders give the same key rows and the same nodes');
 
 echo "\nAll duplicate candidate checks passed.\n";
