@@ -262,4 +262,36 @@ foreach (['the observation is newer than the own snapshots' => [CLOCK + 10, CLOC
 	check(fingerprint($pdo) === $fp && ($r['summary']['devices_last_seen_moved'] ?? -1) === 0, "{$label}: a second run changes nothing");
 }
 
+// ============================================================================================================
+echo "\n=== 4: source (a) for any represented_by (2.45): manual and mac, not only reporter_self; a host without a topology rule gives nothing ===\n";
+function represent(PDO $pdo, int $device, int $hostid, string $matched_by): void {
+	$pdo->prepare("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', ?, '{}', 1, 1)")->execute([$hostid]);
+	$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ? WHERE id = ?')->execute([(int) $pdo->lastInsertId(), $matched_by, $device]);
+}
+foreach (['manual', 'mac'] as $matched_by) {
+	reset_all($pdo);
+	add_host($pdo, 101, 'SwR1', 'Switch R1', '10.0.0.1');
+	add_host($pdo, 201, 'Assoc', 'Associated host without a topology rule', null);
+	$own_device = device($pdo, $R1, '10.0.0.1', 'SwR1');
+	represent($pdo, $own_device, 101, $matched_by);
+	reporter($pdo, 101, 1001, $R1, CLOCK + 40);
+	$other = device($pdo, $X, '10.9.9.9', 'Assoc');
+	represent($pdo, $other, 201, $matched_by);
+	$r = run_ingest($dsn, $user, $password);
+	check(($r['summary']['reporters_skipped'] ?? []) === [] && dev_count($pdo) === 2, "matched_by {$matched_by}: nothing skipped, no Device made");
+	check(scalar($pdo, 'SELECT represented_by_matched_by FROM topo_nodes WHERE id = ?', [$own_device]) === $matched_by, "matched_by {$matched_by}: the association is kept as it was");
+	check(last_seen_of($pdo, $R1) === CLOCK + 40, "matched_by {$matched_by}: the Device of the reporter host gets the clock of its snapshot");
+	check(last_seen_of($pdo, $X) === 1, "matched_by {$matched_by}: a Device associated with a host that has no topology rule and no observation keeps its value (1)");
+	$fp = fingerprint($pdo);
+	$r = run_ingest($dsn, $user, $password);
+	check(fingerprint($pdo) === $fp && ($r['summary']['devices_last_seen_moved'] ?? -1) === 0, "matched_by {$matched_by}: a second run changes nothing");
+}
+echo "  -- the associated host without a rule, seen as a neighbor: only the observations --\n";
+reporter($pdo, 101, 1001, $R1, CLOCK + 40, [$neighbor($X, 'Assoc')], CLOCK + 90);
+run_ingest($dsn, $user, $password);
+check(last_seen_of($pdo, $X) === CLOCK + 90, 'its last_seen is the clock of the observation');
+$fp = fingerprint($pdo);
+$r = run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp && ($r['summary']['devices_last_seen_moved'] ?? -1) === 0, 'a second run changes nothing');
+
 echo "\nAll Device last_seen tests passed.\n";
