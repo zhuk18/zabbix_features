@@ -1614,7 +1614,7 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		else {
 			unset($attrs['value_source']);
 		}
-		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $seen_at);
+		// attrs.last_seen of an existing Device is not moved here: it is set once at the end of the run from its sources (§8.7), `last_seen` of a new Device is below
 		if ($matched_by === 'sysname') {
 			$attrs['matched_by'] = 'sysname';
 		}
@@ -2180,8 +2180,7 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 		if ($mgmt_ip !== null) {
 			$attrs['mgmt_ip'] = $mgmt_ip;
 		}
-		$attrs['last_seen'] = max((int) ($before['last_seen'] ?? 0), $reporter_seen);
-		$snap_write_attrs($device_id, $attrs, $before);
+		$snap_write_attrs($device_id, $attrs, $before);      // attrs.last_seen is set at the end of the run (§8.7)
 	}
 	$device_id = (int) $device_id;
 	// The reporter's own data wins (§6.7.1, §6.4 step 6, §6.7.0 "Keys of a reporter's Device"): the Device holds only the reporter's own address (its SNMP
@@ -3593,6 +3592,7 @@ foreach ($would_take as $taken_device => $hosts) {
 
 // ---- pass A, step 1: the own identity of every reporter ----
 $identified = [];
+$reporter_devices = [];       // reporter Device id => newest clock of the reporter's usable snapshots (§8.7)
 foreach ($snapshot_reporters as $hostid => $reporter) {
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
 	try {
@@ -3601,6 +3601,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 		if ($result['status'] === 'ok') {
 			$pdo->commit();
 			$identified[$hostid] = $result;
+			$reporter_devices[(int) $result['device_id']] = (int) $reporter_own_of[$hostid]['seen'];      // §8.7: the clock of its usable snapshots, kept if a later step fails
 			if (isset($key_shared_hosts[$hostid])) {
 				$note_shared($key_shared_hosts[$hostid][1], (string) $key_shared_hosts[$hostid][2], $key_shared_hosts[$hostid][3]);
 			}
@@ -3841,6 +3842,27 @@ echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
 // topology-1-model.md §6.7.5: every FULL run rewrites attrs.duplicate_candidates on every Device from the evidence of this run (an entry whose
 // evidence is gone disappears); a pair that either Device lists in attrs.duplicate_dismissed is not listed. A partial run does not touch the lists.
 // Ingest never writes duplicate_dismissed.
+// topology-1-model.md §8.7 "Device not seen": attrs.last_seen of a Device = the max of (a) the clock of the usable snapshots of its own reporter
+// (`represented_by`, matched_by reporter_self) and (b) last_seen of the observations whose device_id is this Device, whatever the outcome. It only moves
+// forward, so two runs without new snapshots change nothing and an older snapshot never makes it smaller. "Not seen" is computed by the reader.
+$observed = [];
+foreach ($pdo->query('SELECT device_id, MAX(last_seen) AS seen FROM topo_observations WHERE device_id IS NOT NULL GROUP BY device_id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	$observed[(int) $row['device_id']] = (int) $row['seen'];
+}
+$summary['devices_last_seen_moved'] = 0;
+foreach ($pdo->query("SELECT id, attrs, represented_by_matched_by AS matched_by FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	$id = (int) $row['id'];
+	$own = $row['matched_by'] === 'reporter_self' ? ($reporter_devices[$id] ?? 0) : 0;
+	$wanted = max($own, $observed[$id] ?? 0);
+	$attrs = json_decode($row['attrs'], true) ?: [];
+	if ($wanted > (int) ($attrs['last_seen'] ?? 0)) {
+		$before = $attrs;
+		$attrs['last_seen'] = $wanted;
+		$snap_write_attrs($id, $attrs, $before);
+		$summary['devices_last_seen_moved']++;
+	}
+}
+
 $summary['duplicate_candidates'] = ['count' => 0];
 if (!$zabbix_host_filter) {
 	// attrs.mgmt_ip is only what the UI shows (§6.7.0). A Device without a reporter that holds several addresses (one per segment) shows the one of its
