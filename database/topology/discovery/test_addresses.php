@@ -343,7 +343,17 @@ check(CTopologyAddress::management($entries) === '10.0.0.9', 'the management add
 check(CTopologyAddress::management('lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1') === '2001:db8::1' && CTopologyAddress::management('junk') === null, 'IPv6 only when there is no IPv4; no usable entry: none');
 check(CTopologyAddress::ipText('2001:0db8:0000:0000:0000:0000:0000:0001') === '2001:db8::1' && CTopologyAddress::ipText('10.0.0.1') === '10.0.0.1' && CTopologyAddress::ipText('not an ip') === null,
 	'§4.3 address text');
-check(CTopologyAddress::isPlaceholder('0.0.0.0') && CTopologyAddress::isPlaceholder('::') && !CTopologyAddress::isPlaceholder('10.0.0.1'), 'placeholder: the unspecified address');
+check(CTopologyAddress::isHidden('0.0.0.0') && CTopologyAddress::isHidden('::') && CTopologyAddress::isHidden('127.0.0.1') && CTopologyAddress::isHidden('127.255.255.254')
+	&& CTopologyAddress::isHidden('::1') && CTopologyAddress::isHidden('::ffff:127.0.0.1') && CTopologyAddress::isHidden('not an ip')
+	&& !CTopologyAddress::isHidden('10.0.0.1') && !CTopologyAddress::isHidden('169.254.1.1') && !CTopologyAddress::isHidden('fe80::1') && !CTopologyAddress::isHidden('2001:db8::1'),
+	'not shown (2.44): unspecified, loopback (127.0.0.0/8, ::1, also mapped), not an address; link-local is shown');
+check(CTopologyAddress::isLinkLocal('169.254.1.1') && CTopologyAddress::isLinkLocal('169.254.255.255') && CTopologyAddress::isLinkLocal('fe80::1') && CTopologyAddress::isLinkLocal('febf::1')
+	&& !CTopologyAddress::isLinkLocal('169.253.1.1') && !CTopologyAddress::isLinkLocal('fec0::1') && !CTopologyAddress::isLinkLocal('2001:db8::1') && !CTopologyAddress::isLinkLocal('10.0.0.1'),
+	'link-local: 169.254.0.0/16 and fe80::/10');
+$rules = 'lldp:1.4.127.0.0.1 lldp:1.4.169.254.1.1 lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1 cdp:1:0a:00:00:07';
+check(CTopologyAddress::management($rules) === '127.0.0.1' && CTopologyAddress::management('lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1') === 'fe80::1'
+	&& CTopologyAddress::management('lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7') === '169.254.1.1',
+	'the management address of ingest is unchanged: the first IPv4 (loopback and link-local included), else the first IPv6');
 
 // ============================================================================================================
 echo "\n=== /addresses: two addresses from LLDP, one from CDP; management first; IPv4 before IPv6; numeric order; the monitoring of the reporters ===\n";
@@ -406,6 +416,33 @@ check($answer['addresses'] === [] && $answer['sysname'] === null, 'an unknown De
 login(true);
 check(call(CControllerTopologyAddressesGet::class, ['id' => (string) $D]) === 'denied', 'the guest is denied');
 login();
+
+echo "\n=== /addresses (2.44): loopback not shown; link-local last and marked; link-local mgmt_ip first with both marks; mgmt_ip with no source ===\n";
+$L = node($pdo, 'device', ['sysname' => 'Link local', 'chassis_id' => null, 'mgmt_ip' => '10.4.4.4']);
+observe($pdo, $i1, $p1, $L, ['source' => 'lldp', 'rem_mgmt_ip' => '10.4.4.4', 'rem_man_addrs' => 'lldp:1.4.127.0.0.1 lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.169.254.1.1 '.
+	'lldp:2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1 lldp:2.16.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1 lldp:1.4.10.4.4.4 lldp:1.4.10.4.4.5 lldp:1.4.169.254.0.9 lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.2'], 'ip:server:10.4.4.4');
+$answer = addresses_of($L);
+echo '  '.json_encode(array_map(static fn (array $a): array => [$a['address'], $a['management'], $a['link_local'], $a['not_reported_now']], $answer['addresses']))."\n";
+check(!array_intersect(['127.0.0.1', '::1', '0.0.0.0', '::'], array_column($answer['addresses'], 'address')), '127.0.0.1 and ::1 are not shown');
+check(array_column($answer['addresses'], 'address') === ['10.4.4.4', '10.4.4.5', '2001:db8::1', '169.254.0.9', '169.254.1.1', 'fe80::1', 'fe80::2'],
+	'mgmt_ip first, then IPv4, IPv6, then the link-local addresses: IPv4 (169.254.0.9, 169.254.1.1) before IPv6 (fe80::1, fe80::2), numeric order');
+check(array_column($answer['addresses'], 'link_local') === [false, false, false, true, true, true, true], 'the field link_local marks 169.254.0.0/16 and fe80::/10 only');
+check(!in_array(true, array_column($answer['addresses'], 'not_reported_now'), true), 'every address here has a source: none is "not reported now"');
+$M = node($pdo, 'device', ['sysname' => 'Link local mgmt', 'chassis_id' => null, 'mgmt_ip' => 'fe80::7']);
+observe($pdo, $i1, $p1, $M, ['source' => 'lldp', 'rem_mgmt_ip' => 'fe80::7', 'rem_man_addrs' => 'lldp:1.4.10.5.5.5 lldp:1.4.169.254.3.3'], 'ip:server:fe80::7');
+$answer = addresses_of($M);
+check(array_column($answer['addresses'], 'address') === ['fe80::7', '10.5.5.5', '169.254.3.3'], 'a link-local mgmt_ip stays first, then the others, the link-local ones last (fe80::7 is listed once, first)');
+check($answer['addresses'][0]['management'] === true && $answer['addresses'][0]['link_local'] === true && $answer['addresses'][0]['not_reported_now'] === false && count($answer['addresses'][0]['sources']) === 1,
+	'... with both marks (management, link-local); it is reported by rem_mgmt_ip, so it has its source');
+$N = node($pdo, 'device', ['sysname' => 'Not reported', 'chassis_id' => null, 'mgmt_ip' => '169.254.7.7']);
+$answer = addresses_of($N);
+check(count($answer['addresses']) === 1 && $answer['addresses'][0]['address'] === '169.254.7.7' && $answer['addresses'][0]['sources'] === [] && $answer['addresses'][0]['not_reported_now'] === true
+	&& $answer['addresses'][0]['management'] === true && $answer['addresses'][0]['link_local'] === true, 'a mgmt_ip that no current observation reports: one line, no source, not_reported_now (and link-local here)');
+$answer = addresses_of($F);
+check($answer['addresses'][0]['not_reported_now'] === true && $answer['addresses'][0]['link_local'] === false, 'the same for a plain mgmt_ip: not_reported_now, not link-local');
+$O = node($pdo, 'device', ['sysname' => 'Loopback mgmt', 'chassis_id' => null, 'mgmt_ip' => '127.0.0.1']);
+$answer = addresses_of($O);
+check($answer['addresses'] === [] && $answer['mgmt_ip'] === null, 'a loopback mgmt_ip is not shown either: no line');
 
 echo "\n=== /addresses: a value with HTML stays text ===\n";
 $H = node($pdo, 'device', ['sysname' => '<img src=x onerror="alert(1)">', 'chassis_id' => '<b>local</b>', 'mgmt_ip' => '10.2.2.2']);

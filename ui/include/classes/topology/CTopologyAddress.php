@@ -141,19 +141,54 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * A placeholder address: the unspecified address (0.0.0.0, ::), which a device sends when it has no address to give. Not shown as an address of a neighbor
-	 * (topology-1-model.md §12.5 "Addresses").
+	 * The packed bytes of an address as an IPv4 address when it is one or an IPv4-mapped IPv6 address (::ffff:a.b.c.d), else of the IPv6 address; null when it is not an
+	 * address. The rules below read the IPv4 form, so the mapped form of 127.0.0.1 is loopback too.
 	 */
-	public static function isPlaceholder(string $address): bool {
-		return $address === '0.0.0.0' || $address === '::';
+	private static function packed(string $address): ?string {
+		$packed = @inet_pton($address);
+		if ($packed === false) {
+			return null;
+		}
+
+		return strlen($packed) === 16 && str_starts_with($packed, str_repeat("\0", 10)."\xff\xff") ? substr($packed, 12) : $packed;
 	}
 
 	/**
-	 * The sort key of an address in numeric order: IPv4 before IPv6 (family first), then the packed bytes.
+	 * An address the section Addresses does not show (topology-6-normalization.md §4.4 "Addresses not shown", topology-1-model.md §12.5): unspecified (0.0.0.0, ::),
+	 * loopback (127.0.0.0/8, ::1), or not an address. Display only: the management address that ingest chooses (management()) does not use it.
+	 */
+	public static function isHidden(string $address): bool {
+		$packed = self::packed($address);
+		if ($packed === null) {
+			return true;
+		}
+
+		return strlen($packed) === 4
+			? $packed === "\0\0\0\0" || $packed[0] === "\x7f"
+			: $packed === str_repeat("\0", 16) || $packed === str_repeat("\0", 15)."\x01";
+	}
+
+	/**
+	 * A link-local address (169.254.0.0/16, fe80::/10): shown after all the others, with the mark "link-local" (§4.4, §12.5).
+	 */
+	public static function isLinkLocal(string $address): bool {
+		$packed = self::packed($address);
+		if ($packed === null) {
+			return false;
+		}
+
+		return strlen($packed) === 4
+			? $packed[0] === "\xa9" && $packed[1] === "\xfe"
+			: ord($packed[0]) === 0xfe && (ord($packed[1]) & 0xc0) === 0x80;
+	}
+
+	/**
+	 * The sort key of an address, the one order of the section: the addresses that are not link-local before the link-local ones, then IPv4 before IPv6 (family), then the
+	 * numeric order (the packed bytes). The Device's `mgmt_ip` goes before all of them; the caller puts it first.
 	 */
 	public static function sortKey(string $address): string {
 		$packed = @inet_pton($address);
 
-		return ($packed !== false && strlen($packed) === 4 ? '4' : '6').($packed === false ? $address : bin2hex($packed));
+		return (self::isLinkLocal($address) ? '1' : '0').($packed !== false && strlen($packed) === 4 ? '4' : '6').($packed === false ? $address : bin2hex($packed));
 	}
 }

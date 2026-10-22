@@ -1427,7 +1427,8 @@ const view = new class {
 			.map(([label, value]) => `<tr><th>${escape(label)}</th><td class="topology-address-value" title="${escape(value)}">${escape(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
 		const lines = data.addresses.map(line => `<li class="topology-address">
 			<div class="topology-address-head"><span class="topology-address-value" title="${escape(line.address)}">${escape(line.address)}</span>
-				${line.management ? `<span class="topology-source-badge">${escape(<?= json_encode(_('management')) ?>)}</span>` : ''}${copy(line.address, line.address)}</div>
+				${line.management ? `<span class="topology-source-badge">${escape(<?= json_encode(_('management')) ?>)}</span>` : ''}${line.link_local ? `<span class="topology-source-badge">${escape(<?= json_encode(_('link-local')) ?>)}</span>` : ''}${copy(line.address, line.address)}</div>
+			${line.not_reported_now ? `<div class="topology-address-source">${escape(<?= json_encode(_('not reported now')) ?>)}</div>` : ''}
 			${line.sources.map(source => `<div class="topology-address-source" title="${escape(`${source.reporter.name}, ${source.local_port ?? ''}, ${source.source}`)}">` +
 				`${escape(source.reporter.name)} · ${escape(source.local_port ?? '?')} · ${escape(String(source.source).toUpperCase())} · ${escape(<?= json_encode(_('monitored by')) ?>)} ${escape(monitoring(source.monitoring))}</div>`).join('')}
 		</li>`).join('');

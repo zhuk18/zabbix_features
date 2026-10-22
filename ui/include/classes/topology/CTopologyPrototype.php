@@ -1186,8 +1186,11 @@ class CTopologyPrototype {
 	 *
 	 * Source: the current observations of the Device (getObservations(): only observations of a rule that still has a usable snapshot, only reporters that the user can read),
 	 * field `rem_man_addrs` (every usable entry, decoded by CTopologyAddress, the code of normalization §4.4 that ingest also uses) and `rem_mgmt_ip`. A placeholder or
-	 * invalid address is not shown. One line per address; per address every source (reporter, local port, source, monitoring of the reporter).
-	 * Order: the Device's `mgmt_ip` first (`management` true), then IPv4, then IPv6, each in numeric order.
+	 * invalid, unspecified or loopback address is not shown (CTopologyAddress::isHidden). One line per address; per address every source (reporter, local port, source,
+	 * monitoring of the reporter). A link-local address is marked (`link_local`) and shown after the others; the `mgmt_ip` line that no current observation reports has no
+	 * source and the mark `not_reported_now` (2.44).
+	 * Order: the Device's `mgmt_ip` first (`management` true, also when it is link-local), then IPv4, then IPv6, then the link-local addresses (IPv4 before IPv6), each in
+	 * numeric order (CTopologyAddress::sortKey).
 	 *
 	 * The monitoring of the reporters is read live in one go for the whole answer: one host.get for all reporter hosts, then one proxy.get and one proxygroup.get for the names
 	 * (never one call per source).
@@ -1202,7 +1205,7 @@ class CTopologyPrototype {
 		$sysname = ($attrs['sysname'] ?? '') !== '' ? (string) $attrs['sysname'] : null;
 		$chassis_id = ($attrs['chassis_id'] ?? '') !== '' ? self::chassisLabel((string) $attrs['chassis_id']) : null;
 		$mgmt_ip = ($attrs['mgmt_ip'] ?? '') !== '' ? (string) $attrs['mgmt_ip'] : null;
-		if ($mgmt_ip !== null && (CTopologyAddress::ipText($mgmt_ip) === null || CTopologyAddress::isPlaceholder($mgmt_ip))) {
+		if ($mgmt_ip !== null && (CTopologyAddress::ipText($mgmt_ip) === null || CTopologyAddress::isHidden($mgmt_ip))) {
 			$mgmt_ip = null;
 		}
 
@@ -1226,7 +1229,7 @@ class CTopologyPrototype {
 					$found[] = ['address' => $text, 'family' => str_contains($text, ':') ? 6 : 4];
 				}
 				foreach ($found as $entry) {
-					if (!CTopologyAddress::isPlaceholder($entry['address'])) {
+					if (!CTopologyAddress::isHidden($entry['address'])) {
 						$add($entry['address'], $entry['family'], $source);
 						$hostids[$source['reporter']['hostid']] = true;
 					}
@@ -1253,7 +1256,10 @@ class CTopologyPrototype {
 				$source['monitoring'] = $monitoring[$source['reporter']['hostid']] ?? ['mode' => 'server', 'proxy' => null, 'proxy_group' => null];
 			}
 			unset($source);
-			$addresses[] = ['address' => $line['address'], 'family' => $line['family'], 'management' => $line['management'], 'sources' => $sources];
+			$addresses[] = ['address' => $line['address'], 'family' => $line['family'], 'management' => $line['management'],
+				'link_local' => CTopologyAddress::isLinkLocal($line['address']),
+				'not_reported_now' => $line['management'] && !$sources,
+				'sources' => $sources];
 		}
 
 		return ['sysname' => $sysname, 'chassis_id' => $chassis_id, 'mgmt_ip' => $mgmt_ip, 'addresses' => $addresses];

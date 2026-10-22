@@ -425,4 +425,18 @@ $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
 
+echo "\n=== 7: the display rules of 2.44 (loopback, link-local) do not change the management address of ingest (task 051) ===\n";
+foreach ([
+	'loopback first' => ['lldp:1.4.127.0.0.1 lldp:1.4.10.0.0.7', '127.0.0.1'],
+	'link-local IPv4 before a real one' => ['lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7', '169.254.1.1'],
+	'IPv6 link-local only' => ['lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1', 'fe80::1'],
+	'IPv6 loopback only' => ['lldp:2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1', '::1'],
+] as $label => [$man, $want]) {
+	$pdo->exec('DELETE FROM topo_observations');
+	reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X', 'rem_man_addrs' => $man])], []);
+	run_ingest($dsn, $user, $password);
+	$obs = json_decode((string) scalar($pdo, 'SELECT remote_attrs FROM topo_observations WHERE itemid = 1002'), true);
+	check(($obs['rem_mgmt_ip'] ?? null) === $want, "{$label}: rem_mgmt_ip is {$want}, as before");
+}
+
 echo "\nALL OK\n";
