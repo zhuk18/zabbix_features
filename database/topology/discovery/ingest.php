@@ -1541,7 +1541,7 @@ $join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?
 // Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
 // but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
 // the vendor/sysname another source recorded — and last_seen only ever moves forward.
-$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = []) use (
+$snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = [], bool $force_new = false) use (
 	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary, &$current_ip_keys,
 	&$run_port_devices
 ): ?int {
@@ -1558,7 +1558,8 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 	if (!$for_reporter) {      // `split_identity` is evidence of a neighbor row (§6.7.5); a reporter's own identity is not a row
 		$note_split_identity($incoming['chassis_key'] ?? null, $incoming['ip_key'] ?? null, $incoming['ip_raw'] ?? null);
 	}
-	$match = $resolve_device([
+	// $force_new: a reporter whose own key finds several Devices (§6.4 step 2, decided before pass A): the Device is made, nothing is looked up
+	$match = $force_new ? null : $resolve_device([
 		'chassis' => isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']] : null,
 		'ip' => isset($incoming['ip_key']) ? [$incoming['ip_key'], $incoming['ip_raw'] ?? $incoming['ip_key']] : null,
 	], $local_port_id, $incoming['sysname'] ?? null, $for_reporter, $exclude);
@@ -2096,9 +2097,10 @@ $reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chass
 /**
  * Pass A, step 1: the reporter's Device (§6.4). $claimed = the key strings that two or more reporters claim by their own data: this reporter does
  * not look for its Device by them, but its Device carries them (the key is then shared, §6.7.4). $exclude = Devices that another reporter takes
- * (the lowest hostid wins), so the choice does not depend on the order.
+ * (the lowest hostid wins), so the choice does not depend on the order. $key_shared = the reporter's own key finds several stored Devices (decided before
+ * pass A, §6.4 step 2): the reporter gets a Device of its own that carries the keys.
  */
-$snap_reporter_identity = static function (array $reporter, array $own, array $claimed, array $exclude) use (
+$snap_reporter_identity = static function (array $reporter, array $own, array $claimed, array $exclude, bool $key_shared = false) use (
 	$q_key, &$current_ip_keys,
 	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
@@ -2147,11 +2149,9 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 		// the reporter's own keys, the claimed ones too
 		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
 			'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis, 'ip_key' => $look_ip, 'ip_raw' => $mgmt_ip,
-			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, $exclude);
+			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, $exclude, $key_shared);
 		if ($device_id === null) {
-			echo "SKIP: reporter '{$label}' has an identifier (".($loc_chassis ?? $mgmt_ip).") that more than one Device has — ".
-				"not picking one\n";
-			return ['status' => 'skipped', 'reason' => 'identity_key_shared'];
+			throw new RuntimeException("reporter '{$label}': no Device for its own identity");      // not reached: a reporter's key never stays shared
 		}
 		$register_keys((int) $device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
 		// The Device becomes this reporter's Device (§6.7.0 "Keys of a reporter's Device"): the chassis keys that neighbor rows gave it go, except the
@@ -3554,6 +3554,7 @@ foreach ($claimants as $claimed_key => $hosts) {
 // equal strength (§6.4 step 5). Decided here, before pass A, so the result does not depend on the order of the reporters.
 $would_take = [];
 $take_by = [];
+$key_shared_hosts = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
 	$own = $reporter_own_of[$hostid];
 	if ($own['skip'] !== null) {
@@ -3568,6 +3569,9 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 		'chassis' => $own['loc_key'] !== null && !isset($claimed_keys[$own['loc_key']]) ? [$own['loc_key'], (string) $own['loc_chassis']] : null,
 		'ip' => $own['ip_key'] !== null && !isset($claimed_keys[$own['ip_key']]) ? [$own['ip_key'], (string) $own['mgmt_ip']] : null,
 	], null, null, true);
+	if ($match !== null && $match[0] === 'shared') {
+		$key_shared_hosts[(int) $hostid] = $match;      // §6.4 step 2: the reporter's own key finds several Devices; decided here from the stored state, before pass A
+	}
 	if ($match !== null && $match[0] !== 'shared') {
 		$would_take[(int) $match[0]][] = (int) $hostid;
 		$take_by[(int) $match[0]][(int) $hostid] = $match[1] === 'chassis_id' ? 0 : 1;        // the strength of the key that found it
@@ -3593,10 +3597,13 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
 	try {
 		$pdo->beginTransaction();
-		$result = $snap_reporter_identity($reporter, $reporter_own_of[$hostid], $claimed_keys, $exclude_of[$hostid] ?? []);
+		$result = $snap_reporter_identity($reporter, $reporter_own_of[$hostid], $claimed_keys, $exclude_of[$hostid] ?? [], isset($key_shared_hosts[$hostid]));
 		if ($result['status'] === 'ok') {
 			$pdo->commit();
 			$identified[$hostid] = $result;
+			if (isset($key_shared_hosts[$hostid])) {
+				$note_shared($key_shared_hosts[$hostid][1], (string) $key_shared_hosts[$hostid][2], $key_shared_hosts[$hostid][3]);
+			}
 		}
 		else {
 			$pdo->rollBack();
@@ -3647,6 +3654,28 @@ foreach ($share_device as [$winner, $losers, $kind_name]) {
 		if ($winner_device !== null && $loser_device !== null && (int) $winner_device !== (int) $loser_device) {
 			$note_duplicate((int) $winner_device, (int) $loser_device, 'reporters_share_device', $kind_name, $raw_value);
 			$note_duplicate((int) $loser_device, (int) $winner_device, 'reporters_share_device', $kind_name, $raw_value);
+		}
+	}
+}
+// `reporter_key_shared` (§6.4 step 2, §6.7.5): the evidence is current: a reporter's own key is on two or more Devices besides the reporter's own
+// Device. It is the key that finds the Device in §6.4 step 2: the chassis key, else the IP key (when the chassis finds nothing). A key that two
+// reporters claim is `reporters_share_key`. Computed here for every reporter, so the next runs (which find the Device by step 1) keep the candidate.
+foreach ($identified as $hostid => $result) {
+	$own = $reporter_own_of[$hostid];
+	$device = (int) $result['device_id'];
+	foreach ([['chassis_id', $own['loc_key'], $own['loc_chassis']], ['mgmt_ip', $own['ip_key'], $own['mgmt_ip']]] as [$kind_name, $own_key, $raw_value]) {
+		if ($own_key === null || isset($claimed_keys[$own_key])) {
+			continue;
+		}
+		$others = array_values(array_diff($key_holders($own_key), [$device]));
+		if (count($others) > 1) {
+			foreach ($others as $other) {
+				$note_duplicate($device, $other, 'reporter_key_shared', $kind_name, (string) $raw_value);
+				$note_duplicate($other, $device, 'reporter_key_shared', $kind_name, (string) $raw_value);
+			}
+		}
+		if ($others) {
+			break;      // the key that found Devices decides; a weaker key is not looked at
 		}
 	}
 }

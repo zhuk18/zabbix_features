@@ -76,10 +76,13 @@ function snapshot(PDO $pdo, int $itemid, int $hostid, int $topology_type, int $c
 		count($rows), count($rows)]);
 }
 
-function run_ingest(string $dsn, string $user, string $password, array $extra = []): array {
+function run_ingest(string $dsn, string $user, string $password, array $extra = [], ?string $order = null): array {
 	$cmd = [PHP_BINARY, __DIR__.'/ingest.php', '--pdo-dsn', $dsn, '--pdo-user', $user, '--pdo-password', $password];
 	foreach ($extra as $host) {
 		array_push($cmd, '--zabbix-host', $host);
+	}
+	if ($order !== null) {
+		array_push($cmd, '--reporter-order', $order);
 	}
 	// A private temp dir keeps the run lock and status file away from any real ingest's.
 	$tmp = sys_get_temp_dir().'/topology-snapshot-ingest-test';
@@ -275,18 +278,76 @@ check(count($list) === 1 && $list[0]['key'] === 'chassis_id' && $list[0]['value'
 check(dev_attr($pdo, $d1, 'sysname') === 'old1' && dev_attr($pdo, $d2, 'sysname') === 'old2', 'neither Device was changed');
 
 // ============================================================================================================
-echo "\n=== 5: a reporter whose loc_chassis is on two Devices is skipped ===\n";
-add_host($pdo, 102, 'SwDup', 'Switch Dup', '10.0.0.2');
-snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1',
-	'loc_chassis' => $X]]);
-$before = dev_count($pdo);
-$represented = (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE represented_by_node_id IS NOT NULL');
+echo "\n=== 5: a reporter whose loc_chassis is on two Devices gets its own Device (2.43) ===\n";
+/** What a run left, without ids: per Device (named by sysname) the chassis, the representing host and the duplicate candidates (reason, key, value, other Device's sysname). */
+function key_shared_state(PDO $pdo): array {
+	$names = [];
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type='device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$names[(int) $row['id']] = json_decode($row['attrs'], true)['sysname'] ?? '';
+	}
+	$state = [];
+	foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE d.type='device'")
+			->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$attrs = json_decode($row['attrs'], true);
+		$candidates = [];
+		foreach ($attrs['duplicate_candidates'] ?? [] as $c) {
+			$candidates[] = [$c['reason'], $c['key'], $c['value'], $names[(int) $c['device_id']] ?? '?'];
+		}
+		sort($candidates);
+		$state[$names[(int) $row['id']].'#'.($attrs['chassis_id'] ?? '')] = [$row['host_ref'], $candidates];
+	}
+	ksort($state);
+	return $state;
+}
+function key_shared_setup(PDO $pdo, string $X, bool $second_reporter): array {
+	reset_all($pdo);
+	$d1 = device($pdo, $X, '10.3.3.1', 'old1');
+	$d2 = device($pdo, $X, '10.3.3.2', 'old2');
+	add_host($pdo, 102, 'SwDup', 'Switch Dup', '10.0.0.2');
+	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1',
+		'loc_chassis' => $X]]);
+	if ($second_reporter) {
+		// a reporter without a chassis whose SNMP IP is old1's: it takes old1 (a Device with no representation), whatever the order
+		add_host($pdo, 103, 'SwIp', 'Switch Ip', '10.3.3.1');
+		snapshot($pdo, 2002, 103, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1']]);
+	}
+	return [$d1, $d2];
+}
+[$d1, $d2] = key_shared_setup($pdo, $X, false);
 $r = run_ingest($dsn, $user, $password);
-check(($r['summary']['reporters_skipped']['identity_key_shared'] ?? 0) === 1, 'skipped as identity_key_shared');
-check(dev_count($pdo) === $before, 'no Device created');
-check((int) scalar($pdo, 'SELECT COUNT(*) FROM topo_nodes WHERE represented_by_node_id IS NOT NULL') === $represented, 'no represented_by was set for it');
+$new = (int) scalar($pdo, "SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE d.type='device' AND h.host_ref = 102 AND d.represented_by_matched_by = 'reporter_self'");
+check($new > 0 && $new !== $d1 && $new !== $d2 && dev_count($pdo) === 3, 'a third Device is made for the reporter, represented_by set, matched_by reporter_self');
+check(($r['summary']['reporters_skipped']['identity_key_shared'] ?? 0) === 0 && empty($r['summary']['reporters_skipped']), 'the reporter is not skipped');
+check(dev_attr($pdo, $new, 'chassis_id') === $X, 'the new Device carries the reporter\'s chassis');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE `key` = 'chassis:mac:".strtolower($X)."' AND replaced = 0") === 3, 'the shared key is on all three Devices');
+foreach ([$new => [$d1, $d2], $d1 => [$new], $d2 => [$new]] as $on => $others) {
+	$have = array_values(array_filter(attrs($pdo, $on)['duplicate_candidates'] ?? [], static fn (array $c): bool => $c['reason'] === 'reporter_key_shared'));
+	$ids = array_column($have, 'device_id');
+	sort($ids);
+	$want = $others;
+	sort($want);
+	check($ids === $want && $have[0]['key'] === 'chassis_id' && $have[0]['value'] === $X, "reporter_key_shared on Device #{$on} names ".implode(', ', $want));
+}
 check(count(array_filter(shared_list($r['summary']), static fn (array $e): bool => $e['key'] === 'chassis_id' && $e['value'] === $X)) === 1,
-	'identity_keys_shared lists it');
+	'identity_keys_shared still lists it');
+echo "  -- the same snapshots again --\n";
+$state = key_shared_state($pdo);
+$fp = fingerprint($pdo);
+$r = run_ingest($dsn, $user, $password);
+check(dev_count($pdo) === 3, 'the second run creates no Device');
+check(key_shared_state($pdo) === $state, 'the second run gives the same Devices and candidates');
+check(fingerprint($pdo) === $fp, 'the second run changes nothing in the nodes, edges and observations');
+check(empty($r['summary']['reporters_skipped']), 'the second run skips nothing');
+echo "  -- two reporter orders --\n";
+$results = [];
+foreach (['hostid order' => null, 'reporters 103, 102' => '103,102', 'reporters 102, 103' => '102,103'] as $label => $order) {
+	key_shared_setup($pdo, $X, true);
+	$r = run_ingest($dsn, $user, $password, [], $order);
+	$results[$label] = key_shared_state($pdo);
+	check(empty($r['summary']['reporters_skipped']) && dev_count($pdo) === 3, "{$label}: nothing skipped; old1 (taken by 103), old2 and the new Device of 102");
+}
+check($results['hostid order'] === $results['reporters 103, 102'] && $results['hostid order'] === $results['reporters 102, 103'], 'the result does not depend on the reporter order');
+check(count(array_filter($results['hostid order'], static fn (array $v): bool => (string) $v[0] === '102')) === 1, 'host 102 has its own Device in every order');
 
 // ============================================================================================================
 echo "\n=== 6: a MAC in the inventory of two Hosts matches nothing ===\n";

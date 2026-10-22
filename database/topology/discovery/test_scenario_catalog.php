@@ -976,7 +976,11 @@ c('I-20', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
 	h_ports('R', [1 => 'Gi0/1']);
 	$summary = h_ingest('the reporter chassis is on two Devices');
-	ex(($summary['reporters_skipped']['identity_key_shared'] ?? 0) === 1 && h_dev_count() === 2, 'skipped as identity_key_shared, nothing created');
+	ex(empty($summary['reporters_skipped']) && h_dev_count() === 3, 'not skipped: the reporter gets a Device of its own (2.43)');
+	$reporter_device = array_values(array_filter(h_state()['devices'], static fn ($d) => $d['represented_by'] === 'reporter_self'));
+	ex(count($reporter_device) === 1, 'that Device is represented by the reporter (reporter_self)');
+	$candidates = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'device' AND JSON_SEARCH(attrs, 'one', 'reporter_key_shared', NULL, '\$.duplicate_candidates[*].reason') IS NOT NULL");
+	ex($candidates === 3, 'reporter_key_shared on all three Devices');
 });
 
 c('I-21', 'Ограничение', function () {
