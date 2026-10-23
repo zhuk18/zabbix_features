@@ -1602,6 +1602,14 @@ $snap_normalize_row = static function (array $row) use ($norm_clean, $norm_ip_te
 			$row[$field] = $cleaned;
 		}
 	}
+	// model §6.7.1 (2.48): a CDP device id in MAC form (normalization §4.1, not a placeholder) is the claim's hardware ID, like an LLDP chassis id: the claim has a chassis
+	// (`chassis:mac:<mac>`) and no name. The MAC comes from the device itself (MikroTik sends its LLDP chassis MAC as the CDP device id; SW12 its chassis MAC).
+	if (($row['source'] ?? 'lldp') === 'cdp' && ($row['rem_chassis'] ?? '') === '' && isset($row['rem_sysname'])
+			&& ($mac_id = CTopologyAddress::macFormId((string) $row['rem_sysname'])) !== null) {
+		$row['rem_chassis'] = $mac_id;
+		$row['rem_chassis_type'] = 'macAddress';
+		unset($row['rem_sysname']);
+	}
 	if (isset($row['loc_port_id']) && is_string($row['loc_port_id'])) {
 		// a macAddress port id is a MAC when it is shaped like one; it is only compared (§4.8), a bad one is no match, never a skipped row
 		$cleaned = ($row['loc_port_id_type'] ?? '') === 'macAddress' ? ($mac($row['loc_port_id'], false) ?? $row['loc_port_id']) : $norm_clean($row['loc_port_id']);
@@ -2028,57 +2036,35 @@ $register_port_device = static function (int $local_port_id, int $device_id, arr
 		$entry['name'] = $name;
 	}
 };
-/** §6.7.1 "Match": at least one address of one is an address of the other, or the name keys are equal; and the names do not differ. A CDP device id that is a MAC is not
- * a name for the "differ" test (it is a name for the equality, so that the same claim finds its Device again). $a, $b = ['addrs' => [address...], 'name' => text]. */
-$claims_match = static function (array $a, array $b): bool {
-	$key_a = CTopologyAddress::nameKey($a['name']);
-	$key_b = CTopologyAddress::nameKey($b['name']);
-	$equal = $key_a !== '' && $key_a === $key_b;
-	$differ = $key_a !== '' && $key_b !== '' && $key_a !== $key_b && !CTopologyAddress::isMacText($a['name']) && !CTopologyAddress::isMacText($b['name']);
-	return ($equal || array_intersect($a['addrs'], $b['addrs']) !== []) && !$differ;
-};
 /**
  * The Device of a claim without a chassis, by the rows of §6.7.1 in order. $claim = ['addrs' => [...], 'name' => text]. Returns ['found', Device id], ['ambiguous'] or
  * ['new'] (the caller makes the Device with scope_port = the local port).
  */
 $find_chassisless_device = static function (int $hostid, string $segment, int $local_port_id, array $claim) use (
-	$pdo, $load_port_scope, $claims_match, $snap_node_attrs, &$port_scope, &$port_chassis_claims, &$reporter_by_address, &$reporter_device_of
+	$pdo, $load_port_scope, &$port_scope, &$port_chassis_claims, &$reporter_by_address, &$reporter_device_of
 ): array {
-	// the SNMP interface address of exactly one reporter in the segment of the claim's reporter, and the names do not differ
+	// the SNMP interface address of exactly one reporter in the segment of the claim's reporter, and the names do not differ: the reporter has no name of its own
+	// to compare (the sysname from its own data; the Zabbix host name is never used, 2.49), so the address decides; the predicate is the one of the other rows
 	$reporters = [];
 	foreach ($claim['addrs'] as $address) {
 		$hosts = array_keys($reporter_by_address[$segment][$address] ?? []);
-		if (count($hosts) === 1 && (int) $hosts[0] !== $hostid) {
+		if (count($hosts) === 1 && (int) $hosts[0] !== $hostid && CTopologyAddress::claimsMatch($claim, ['addrs' => [$address], 'name' => ''])) {
 			$reporters[(int) $hosts[0]] = true;
 		}
 	}
 	if (count($reporters) === 1 && isset($reporter_device_of[array_key_first($reporters)])) {
-		$device_id = $reporter_device_of[array_key_first($reporters)];
-		$other_name = (string) ($snap_node_attrs($device_id)['sysname'] ?? '');
-		$key_a = CTopologyAddress::nameKey($claim['name']);
-		$key_b = CTopologyAddress::nameKey($other_name);
-		if (!($key_a !== '' && $key_b !== '' && $key_a !== $key_b && !CTopologyAddress::isMacText($claim['name']))) {
-			return ['found', $device_id];
-		}
+		return ['found', $reporter_device_of[array_key_first($reporters)]];
 	}
 	// on the same local port of the same reporter exactly one claim has a chassis, and the two claims match
 	$on_port = $port_chassis_claims[$hostid.'|'.$local_port_id] ?? [];
-	if (count($on_port) === 1 && $on_port[0]['device_id'] !== null) {
-		$other = $on_port[0];
-		// a CDP device id that is the chassis id of that claim as text (or the same MAC) is not a name: it matches that chassis (HP ProCurve, office lab F-1, F-10)
-		$text = trim($claim['name']);
-		$is_chassis = $text !== '' && (strcasecmp($text, $other['chassis']) === 0
-			|| (CTopologyAddress::isMacText($text) && CTopologyAddress::isMacText($other['chassis'])
-				&& strtolower(str_replace('-', ':', $text)) === strtolower(str_replace('-', ':', $other['chassis']))));
-		if ($is_chassis || $claims_match($claim, $other)) {
-			return ['found', $other['device_id']];
-		}
+	if (count($on_port) === 1 && $on_port[0]['device_id'] !== null && CTopologyAddress::claimsMatch($claim, $on_port[0])) {
+		return ['found', $on_port[0]['device_id']];
 	}
 	// exactly one Device without a chassis with this scope_port that matches
 	$load_port_scope();
 	$found = [];
 	foreach ($port_scope[$local_port_id] ?? [] as $device_id => $device) {
-		if ($claims_match($claim, ['addrs' => array_keys($device['addrs']), 'name' => $device['name']])) {
+		if (CTopologyAddress::claimsMatch($claim, ['addrs' => array_keys($device['addrs']), 'name' => $device['name']])) {
 			$found[] = $device_id;
 		}
 	}
@@ -3550,8 +3536,8 @@ foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JO
 $summary['duplicate_candidates'] = ['count' => 0];
 if (!$zabbix_host_filter) {
 	// `same_address` and `same_name` (§6.7.5, 2.47), from the current evidence: two Devices that have one address in one segment (the addresses of their current
-	// observations: `rem_mgmt_ip` and every entry of `rem_man_addrs`, and a reporter's SNMP interface address; unspecified, loopback and link-local addresses do not
-	// count); two Devices without a chassis with equal name keys. Any pair, with or without a chassis. Read from the tables as the run leaves them: the observations
+	// observations: `rem_mgmt_ip` and every entry of `rem_man_addrs`, and a reporter's SNMP interface address; unspecified, loopback, multicast and link-local addresses do not
+	// count); two Devices without a chassis with equal name keys. A pair with the address only when one of the two has no MAC chassis (2.48). Read from the tables as the run leaves them: the observations
 	// of a failed reporter are the ones of its last good snapshot.
 	$by_address = [];      // "segment|address" => [device id => true]
 	$device_segments = []; // device id => [segment => true]: where the Device is seen from (its observations, its own host, the port it is scoped to)
@@ -3590,12 +3576,15 @@ if (!$zabbix_host_filter) {
 			$by_address[$own['segment'].'|'.$text][(int) $result['device_id']] = true;
 		}
 	}
+	// 2.48: a pair is marked only when at least one of the two Devices has no MAC chassis (four FortiAP with four MAC chassis and one factory address are four devices)
+	$mac_chassis = array_flip(array_map('intval', $pdo->query("SELECT DISTINCT device_id FROM topo_identity_keys WHERE kind = 'chassis' AND replaced = 0".
+		" AND {$q_key} LIKE 'chassis:mac:%'")->fetchAll(PDO::FETCH_COLUMN)));
 	foreach ($by_address as $key => $device_ids) {
 		$device_ids = array_keys($device_ids);
 		$address = substr($key, strpos($key, '|') + 1);
 		foreach ($device_ids as $one) {
 			foreach ($device_ids as $other) {
-				if ($one !== $other) {
+				if ($one !== $other && !(isset($mac_chassis[$one]) && isset($mac_chassis[$other]))) {
 					$note_duplicate($one, $other, 'same_address', 'address', $address);
 				}
 			}

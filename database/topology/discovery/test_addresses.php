@@ -345,15 +345,57 @@ check(CTopologyAddress::ipText('2001:0db8:0000:0000:0000:0000:0000:0001') === '2
 	'§4.3 address text');
 check(CTopologyAddress::isHidden('0.0.0.0') && CTopologyAddress::isHidden('::') && CTopologyAddress::isHidden('127.0.0.1') && CTopologyAddress::isHidden('127.255.255.254')
 	&& CTopologyAddress::isHidden('::1') && CTopologyAddress::isHidden('::ffff:127.0.0.1') && CTopologyAddress::isHidden('not an ip')
+	&& CTopologyAddress::isHidden('224.0.0.1') && CTopologyAddress::isHidden('239.255.255.250') && CTopologyAddress::isHidden('ff02::1') && !CTopologyAddress::isHidden('223.255.255.255') && !CTopologyAddress::isHidden('240.0.0.1')
 	&& !CTopologyAddress::isHidden('10.0.0.1') && !CTopologyAddress::isHidden('169.254.1.1') && !CTopologyAddress::isHidden('fe80::1') && !CTopologyAddress::isHidden('2001:db8::1'),
-	'not shown (2.44): unspecified, loopback (127.0.0.0/8, ::1, also mapped), not an address; link-local is shown');
+	'not shown (2.44, multicast 0.11): unspecified, loopback (127.0.0.0/8, ::1, also mapped), multicast (224.0.0.0/4, ff00::/8), not an address; link-local is shown');
 check(CTopologyAddress::isLinkLocal('169.254.1.1') && CTopologyAddress::isLinkLocal('169.254.255.255') && CTopologyAddress::isLinkLocal('fe80::1') && CTopologyAddress::isLinkLocal('febf::1')
 	&& !CTopologyAddress::isLinkLocal('169.253.1.1') && !CTopologyAddress::isLinkLocal('fec0::1') && !CTopologyAddress::isLinkLocal('2001:db8::1') && !CTopologyAddress::isLinkLocal('10.0.0.1'),
 	'link-local: 169.254.0.0/16 and fe80::/10');
 $rules = 'lldp:1.4.127.0.0.1 lldp:1.4.169.254.1.1 lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1 cdp:1:0a:00:00:07';
-check(CTopologyAddress::management($rules) === '127.0.0.1' && CTopologyAddress::management('lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1') === 'fe80::1'
-	&& CTopologyAddress::management('lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7') === '169.254.1.1',
-	'the management address of ingest is unchanged: the first IPv4 (loopback and link-local included), else the first IPv6');
+// normalization 0.11 §4.4: skip unspecified, loopback and multicast; then the first IPv4 that is not link-local, else the first IPv6 that is not link-local, else the first link-local
+check(CTopologyAddress::management($rules) === '10.0.0.7' && CTopologyAddress::management('lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1') === 'fe80::1'
+	&& CTopologyAddress::management('lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7') === '10.0.0.7' && CTopologyAddress::management('lldp:1.4.169.254.1.1 lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1') === '169.254.1.1',
+	'the management address (§4.4): loopback skipped, link-local last (an IPv4 link-local before an IPv6 one)');
+check(CTopologyAddress::management('lldp:1.4.127.0.0.1') === null && CTopologyAddress::management('lldp:1.4.0.0.0.0 lldp:1.4.224.0.0.251 lldp:2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1') === null
+	&& CTopologyAddress::management('lldp:1.4.224.0.0.251 lldp:1.4.10.1.1.1') === '10.1.1.1' && CTopologyAddress::management('lldp:2.255.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1 lldp:2.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1') === '2001:db8::1',
+	'loopback only, unspecified, multicast, ::1 only: no management address; a multicast entry before a real one is skipped');
+check(!CTopologyAddress::countsAsIdentity('224.0.0.251') && !CTopologyAddress::countsAsIdentity('ff02::fb') && CTopologyAddress::countsAsIdentity('10.0.0.1')
+	&& CTopologyAddress::claimAddresses(['rem_mgmt_ip' => '10.0.0.1', 'rem_man_addrs' => 'lldp:1.4.224.0.0.251 lldp:1.4.10.0.0.2 lldp:1.4.127.0.0.1']) === ['10.0.0.2', '10.0.0.1'],
+	'multicast, loopback and link-local never match (claimAddresses keeps the others)');
+// the name key (§6.7.1 "Names", 2.49) and the MAC form of a CDP device id (2.48)
+check(CTopologyAddress::nameKey('N9K-1(FDO2101X0AB)') === 'n9k-1' && CTopologyAddress::nameKey('SW-X.lab') === 'sw-x' && CTopologyAddress::nameKey('  SW-X.Lab.Example (FDO1) ') === 'sw-x'
+	&& CTopologyAddress::nameKey('10.0.0.1') === '10.0.0.1' && CTopologyAddress::nameKey('(serial)') === '(serial)' && CTopologyAddress::nameKey('a(b)c') === 'a(b)c',
+	'name key: a final group in parentheses removed, then the domain; an address keeps its dots; a name that is only a group stays');
+check(CTopologyAddress::macFormId('A8-52-D4-53-11-00') === 'a8:52:d4:53:11:00' && CTopologyAddress::macFormId('a852.d453.1100') === 'a8:52:d4:53:11:00' && CTopologyAddress::macFormId('f4:03:43:e8:ba:00') === 'f4:03:43:e8:ba:00'
+	&& CTopologyAddress::macFormId('f4:03:43:e8:ba') === null && CTopologyAddress::macFormId('204c9e6e08fe') === null && CTopologyAddress::macFormId('00:00:00:00:00:00') === null
+	&& CTopologyAddress::macFormId('FF:FF:FF:FF:FF:FF') === null && CTopologyAddress::macFormId('SW-A') === null,
+	'a CDP device id in MAC form (6 octets with : or -, or xxxx.xxxx.xxxx) is a MAC; 5 octets, 12 digits, a placeholder, a name are not');
+// the one match predicate (§6.7.1 "Match"): the 11 cases of task 056, the NX-OS name, multicast
+$m = static fn (array $a, array $b): bool => CTopologyAddress::claimsMatch($a, $b);
+$claim = static fn (array $attrs, string $name = '', ?string $chassis = null): array => ['addrs' => CTopologyAddress::claimAddresses($attrs), 'name' => $name] + ($chassis !== null ? ['chassis' => $chassis] : []);
+$match_cases = [
+	'the same address, no names' => [$claim(['rem_mgmt_ip' => '10.0.0.5']), $claim(['rem_mgmt_ip' => '10.0.0.5']), true],
+	'different addresses, equal names' => [$claim(['rem_mgmt_ip' => '10.0.0.5'], 'SW-X'), $claim(['rem_mgmt_ip' => '10.0.9.9'], 'SW-X'), true],
+	'the name with a domain and in capitals' => [$claim([], 'SW-X.lab'), $claim([], 'sw-x'), true],
+	'the same address, different names (NAT, a factory IP)' => [$claim(['rem_mgmt_ip' => '192.168.1.1'], 'SW-X'), $claim(['rem_mgmt_ip' => '192.168.1.1'], 'PHONE-Y'), false],
+	'different addresses and different names' => [$claim(['rem_mgmt_ip' => '10.0.0.5'], 'SW-X'), $claim(['rem_mgmt_ip' => '10.0.0.6'], 'PHONE-Y'), false],
+	'nothing in common (a name on one side, an address on the other)' => [$claim([], 'SW-X'), $claim(['rem_mgmt_ip' => '10.0.0.6']), false],
+	'a loopback address never matches' => [$claim(['rem_mgmt_ip' => '127.0.17.5']), $claim(['rem_mgmt_ip' => '127.0.17.5']), false],
+	'a link-local address never matches' => [$claim(['rem_mgmt_ip' => '169.254.1.1']), $claim(['rem_mgmt_ip' => '169.254.1.1']), false],
+	'the unspecified address never matches' => [$claim(['rem_mgmt_ip' => '0.0.0.0']), $claim(['rem_mgmt_ip' => '0.0.0.0']), false],
+	'a multicast address never matches' => [$claim(['rem_man_addrs' => 'lldp:1.4.224.0.0.251']), $claim(['rem_man_addrs' => 'lldp:1.4.224.0.0.251']), false],
+	'a loopback address and a name: the name matches' => [$claim(['rem_mgmt_ip' => '127.0.17.5'], 'SW-X'), $claim(['rem_mgmt_ip' => '127.0.17.5'], 'SW-X'), true],
+	'a CDP name that equals the chassis id of the other claim as text matches that chassis' => [$claim([], 'PC-7'), $claim([], '', 'PC-7'), true],
+	'... also when the case differs' => [$claim([], 'pc-7'), $claim([], 'PH', 'PC-7'), true],
+	'the NX-OS device id name(serial) and the LLDP sysname name: the same name key' => [$claim([], 'N9K-1(FDO2101X0AB)'), $claim([], 'N9K-1'), true],
+	'the NX-OS name with a domain and a serial' => [$claim([], 'N9K-1.lab(FDO2101X0AB)'), $claim([], 'n9k-1'), true],
+	'another NX-OS name' => [$claim([], 'N9K-2(FDO2101X0AB)'), $claim([], 'N9K-1'), false],
+	'the reporter-address row: the reporter has no name, the address decides' => [$claim(['rem_mgmt_ip' => '10.0.0.7'], 'R2'), $claim(['rem_mgmt_ip' => '10.0.0.7']), true],
+	'the Device of the port with no name: the address decides' => [$claim(['rem_mgmt_ip' => '10.0.0.7'], 'AP-7'), $claim(['rem_mgmt_ip' => '10.0.0.7']), true],
+];
+foreach ($match_cases as $label => [$a, $b, $want]) {
+	check($m($a, $b) === $want && $m($b, $a) === $want, 'match: '.$label.' -> '.($want ? 'match' : 'no match'));
+}
 
 // ============================================================================================================
 echo "\n=== /addresses: two addresses from LLDP, one from CDP; management first; IPv4 before IPv6; numeric order; the monitoring of the reporters ===\n";

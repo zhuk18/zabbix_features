@@ -209,7 +209,7 @@ check(dev_count($pdo) === 3, 'three Devices: the reporter, A and the new one');
 check(dev_attr($pdo, $new, 'mgmt_ip') === $IP, 'the new Device carries the IP as well (both Devices now have it)');
 check(observation_of($pdo, 1)['device_id'] == $new, 'the observation points to the new Device');
 $cand = static fn (int $id): array => array_values(array_map(static fn (array $c): array => [$c['reason'], $c['device_id'], $c['key'], $c['value']], attrs($pdo, $id)['duplicate_candidates'] ?? []));
-check($cand($A) === [['same_address', $new, 'address', $IP]] && $cand($new) === [['same_address', $A, 'address', $IP]], 'same_address on both Devices (the factory IP), key address');
+check($cand($A) === [] && $cand($new) === [], 'two Devices with MAC chassis and one factory address are two devices: no same_address (2.48)');
 
 echo "  -- a row with chassis X finds A --\n";
 reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
@@ -228,7 +228,7 @@ check($o !== null && $o['outcome'] !== 'ambiguous' && $o['device_id'] !== null &
 check(dev_attr($pdo, $A, 'chassis_id') === $X && dev_attr($pdo, $new, 'chassis_id') === $Y, 'no chassis_id changed');
 check(($r['summary']['identity_keys_shared']['count'] ?? 0) === 0 && shared_list($r['summary']) === [], 'identity_keys_shared has chassis keys only: none');
 $who = (int) $o['device_id'];
-check(count($cand($who)) === 2 && count($cand($A)) === 2 && count($cand($new)) === 2, 'same_address on all three Devices that have the IP');
+check(count($cand($who)) === 2 && $cand($A) === [['same_address', $who, 'address', $IP]] && $cand($new) === [['same_address', $who, 'address', $IP]], 'same_address between the Device without a MAC chassis and each of the two others, not between the two with MAC chassis (2.48)');
 for ($i = 1; $i <= 4; $i++) {
 	run_ingest($dsn, $user, $password);
 }
@@ -289,9 +289,9 @@ two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.7', 'rem_sys
 run_ingest($dsn, $user, $password);
 $h_dev = device_id($pdo, 'b0:00:00:00:00:77');
 $o = $pdo->query('SELECT outcome, device_id FROM topo_observations')->fetch(PDO::FETCH_ASSOC);
-check($o['device_id'] !== null && (int) $o['device_id'] !== $h_dev && dev_count($pdo) === 3, 'name R2 is not H\'s sysname (a VRRP address): not H; a Device of the port');
-$vrrp = (int) $o['device_id'];
-check(array_map(static fn (array $c): array => [$c['reason'], $c['device_id']], attrs($pdo, $h_dev)['duplicate_candidates'] ?? []) === [['same_address', $vrrp]], 'same_address with H\'s Device');
+// 2.49: the reporter has no name of its own to compare (the Zabbix host name is never used), so the address alone decides; a VRRP address shared with a router that sends
+// another name is not protected until lldpLocSysName is collected (model §6.7.1)
+check((int) $o['device_id'] === $h_dev && dev_count($pdo) === 2, 'name R2 with the SNMP address of H: the Device of H (the reporter has no sysname of its own, 2.49)');
 
 // ============================================================================================================
 echo "\n=== 3b: a Device without a chassis keeps its identity while its name or one address stays (model §6.7.1, 2.47) ===\n";

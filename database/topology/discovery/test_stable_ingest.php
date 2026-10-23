@@ -452,18 +452,20 @@ $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $fp, 'a rerun changes nothing');
 
-echo "\n=== 7: the display rules of 2.44 (loopback, link-local) do not change the management address of ingest (task 051) ===\n";
+echo "\n=== 7: the management address (normalization 0.11 section 4.4, task 059): loopback, unspecified and multicast are skipped, link-local is last ===\n";
 foreach ([
-	'loopback first' => ['lldp:1.4.127.0.0.1 lldp:1.4.10.0.0.7', '127.0.0.1'],
-	'link-local IPv4 before a real one' => ['lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7', '169.254.1.1'],
-	'IPv6 link-local only' => ['lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1', 'fe80::1'],
-	'IPv6 loopback only' => ['lldp:2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1', '::1'],
+	'loopback first' => ['lldp:1.4.127.0.0.1 lldp:1.4.10.0.0.7', '10.0.0.7'],
+	'link-local IPv4 before a real one' => ['lldp:1.4.169.254.1.1 lldp:1.4.10.0.0.7', '10.0.0.7'],
+	'link-local IPv4 and a global IPv6: the IPv6 first' => ['lldp:1.4.169.254.1.1 lldp:2.32.1.13.184.0.0.0.0.0.0.0.0.0.0.0.1', '2001:db8::1'],
+	'IPv6 link-local only: the last resort' => ['lldp:2.254.128.0.0.0.0.0.0.0.0.0.0.0.0.0.1', 'fe80::1'],
+	'IPv6 loopback only: none' => ['lldp:2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1', null],
+	'unspecified and multicast only: none' => ['lldp:1.4.0.0.0.0 lldp:1.4.224.0.0.251', null],
 ] as $label => [$man, $want]) {
 	$pdo->exec('DELETE FROM topo_observations');
 	reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X', 'rem_man_addrs' => $man])], []);
 	run_ingest($dsn, $user, $password);
 	$obs = json_decode((string) scalar($pdo, 'SELECT remote_attrs FROM topo_observations WHERE itemid = 1002'), true);
-	check(($obs['rem_mgmt_ip'] ?? null) === $want, "{$label}: rem_mgmt_ip is {$want}, as before");
+	check(($obs['rem_mgmt_ip'] ?? null) === $want, "{$label}: rem_mgmt_ip is ".json_encode($want));
 }
 
 echo "\nALL OK\n";

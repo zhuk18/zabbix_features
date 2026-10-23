@@ -129,15 +129,26 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * §4.4: the management address from the raw entries: the first IPv4, else the first IPv6; null when no entry is usable.
+	 * §4.4 (0.11): the management address from the raw entries. Unspecified, loopback and multicast entries are skipped; then the first IPv4 that is not link-local,
+	 * else the first IPv6 that is not link-local, else the first link-local address; null when no entry is usable. (Reason: a loopback, unspecified or multicast
+	 * address can't be the interface of a host; link-local is the last resort, `fe80::` is often the only IPv6 a neighbor sends.)
 	 */
 	public static function management(string $entries): ?string {
-		$first = [4 => null, 6 => null];
+		$first = [4 => null, 6 => null, 'link_local' => null];
 		foreach (self::decodeEntries($entries) as $entry) {
-			$first[$entry['family']] ??= $entry['address'];
+			if (self::isHidden($entry['address'])) {
+				continue;
+			}
+
+			if (self::isLinkLocal($entry['address'])) {
+				$first['link_local'] ??= $entry['address'];
+			}
+			else {
+				$first[$entry['family']] ??= $entry['address'];
+			}
 		}
 
-		return $first[4] ?? $first[6];
+		return $first[4] ?? $first[6] ?? $first['link_local'];
 	}
 
 	/**
@@ -154,8 +165,8 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * An address the section Addresses does not show (topology-6-normalization.md §4.4 "Addresses not shown", topology-1-model.md §12.5): unspecified (0.0.0.0, ::),
-	 * loopback (127.0.0.0/8, ::1), or not an address. Display only: the management address that ingest chooses (management()) does not use it.
+	 * An address that is not shown and is never a management address (topology-6-normalization.md §4.4, topology-1-model.md §12.5): unspecified (0.0.0.0, ::), loopback
+	 * (127.0.0.0/8, ::1), multicast (224.0.0.0/4, ff00::/8; 0.11), or not an address.
 	 */
 	public static function isHidden(string $address): bool {
 		$packed = self::packed($address);
@@ -164,8 +175,8 @@ class CTopologyAddress {
 		}
 
 		return strlen($packed) === 4
-			? $packed === "\0\0\0\0" || $packed[0] === "\x7f"
-			: $packed === str_repeat("\0", 16) || $packed === str_repeat("\0", 15)."\x01";
+			? $packed === "\0\0\0\0" || $packed[0] === "\x7f" || (ord($packed[0]) & 0xf0) === 0xe0
+			: $packed === str_repeat("\0", 16) || $packed === str_repeat("\0", 15)."\x01" || $packed[0] === "\xff";
 	}
 
 	/**
@@ -183,8 +194,8 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * An address that can identify or match a neighbor (topology-1-model.md §6.7.1 "Match", §6.7.5 `same_address`): a valid address that is not unspecified, not loopback
-	 * and not link-local. (The section Addresses of the side panel shows the link-local ones; the match never uses them.)
+	 * An address that can identify or match a neighbor (topology-1-model.md §6.7.1 "Match", §6.7.5 `same_address`): a valid address that is not unspecified, loopback or
+	 * multicast (isHidden) and not link-local. (The section Addresses of the side panel shows the link-local ones; the match never uses them.)
 	 */
 	public static function countsAsIdentity(string $address): bool {
 		return !self::isHidden($address) && !self::isLinkLocal($address);
@@ -209,11 +220,16 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * The name key of a neighbor (§6.7.1 "Names"): the name without white space at the ends, ASCII lower case, without the domain (`SW-X.lab` = `SW-X`; a name that is
-	 * an address, or has no label before the first dot, keeps its dots). Empty for no name.
+	 * The name key of a neighbor (§6.7.1 "Names", 2.49): trimmed, ASCII lower case, a final group in parentheses removed (`N9K-1(FDO2101X0AB)` = `n9k-1`, the Cisco NX-OS
+	 * CDP device id `name(serial)`), then the domain cut at the first dot (`SW-X.lab` = `sw-x`); a name that looks like an address keeps its dots. Empty for no name.
 	 */
 	public static function nameKey(string $name): string {
 		$key = strtolower(trim($name));
+		$without_group = rtrim((string) preg_replace('/\([^()]*\)$/D', '', $key));
+		if ($without_group !== '') {
+			$key = $without_group;
+		}
+
 		if ($key !== '' && !preg_match('/^[0-9.]+$/D', $key) && ($dot = strpos($key, '.')) !== false && $dot > 0) {
 			$key = substr($key, 0, $dot);
 		}
@@ -222,10 +238,48 @@ class CTopologyAddress {
 	}
 
 	/**
-	 * A text that is a MAC address (six octets with `:` or `-`, or twelve hex digits): a CDP device id of this form is not a name (§6.7.1).
+	 * A CDP device id in MAC form (normalization §4.1: six octets with `:` or `-`, or the Cisco form `xxxx.xxxx.xxxx`) that is not a placeholder: the MAC in normal
+	 * form, which is the claim's hardware ID (model §6.7.1, 2.48); else null. The text of any other form is a name.
 	 */
-	public static function isMacText(string $text): bool {
-		return preg_match('/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/Di', $text) === 1 || preg_match('/^[0-9a-f]{12}$/Di', $text) === 1;
+	public static function macFormId(string $text): ?string {
+		$text = trim($text);
+		if (preg_match('/^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$/Di', $text) === 1) {
+			$octets = preg_split('/[:-]/', $text);
+		}
+		elseif (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4}){2}$/Di', $text) === 1) {
+			$octets = str_split(str_replace('.', '', $text), 2);
+		}
+		else {
+			return null;
+		}
+
+		$mac = strtolower(implode(':', $octets));
+
+		return in_array($mac, ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'], true) ? null : $mac;
+	}
+
+	/**
+	 * The one match predicate of model §6.7.1 ("Match", "names differ") that the three rows for a claim without a chassis use (the reporter address, the claim with a
+	 * chassis of the same port, a Device of the port), each with its own inputs. $a and $b = ['addrs' => the addresses that can match (claimAddresses()),
+	 * 'name' => the name text, 'chassis' => the chassis id as text of a claim with a chassis (optional)].
+	 * Match: (1) an address of one is an address of the other, or the name keys are equal, and (2) the names do not differ (both have a name and the name keys differ).
+	 * A name that equals the chassis id of the other side as text is not a name: it matches that chassis (office lab F-1: HP ProCurve sends the LLDP chassis id as the CDP
+	 * device id).
+	 */
+	public static function claimsMatch(array $a, array $b): bool {
+		foreach ([[$a, $b], [$b, $a]] as [$one, $other]) {
+			$text = trim((string) ($one['name'] ?? ''));
+			if ($text !== '' && trim((string) ($other['chassis'] ?? '')) !== '' && strcasecmp($text, trim($other['chassis'])) === 0) {
+				return true;
+			}
+		}
+
+		$key_a = self::nameKey((string) ($a['name'] ?? ''));
+		$key_b = self::nameKey((string) ($b['name'] ?? ''));
+		$differ = $key_a !== '' && $key_b !== '' && $key_a !== $key_b;
+		$equal = $key_a !== '' && $key_a === $key_b;
+
+		return ($equal || array_intersect($a['addrs'] ?? [], $b['addrs'] ?? []) !== []) && !$differ;
 	}
 
 	/**

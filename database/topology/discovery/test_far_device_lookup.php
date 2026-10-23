@@ -263,14 +263,22 @@ $match_cases = [
 	'a loopback address and a name: the name finds the Device again' => [['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'SW-X'], true],
 	'a loopback address and different names: no match' => [['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'PHONE-Y'], false],
 	'a CDP device id that is the chassis MAC (HP ProCurve, F-1) is that chassis, whatever its spelling' => [[], ['rem_sysname' => strtoupper(str_replace(':', '-', $C))], true],
-	'a CDP device id that is another MAC is not a name: with the same address it matches' => [['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'aa:bb:cc:dd:ee:ff'], true],
+	'a CDP device id in MAC form that is another MAC is a hardware ID of its own (2.48): a Device with that chassis, whatever the address' => [['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'aa:bb:cc:dd:ee:ff'], 'chassis'],
+	'a CDP device id of 12 hex digits is not a MAC form (normalization 4.1): a name' => [['rem_sysname' => 'SW-X'], ['rem_sysname' => strtolower(str_replace(':', '', $C))], false],
+	'a binary CDP device id with its last 00 byte, 6 octets, is the chassis (SW12, task 059)' => [['rem_sysname' => 'SW12', 'rem_mgmt_ip' => '10.0.0.2'], ['rem_sysname' => $C, 'rem_mgmt_ip' => '10.0.0.2'], 'same_chassis'],
+	'the same id with the last byte cut (5 octets) is not a MAC: a name that differs from the sysname' => [['rem_sysname' => 'SW12'], ['rem_sysname' => substr($C, 0, 14)], false],
+	'the NX-OS device id name(serial) and the LLDP sysname, no common address (task 058)' => [['rem_sysname' => 'N9K-1'], ['rem_sysname' => 'N9K-1(FDO2101X0AB)'], true],
+	'a multicast address never matches (task 058)' => [['rem_man_addrs' => 'lldp:1.4.224.0.0.251'], ['rem_man_addrs' => 'lldp:1.4.224.0.0.251'], 'none'],
 ];
 foreach ($match_cases as $label => [$lldp_extra, $cdp_row, $joins]) {
 	fresh($pdo);
 	two_rules($pdo, $R, [lldp_c($C, $lldp_extra)], [['if_index' => 1] + $cdp_row]);
 	five_runs($pdo, $dsn, $user, $password, $label);
 	$state = lookup_state($pdo);
-	check(count($state['devices']) === ($joins === true || $joins === 'none' ? 2 : 3), $label.': '.($joins === true ? 'one Device for both claims' : ($joins === 'none' ? 'no Device for the CDP claim' : 'two Devices, the CDP claim has one of its own (scope_port)')).' '.json_encode($state['devices']));
+	check(count($state['devices']) === ($joins === true || $joins === 'none' || $joins === 'same_chassis' ? 2 : 3), $label.': '.($joins === true || $joins === 'same_chassis' ? 'one Device for both claims' : ($joins === 'none' ? 'no Device for the CDP claim' : ($joins === 'chassis' ? 'a Device of its own with that chassis' : 'two Devices, the CDP claim has one of its own (scope_port)'))).' '.json_encode($state['devices']));
+	if ($joins === 'chassis') {
+		check(count(array_filter($state['devices'], static fn (string $d): bool => str_starts_with($d, '/aa:bb:cc:dd:ee:ff'))) === 1, $label.': the Device has the MAC of the device id as its chassis and no name');
+	}
 	if ($joins === false) {
 		check(count(array_filter($state['devices'], static fn (string $d): bool => str_ends_with($d, ' scope_port'))) === 1, $label.': only the Device without a chassis has a scope_port');
 	}
@@ -304,7 +312,9 @@ check(dev_count($pdo) === $count + 1, 'the same name and address on ANOTHER port
 
 echo "\n=== the reporter's SNMP address (§6.7.1 row 4) ===\n";
 $h_rows = static fn (string $name): array => [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.7'] + ($name === '' ? [] : ['rem_sysname' => $name])];
-foreach (['no name' => ['', true], 'the same name as the sysname of H' => ['H', true], 'another name (a VRRP address of a router)' => ['R2', false]] as $label => [$name, $is_h]) {
+// 2.49: the reporter's name is only a sysname from its own data, never the Zabbix host name; the topology rows do not carry it today, so the address alone decides (the
+// VRRP example of §6.7.1 is not protected until lldpLocSysName is collected, §18)
+foreach (['no name' => ['', true], 'a name (the host name of H is not its sysname: not compared)' => ['H', true], 'another name (a VRRP address of a router: not protected yet)' => ['R2', true]] as $label => [$name, $is_h]) {
 	fresh($pdo);
 	add_host($pdo, 102, 'H', 'H', '10.0.0.7');
 	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => 'b0:00:00:00:00:77']]);
@@ -348,5 +358,36 @@ two_rules($pdo, $R, [lldp_c($C, ['rem_sysname' => 'N', 'rem_mgmt_ip' => '10.5.5.
 $summary = five_runs($pdo, $dsn, $user, $password, 'chassis row and a Device with the same name and address');
 check(dev_attr($pdo, $old, 'chassis_id') === null && dev_count($pdo) === 3, 'the Device without a chassis stays as it was (no chassis, not deleted); the claim with a chassis has its own Device');
 check(!isset($summary['devices_joined']) && count(attrs($pdo, $old)['duplicate_candidates'] ?? []) <= 1, 'no devices_joined counter');
+
+echo "\n=== NX-OS (task 058, model 2.49): LLDP sysname N9K-1, CDP device id N9K-1(FDO2101X0AB), no common address, one port: one Device, one link ===\n";
+fresh($pdo);
+two_rules($pdo, $R, [lldp_c($C, ['rem_sysname' => 'N9K-1'])], [['if_index' => 1, 'rem_sysname' => 'N9K-1(FDO2101X0AB)']]);
+five_runs($pdo, $dsn, $user, $password, 'NX-OS');
+check(dev_count($pdo) === 2 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type = 'physical_link'") === 1 && array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)) === ['applied'],
+	'one Device, one link, both claims applied (the name key drops the final group in parentheses)');
+
+echo "\n=== the office cases of model 2.48 (task 059): SW12 seen by LLDP and by CDP with a binary device id; the FortiAP factory address ===\n";
+$SW12 = 'a8:52:d4:53:11:00';
+fresh($pdo);
+add_host($pdo, 102, 'SW12', 'SW12', '10.0.0.2');
+snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => '1/1/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => $SW12]]);
+two_rules($pdo, $R, [['if_index' => 1, 'rem_chassis' => $SW12, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'SW12-10-CORE-6000-48G', 'rem_man_addrs' => 'lldp:1.4.127.0.17.2']],
+	[['if_index' => 1, 'rem_sysname' => $SW12, 'rem_man_addrs' => 'cdp:1:7f:00:11:02']]);
+five_runs($pdo, $dsn, $user, $password, 'SW12 by LLDP and CDP');
+$sw12_device = device_id($pdo, $SW12);
+check(dev_count($pdo) === 2 && (int) scalar($pdo, 'SELECT COUNT(DISTINCT device_id) FROM topo_observations') === 1 && (int) scalar($pdo, 'SELECT device_id FROM topo_observations LIMIT 1') === $sw12_device,
+	'SW12 (a reporter, chassis a8:52:d4:53:11:00) seen by LLDP and by CDP (device id = the chassis MAC as 6 bytes): every claim is SW12\'s Device, no other Device');
+check(!array_filter(attrs($pdo, $sw12_device)['duplicate_candidates'] ?? [], static fn (array $c): bool => $c['reason'] === 'same_name'), 'no same_name');
+check(dev_attr($pdo, $sw12_device, 'mgmt_ip') === '10.0.0.2', 'the mgmt_ip of SW12 is its own SNMP address, not the loopback 127.0.17.2 of the neighbor rows (normalization 0.9 section 4.4)');
+
+fresh($pdo);
+$forti = [];
+foreach ([1 => 'd4:b4:c0:62:ef:10', 2 => 'd4:b4:c0:62:ee:10', 3 => 'd4:b4:c0:62:e9:10', 4 => 'd4:b4:c0:62:c0:70'] as $port => $mac) {
+	$forti[] = ['if_index' => $port, 'rem_chassis' => $mac, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'FortiAP-231K', 'rem_mgmt_ip' => '192.168.1.2'];
+}
+reporter_rows($pdo, $R, $forti);
+five_runs($pdo, $dsn, $user, $password, 'four FortiAP');
+check(dev_count($pdo) === 5 && !(int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%duplicate_candidates%'"),
+	'four Devices with four MAC chassis and one address 192.168.1.2 (FortiAP factory address): four devices, no same_address (2.48)');
 
 echo "\nAll far Device lookup tests passed.\n";

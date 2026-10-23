@@ -844,7 +844,9 @@ c('I-09', 'Правило', function () {
 	ex(count(h_active_on('R:Gi0/2')) === 0, 'no link (no far port advertised)');
 	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared lists chassis keys only: none');
 	$cand = dup_candidates_of();
-	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => count($l) === 2 && count(array_unique($l)) === 2 && !array_diff(array_map(static fn ($x) => explode('->', $x)[0], $l), ['same_address']))) === 3, 'same_address on the three Devices that have 10.9.9.9 (actual: '.json_encode($cand).')');
+	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => !array_diff(array_map(static fn ($x) => explode('->', $x)[0], $l), ['same_address']))) === 3
+		&& count(array_filter($cand, static fn ($l) => count($l) === 2)) === 1 && count(array_filter($cand, static fn ($l) => count($l) === 1)) === 2,
+		'same_address between only-ip (no MAC chassis) and each of the two Devices with a MAC chassis; not between those two (2.48) (actual: '.json_encode($cand).')');
 });
 
 c('I-10', 'Правило', function () {
@@ -878,7 +880,7 @@ c('I-10', 'Правило', function () {
 	ex($by_chassis(mac(1)) === $s && $c !== null && $c !== $s, 'the reporter\'s Device S keeps the stored chassis X; the neighbors made Device C for Y (3 Devices)');
 	ex($chassis_change($cand($s)) === [['device_id' => $c, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]]
 		&& $chassis_change($cand($c)) === [['device_id' => $s, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]], 'candidate reporter_chassis_change on S and on C');
-	ex(count($cand($s)) === 2 && $cand($s)[1]['reason'] === 'same_address' && $cand($s)[1]['value'] === '10.0.0.1', 'and same_address (R\'s SNMP address 10.0.0.1 is the address N advertises for C)');
+	ex(count($cand($s)) === 1, 'no same_address between S and C: both have a MAC chassis (2.48), though R\'s SNMP address 10.0.0.1 is the address N advertises for C');
 	h_note('operator merge: keep S, remove C');
 	CTopologyPrototype::mergeDevices((string) $s, (string) $c, 'Admin');
 	h_tick();
@@ -924,7 +926,8 @@ c('I-13', 'Правило', function () {
 	ex(($h = h_obs('R', 'Gi0/3')) !== null && $h['device'] === 'by-ip', 'the IP-only row is not ambiguous: it has its own Device');
 	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared has chassis keys only: none');
 	$cand = dup_candidates_of();
-	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => count($l) === 2 && array_unique(array_map(static fn ($x) => explode('->', $x)[0], $l)) === ['same_address'])) === 3, 'same_address on the three Devices (actual: '.json_encode($cand).')');
+	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => count($l) === 2)) === 1 && count(array_filter($cand, static fn ($l) => count($l) === 1)) === 2,
+		'same_address between by-ip (no MAC chassis) and A, and between by-ip and B; not between A and B, two Devices with MAC chassis (2.48) (actual: '.json_encode($cand).')');
 });
 
 c('I-14', 'Правило', function () {
@@ -935,7 +938,8 @@ c('I-14', 'Правило', function () {
 	ex(h_dev_count() === 5 && h_dev('vip') !== null && (h_obs('R', 'Gi0/4')['device'] ?? null) === 'vip', 'as I-13: three Devices by chassis and a Device for the claim without a chassis');
 	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared has chassis keys only: none');
 	$cand = dup_candidates_of();
-	ex(count($cand) === 4 && count(array_filter($cand, static fn ($l) => count($l) === 3)) === 4, 'same_address: every Device of the four is marked with the other three (actual: '.json_encode($cand).')');
+	ex(count($cand) === 4 && count(array_filter($cand, static fn ($l) => count($l) === 3)) === 1 && count(array_filter($cand, static fn ($l) => count($l) === 1)) === 3,
+		'same_address: vip (no MAC chassis) is marked with each of A, B, C; they are not marked among themselves (2.48) (actual: '.json_encode($cand).')');
 });
 
 c('I-15', 'Пробел', function () {
@@ -1054,7 +1058,7 @@ c('I-24', 'Пробел', function () {
 	h_ingest('and again');
 	ex(h_dev('DX') !== null && count(h_links('R:Gi0/1', 'DX', null, 'active')) === 1, 'ingest deletes nothing: the Device and the link stay (the link only ages)');
 	$deletes = array_filter(get_class_methods('CTopologyPrototype'), static fn ($m) => stripos($m, 'device') !== false && stripos($m, 'delet') !== false);
-	ex($deletes === [], 'no way to delete a Device in the API (no method named delete...Device in CTopologyPrototype)');
+	ex($deletes === ['deleteDevice'], 'the operator can delete a Device since task 057 (CTopologyPrototype::deleteDevice; was: no way to delete a Device in the API)');
 });
 
 c('I-25', 'Пробел', function () {
