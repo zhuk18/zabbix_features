@@ -161,7 +161,7 @@ class IngestIdentify {
 			'vendor' => $incoming['vendor'] ?? 'unknown', 'last_seen' => $seen_at,
 		];
 		if (isset($incoming['scope_port'])) {
-			$attrs['scope_port'] = (int) $incoming['scope_port'];      // §6.7.1: the reporter's Port of a Device without a chassis; the match searches only the Devices of one port
+			$attrs['scope_ports'] = [(int) $incoming['scope_port']];      // §6.7.1, 2.52: the reporter's Ports of a Device without a chassis (one when it is made); the match searches only the Devices whose set holds the claim's port
 		}
 		if (($incoming['source'] ?? 'lldp') !== 'lldp') {
 			// the values of a non-lldp row are noted as such (source priority, §6.7.1): a later lldp row replaces them, another source only fills
@@ -201,22 +201,27 @@ class IngestIdentify {
 		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND d.represented_by_node_id IS NULL".
 				" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 			$attrs = json_decode($row['attrs'], true) ?: [];
-			if (($attrs['chassis_id'] ?? '') !== '' || !isset($attrs['scope_port'])) {
+			$ports = CTopologyAddress::scopePorts($attrs);
+			if (($attrs['chassis_id'] ?? '') !== '' || !$ports) {
 				continue;
 			}
 			$addrs = [];
 			if (is_string($attrs['mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($attrs['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
 				$addrs[$text] = true;
 			}
-			$port_scope[(int) $attrs['scope_port']][(int) $row['id']] = ['addrs' => $addrs, 'name' => (string) ($attrs['sysname'] ?? '')];
-			$known[(int) $row['id']] = (int) $attrs['scope_port'];
+			foreach ($ports as $port) {
+				$port_scope[$port][(int) $row['id']] = ['addrs' => $addrs, 'name' => (string) ($attrs['sysname'] ?? '')];
+			}
+			$known[(int) $row['id']] = $ports;
 		}
 		if ($known) {
 			foreach ($pdo->query("SELECT o.device_id, o.remote_attrs FROM topo_observations o JOIN topo_nodes d ON d.id = o.device_id AND d.type = 'device'".
 					" AND d.represented_by_node_id IS NULL WHERE NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 				if (isset($known[(int) $row['device_id']])) {
 					foreach (CTopologyAddress::claimAddresses(json_decode((string) $row['remote_attrs'], true) ?: []) as $address) {
-						$port_scope[$known[(int) $row['device_id']]][(int) $row['device_id']]['addrs'][$address] = true;
+						foreach ($known[(int) $row['device_id']] as $port) {
+							$port_scope[$port][(int) $row['device_id']]['addrs'][$address] = true;
+						}
 					}
 				}
 			}

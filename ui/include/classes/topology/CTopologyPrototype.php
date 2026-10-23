@@ -2183,7 +2183,7 @@ class CTopologyPrototype {
 
 			// R's other attributes fill only what K has no value for
 			foreach ($r as $key => $value) {
-				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by', 'scope_port'], true)) {
+				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by', 'scope_port', 'scope_ports'], true)) {
 					continue;
 				}
 				if (($k[$key] ?? null) === null || $k[$key] === '') {
@@ -2193,9 +2193,17 @@ class CTopologyPrototype {
 				}
 			}
 			$k['last_seen'] = max((int) ($k['last_seen'] ?? 0), (int) ($r['last_seen'] ?? 0));
-			// §6.7.5 merge steps (2.47): K keeps its own scope_port (R's is not copied); a Device that has a chassis has none
-			if (($k['chassis_id'] ?? '') !== '') {
-				unset($k['scope_port']);
+			// §6.7.5 merge steps (2.52): K gets the union of the scope_ports of K and R (one Device on all the ports of its claims); a Device that has a chassis has none
+			$scope_ports = CTopologyAddress::scopePorts($k);
+			foreach (CTopologyAddress::scopePorts($r) as $scope_port) {
+				if (!in_array($scope_port, $scope_ports, true)) {
+					$scope_ports[] = $scope_port;
+				}
+			}
+			sort($scope_ports);
+			unset($k['scope_port'], $k['scope_ports']);
+			if (($k['chassis_id'] ?? '') === '' && $scope_ports) {
+				$k['scope_ports'] = $scope_ports;
 			}
 			unset($k['duplicate_candidates']);          // re-derived by the next full ingest
 			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($k)).',updated_at='.time().' WHERE id='.zbx_dbstr($keep_id));

@@ -648,12 +648,12 @@ foreach (['hostid order' => null, 'reporters 102, 101' => '102,101'] as $label =
 check($orders['hostid order'] === $orders['reporters 102, 101'], 'the two reporter orders give the same key rows and the same Devices (compared by name)');
 check(str_contains($orders['hostid order'], 'same_address'), 'and the marks are there: same_address on the two Devices that advertise '.$IP);
 
-echo "\n=== 8: merge and scope_port (model §6.7.5 merge steps, 2.47): K keeps its own scope_port, a Device with a chassis has none ===\n";
+echo "\n=== 8: merge and scope_ports (model §6.7.5 merge steps, 2.52): K gets the union of the sets, a Device with a chassis has none ===\n";
 $with_scope = static function (?string $chassis, string $name, ?int $scope) use ($pdo): int {
 	$id = device($pdo, $chassis, null, $name);
 	$a = dev_attrs($pdo, $id);
 	if ($scope !== null) {
-		$a['scope_port'] = $scope;
+		$a['scope_ports'] = [$scope];
 	}
 	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $id]);
 	return $id;
@@ -662,15 +662,15 @@ reset_all($pdo);
 $k = $with_scope(null, 'K', 5);
 $rm = $with_scope(null, 'R', 6);
 CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
-check((dev_attrs($pdo, $k)['scope_port'] ?? null) === 5 && !exists($pdo, $rm), 'two Devices without a chassis: K keeps its own scope_port, the one of R is not copied');
+check((dev_attrs($pdo, $k)['scope_ports'] ?? null) === [5, 6] && !isset(dev_attrs($pdo, $k)['scope_port']) && !exists($pdo, $rm), 'two Devices without a chassis: K gets the union of the sets, [5, 6]');
 $k = $with_scope(null, 'K2', null);
 $rm = $with_scope(null, 'R2', 6);
 CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
-check(!isset(dev_attrs($pdo, $k)['scope_port']), 'K had no scope_port: R\'s is not copied either');
+check((dev_attrs($pdo, $k)['scope_ports'] ?? null) === [6], 'K had no scope_ports: it gets the ones of R, [6]');
 $k = $with_scope($X, 'K3', 5);
 $rm = $with_scope(null, 'R3', 6);
 CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
-check(!isset(dev_attrs($pdo, $k)['scope_port']), 'K has a chassis: it has no scope_port');
+check(!isset(dev_attrs($pdo, $k)['scope_ports']) && !isset(dev_attrs($pdo, $k)['scope_port']), 'K has a chassis: it has no scope_ports');
 
 echo "\n=== 9: Not the same device is per pair: the other candidates of the same Devices stay (model §6.7.5, 2.47, task 057) ===\n";
 reset_all($pdo);
@@ -842,7 +842,7 @@ $dm = device_id($pdo, $MK);
 $dl = device_id($pdo, 'MikroTik');
 $dt = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND id NOT IN (".(int) $dm.','.(int) $dl.") AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'MikroTik'");
 check($dm !== null && $dl !== null && $dt > 0 && dev_count($pdo) === 4, 'LLDP local, LLDP MAC M, CDP id M, CDP text id MikroTik -> three Devices (the local one, M, and the Device of the text claim) and the reporter');
-check(dev_attrs($pdo, $dt)['chassis_id'] === null && dev_attrs($pdo, $dt)['scope_port'] !== null, 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device of the port');
+check(dev_attrs($pdo, $dt)['chassis_id'] === null && isset(dev_attrs($pdo, $dt)['scope_ports']), 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device of the port');
 $group = static fn (int $id): array => array_values(array_map(static fn (array $c): int => (int) $c['device_id'], array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'same_address')));
 $members = [$dm, $dl, $dt];
 sort($members);
@@ -889,5 +889,44 @@ $d2 = device_id($pdo, $P2);
 $on = (int) scalar($pdo, 'SELECT device_id FROM topo_observations WHERE itemid = 1003');
 check($d1 !== null && $d2 !== null && dev_count($pdo) === 4 && $on > 0 && !in_array($on, [$d1, $d2], true),
 	'the CDP claim (address only) matches both LLDP claims, which are two Devices -> its own Device of the port');
+
+echo "\n=== 15: scope_ports (model 2.52, section 3.2, 6.7.1, 6.7.5; task 067): a neighbor without a chassis on two reporter ports ===\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+API::$visible[] = 101;
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R], ['if_index' => 2, 'name' => 'Gi0/2', 'loc_chassis' => $R]]);
+$ap = static fn (int $if): array => ['if_index' => $if, 'rem_sysname' => 'AP-7', 'rem_mgmt_ip' => '10.0.0.20', 'rem_port' => 'eth'.($if - 1), 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp'];
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [$ap(1), $ap(2)]);
+run_ingest($dsn, $user, $password);
+$aps = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'AP-7' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+check(count($aps) === 2 && dev_count($pdo) === 3, 'a neighbor without a chassis on two reporter ports: two Devices (a Device is searched only on the port of its claim)');
+$ports_of = static function (int $id) use ($pdo): array {
+	$a = dev_attrs($pdo, $id);
+	return array_map('intval', $a['scope_ports'] ?? (isset($a['scope_port']) ? [$a['scope_port']] : []));
+};
+check(count($ports_of($aps[0])) === 1 && count($ports_of($aps[1])) === 1 && $ports_of($aps[0]) !== $ports_of($aps[1]) && isset(dev_attrs($pdo, $aps[0])['scope_ports']) && !isset(dev_attrs($pdo, $aps[0])['scope_port']),
+	'each Device has scope_ports = [its port]');
+$reasons = array_map(static fn (array $c): string => $c['reason'], candidates($pdo, $aps[0]));
+sort($reasons);
+check($reasons === ['same_address', 'same_name'], 'the pair is a candidate (same_address and same_name)', $reasons);
+CTopologyPrototype::mergeDevices((string) $aps[0], (string) $aps[1], 'Admin');
+check(!exists($pdo, $aps[1]) && count($ports_of($aps[0])) === 2, 'merge: the kept Device has the union of the two sets (§6.7.5)', $ports_of($aps[0]));
+$state = '';
+for ($i = 0; $i < 5; $i++) {
+	run_ingest($dsn, $user, $password);
+	if ($i >= 1) {
+		$state = $state === '' ? fingerprint($pdo) : ($state === fingerprint($pdo) ? $state : 'changed');
+	}
+}
+check(dev_count($pdo) === 2 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type IN ('physical_link', 'device_link')") === 2 && $state !== 'changed',
+	'the next five runs: one Device AP-7, two links, no new Device, the runs 2-5 change nothing (P1)', [dev_count($pdo), $state === 'changed']);
+// the upgrade: scope_port P -> scope_ports [P], idempotent
+$pdo->exec("UPDATE topo_nodes SET attrs = JSON_REMOVE(JSON_SET(attrs, '\$.scope_port', 7), '\$.scope_ports') WHERE id = ".(int) $aps[0]);
+run_ingest($dsn, $user, $password);
+$a = dev_attrs($pdo, $aps[0]);
+check(isset($a['scope_ports']) && !isset($a['scope_port']) && in_array(7, $a['scope_ports'], true), 'upgrade: scope_port 7 becomes scope_ports [7]', $a);
+$f = fingerprint($pdo);
+run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $f, 'the upgrade is idempotent');
 
 echo "\nAll duplicate candidate checks passed.\n";

@@ -139,7 +139,17 @@ class IngestKeys {
 		$summary['identity_keys_orphaned'] = (int) $pdo->query("SELECT COUNT(*) FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')")->fetchColumn();
 		$pdo->exec("DELETE FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')");
 
-		// 2. scope_port of the chassis-less Devices, then the old key rows go
+		// 2. scope_ports of the chassis-less Devices, then the old key rows go
+		// 2.52: one `scope_port` P becomes `scope_ports` [P] (idempotent: a Device with `scope_ports` has no `scope_port`)
+		foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%scope_port\"%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			$attrs = json_decode($row['attrs'], true) ?: [];
+			if (!isset($attrs['scope_port'])) {
+				continue;
+			}
+			$attrs['scope_ports'] = CTopologyAddress::scopePorts($attrs);
+			unset($attrs['scope_port']);
+			$pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, (int) $row['id']]);
+		}
 		$sysname_keys = [];
 		foreach ($pdo->query("SELECT device_id, {$q_key} AS k FROM topo_identity_keys WHERE kind = 'sysname' AND replaced = 0 ORDER BY device_id, first_seen DESC, {$q_key}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 			if (preg_match('/^sysname:(\d+):/', $row['k'], $m) === 1) {
@@ -150,7 +160,7 @@ class IngestKeys {
 		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND d.represented_by_node_id IS NULL".
 				" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $device) {
 			$attrs = json_decode($device['attrs'], true) ?: [];
-			if (($attrs['chassis_id'] ?? '') !== '' || isset($attrs['scope_port'])) {
+			if (($attrs['chassis_id'] ?? '') !== '' || CTopologyAddress::scopePorts($attrs)) {
 				continue;
 			}
 			$port = $sysname_keys[(int) $device['id']] ?? null;
@@ -160,7 +170,7 @@ class IngestKeys {
 				$port = $found === false ? null : (int) $found;
 			}
 			if ($port !== null) {
-				$attrs['scope_port'] = $port;
+				$attrs['scope_ports'] = [$port];
 				$pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, (int) $device['id']]);
 			}
 		}

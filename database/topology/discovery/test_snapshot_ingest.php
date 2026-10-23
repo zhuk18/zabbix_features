@@ -495,7 +495,7 @@ snapshot($pdo, 1002, 101, 2, CLOCK + 10, [['if_index' => 1, 'rem_sysname' => 'on
 run_ingest($dsn, $user, $password);
 $d = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname'))='only-a-name'");
 $local_port = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:99'"), 1);
-check($d > 0 && (attrs($pdo, $d)['scope_port'] ?? null) === $local_port && !isset(attrs($pdo, $d)['matched_by']), 'created for a name only: scope_port is the reporter\'s port, there is no matched_by (removed in 2.47)');
+check($d > 0 && (attrs($pdo, $d)['scope_ports'] ?? null) === [$local_port] && !isset(attrs($pdo, $d)['matched_by']), 'created for a name only: scope_port is the reporter\'s port, there is no matched_by (removed in 2.47)');
 $before = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $before, 'the first repeat run changes no attribute');

@@ -204,7 +204,7 @@ function lookup_state(PDO $pdo): array {
 	foreach ($pdo->query("SELECT id, attrs, represented_by_node_id FROM topo_nodes WHERE type = 'device' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $d) {
 		$a = json_decode($d['attrs'], true);
 		$names[(int) $d['id']] = ($a['sysname'] ?? '').'/'.($a['chassis_id'] ?? '-');
-		$devices[] = $names[(int) $d['id']].(isset($a['scope_port']) ? ' scope_port' : '').($d['represented_by_node_id'] !== null ? ' reporter' : '');
+		$devices[] = $names[(int) $d['id']].(isset($a['scope_ports']) ? ' scope_ports' : '').($d['represented_by_node_id'] !== null ? ' reporter' : '');
 	}
 	sort($devices);
 	$obs = [];
@@ -280,7 +280,7 @@ foreach ($match_cases as $label => [$lldp_extra, $cdp_row, $joins]) {
 		check(count(array_filter($state['devices'], static fn (string $d): bool => str_starts_with($d, '/aa:bb:cc:dd:ee:ff'))) === 1, $label.': the Device has the MAC of the device id as its chassis and no name');
 	}
 	if ($joins === false) {
-		check(count(array_filter($state['devices'], static fn (string $d): bool => str_ends_with($d, ' scope_port'))) === 1, $label.': only the Device without a chassis has a scope_port');
+		check(count(array_filter($state['devices'], static fn (string $d): bool => str_ends_with($d, ' scope_ports'))) === 1, $label.': only the Device without a chassis has a scope_port');
 	}
 }
 
@@ -288,14 +288,14 @@ echo "\n=== the Devices of the port: one matches / several match / none (§6.7.1
 fresh($pdo);
 two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.40', 'rem_sysname' => 'AP-1']]);
 run_ingest($dsn, $user, $password);
-$port = (int) scalar($pdo, "SELECT JSON_EXTRACT(attrs, '\$.scope_port') FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'AP-1'");
+$port = (int) scalar($pdo, "SELECT JSON_EXTRACT(attrs, '\$.scope_ports[0]') FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'AP-1'");
 check($port > 0, 'the claim without a chassis made a Device with scope_port = the local port');
 // two more Devices of the same port, made by hand (old data): one with the address 10.0.0.41, one with the name AP-2 and the same address
 foreach ([['AP-3', '10.0.0.41'], ['AP-2', '10.0.0.41']] as [$name, $ip]) {
 	$id = device($pdo, null, null, $name);
 	$a = attrs($pdo, $id);
 	$a['mgmt_ip'] = $ip;
-	$a['scope_port'] = $port;
+	$a['scope_ports'] = [$port];
 	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $id]);
 }
 $count = dev_count($pdo);
@@ -352,7 +352,7 @@ echo "\n=== no automatic join: a Device is never given a chassis by a later row,
 fresh($pdo);
 $old = device($pdo, null, null, 'N');
 $a = attrs($pdo, $old);
-$a['scope_port'] = 1;
+$a['scope_ports'] = [1];
 $pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $old]);
 two_rules($pdo, $R, [lldp_c($C, ['rem_sysname' => 'N', 'rem_mgmt_ip' => '10.5.5.5'])], [['if_index' => 1, 'rem_sysname' => 'N', 'rem_mgmt_ip' => '10.5.5.5']]);
 $summary = five_runs($pdo, $dsn, $user, $password, 'chassis row and a Device with the same name and address');

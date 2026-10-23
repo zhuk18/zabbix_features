@@ -238,6 +238,22 @@ class CTopologyAddress {
 	}
 
 	/**
+	 * The reporter Ports of a Device without a chassis (model §3.2, 2.52: `scope_ports`; 2.47: one `scope_port`, read as [P] until the upgrade of ingest has rewritten it).
+	 *
+	 * @return int[] sorted, distinct
+	 */
+	public static function scopePorts(array $attrs): array {
+		$ports = array_map('intval', is_array($attrs['scope_ports'] ?? null) ? $attrs['scope_ports'] : []);
+		if (isset($attrs['scope_port'])) {
+			$ports[] = (int) $attrs['scope_port'];
+		}
+		$ports = array_values(array_unique($ports));
+		sort($ports);
+
+		return $ports;
+	}
+
+	/**
 	 * The one place of the MAC text forms (normalization §4.1): the octets of a value that is shaped like a MAC, or null (text). Forms: groups of 1-2 hex digits with `:`
 	 * only, pairs with `-` only, Cisco dotted `xxxx.xxxx.xxxx`; one separator in a value, so `:` and `-` mixed, or a group of 1 digit with `-`, is not a MAC (0.13).
 	 * The count of octets is not checked here (the caller decides: 6 is a MAC, another count is an error where the field is known to be a MAC). The octets are as written

@@ -111,9 +111,9 @@ check($err === '', 'the run is clean '.$err);
 check($keys($d1) === ['chassis:mac:02:00:00:00:07:01' => 0], 'a reporter\'s Device: the MAC chassis (global) only; the address is an attribute (2.47)');
 check($keys($d2) === ['chassis:mac:02:00:00:00:07:02' => 0, 'chassis:mac:02:00:00:00:07:99' => 1],
 	'a reporter in a proxy group: the chassis and the replaced chassis as a key with replaced = 1');
-check($keys($d3) === [] && (json_decode((string) $attrs_of($d3), true)['scope_port'] ?? null) === $port,
-	'a Device without a chassis: no key; scope_port = the local port of its latest observation');
-check($keys($d4) === [] && !isset(json_decode((string) $attrs_of($d4), true)['scope_port']), 'no chassis, no observation: no key, no scope_port');
+check($keys($d3) === [] && (json_decode((string) $attrs_of($d3), true)['scope_ports'] ?? null) === [$port],
+	'a Device without a chassis: no key; scope_ports = [the local port of its latest observation]');
+check($keys($d4) === [] && !isset(json_decode((string) $attrs_of($d4), true)['scope_ports']), 'no chassis, no observation: no key, no scope_port');
 check($keys($d5) === ['chassis:mac:02:00:00:00:07:05' => 0], 'no reporter, no observation, MAC chassis only: the global key does not need a segment');
 check($keys($d6) === [], 'a text chassis needs a segment: skipped');
 $built = $summary['identity_keys_built'] ?? [];

@@ -324,7 +324,7 @@ reporter($pdo, [$lldp_local, nrow(1, 'lldp', ['rem_chassis' => 'c0:00:00:00:00:0
 $r = run_ingest($dsn, $user, $password);
 $cdp_outcome = scalar($pdo, "SELECT outcome FROM topo_observations WHERE remote_key = 'sysname:PC-7'");
 check($cdp_outcome === 'ambiguous' && $non_reporter_devices() === 3, 'two claims with a chassis on the port (chassis id PC-7, MAC with sysname PC-7) -> the CDP claim has a Device of its own, all three claims are ambiguous');
-check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device' AND JSON_EXTRACT(attrs,'\$.scope_port') IS NOT NULL") === 1, 'only the Device without a chassis has a scope_port');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device' AND JSON_EXTRACT(attrs,'\$.scope_ports') IS NOT NULL") === 1, 'only the Device without a chassis has scope_ports');
 $r = run_ingest($dsn, $user, $password);
 check($non_reporter_devices() === 3 && $r['summary']['devices_created'] === 0, 'and a rerun creates nothing');
 
@@ -388,8 +388,8 @@ run_ingest($dsn, $user, $password);
 $rdev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:01'");
 $port1 = port_id($pdo, $rdev, 1);
 $ydev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Ysys'");
-check(attrs($pdo, $ydev)['scope_port'] === $port1 && (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ?', [$ydev]) === 0,
-	"a Device made for a claim without a chassis has scope_port = the reporter's port ({$port1}) and no key row");
+check(attrs($pdo, $ydev)['scope_ports'] === [$port1] && (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ?', [$ydev]) === 0,
+	"a Device made for a claim without a chassis has scope_ports = [the reporter's port ({$port1})] and no key row");
 $before = counts($pdo);
 $pdo->exec('DELETE FROM topo_observations');
 $r = run_ingest($dsn, $user, $password);
@@ -433,8 +433,8 @@ $d_none = $put('OldNone', null, ['ip:server:10.5.5.5' => 'ip']);                
 $deleted_before = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind IN ('ip','sysname')");
 run_ingest($dsn, $user, $password);
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind IN ('ip','sysname')") === 0 && $deleted_before === 4, 'the key rows of kind ip and sysname are deleted (4 rows)');
-check((attrs($pdo, $d_sys)['scope_port'] ?? null) === $port3 && (attrs($pdo, $d_obs)['scope_port'] ?? null) === $port4 && !isset(attrs($pdo, $d_none)['scope_port']),
-	'scope_port: from the sysname key; from the local port of the latest observation; none when there is neither');
+check((attrs($pdo, $d_sys)['scope_ports'] ?? null) === [$port3] && (attrs($pdo, $d_obs)['scope_ports'] ?? null) === [$port4] && !isset(attrs($pdo, $d_none)['scope_ports']),
+	'scope_ports: from the sysname key; from the local port of the latest observation; none when there is neither');
 check(exists_device($pdo, $d_sys) && exists_device($pdo, $d_obs) && exists_device($pdo, $d_none), 'the Devices stay');
 $fp = fingerprint($pdo);
 run_ingest($dsn, $user, $password);

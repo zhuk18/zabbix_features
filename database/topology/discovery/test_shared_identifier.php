@@ -262,7 +262,7 @@ run_ingest($dsn, $user, $password);
 $r = run_ingest($dsn, $user, $password);
 $phone = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'PHONE-Y'");
 $port1 = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = ?", [$R]), 1);
-check(dev_count($pdo) === 3 && $phone > 0 && attrs($pdo, $phone)['scope_port'] === $port1, 'LLDP chassis C name SW-X, CDP no chassis name PHONE-Y, the same address -> no join: a Device with scope_port = the port for the CDP claim');
+check(dev_count($pdo) === 3 && $phone > 0 && attrs($pdo, $phone)['scope_ports'] === [$port1], 'LLDP chassis C name SW-X, CDP no chassis name PHONE-Y, the same address -> no join: a Device with scope_port = the port for the CDP claim');
 check(array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)) === ['ambiguous'] && count(edges($pdo)) === 0, '§8.5: two neighbors on one port, no link -> both claims ambiguous');
 check($r['summary']['devices_created'] === 0, 'the second run creates nothing');
 

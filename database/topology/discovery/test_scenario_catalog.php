@@ -762,7 +762,7 @@ c('I-04', 'Правило', function () {
 	h_ingest('sysname-only neighbor');
 	global $pdo;
 	$port = static fn (string $rep) => (int) h_node_id_of_port($rep, 'Gi0/1');
-	ex(((int) (attrs($pdo, h_device_id('S-only'))['scope_port'] ?? 0)) === $port('R') && !isset(attrs($pdo, h_device_id('S-only'))['matched_by']), 'a Device made for a name-only claim has scope_port = the reporter\'s port, no matched_by (removed in 2.47)');
+	ex(((int) ((attrs($pdo, h_device_id('S-only'))['scope_ports'] ?? [0])[0])) === $port('R') && !isset(attrs($pdo, h_device_id('S-only'))['matched_by']), 'a Device made for a name-only claim has scope_port = the reporter\'s port, no matched_by (removed in 2.47)');
 	h_tick();
 	h_nbrs('R', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('seen again on the same port');

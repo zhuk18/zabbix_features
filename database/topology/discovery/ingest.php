@@ -759,9 +759,10 @@ if (!$zabbix_host_filter) {
 		$port_hosts[(int) $row['id']] = (int) $row['host_ref'];
 	}
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%scope_port%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
-		$device_attrs = json_decode($row['attrs'], true) ?: [];
-		if (isset($device_attrs['scope_port'], $port_hosts[(int) $device_attrs['scope_port']])) {
-			$device_segments[(int) $row['id']][$segment_of($port_hosts[(int) $device_attrs['scope_port']])] = true;
+		foreach (CTopologyAddress::scopePorts(json_decode($row['attrs'], true) ?: []) as $scope_port) {
+			if (isset($port_hosts[$scope_port])) {
+				$device_segments[(int) $row['id']][$segment_of($port_hosts[$scope_port])] = true;
+			}
 		}
 	}
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%mgmt_ip%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
