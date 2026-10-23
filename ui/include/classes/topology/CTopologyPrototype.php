@@ -2155,7 +2155,7 @@ class CTopologyPrototype {
 
 			// R's other attributes fill only what K has no value for
 			foreach ($r as $key => $value) {
-				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by'], true)) {
+				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by', 'scope_port'], true)) {
 					continue;
 				}
 				if (($k[$key] ?? null) === null || $k[$key] === '') {
@@ -2165,6 +2165,10 @@ class CTopologyPrototype {
 				}
 			}
 			$k['last_seen'] = max((int) ($k['last_seen'] ?? 0), (int) ($r['last_seen'] ?? 0));
+			// §6.7.5 merge steps (2.47): K keeps its own scope_port (R's is not copied); a Device that has a chassis has none
+			if (($k['chassis_id'] ?? '') !== '') {
+				unset($k['scope_port']);
+			}
 			unset($k['duplicate_candidates']);          // re-derived by the next full ingest
 			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($k)).',updated_at='.time().' WHERE id='.zbx_dbstr($keep_id));
 

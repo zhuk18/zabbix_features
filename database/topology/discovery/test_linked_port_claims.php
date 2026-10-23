@@ -231,8 +231,8 @@ function lldp_to_r(): array {
 /** Both reporters and the link L (R:Gi0/1 <-> B:Gi0/24) from the LLDP rows of both ends. $items = [R lldp item, R cdp item]. Returns the id of L. */
 function establish(PDO $pdo, string $dsn, string $user, string $password, array $items = [1002, 1003], array $options = []): int {
 	reset_all($pdo);
-	add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
-	add_host($pdo, 102, 'SwB', 'Switch B', '10.0.0.2');
+	add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+	add_host($pdo, 102, 'SwB', 'SwB', '10.0.0.2');
 	snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => R_MAC], ['if_index' => 2, 'name' => 'Gi0/2', 'loc_chassis' => R_MAC]]);
 	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 24, 'name' => 'Gi0/24', 'loc_chassis' => B_MAC]]);
 	snapshot($pdo, $items[0], 101, 2, CLOCK + 10, [lldp_to_b()]);

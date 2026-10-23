@@ -187,7 +187,6 @@ $chassis_key = static function (?string $value, ?string $type, string $segment) 
 	return substr('chassis:'.($type === null || $type === '' ? 'local' : $type).':'.$segment.':'.$value, 0, 300);
 };
 // The scoped sysname key (§6.7.0, 2.31): the reporter's local Port (its topo_nodes id, so it names the reporter too) and the sysname as received.
-$sysname_key = static fn (int $port_id, string $sysname): string => substr('sysname:'.$port_id.':'.$sysname, 0, 300);
 $ip_key = static fn (?string $addr, string $segment): ?string => $addr === null || $addr === '' ? null : substr('ip:'.$segment.':'.$addr, 0, 300);
 
 /** Devices that hold a key (replaced keys only when asked for), ordered by id. */
@@ -214,10 +213,7 @@ $insert_key = static function (int $device_id, string $key, string $kind, int $s
 };
 // The keys a row or a reporter gives to the Device it found or created. A Device keeps the chassis it has (a stored stronger key is never replaced by a
 // different value); a key another Device holds is not copied (it would make the value shared; the duplicate candidate is recorded elsewhere).
-// An address key that a row could not take because another Device holds it is remembered ($deferred_ip_keys): when the run removes that other Device's key as stale
-// (§6.7.0), the row takes it at the end of the same run (§6.10: the first run gives the key rows of the second), see the end of the run.
-$deferred_ip_keys = [];      // [[device id, key, seen_at], ...]
-$register_keys = static function (int $device_id, array $incoming, int $seen_at, bool $by_reporter = false) use ($pdo, $q_key, $key_holders, $device_has_kind, $device_holds_key, $insert_key, &$deferred_ip_keys): void {
+$register_keys = static function (int $device_id, array $incoming, int $seen_at, bool $by_reporter = false) use ($pdo, $q_key, $key_holders, $device_has_kind, $device_holds_key, $insert_key): void {
 	if (!$by_reporter) {
 		// §6.4 step 6, §6.7.1: a neighbor row never adds a key to a reporter's Device, in any segment; the reporter writes its own keys
 		$reporter = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
@@ -226,69 +222,70 @@ $register_keys = static function (int $device_id, array $incoming, int $seen_at,
 			return;
 		}
 	}
-	foreach (['chassis', 'ip', 'sysname'] as $kind) {
-		$key = $incoming[$kind.'_key'] ?? null;
-		if ($key === null || $device_holds_key($device_id, $key)) {
-			continue;
-		}
-		if ($kind === 'sysname') {
-			$insert_key($device_id, $key, 'sysname', $seen_at);      // scoped to one reporter and one port: never shared with another Device's key by value
-			continue;
-		}
-		if ($kind === 'chassis' && $device_has_kind($device_id, 'chassis')) {
-			continue;
-		}
-		// the reporter's own key is always on its Device, even when another Device holds it (then the key is shared, §6.4 step 5)
-		if (!$by_reporter && array_diff($key_holders($key), [$device_id])) {
-			if ($kind === 'ip') {
-				$deferred_ip_keys[] = [$device_id, $key, $seen_at];
-			}
-			continue;
-		}
-		$insert_key($device_id, $key, $kind, $seen_at);
+	// 2.47 (§6.7.0): the identity key is the chassis only; addresses and names are attributes
+	$key = $incoming['chassis_key'] ?? null;
+	if ($key === null || $device_holds_key($device_id, $key) || $device_has_kind($device_id, 'chassis')) {
+		return;
 	}
+	// the reporter's own key is always on its Device, even when another Device holds it (then the key is shared, §6.4 step 5)
+	if (!$by_reporter && array_diff($key_holders($key), [$device_id])) {
+		return;
+	}
+	$insert_key($device_id, $key, 'chassis', $seen_at);
 };
 
-// The `ip:` keys the inputs of THIS run give to Devices (§6.7.0 "Address keys follow the current rows"): device id => [key => true]. Filled by the neighbor
-// rows (a Device without a reporter) and by the reporters' own SNMP interface IPs; at the end of a full run every other `ip:` key goes ($drop_stale_address_keys).
-$current_ip_keys = [];
-
-// Devices that hold no key (data written before the key table, and Devices made by the legacy loop) get their keys from their attributes, in the
-// segment of their reporter, else of the reporter of their latest observation. A MAC chassis is global and needs no segment; a Device whose
-// scoped keys cannot be built (no reporter, no observation) is listed in the run summary and left without them.
-$build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, $ip_key, $sysname_key, $insert_key, $now, &$summary): void {
-	// key rows without a Device (§6.7.0): counted, then removed
+// Identity keys of the stored Devices at the start of a run (§6.7.0):
+//  1. Orphan key rows (no Device) are counted and removed.
+//  2. Upgrade to 2.47: the identity keys are the chassis only. A Device without a chassis (no chassis attribute, no chassis key, no association) gets `attrs.scope_port`
+//     from its former sysname key (`sysname:<port id>:<name>`, the newest), else from the local port of its latest observation, else none; then the key rows of kind
+//     `ip` and `sysname` are deleted. The Devices stay. Idempotent: with no such key row and every chassis-less Device either with a scope_port or without any
+//     observation, a run changes nothing here.
+//  3. Devices that hold no chassis key (data written before the key table) get it from their attributes, in the segment of their reporter, else of the reporter of
+//     their latest observation. A MAC chassis is global and needs no segment; a Device whose scoped key cannot be built (no reporter, no observation) is listed in the
+//     run summary and left without it.
+$build_identity_keys = static function () use ($pdo, $q_key, $segment_of, $chassis_key, $insert_key, $now, &$summary): void {
 	$summary['identity_keys_orphaned'] = (int) $pdo->query("SELECT COUNT(*) FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')")->fetchColumn();
 	$pdo->exec("DELETE FROM topo_identity_keys WHERE device_id NOT IN (SELECT id FROM topo_nodes WHERE type = 'device')");
+
+	// 2. scope_port of the chassis-less Devices, then the old key rows go
+	$sysname_keys = [];
+	foreach ($pdo->query("SELECT device_id, {$q_key} AS k FROM topo_identity_keys WHERE kind = 'sysname' AND replaced = 0 ORDER BY device_id, first_seen DESC, {$q_key}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		if (preg_match('/^sysname:(\d+):/', $row['k'], $m) === 1) {
+			$sysname_keys[(int) $row['device_id']] ??= (int) $m[1];       // the newest key first
+		}
+	}
+	$latest_port = $pdo->prepare('SELECT local_port_id FROM topo_observations WHERE device_id = ? AND local_port_id IS NOT NULL ORDER BY last_seen DESC, id DESC LIMIT 1');
+	foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND d.represented_by_node_id IS NULL".
+			" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $device) {
+		$attrs = json_decode($device['attrs'], true) ?: [];
+		if (($attrs['chassis_id'] ?? '') !== '' || isset($attrs['scope_port'])) {
+			continue;
+		}
+		$port = $sysname_keys[(int) $device['id']] ?? null;
+		if ($port === null) {
+			$latest_port->execute([(int) $device['id']]);
+			$found = $latest_port->fetchColumn();
+			$port = $found === false ? null : (int) $found;
+		}
+		if ($port !== null) {
+			$attrs['scope_port'] = $port;
+			$pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, (int) $device['id']]);
+		}
+	}
+	$pdo->exec("DELETE FROM topo_identity_keys WHERE kind IN ('ip', 'sysname')");
+
+	// 3. chassis keys of Devices that hold none
 	$devices = $pdo->query("SELECT d.id, d.attrs, d.represented_by_matched_by AS matched_by, h.host_ref FROM topo_nodes d".
 		" LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
 		" WHERE d.type = 'device' AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id) ORDER BY d.id")->fetchAll(PDO::FETCH_ASSOC);
 	foreach ($devices as $device) {
 		$attrs = json_decode($device['attrs'], true) ?: [];
-		$wanted = [];      // [value, kind, replaced]
+		$wanted = [];      // [value, replaced]
 		if (($attrs['chassis_id'] ?? '') !== '') {
-			$wanted[] = [(string) $attrs['chassis_id'], 'chassis', false];
+			$wanted[] = [(string) $attrs['chassis_id'], false];
 		}
 		foreach ($attrs['replaced_chassis'] ?? [] as $old) {
-			$wanted[] = [(string) $old, 'chassis', true];
-		}
-		if (($attrs['mgmt_ip'] ?? '') !== '') {
-			$wanted[] = [(string) $attrs['mgmt_ip'], 'ip', false];
-		}
-		// Upgrade from before 2.31 (the scoped sysname key was found through links, then through observations): a Device without keys that an observation names by a
-		// sysname key (`remote_key` sysname:<value> on a local port) gets that key once; the Device is a far Device found or made by sysname.
-		$sysname_wanted = [];
-		$named = $pdo->prepare("SELECT DISTINCT local_port_id, remote_key FROM topo_observations WHERE device_id = ? AND remote_key LIKE 'sysname:%' ORDER BY local_port_id, remote_key");
-		$named->execute([$device['id']]);
-		foreach ($named->fetchAll(PDO::FETCH_ASSOC) as $o) {
-			$sysname_wanted[] = $sysname_key((int) $o['local_port_id'], substr((string) $o['remote_key'], 8));
-		}
-		foreach ($sysname_wanted as $key) {
-			$insert_key((int) $device['id'], $key, 'sysname', (int) ($attrs['last_seen'] ?? $now));
-			$summary['identity_keys_built']['keys']++;
-			if (!$wanted) {
-				$summary['identity_keys_built']['devices']++;
-			}
+			$wanted[] = [(string) $old, true];
 		}
 		if (!$wanted) {
 			continue;
@@ -307,16 +304,16 @@ $build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, 
 		}
 		$built = 0;
 		$skipped = false;
-		foreach ($wanted as [$value, $kind, $replaced]) {
-			$key = $kind === 'ip' ? ($segment === null ? null : $ip_key($value, $segment)) : $chassis_key($value, null, $segment ?? '');
-			if ($key === null || ($kind === 'chassis' && $segment === null && !str_starts_with($key, 'chassis:mac:'))) {
+		foreach ($wanted as [$value, $replaced]) {
+			$key = $chassis_key($value, null, $segment ?? '');
+			if ($key === null || ($segment === null && !str_starts_with($key, 'chassis:mac:'))) {
 				$skipped = true;
 				continue;
 			}
-			$exists = $pdo->prepare('SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND '.($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? '"key"' : '`key`').' = ?');
+			$exists = $pdo->prepare("SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?");
 			$exists->execute([$device['id'], $key]);
 			if ($exists->fetchColumn() === false) {
-				$insert_key((int) $device['id'], $key, $kind, (int) ($attrs['last_seen'] ?? $now), $replaced);
+				$insert_key((int) $device['id'], $key, 'chassis', (int) ($attrs['last_seen'] ?? $now), $replaced);
 				$built++;
 			}
 		}
@@ -328,14 +325,11 @@ $build_identity_keys = static function () use ($pdo, $segment_of, $chassis_key, 
 	}
 };
 
-// topology-1-model.md "Far Device" (§6.7.1) and "Shared identifier" (§6.7.4), for the snapshot path, through the identity keys (§6.7.0).
-// Keys, strongest first: the chassis key, the IP key, sysname (scoped to the reporter and the local port, see $find_device).
-//  1. look up by the strongest key the row has;
-//  2. not found: look up by a weaker key of the row, but only among Devices that have no key of any stronger kind the row has, in any scope
-//     (such a Device gets that key written by the caller);
-//  3. more than one match at any step: shared, nothing is picked and no weaker key is tried.
-// $identity = ['chassis' => [key, raw value] | null, 'ip' => [key, raw value] | null].
-// Returns [device_id, matched_by], null (nothing found: create a Device) or ['shared', kind, value, node_ids].
+// topology-1-model.md "Far Device" (§6.7.1) and "Shared identifier" (§6.7.4), for the snapshot path (2.47): the identity key is the chassis only.
+//  - a chassis key on one Device finds it; on none, a replaced chassis key of exactly one Device finds that Device; on several Devices: shared, nothing is picked.
+//  - a reporter never takes a Device that has another representation, nor one that $exclude names.
+// $identity = ['chassis' => [key, raw value] | null]. Returns [device_id, 'chassis_id'], null (nothing found) or ['shared', 'chassis_id', value, node_ids].
+// The claims without a chassis are looked up by $find_chassisless_device (the match of §6.7.1), not here.
 $note_shared = static function (string $kind, string $value, array $node_ids) use (&$summary): void {
 	foreach ($summary['identity_keys_shared']['list'] as $entry) {
 		if ($entry['key'] === $kind && $entry['value'] === $value) {
@@ -348,98 +342,39 @@ $note_shared = static function (string $kind, string $value, array $node_ids) us
 	}
 };
 
-// What the rows of this run resolved to, per local port (§6.7.1): the Devices found or made by rows of that port. Filled by $snap_device; the same-port join
-// looks at it. (The scoped sysname key itself is a stored key like the others, $sysname_key.)
-$run_port_devices = [];      // [local_port_id => [device_id => true]]
-
-$resolve_device = static function (array $identity, ?int $local_port_id, ?string $sysname, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders, $device_has_kind, $sysname_key, &$run_port_devices): ?array {
-	$keys = [];       // [kind => [key, raw]], in the order of strength, only the keys the row has
-	if (!empty($identity['chassis'])) {
-		$keys['chassis'] = $identity['chassis'];
+$resolve_device = static function (array $identity, bool $for_reporter = false, array $exclude = []) use ($pdo, $key_holders): ?array {
+	if (empty($identity['chassis'])) {
+		return null;
 	}
-	if (!empty($identity['ip'])) {
-		$keys['ip'] = $identity['ip'];
-	}
-	if ($local_port_id !== null && $sysname) {
-		$keys['sysname'] = [$sysname, $sysname];
-	}
-	$names = ['chassis' => 'chassis_id', 'ip' => 'mgmt_ip', 'sysname' => 'sysname'];
-	$stronger = [];
-	foreach ($keys as $kind => [$value, $raw]) {
-		if ($kind === 'sysname') {
-			// the stored scoped key (§6.7.0): a Device that a row of this reporter and this port resolved to by its sysname, in this run or an earlier one,
-			// whatever the outcome of the observation was (applied, conflict, ambiguous) — a key never makes a second Device (§6.7.1)
-			$ids = $key_holders($sysname_key($local_port_id, $value));
-			if (!$ids && count($keys) === 1) {
-				// Same-port join (§6.7.1): a row whose only key is the scoped sysname key joins the Device another row of this reporter and this port resolved to,
-				// when the sysname is that Device's text chassis id or its sysname. One → that Device; several → shared; none → create.
-				$join = [];
-				foreach (array_keys($run_port_devices[$local_port_id] ?? []) as $candidate) {
-					$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
-					$stmt->execute([$candidate]);
-					$candidate_attrs = json_decode((string) $stmt->fetchColumn(), true) ?: [];
-					$text_chassis = ($candidate_attrs['chassis_id'] ?? '') !== '' && !preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', (string) $candidate_attrs['chassis_id'])
-						? trim((string) $candidate_attrs['chassis_id']) : null;
-					if (trim($value) !== '' && (trim($value) === $text_chassis || trim($value) === trim((string) ($candidate_attrs['sysname'] ?? '')))) {
-						$join[] = (int) $candidate;
-					}
-				}
-				sort($join);
-				if (count($join) > 1) {
-					return ['shared', 'sysname', $raw, $join];
-				}
-				if ($join) {
-					return [$join[0], 'sysname'];
-				}
+	[$value, $raw] = $identity['chassis'];
+	$ids = $key_holders($value);
+	if ($for_reporter || $exclude) {
+		// §6.4 step 5: a reporter never takes a Device that has another representation, nor one that another reporter takes
+		$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $for_reporter, $exclude): bool {
+			if (in_array($id, $exclude, true)) {
+				return false;
 			}
-		}
-		else {
-			$ids = $key_holders($value);
-		}
-		if ($for_reporter || $exclude) {
-			// §6.4 step 5: a reporter never takes a Device that has another representation, nor one that another reporter takes
-			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $for_reporter, $exclude): bool {
-				if (in_array($id, $exclude, true)) {
+			if ($for_reporter) {
+				$rep = $pdo->prepare('SELECT represented_by_node_id FROM topo_nodes WHERE id = ?');
+				$rep->execute([$id]);
+				if ($rep->fetchColumn() !== null) {
 					return false;
 				}
-				if ($for_reporter) {
-					$rep = $pdo->prepare('SELECT represented_by_node_id FROM topo_nodes WHERE id = ?');
-					$rep->execute([$id]);
-					if ($rep->fetchColumn() !== null) {
-						return false;
-					}
-				}
-				return true;
-			}));
-		}
-		if ($stronger) {
-			// a weaker key may only take a Device that has no key of a stronger kind the row has (in any scope)
-			// A reporter's Device that has no chassis key is found by the IP like any other (§6.7.0 "Keys of a reporter's Device"); the row does not give it
-			// its chassis ($register_keys refuses a reporter's Device), so the result does not depend on which host is ingested first.
-			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $device_has_kind, $stronger, $for_reporter): bool {
-				foreach ($stronger as $stronger_kind) {
-					if ($device_has_kind($id, $stronger_kind)) {
-						return false;
-					}
-				}
-				return true;
-			}));
-		}
-		if (count($ids) > 1 && $kind !== 'sysname') {
-			return ['shared', $names[$kind], $raw, $ids];
-		}
-		if ($ids) {
-			return [$ids[0], $names[$kind]];
-		}
-		if ($kind === 'chassis') {
-			// topology-1-model.md §6.7.0 "Replaced chassis": a chassis key that is marked replaced on exactly one Device finds that Device, after the
-			// lookup by the normal keys found nothing (a neighbor that still advertises the old chassis does not make a ghost Device)
-			$replaced = $key_holders($value, true);
-			if (count($replaced) === 1) {
-				return [$replaced[0], 'replaced_chassis'];
 			}
-		}
-		$stronger[] = $kind;
+			return true;
+		}));
+	}
+	if (count($ids) > 1) {
+		return ['shared', 'chassis_id', $raw, $ids];
+	}
+	if ($ids) {
+		return [$ids[0], 'chassis_id'];
+	}
+	// topology-1-model.md §6.7.0 "Replaced chassis": a chassis key that is marked replaced on exactly one Device finds that Device, after the lookup by the
+	// normal keys found nothing (a neighbor that still advertises the old chassis does not make a ghost Device)
+	$replaced = $key_holders($value, true);
+	if (count($replaced) === 1) {
+		return [$replaced[0], 'replaced_chassis'];
 	}
 	return null;
 };
@@ -460,12 +395,7 @@ $last_insert_id = static function () use ($pdo): int {
 	return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
 };
 
-// topology-1-model.md "Far Device": upsert Device by chassis_id, else mgmt_ip, else (neighbor Devices only, via $local_port_id) sysname
-// scoped to (reporter, local_if_index) — see $find_device's comment. Mirrors seed.php's $device(), plus the
-// third key seed.php doesn't have (seed.php's fixture data always carries chassis_id, so it never needs it).
-// When the sysname key is what resolved the match, attrs.matched_by is stamped 'sysname' per topology-1-model.md "Far Device" — the
-// chassis_id/mgmt_ip matches don't get a matched_by (no existing convention for one; nothing else in this
-// codebase records "how a Device was matched" outside the sysname weak-signal rule of topology-1-model.md "Far Device").
+// topology-1-model.md "Far Device" (§6.7.1, 2.47): a Device is found by its chassis key, or (a claim without a chassis) by the match of a port; there is no matched_by.
 // $summary tallies create-vs-update counts for the /topo/ingest/status endpoint (topology-1-model.md "Run summary"). Just counting,
 // no change to the matching/upsert rules themselves.
 $summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0,
@@ -803,29 +733,8 @@ $pseudo_local_if_index = static function (?string $remote_port_id, ?string $remo
 // this Device ever pushed its own data — re-point its physical_link edge(s) onto the real Port and delete
 // it. Zero or more-than-one match: do nothing (never guess — the explicit instruction of topology-1-model.md "Pseudo-port merge"), just log it
 // so it isn't silently missed either way.
-// A Port merge moves the scoped sysname keys of the removed Port to the kept Port (§6.7.0, §6.7.2, §6.7.3): `sysname:<from>:<value>` becomes `sysname:<to>:<value>`;
-// a Device that already holds the new key just loses the old one.
-$move_port_sysname_keys = static function (int $from_port_id, int $to_port_id) use ($pdo, $q_key): void {
-	$prefix = 'sysname:'.$from_port_id.':';
-	$stmt = $pdo->prepare("SELECT device_id, {$q_key} AS k FROM topo_identity_keys WHERE {$q_key} LIKE ?");
-	$stmt->execute([$prefix.'%']);
-	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-		if (!str_starts_with($row['k'], $prefix)) {
-			continue;
-		}
-		$new = substr('sysname:'.$to_port_id.':'.substr($row['k'], strlen($prefix)), 0, 300);
-		$held = $pdo->prepare("SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?");
-		$held->execute([$row['device_id'], $new]);
-		if ($held->fetchColumn() !== false) {
-			$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?")->execute([$row['device_id'], $row['k']]);
-		}
-		else {
-			$pdo->prepare("UPDATE topo_identity_keys SET {$q_key} = ? WHERE device_id = ? AND {$q_key} = ?")->execute([$new, $row['device_id'], $row['k']]);
-		}
-	}
-};
 
-$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note, $move_port_sysname_keys): void {
+$merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id, string $real_port_name) use ($pdo, $normalize_port_name, $pseudo_note): void {
 	$normalized_real = $normalize_port_name($real_port_name);
 
 	$stmt = $pdo->prepare(
@@ -931,7 +840,6 @@ $merge_pseudo_port = static function (int $reporter_device_id, int $real_port_id
 		return;
 	}
 
-	$move_port_sysname_keys($pseudo_port_id, $real_port_id);
 	$pdo->prepare("DELETE FROM topo_nodes WHERE id = ? AND type = 'port'")->execute([$pseudo_port_id]);
 	echo "OK: merged pseudo-Port #{$pseudo_port_id} into real Port #{$real_port_id} ('{$real_port_name}') ".
 		"on device #{$reporter_device_id}\n";
@@ -1032,9 +940,6 @@ const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguou
 $summary += [
 	'pseudo_ports_reindexed' => 0,
 	// topology-1-model.md §6.7.1 "Join of a split identity": Devices merged (kept, removed, key, value) and joins refused because both had a represented_by
-	'devices_joined' => ['count' => 0, 'list' => []],
-	'devices_join_refused' => ['count' => 0, 'list' => []],
-	'join_links_deleted' => 0,
 	'reporters_processed' => 0,
 	'reporters_skipped' => [],
 	// identity keys built from the attributes of Devices that had none (data written before the key table; topology-1-model.md §6.7.0): the Devices
@@ -1043,7 +948,6 @@ $summary += [
 	// topology-1-model.md §6.7.0 / §6.8 / §6.11: key rows whose Device is gone (removed at the start of a run; above 0 means a bug elsewhere), the
 	// `ip:` keys no current input gives any more (removed at the end of a full run), and the reporters with a failed step (host, step, error)
 	'identity_keys_orphaned' => 0,
-	'address_keys_removed' => 0,
 	'reporters_failed' => ['count' => 0, 'list' => []],
 	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the topology type PORTS): their links cannot be coloured (model §3.2)
 	'hosts_ports_without_items' => ['count' => 0, 'list' => []],
@@ -1307,266 +1211,23 @@ $note_chassis_change = static function (int $device_id, string $chassis, string 
 	$chassis_changes[$device_id] = [$chassis, $key];
 };
 
-// A neighbor row with chassis + IP: Y finds Device A, IP 1 finds exactly one other Device B -> the duplicate candidate `split_identity` on both. Nothing is
-// merged (only the reporter's own identity joins automatically, $join_split_identity). The row only records what it found ($split_evidence: A, the address
-// key, the address); the candidates are made at the end of the run from the keys as the run leaves them (§6.7.5, §6.10: an address key that the run removes
-// as stale is not evidence, and the Device that takes it at the end is).
-$split_evidence = [];
-$note_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use ($key_holders, &$split_evidence): void {
-	if (!$chassis_key || !$ip_key) {
-		return;
-	}
-	$with_chassis = $key_holders($chassis_key);
-	if (count($with_chassis) === 1) {
-		$split_evidence[] = [$with_chassis[0], $ip_key, (string) $ip_raw];
-	}
-};
-
-// topology-1-model.md §6.7.1 "Join of a split identity (automatic, reporter only)". One neighbor can first give two Devices: LLDP without a
-// management address gives a chassis only (A), CDP gives an IP only (B). The reporter's own identity (loc_chassis + SNMP interface IP) carries
-// both keys and merges B into A when the chassis finds exactly A, the IP finds exactly one other Device B and
-// B has no chassis. B's Ports, links, observations, shadow_ack entries and represented_by move to A, B's attributes fill A's empty ones,
-// B is deleted (the only deletion of a Device by ingest). Both with a represented_by: no join, reported. The IP on two or more other
-// Devices: shared, no join. `sysname` never joins. Returns the id of A when a join happened.
-$join_split_identity = static function (?string $chassis_key, ?string $ip_key, ?string $ip_raw) use (
-	$pdo, $snap_node_attrs, $normalize_port_name, $merge_pseudo_port, $move_port_sysname_keys, $convert_leftover_pseudo_ports, $key_holders, $device_has_kind,
-	$insert_key, $device_holds_key, $q_key, &$link_candidates, &$summary, &$current_ip_keys
-): ?int {
-	if (!$chassis_key || !$ip_key) {
-		return null;
-	}
-	$with_chassis = $key_holders($chassis_key);
-	if (count($with_chassis) !== 1) {
-		return null;
-	}
-	$a = $with_chassis[0];
-	$others = array_values(array_diff($key_holders($ip_key), [$a]));
-	if (count($others) !== 1) {
-		return null;
-	}
-	$b = $others[0];
-	$a_attrs = $snap_node_attrs($a);
-	$b_attrs = $snap_node_attrs($b);
-	if ($device_has_kind($b, 'chassis')) {
-		return null;
-	}
-	$represented = $pdo->prepare('SELECT represented_by_node_id, represented_by_matched_by, represented_by_at FROM topo_nodes WHERE id = ?');
-	$represented->execute([$a]);
-	$a_rep = $represented->fetch(PDO::FETCH_ASSOC);
-	$represented->execute([$b]);
-	$b_rep = $represented->fetch(PDO::FETCH_ASSOC);
-	if ($a_rep['represented_by_node_id'] !== null && $b_rep['represented_by_node_id'] !== null) {
-		$summary['devices_join_refused']['count']++;
-		if (count($summary['devices_join_refused']['list']) < 200) {
-			$summary['devices_join_refused']['list'][] = ['kept' => $a, 'removed' => $b, 'key' => 'mgmt_ip', 'value' => (string) $ip_raw,
-				'kept_target' => (int) $a_rep['represented_by_node_id'], 'removed_target' => (int) $b_rep['represented_by_node_id']];
-		}
-		return null;
-	}
-
-	// represented_by moves from B when only B has one
-	if ($b_rep['represented_by_node_id'] !== null) {
-		$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = NULL, represented_by_matched_by = NULL, represented_by_at = NULL WHERE id = ?')->execute([$b]);
-		$pdo->prepare('UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ?, represented_by_at = ? WHERE id = ?')
-			->execute([$b_rep['represented_by_node_id'], $b_rep['represented_by_matched_by'], $b_rep['represented_by_at'], $a]);
-	}
-
-	// B's Ports -> A (topology-1-model.md §6.7.1). A real Port of B absorbs into a real Port of A with the same if_index; a pseudo port of B
-	// absorbs into a pseudo or real Port of A only by normalized name, never by its allocated if_index. Ports that match nothing move to A
-	// (a pseudo port whose allocated if_index is taken on A gets another negative one).
-	$port_map = [];
-	$a_ports = [];       // id => attrs
-	$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'");
-	$stmt->execute([$a]);
-	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
-		$a_ports[(int) $port['id']] = json_decode($port['attrs'], true) ?: [];
-	}
-	$stmt->execute([$b]);
-	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
-		$id = (int) $port['id'];
-		$attrs = json_decode($port['attrs'], true) ?: [];
-		$target = null;
-		if (!empty($attrs['pseudo'])) {
-			$name = $normalize_port_name((string) ($attrs['name'] ?? ''));
-			foreach ($a_ports as $a_id => $a_attrs) {
-				if ($name !== '' && $normalize_port_name((string) ($a_attrs['name'] ?? '')) === $name) {
-					$target = $a_id;
-					break;
-				}
-			}
-		}
-		else {
-			foreach ($a_ports as $a_id => $a_attrs) {
-				if (empty($a_attrs['pseudo']) && (string) ($a_attrs['if_index'] ?? '') === (string) ($attrs['if_index'] ?? '#')) {
-					$target = $a_id;
-					break;
-				}
-			}
-		}
-		if ($target === null) {
-			if (!empty($attrs['pseudo'])) {
-				$taken = array_map(static fn (array $x): string => (string) ($x['if_index'] ?? ''), $a_ports);
-				$index = (int) ($attrs['if_index'] ?? 0);
-				if ($index > 0 || in_array((string) $index, $taken, true)) {
-					$index = -((int) (crc32($normalize_port_name((string) ($attrs['name'] ?? ''))) % 999999) + 1);
-					while (in_array((string) $index, $taken, true)) {
-						$index--;
-					}
-					$attrs['if_index'] = $index;
-					$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
-				}
-			}
-			$pdo->prepare('UPDATE topo_nodes SET device_id = ? WHERE id = ?')->execute([$a, $id]);
-			$a_ports[$id] = $attrs;
-			continue;
-		}
-		$port_map[$id] = $target;
-		$target_attrs = $snap_node_attrs($target);
-		foreach ($attrs as $k => $v) {
-			if (($target_attrs[$k] ?? null) === null || $target_attrs[$k] === '' || $target_attrs[$k] === []) {
-				$target_attrs[$k] = $v;
-			}
-		}
-		$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($target_attrs, JSON_THROW_ON_ERROR), $target]);
-		foreach ($pdo->query("SELECT id, type, src_id, dst_id FROM topo_edges WHERE src_id = {$id} OR dst_id = {$id}")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
-			$src = (int) $edge['src_id'] === $id ? $target : (int) $edge['src_id'];
-			$dst = (int) $edge['dst_id'] === $id ? $target : (int) $edge['dst_id'];
-			if ($edge['type'] === 'physical_link' && $src > $dst) {
-				[$src, $dst] = [$dst, $src];
-			}
-			$twin = $pdo->prepare('SELECT id FROM topo_edges WHERE src_id = ? AND dst_id = ?');
-			$twin->execute([$src, $dst]);
-			if ($twin->fetchColumn() !== false || $src === $dst) {
-				$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);     // the same link already exists (or it ends on itself)
-			}
-			else {
-				$pdo->prepare('UPDATE topo_edges SET src_id = ?, dst_id = ? WHERE id = ?')->execute([$src, $dst, $edge['id']]);
-			}
-		}
-		$pdo->prepare('UPDATE IGNORE topo_observations SET local_port_id = ? WHERE local_port_id = ?')->execute([$target, $id]);
-		$pdo->prepare('DELETE FROM topo_observations WHERE local_port_id = ?')->execute([$id]);
-		$pdo->prepare('UPDATE topo_nodes SET lag_id = ? WHERE lag_id = ?')->execute([$target, $id]);
-		$move_port_sysname_keys($id, $target);
-		$pdo->prepare('DELETE FROM topo_nodes WHERE id = ?')->execute([$id]);
-	}
-
-	// device-level links that ended at B end at A; observations and shadow_ack that named B name A
-	$pdo->prepare("UPDATE IGNORE topo_edges SET dst_id = ? WHERE type = 'device_link' AND dst_id = ?")->execute([$a, $b]);
-	$pdo->prepare("DELETE FROM topo_edges WHERE type = 'device_link' AND dst_id = ?")->execute([$b]);
-	$pdo->prepare('UPDATE topo_observations SET device_id = ? WHERE device_id = ?')->execute([$a, $b]);
-	foreach ($pdo->query("SELECT id, attrs FROM topo_edges WHERE type IN ('physical_link', 'device_link') AND attrs LIKE '%shadow_ack%'")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
-		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
-		$changed = false;
-		foreach ($attrs['shadow_ack'] ?? [] as $n => $entry) {
-			if (isset($entry['device_id']) && (string) $entry['device_id'] === (string) $b) {
-				$attrs['shadow_ack'][$n]['device_id'] = is_int($entry['device_id']) ? $a : (string) $a;
-				$changed = true;
-			}
-		}
-		if ($changed) {
-			$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $edge['id']]);
-		}
-	}
-
-	// B's attributes fill only what A has no value for
-	$attrs = $a_attrs;
-	foreach ($b_attrs as $k => $v) {
-		if ($k !== 'last_seen' && ($attrs[$k] ?? null) === null || ($attrs[$k] ?? null) === '') {
-			if ($v !== null && $v !== '') {
-				$attrs[$k] = $v;
-			}
-		}
-	}
-	$attrs['last_seen'] = max((int) ($a_attrs['last_seen'] ?? 0), (int) ($b_attrs['last_seen'] ?? 0));
-	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $a]);
-
-	// a link whose two ends are both on A now is deleted (counted)
-	$deleted = 0;
-	foreach ($pdo->query("SELECT e.id, e.type, e.src_id, e.dst_id FROM topo_edges e WHERE e.type IN ('physical_link', 'device_link')")->fetchAll(PDO::FETCH_ASSOC) as $edge) {
-		$src_device = $pdo->query('SELECT device_id FROM topo_nodes WHERE id = '.(int) $edge['src_id'])->fetchColumn();
-		$dst_device = $edge['type'] === 'device_link' ? (int) $edge['dst_id']
-			: $pdo->query('SELECT device_id FROM topo_nodes WHERE id = '.(int) $edge['dst_id'])->fetchColumn();
-		if ((int) $src_device === $a && (int) $dst_device === $a) {
-			$pdo->prepare('DELETE FROM topo_edges WHERE id = ?')->execute([$edge['id']]);
-			$deleted++;
-		}
-	}
-
-	// B's identity keys become A's (the ones A does not hold yet); B's own rows go with the Device
-	$b_keys = $pdo->prepare('SELECT '.$q_key.' AS k, kind, first_seen, replaced FROM topo_identity_keys WHERE device_id = ?');
-	$b_keys->execute([$b]);
-	foreach ($b_keys->fetchAll(PDO::FETCH_ASSOC) as $b_key) {
-		if (!$device_holds_key($a, $b_key['k'])) {
-			$insert_key($a, $b_key['k'], $b_key['kind'], (int) $b_key['first_seen'], (bool) $b_key['replaced']);
-		}
-	}
-	foreach ($current_ip_keys[$b] ?? [] as $moved => $unused) {
-		$current_ip_keys[$a][$moved] = true;                 // the addresses the inputs gave B are A's now
-	}
-	unset($current_ip_keys[$b]);
-	$pdo->prepare('DELETE FROM topo_nodes WHERE id = ?')->execute([$b]);
-
-	// candidates collected earlier in this run that name B or a merged Port
-	foreach ($link_candidates as &$candidate) {
-		if (($candidate['remote_device_id'] ?? null) === $b) {
-			$candidate['remote_device_id'] = $a;
-		}
-		foreach (['local_port_id', 'remote_port_id'] as $field) {
-			if (isset($candidate[$field], $port_map[$candidate[$field]])) {
-				$candidate[$field] = $port_map[$candidate[$field]];
-			}
-		}
-	}
-	unset($candidate);
-
-	// §6.7.3 on A: pseudo ports that now have a real counterpart merge by name; leftovers on a Device with real ports are converted
-	$real = $pdo->prepare("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\\$.name')) AS name FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-		" AND JSON_EXTRACT(attrs, '\\$.pseudo') = false");
-	$real->execute([$a]);
-	$real_ports = $real->fetchAll(PDO::FETCH_ASSOC);
-	foreach ($real_ports as $port) {
-		if ((string) $port['name'] !== '') {
-			$merge_pseudo_port($a, (int) $port['id'], (string) $port['name']);
-		}
-	}
-	if ($real_ports) {
-		$convert_leftover_pseudo_ports($a);
-	}
-
-	$summary['devices_joined']['count']++;
-	$summary['join_links_deleted'] += $deleted;
-	if (count($summary['devices_joined']['list']) < 200) {
-		$summary['devices_joined']['list'][] = ['kept' => $a, 'removed' => $b, 'key' => 'mgmt_ip', 'value' => (string) $ip_raw];
-	}
-
-	return $a;
-};
-
-// Device upsert for the snapshot path: same matching keys as $device() (chassis_id, mgmt_ip, scoped sysname),
-// but incoming values are merged over what the row already has — one reporter's NEIGHBORS row must not erase
-// the vendor/sysname another source recorded — and last_seen only ever moves forward.
+// Device upsert for the snapshot path (2.47): a Device is found by its chassis key (a reporter's own chassis, or a claim with a chassis) or decided by the caller
+// ($incoming['found_device_id']: the match of §6.7.1 for a claim without a chassis); incoming values are merged over what the Device already has — one reporter's
+// NEIGHBORS row must not erase the vendor/sysname another source recorded — and last_seen only ever moves forward.
 $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_at, bool $for_reporter = false, array $exclude = [], bool $force_new = false) use (
-	$pdo, $note_split_identity, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary, &$current_ip_keys,
-	&$run_port_devices
+	$pdo, $resolve_device, $register_keys, $insert_key, $note_shared, $insert_node, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
 ): ?int {
-	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity keys of the row: chassis_key / chassis_raw,
-	// ip_key / ip_raw (§6.7.0).
-	// What this row resolved to is remembered per local port for the rows after it (same-port join, §6.7.1).
-	$note_row_device = static function (int $device_id) use ($local_port_id, $for_reporter, &$run_port_devices): void {
-		if (!$for_reporter && $local_port_id !== null) {
-			$run_port_devices[$local_port_id][$device_id] = true;
-		}
-	};
-	// A neighbor row with both keys never merges Devices (topology-1-model.md §6.7.1, §6.7.5): it records a duplicate candidate. Only the
-	// reporter's own identity joins automatically (see $snap_ingest_reporter).
-	if (!$for_reporter) {      // `split_identity` is evidence of a neighbor row (§6.7.5); a reporter's own identity is not a row
-		$note_split_identity($incoming['chassis_key'] ?? null, $incoming['ip_key'] ?? null, $incoming['ip_raw'] ?? null);
-	}
+	// $incoming carries the display attributes (mac, chassis_id, mgmt_ip, sysname, vendor) and the identity key of the row: chassis_key / chassis_raw (§6.7.0); for a new
+	// Device without a chassis `scope_port` (§6.7.1).
 	// $force_new: a reporter whose own key finds several Devices (§6.4 step 2, decided before pass A): the Device is made, nothing is looked up
-	$match = $force_new ? null : $resolve_device([
-		'chassis' => isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']] : null,
-		'ip' => isset($incoming['ip_key']) ? [$incoming['ip_key'], $incoming['ip_raw'] ?? $incoming['ip_key']] : null,
-	], $local_port_id, $incoming['sysname'] ?? null, $for_reporter, $exclude);
+	if (isset($incoming['found_device_id'])) {
+		$match = [(int) $incoming['found_device_id'], 'match'];
+	}
+	else {
+		$match = $force_new ? null : $resolve_device([
+			'chassis' => isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']] : null,
+		], $for_reporter, $exclude);
+	}
 	if ($match !== null && $match[0] === 'shared') {
 		$note_shared($match[1], $match[2], $match[3]);
 		return null;            // topology-1-model.md "Shared identifier": nothing is created or changed
@@ -1619,17 +1280,10 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 			unset($attrs['value_source']);
 		}
 		// attrs.last_seen of an existing Device is not moved here: it is set once at the end of the run from its sources (§8.7), `last_seen` of a new Device is below
-		if ($matched_by === 'sysname') {
-			$attrs['matched_by'] = 'sysname';
-		}
 		if ($snap_write_attrs($device_id, $attrs, $before)) {
 			$summary['devices_updated']++;
 		}
 		$register_keys($device_id, $incoming, $seen_at);
-		if (!$for_reporter && !$has_reporter && isset($incoming['ip_key'])) {
-			$current_ip_keys[$device_id][$incoming['ip_key']] = true;      // a row gives this address to a Device without a reporter (§6.7.0)
-		}
-		$note_row_device($device_id);
 		return $device_id;
 	}
 	$attrs = [
@@ -1637,10 +1291,8 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 		'mgmt_ip' => $incoming['mgmt_ip'] ?? null, 'sysname' => $incoming['sysname'] ?? '',
 		'vendor' => $incoming['vendor'] ?? 'unknown', 'last_seen' => $seen_at,
 	];
-	// A Device whose only key is the scoped sysname is created by sysname: marked in the same run (topology-1-model.md "Far Device"),
-	// so the first repeat run changes no attribute.
-	if (!($incoming['chassis_id'] ?? null) && !($incoming['mgmt_ip'] ?? null) && $local_port_id !== null && ($incoming['sysname'] ?? '') !== '') {
-		$attrs['matched_by'] = 'sysname';
+	if (isset($incoming['scope_port'])) {
+		$attrs['scope_port'] = (int) $incoming['scope_port'];      // §6.7.1: the reporter's Port of a Device without a chassis; the match searches only the Devices of one port
 	}
 	if (($incoming['source'] ?? 'lldp') !== 'lldp') {
 		// the values of a non-lldp row are noted as such (source priority, §6.7.1): a later lldp row replaces them, another source only fills
@@ -1653,15 +1305,9 @@ $snap_device = static function (array $incoming, ?int $local_port_id, int $seen_
 	$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 	$summary['devices_created']++;
 	$created_id = $last_insert_id();
-	foreach (['chassis', 'ip', 'sysname'] as $kind) {
-		if (isset($incoming[$kind.'_key'])) {
-			$insert_key($created_id, $incoming[$kind.'_key'], $kind, $seen_at);
-		}
+	if (isset($incoming['chassis_key'])) {
+		$insert_key($created_id, $incoming['chassis_key'], 'chassis', $seen_at);
 	}
-	if (!$for_reporter && isset($incoming['ip_key'])) {
-		$current_ip_keys[$created_id][$incoming['ip_key']] = true;
-	}
-	$note_row_device($created_id);
 	return $created_id;
 };
 
@@ -2067,7 +1713,7 @@ $link_candidates = [];
 $neighbor_snapshots = [];
 
 /** The own identity a reporter's snapshots and host give (§6.4 steps 2-4, 6, 7): no database write. */
-$reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chassis_key, $ip_key): array {
+$reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chassis_key): array {
 	$chassis_values = [];
 	foreach ($reporter['snapshots'] as $list) {
 		foreach ($list as $snapshot) {
@@ -2080,7 +1726,7 @@ $reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chass
 	}
 	$clocks = array_merge(...array_map(static fn (array $list): array => array_column($list, 'clock'), array_values($reporter['snapshots'])));
 	$own = ['skip' => null, 'chassis_values' => array_keys($chassis_values), 'seen' => max($clocks), 'loc_chassis' => null, 'mgmt_ip' => null,
-		'segment' => $segment_of($reporter['hostid']), 'loc_key' => null, 'ip_key' => null];
+		'segment' => $segment_of($reporter['hostid']), 'loc_key' => null];
 	if (count($chassis_values) > 1) {
 		$own['skip'] = 'identity_ambiguous';
 		return $own;
@@ -2091,7 +1737,6 @@ $reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chass
 	$interface->execute([$reporter['hostid']]);
 	$own['mgmt_ip'] = $interface->fetchColumn() ?: null;
 	$own['loc_key'] = $chassis_key($own['loc_chassis'], null, $own['segment']);
-	$own['ip_key'] = $ip_key($own['mgmt_ip'], $own['segment']);
 	if ($own['loc_chassis'] === null && $own['mgmt_ip'] === null) {
 		$own['skip'] = 'identity_missing';
 	}
@@ -2099,14 +1744,13 @@ $reporter_own = static function (array $reporter) use ($pdo, $segment_of, $chass
 };
 
 /**
- * Pass A, step 1: the reporter's Device (§6.4). $claimed = the key strings that two or more reporters claim by their own data: this reporter does
- * not look for its Device by them, but its Device carries them (the key is then shared, §6.7.4). $exclude = Devices that another reporter takes
- * (the lowest hostid wins), so the choice does not depend on the order. $key_shared = the reporter's own key finds several stored Devices (decided before
- * pass A, §6.4 step 2): the reporter gets a Device of its own that carries the keys.
+ * Pass A, step 1: the reporter's Device (§6.4). $claimed = the chassis keys that two or more reporters claim by their own data: this reporter does
+ * not look for its Device by them, but its Device carries them (the key is then shared, §6.7.4). $key_shared = the reporter's own chassis finds several stored
+ * Devices (decided before pass A, §6.4 step 2): the reporter gets a Device of its own that carries the key. The SNMP interface address is not looked up (2.47).
  */
-$snap_reporter_identity = static function (array $reporter, array $own, array $claimed, array $exclude, bool $key_shared = false) use (
-	$q_key, &$current_ip_keys,
-	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+$snap_reporter_identity = static function (array $reporter, array $own, array $claimed, bool $key_shared = false) use (
+	$q_key,
+	$pdo, $snap_device, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
@@ -2115,7 +1759,6 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 	$loc_chassis = $own['loc_chassis'];
 	$mgmt_ip = $own['mgmt_ip'];
 	$loc_key = $own['loc_key'];
-	$self_ip_key = $own['ip_key'];
 	$segment = $own['segment'];
 	$reporter_seen = $own['seen'];
 	if ($own['skip'] === 'identity_ambiguous') {
@@ -2123,12 +1766,8 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 			") — identity is ambiguous, not picking one\n";
 		return ['status' => 'skipped', 'reason' => 'identity_ambiguous'];
 	}
-	// the keys this reporter looks its Device up by: its own, except the ones another reporter claims too
+	// the key this reporter looks its Device up by: its own chassis, unless another reporter claims it too
 	$look_chassis = $loc_key !== null && !isset($claimed[$loc_key]) ? $loc_key : null;
-	$look_ip = $self_ip_key !== null && !isset($claimed[$self_ip_key]) ? $self_ip_key : null;
-
-	// the reporter's own identity carries both keys: it may join a split identity (§6.7.1), before its Device is looked up
-	$join_split_identity($look_chassis, $look_ip, $mgmt_ip);
 
 	$existing = $pdo->prepare(
 		"SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id".
@@ -2145,19 +1784,18 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 
 	if ($device_id === false) {
 		if ($own['skip'] === 'identity_missing') {
-			echo "SKIP: reporter '{$label}' has neither a loc_chassis nor an SNMP interface IP — no identity key, ".
-				"not creating a keyless Device\n";
+			echo "SKIP: reporter '{$label}' has neither a loc_chassis nor an SNMP interface IP — nothing to make a Device of\n";
 			return ['status' => 'skipped', 'reason' => 'identity_missing'];
 		}
-		// §6.4 step 2 and 5: found by its own unclaimed keys among Devices that have no representation, else created; the Device carries all
-		// the reporter's own keys, the claimed ones too
+		// §6.4 step 2 and 5: found by its own unclaimed chassis among Devices that have no representation, else created (a reporter with only an SNMP interface
+		// address gets a Device without a key); the Device carries the reporter's chassis, a claimed one too
 		$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
-			'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis, 'ip_key' => $look_ip, 'ip_raw' => $mgmt_ip,
-			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, $exclude, $key_shared);
+			'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis,
+			'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, [], $key_shared);
 		if ($device_id === null) {
 			throw new RuntimeException("reporter '{$label}': no Device for its own identity");      // not reached: a reporter's key never stays shared
 		}
-		$register_keys((int) $device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
+		$register_keys((int) $device_id, ['chassis_key' => $loc_key], $reporter_seen, true);
 		// The Device becomes this reporter's Device (§6.7.0 "Keys of a reporter's Device"): the chassis keys that neighbor rows gave it go, except the
 		// reporter's own and the replaced ones. (A Device that already was somebody's - found by `represented_by` below - keeps its chassis: §6.4 step 1.)
 		$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND kind = 'chassis' AND replaced = 0".($loc_key !== null ? " AND {$q_key} <> ?" : ''))
@@ -2178,33 +1816,14 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 		if ($loc_key !== null && $device_has_kind($device_id, 'chassis') && !$device_holds_key($device_id, $loc_key)) {
 			$note_chassis_change($device_id, (string) $loc_chassis, $loc_key);
 		}
-		// the keys the reporter gives its own Device: its SNMP IP in this segment (a host moved to another segment adds the key of the new
-		// one; nothing is rewritten, §6.7.0) and, when S has no chassis yet, the reported one
-		$register_keys($device_id, ['chassis_key' => $loc_key, 'ip_key' => $self_ip_key, 'ip_raw' => $mgmt_ip], $reporter_seen, true);
+		// the key the reporter gives its own Device: when S has no chassis yet, the reported one
+		$register_keys($device_id, ['chassis_key' => $loc_key], $reporter_seen, true);
 		if ($mgmt_ip !== null) {
 			$attrs['mgmt_ip'] = $mgmt_ip;
 		}
 		$snap_write_attrs($device_id, $attrs, $before);      // attrs.last_seen is set at the end of the run (§8.7)
 	}
 	$device_id = (int) $device_id;
-	// The reporter's own data wins (§6.7.1, §6.4 step 6, §6.7.0 "Keys of a reporter's Device"): the Device holds only the reporter's own address (its SNMP
-	// interface IP in its segment); every `ip:` key a neighbor row gave it before it had a reporter goes, in every segment. The only key of a Device is kept.
-	if ($self_ip_key !== null) {
-		$current_ip_keys[$device_id][$self_ip_key] = true;
-	}
-	$drop = $pdo->prepare("SELECT {$q_key} FROM topo_identity_keys WHERE device_id = ? AND kind = 'ip' AND replaced = 0".($self_ip_key !== null ? " AND {$q_key} <> ?" : ''));
-	$drop->execute($self_ip_key !== null ? [$device_id, $self_ip_key] : [$device_id]);
-	$foreign = $drop->fetchAll(PDO::FETCH_COLUMN);
-	if ($foreign) {
-		$total = $pdo->prepare('SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ?');
-		$total->execute([$device_id]);
-		if ((int) $total->fetchColumn() <= count($foreign)) {
-			array_pop($foreign);                       // would leave no key at all: the last one stays
-		}
-		foreach ($foreign as $key) {
-			$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?")->execute([$device_id, $key]);
-		}
-	}
 	$snap_link_reporter_self($device_id, (string) $reporter['hostid'], $label);
 
 	return ['status' => 'ok', 'device_id' => $device_id, 'segment' => $segment];
@@ -2213,7 +1832,7 @@ $snap_reporter_identity = static function (array $reporter, array $own, array $c
 /** Pass A, step 2: PORTS, LAG and LEARNED_MACS of one reporter (§6.5). */
 $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 
-	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$pdo, $snap_device, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
 	$snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
@@ -2355,11 +1974,122 @@ $snap_reporter_tables = static function (array $reporter, int $device_id) use (
 	return ['status' => 'ok'];
 };
 
+// ============================================================================================================
+// The Device of a claim without a chassis (topology-1-model.md §6.7.1, 2.47). Addresses and names are attributes, matched within one reporter port.
+//  - $reporter_by_address: segment => address => [hostid => true]: the SNMP interface addresses of the reporters identified in this run (filled after pass A);
+//    $reporter_device_of: hostid => the id of that reporter's Device.
+//  - $port_scope: local port node id => [Device id => ['addrs' => [address => true], 'name' => text]]: the Devices without a chassis and without an association that
+//    have attrs.scope_port = that port, with their addresses (attrs.mgmt_ip and the addresses of their observations of the PREVIOUS run: the observations are written
+//    at the end of the run, so during pass B the table still holds them) and their name (attrs.sysname). Loaded by two queries when the first claim without a chassis
+//    needs it (no query per claim) and kept up to date by the claims of this run (a claim never makes a second Device, §6.7.1).
+//  - $port_chassis_claims: "hostid|local port" => [the claims with a chassis of this run]: pass B resolves them first (rank 0, §6.5).
+$reporter_by_address = [];
+$reporter_device_of = [];
+$port_scope = null;
+$port_chassis_claims = [];
+$load_port_scope = static function () use ($pdo, &$port_scope): void {
+	if ($port_scope !== null) {
+		return;
+	}
+	$port_scope = [];
+	$known = [];
+	foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND d.represented_by_node_id IS NULL".
+			" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$attrs = json_decode($row['attrs'], true) ?: [];
+		if (($attrs['chassis_id'] ?? '') !== '' || !isset($attrs['scope_port'])) {
+			continue;
+		}
+		$addrs = [];
+		if (is_string($attrs['mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($attrs['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
+			$addrs[$text] = true;
+		}
+		$port_scope[(int) $attrs['scope_port']][(int) $row['id']] = ['addrs' => $addrs, 'name' => (string) ($attrs['sysname'] ?? '')];
+		$known[(int) $row['id']] = (int) $attrs['scope_port'];
+	}
+	if ($known) {
+		foreach ($pdo->query("SELECT o.device_id, o.remote_attrs FROM topo_observations o JOIN topo_nodes d ON d.id = o.device_id AND d.type = 'device'".
+				" AND d.represented_by_node_id IS NULL WHERE NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			if (isset($known[(int) $row['device_id']])) {
+				foreach (CTopologyAddress::claimAddresses(json_decode((string) $row['remote_attrs'], true) ?: []) as $address) {
+					$port_scope[$known[(int) $row['device_id']]][(int) $row['device_id']]['addrs'][$address] = true;
+				}
+			}
+		}
+	}
+};
+$register_port_device = static function (int $local_port_id, int $device_id, array $addrs, string $name) use ($load_port_scope, &$port_scope): void {
+	$load_port_scope();
+	$entry = &$port_scope[$local_port_id][$device_id];
+	$entry ??= ['addrs' => [], 'name' => ''];
+	foreach ($addrs as $address) {
+		$entry['addrs'][$address] = true;
+	}
+	if ($name !== '') {
+		$entry['name'] = $name;
+	}
+};
+/** §6.7.1 "Match": at least one address of one is an address of the other, or the name keys are equal; and the names do not differ. A CDP device id that is a MAC is not
+ * a name for the "differ" test (it is a name for the equality, so that the same claim finds its Device again). $a, $b = ['addrs' => [address...], 'name' => text]. */
+$claims_match = static function (array $a, array $b): bool {
+	$key_a = CTopologyAddress::nameKey($a['name']);
+	$key_b = CTopologyAddress::nameKey($b['name']);
+	$equal = $key_a !== '' && $key_a === $key_b;
+	$differ = $key_a !== '' && $key_b !== '' && $key_a !== $key_b && !CTopologyAddress::isMacText($a['name']) && !CTopologyAddress::isMacText($b['name']);
+	return ($equal || array_intersect($a['addrs'], $b['addrs']) !== []) && !$differ;
+};
+/**
+ * The Device of a claim without a chassis, by the rows of §6.7.1 in order. $claim = ['addrs' => [...], 'name' => text]. Returns ['found', Device id], ['ambiguous'] or
+ * ['new'] (the caller makes the Device with scope_port = the local port).
+ */
+$find_chassisless_device = static function (int $hostid, string $segment, int $local_port_id, array $claim) use (
+	$pdo, $load_port_scope, $claims_match, $snap_node_attrs, &$port_scope, &$port_chassis_claims, &$reporter_by_address, &$reporter_device_of
+): array {
+	// the SNMP interface address of exactly one reporter in the segment of the claim's reporter, and the names do not differ
+	$reporters = [];
+	foreach ($claim['addrs'] as $address) {
+		$hosts = array_keys($reporter_by_address[$segment][$address] ?? []);
+		if (count($hosts) === 1 && (int) $hosts[0] !== $hostid) {
+			$reporters[(int) $hosts[0]] = true;
+		}
+	}
+	if (count($reporters) === 1 && isset($reporter_device_of[array_key_first($reporters)])) {
+		$device_id = $reporter_device_of[array_key_first($reporters)];
+		$other_name = (string) ($snap_node_attrs($device_id)['sysname'] ?? '');
+		$key_a = CTopologyAddress::nameKey($claim['name']);
+		$key_b = CTopologyAddress::nameKey($other_name);
+		if (!($key_a !== '' && $key_b !== '' && $key_a !== $key_b && !CTopologyAddress::isMacText($claim['name']))) {
+			return ['found', $device_id];
+		}
+	}
+	// on the same local port of the same reporter exactly one claim has a chassis, and the two claims match
+	$on_port = $port_chassis_claims[$hostid.'|'.$local_port_id] ?? [];
+	if (count($on_port) === 1 && $on_port[0]['device_id'] !== null) {
+		$other = $on_port[0];
+		// a CDP device id that is the chassis id of that claim as text (or the same MAC) is not a name: it matches that chassis (HP ProCurve, office lab F-1, F-10)
+		$text = trim($claim['name']);
+		$is_chassis = $text !== '' && (strcasecmp($text, $other['chassis']) === 0
+			|| (CTopologyAddress::isMacText($text) && CTopologyAddress::isMacText($other['chassis'])
+				&& strtolower(str_replace('-', ':', $text)) === strtolower(str_replace('-', ':', $other['chassis']))));
+		if ($is_chassis || $claims_match($claim, $other)) {
+			return ['found', $other['device_id']];
+		}
+	}
+	// exactly one Device without a chassis with this scope_port that matches
+	$load_port_scope();
+	$found = [];
+	foreach ($port_scope[$local_port_id] ?? [] as $device_id => $device) {
+		if ($claims_match($claim, ['addrs' => array_keys($device['addrs']), 'name' => $device['name']])) {
+			$found[] = $device_id;
+		}
+	}
+	return count($found) === 1 ? ['found', $found[0]] : ($found ? ['ambiguous'] : ['new']);
+};
+
 /** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). */
 $snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
 
-	$pdo, $snap_device, $join_split_identity, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$resolve_local_port, $is_placeholder_mac, $sysname_key, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
+	$pdo, $snap_device, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
+	$resolve_local_port, $is_placeholder_mac, $find_chassisless_device, $register_port_device, &$port_chassis_claims, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
 	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
 	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
 ): array {
@@ -2399,9 +2129,9 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 			$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
 		}
 	}
-	// Within one local port the rows with a chassis or IP key come before the sysname-only rows (rank 0, 1), so the same-port join (§6.7.1) finds the Devices
-	// of the port first. The remote keys sort that way by their prefix (chassis: < ip: < sysname:); the rank states it, so a new key prefix cannot change it.
-	$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'sysname:') ? 1 : 0, $r[1], $r[2]];
+	// Within one local port the claims with a chassis come before the claims without (rank 0, 1, §6.5), so the same-port rule of §6.7.1 finds the claim with a
+	// chassis first. A remote key `chassis:...` is a claim with a chassis; the rank states it, so a new key prefix cannot change it.
+	$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'chassis:') ? 0 : 1, $r[1], $r[2]];
 	usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
 	$claims_seen = [];
 	foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row]) {
@@ -2428,27 +2158,51 @@ $snap_reporter_neighbors = static function (array $reporter, int $device_id, str
 		$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
 
 		$row_ip = ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null;
-		// model §6.7.1: a row with no key at all (for example only a placeholder MAC chassis) makes no Device, no observation and no link; it is counted
-		if ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && $row_ip === null && ($row['rem_sysname'] ?? '') === '') {
+		// model §6.7.1: a claim with no chassis, no address and no name (for example only a placeholder MAC chassis) makes no Device, no observation and no link; it is
+		// counted. An address that never matches (unspecified, loopback, link-local: §6.7.1 "Match") is no address here: a Device made for such a claim could never be found
+		// by the next run (a second Device every run, P1), so a claim whose only identity is such an address counts as having none.
+		if ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && CTopologyAddress::claimAddresses($remote_attrs) === [] && ($row['rem_sysname'] ?? '') === '') {
 			$summary['rows_no_identity']['count']++;
 			$summary['rows_no_identity']['by_rule'][$itemid] = ($summary['rows_no_identity']['by_rule'][$itemid] ?? 0) + 1;
 			continue;
 		}
-		$remote_device_id = $snap_device([
+		$row_chassis_key = $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment);
+		$incoming = [
 			'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
 			'chassis_id' => $chassis_id,
 			'mgmt_ip' => $row_ip,
-			'chassis_key' => $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment),
+			'chassis_key' => $row_chassis_key,
 			'chassis_raw' => $chassis_id,
-			'ip_key' => $ip_key($row_ip, $segment),
-			'ip_raw' => $row_ip,
 			'sysname' => $row['rem_sysname'] ?? null,
 			'vendor' => 'unknown',
 			'source' => $source,
-			// a row whose only key is the sysname gives the scoped sysname key to the Device it resolves to (§6.7.0, §6.7.1)
-			'sysname_key' => ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && $row_ip === null && ($row['rem_sysname'] ?? '') !== '')
-				? $sysname_key($local_port_id, (string) $row['rem_sysname']) : null,
-		], $local_port_id, $clock);
+		];
+		$claim_addrs = CTopologyAddress::claimAddresses($remote_attrs);
+		if ($row_chassis_key === null) {
+			// a claim without a chassis: the match of §6.7.1 (the reporter's SNMP address, the claim with a chassis on the same port, the Devices of this port)
+			$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? '')]);
+			if ($found[0] === 'ambiguous') {
+				$remote_device_id = null;          // several Devices of the port match: the observation is `ambiguous`, no Device, no link
+			}
+			else {
+				if ($found[0] === 'found') {
+					$incoming['found_device_id'] = $found[1];
+				}
+				else {
+					$incoming['scope_port'] = $local_port_id;
+				}
+				$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
+				if ($remote_device_id !== null) {
+					$register_port_device($local_port_id, $remote_device_id, $claim_addrs, (string) ($snap_node_attrs($remote_device_id)['sysname'] ?? ''));
+				}
+			}
+		}
+		else {
+			$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
+			// a claim with a chassis: the claims without one on this port may join it (the claims of one port come in rank order, §6.5)
+			$port_chassis_claims[$reporter['hostid'].'|'.$local_port_id][] = ['device_id' => $remote_device_id, 'addrs' => $claim_addrs,
+				'name' => (string) ($row['rem_sysname'] ?? ''), 'chassis' => (string) $chassis_id];
+		}
 		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
 
 		$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
@@ -3533,7 +3287,7 @@ $note_failed_reporter = static function ($hostid, array $reporter, string $step,
 		$summary['reporters_failed']['list'][] = ['hostid' => (int) $hostid, 'host' => (string) $reporter['host'], 'step' => $step, 'error' => substr($error, 0, 300)];
 	}
 };
-// ---- the claims: a key that two reporters claim by their own data identifies neither (§6.4 step 5) ----
+// ---- the claims: a chassis that two reporters claim by their own data identifies neither (§6.4 step 5) ----
 $reporter_own_of = [];
 $claimants = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
@@ -3541,10 +3295,8 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	if ($reporter_own_of[$hostid]['skip'] !== null) {
 		continue;
 	}
-	foreach ([$reporter_own_of[$hostid]['loc_key'], $reporter_own_of[$hostid]['ip_key']] as $claimed_key) {
-		if ($claimed_key !== null) {
-			$claimants[$claimed_key][$hostid] = true;
-		}
+	if (($claimed_key = $reporter_own_of[$hostid]['loc_key']) !== null) {
+		$claimants[$claimed_key][$hostid] = true;
 	}
 }
 $claimed_keys = [];
@@ -3553,14 +3305,12 @@ foreach ($claimants as $claimed_key => $hosts) {
 		$claimed_keys[$claimed_key] = array_keys($hosts);
 	}
 }
-// A Device that several reporters would take by their other keys goes to the reporter with the stronger key (chassis before IP); hostid only for keys of
-// equal strength (§6.4 step 5). Decided here, before pass A, so the result does not depend on the order of the reporters.
-$would_take = [];
-$take_by = [];
+// A reporter whose own chassis finds several stored Devices gets a Device of its own (§6.4 step 2). Decided here, before pass A, from the stored state, so the
+// result does not depend on the order of the reporters.
 $key_shared_hosts = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
 	$own = $reporter_own_of[$hostid];
-	if ($own['skip'] !== null) {
+	if ($own['skip'] !== null || $own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
 		continue;
 	}
 	$has_device = $pdo->prepare("SELECT 1 FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id WHERE h.type = 'host' AND h.host_ref = ?");
@@ -3568,30 +3318,10 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	if ($has_device->fetchColumn() !== false) {
 		continue;
 	}
-	$match = $resolve_device([
-		'chassis' => $own['loc_key'] !== null && !isset($claimed_keys[$own['loc_key']]) ? [$own['loc_key'], (string) $own['loc_chassis']] : null,
-		'ip' => $own['ip_key'] !== null && !isset($claimed_keys[$own['ip_key']]) ? [$own['ip_key'], (string) $own['mgmt_ip']] : null,
-	], null, null, true);
+	$match = $resolve_device(['chassis' => [$own['loc_key'], (string) $own['loc_chassis']]], true);
 	if ($match !== null && $match[0] === 'shared') {
-		$key_shared_hosts[(int) $hostid] = $match;      // §6.4 step 2: the reporter's own key finds several Devices; decided here from the stored state, before pass A
+		$key_shared_hosts[(int) $hostid] = $match;      // the reporter's own chassis finds several Devices
 	}
-	if ($match !== null && $match[0] !== 'shared') {
-		$would_take[(int) $match[0]][] = (int) $hostid;
-		$take_by[(int) $match[0]][(int) $hostid] = $match[1] === 'chassis_id' ? 0 : 1;        // the strength of the key that found it
-	}
-}
-$exclude_of = [];
-$share_device = [];       // taken Device => [winner hostid, loser hostids, key name]; the candidates are written when every Device exists
-foreach ($would_take as $taken_device => $hosts) {
-	if (count($hosts) < 2) {
-		continue;
-	}
-	usort($hosts, static fn (int $x, int $y): int => [$take_by[$taken_device][$x], $x] <=> [$take_by[$taken_device][$y], $y]);
-	$winner = $hosts[0];
-	foreach (array_slice($hosts, 1) as $loser) {
-		$exclude_of[$loser][] = $taken_device;
-	}
-	$share_device[$taken_device] = [$winner, array_slice($hosts, 1), $take_by[$taken_device][$winner] === 0 ? 'chassis_id' : 'mgmt_ip'];
 }
 
 // ---- pass A, step 1: the own identity of every reporter ----
@@ -3601,7 +3331,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
 	try {
 		$pdo->beginTransaction();
-		$result = $snap_reporter_identity($reporter, $reporter_own_of[$hostid], $claimed_keys, $exclude_of[$hostid] ?? [], isset($key_shared_hosts[$hostid]));
+		$result = $snap_reporter_identity($reporter, $reporter_own_of[$hostid], $claimed_keys, isset($key_shared_hosts[$hostid]));
 		if ($result['status'] === 'ok') {
 			$pdo->commit();
 			$identified[$hostid] = $result;
@@ -3626,6 +3356,14 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 		$note_failed_reporter($hostid, $reporter, 'identity', $exception->getMessage());
 	}
 }
+// the SNMP interface addresses of the reporters (§6.7.1: a claim without a chassis finds the Device of the one reporter that has its address in the segment)
+foreach ($identified as $hostid => $result) {
+	$own = $reporter_own_of[$hostid];
+	$reporter_device_of[(int) $hostid] = (int) $result['device_id'];
+	if ($own['mgmt_ip'] !== null && ($text = CTopologyAddress::ipText((string) $own['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
+		$reporter_by_address[$own['segment']][$text][(int) $hostid] = true;
+	}
+}
 // `reporters_share_key` (§6.7.5): the reporters that claim one key get the candidate on their Devices, and the key is reported as shared (§6.7.4)
 foreach ($claimed_keys as $claimed_key => $hosts) {
 	$devices = [];
@@ -3634,10 +3372,9 @@ foreach ($claimed_keys as $claimed_key => $hosts) {
 			$devices[$hostid] = (int) $identified[$hostid]['device_id'];
 		}
 	}
-	$is_chassis = str_starts_with($claimed_key, 'chassis:');
 	$first_own = $reporter_own_of[array_key_first($devices) ?? $hosts[0]];
-	$raw_value = (string) ($is_chassis ? $first_own['loc_chassis'] : $first_own['mgmt_ip']);
-	$kind_name = $is_chassis ? 'chassis_id' : 'mgmt_ip';
+	$raw_value = (string) $first_own['loc_chassis'];
+	$kind_name = 'chassis_id';
 	$device_ids = array_values(array_unique($devices));
 	foreach ($device_ids as $one) {
 		foreach ($device_ids as $other) {
@@ -3650,37 +3387,20 @@ foreach ($claimed_keys as $claimed_key => $hosts) {
 		$note_shared($kind_name, $raw_value, $device_ids);
 	}
 }
-// `reporters_share_device` (§6.4 step 5, §6.7.5): the reporter that took a Device and the reporters that found it by a weaker key and got their own
-foreach ($share_device as [$winner, $losers, $kind_name]) {
-	$winner_device = $identified[$winner]['device_id'] ?? null;
-	$raw_value = (string) ($kind_name === 'chassis_id' ? $reporter_own_of[$winner]['loc_chassis'] : $reporter_own_of[$winner]['mgmt_ip']);
-	foreach ($losers as $loser) {
-		$loser_device = $identified[$loser]['device_id'] ?? null;
-		if ($winner_device !== null && $loser_device !== null && (int) $winner_device !== (int) $loser_device) {
-			$note_duplicate((int) $winner_device, (int) $loser_device, 'reporters_share_device', $kind_name, $raw_value);
-			$note_duplicate((int) $loser_device, (int) $winner_device, 'reporters_share_device', $kind_name, $raw_value);
-		}
-	}
-}
-// `reporter_key_shared` (§6.4 step 2, §6.7.5): the evidence is current: a reporter's own key is on two or more Devices besides the reporter's own
-// Device. It is the key that finds the Device in §6.4 step 2: the chassis key, else the IP key (when the chassis finds nothing). A key that two
-// reporters claim is `reporters_share_key`. Computed here for every reporter, so the next runs (which find the Device by step 1) keep the candidate.
+// `reporter_key_shared` (§6.4 step 2, §6.7.5; the chassis only since 2.47): the evidence is current: a reporter's `loc_chassis` is on two or more Devices besides the
+// reporter's own Device. A chassis that two reporters claim is `reporters_share_key`. Computed here for every reporter, so the next runs (which find the Device by
+// step 1) keep the candidate.
 foreach ($identified as $hostid => $result) {
 	$own = $reporter_own_of[$hostid];
 	$device = (int) $result['device_id'];
-	foreach ([['chassis_id', $own['loc_key'], $own['loc_chassis']], ['mgmt_ip', $own['ip_key'], $own['mgmt_ip']]] as [$kind_name, $own_key, $raw_value]) {
-		if ($own_key === null || isset($claimed_keys[$own_key])) {
-			continue;
-		}
-		$others = array_values(array_diff($key_holders($own_key), [$device]));
-		if (count($others) > 1) {
-			foreach ($others as $other) {
-				$note_duplicate($device, $other, 'reporter_key_shared', $kind_name, (string) $raw_value);
-				$note_duplicate($other, $device, 'reporter_key_shared', $kind_name, (string) $raw_value);
-			}
-		}
-		if ($others) {
-			break;      // the key that found Devices decides; a weaker key is not looked at
+	if ($own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
+		continue;
+	}
+	$others = array_values(array_diff($key_holders($own['loc_key']), [$device]));
+	if (count($others) > 1) {
+		foreach ($others as $other) {
+			$note_duplicate($device, $other, 'reporter_key_shared', 'chassis_id', (string) $own['loc_chassis']);
+			$note_duplicate($other, $device, 'reporter_key_shared', 'chassis_id', (string) $own['loc_chassis']);
 		}
 	}
 }
@@ -3704,9 +3424,13 @@ foreach ($identified as $hostid => $result) {
 	}
 }
 // ---- pass B: the NEIGHBORS rows of all reporters (reporters in hostid order, rows sorted) ----
-foreach ($identified as $hostid => $result) {
+// §6.5: pass B walks the claims of all reporters in one sorted order, (reporter hostid, if_index, rank, remote_key, itemid), whatever order pass A used (the test hook
+// --reporter-order changes only pass A): the attributes that "the last row wins" (§6.7.1) do not depend on the order of the reporters.
+$pass_b_reporters = $identified;
+ksort($pass_b_reporters);
+foreach ($pass_b_reporters as $hostid => $result) {
 	$reporter = $snapshot_reporters[$hostid];
-	$mark = [count($link_candidates), $neighbor_snapshots, count($deferred_ip_keys)];
+	$mark = [count($link_candidates), $neighbor_snapshots];
 	try {
 		$pdo->beginTransaction();
 		$snap_reporter_neighbors($reporter, (int) $result['device_id'], (string) $result['segment']);
@@ -3725,7 +3449,6 @@ foreach ($identified as $hostid => $result) {
 		}
 		$link_candidates = array_slice($link_candidates, 0, $mark[0]);
 		$neighbor_snapshots = $mark[1];
-		$deferred_ip_keys = array_slice($deferred_ip_keys, 0, $mark[2]);      // what the rolled-back rows wanted is not taken
 		fwrite(STDERR, "ERROR: failed to ingest the neighbors of '{$reporter['host']}': {$exception->getMessage()}\n");
 		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
 		$skipped++;
@@ -3796,70 +3519,6 @@ if (!$snapshot_reporters) {
 	exit(0);
 }
 
-// ---- Address keys follow the current rows (topology-1-model.md §6.7.0) ----
-// At the end of a full run an `ip:` key goes when no current input gives it to its Device: a reporter's Device keeps its SNMP interface IP, any other Device
-// the addresses of the current snapshot rows of all reporters (a failed rule keeps its last good snapshot, so its rows are the current ones). The only key
-// of a Device is kept. Chassis keys do not follow this rule. Not touched: a run scoped to some hosts (it cannot see every input), the Device of a reporter_self host that has no data in this run, and the Devices that a failed
-// reporter's observations point at. One query reads the keys, one statement per chunk removes the stale ones.
-if (!$zabbix_host_filter) {
-	$protected = [];
-	if ($frozen_itemids) {
-		foreach ($pdo->query('SELECT DISTINCT device_id FROM topo_observations WHERE device_id IS NOT NULL AND itemid IN ('.
-				implode(',', array_map('intval', array_keys($frozen_itemids))).')')->fetchAll(PDO::FETCH_COLUMN) as $device_id) {
-			$protected[(int) $device_id] = true;
-		}
-	}
-	$by_device = [];
-	foreach ($pdo->query("SELECT k.device_id, k.{$q_key} AS k, k.kind, k.first_seen, k.replaced, d.represented_by_matched_by AS matched_by, h.host_ref".
-			" FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id AND d.type = 'device'".
-			" LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host' ORDER BY k.device_id, k.first_seen DESC, k.{$q_key}")->fetchAll(PDO::FETCH_ASSOC) as $row) {
-		$by_device[(int) $row['device_id']][] = $row;
-	}
-	$stale = [];
-	foreach ($by_device as $device_id => $key_rows) {
-		$host_ref = $key_rows[0]['host_ref'];
-		if (isset($protected[$device_id]) || ($host_ref !== null && isset($failed_hosts[(int) $host_ref]))
-				|| ($key_rows[0]['matched_by'] === 'reporter_self' && ($host_ref === null || !isset($snapshot_reporters[(int) $host_ref])))) {
-			continue;
-		}
-		$drop = [];
-		foreach ($key_rows as $row) {
-			if ($row['kind'] === 'ip' && (int) $row['replaced'] === 0 && !isset($current_ip_keys[$device_id][$row['k']])) {
-				$drop[] = $row['k'];
-			}
-		}
-		if ($drop && count($drop) === count($key_rows)) {
-			array_shift($drop);                  // the rows are sorted newest first: the newest of them is the only key left
-		}
-		foreach ($drop as $key) {
-			$stale[] = [$device_id, $key];
-		}
-	}
-	foreach (array_chunk($stale, 200) as $chunk) {
-		$pdo->prepare("DELETE FROM topo_identity_keys WHERE (device_id, {$q_key}) IN (".implode(',', array_fill(0, count($chunk), '(?, ?)')).')')
-			->execute(array_merge(...$chunk));
-	}
-	$summary['address_keys_removed'] = count($stale);
-
-	// A key that the run removed as stale does not block a row of the same run from taking it (§6.10): the Device a row found takes the address key that was
-	// held by another Device when the row came, if nobody holds it now. Several Devices that wait for one key: the lowest id takes it (the same whatever the order
-	// of the reporters and rows; the next run, which starts from this state, keeps it).
-	usort($deferred_ip_keys, static fn (array $a, array $b): int => [$a[1], $a[0]] <=> [$b[1], $b[0]]);
-	$taken_keys = [];
-	foreach ($deferred_ip_keys as [$device_id, $key, $seen_at]) {
-		if (isset($taken_keys[$key]) || $key_holders($key)) {
-			continue;
-		}
-		$alive = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND type = 'device'");
-		$alive->execute([$device_id]);
-		if ($alive->fetchColumn() === false) {
-			continue;
-		}
-		$insert_key($device_id, $key, 'ip', $seen_at);
-		$taken_keys[$key] = true;
-	}
-}
-
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
 
 // topology-1-model.md §6.7.5: every FULL run rewrites attrs.duplicate_candidates on every Device from the evidence of this run (an entry whose
@@ -3890,32 +3549,74 @@ foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JO
 
 $summary['duplicate_candidates'] = ['count' => 0];
 if (!$zabbix_host_filter) {
-	// attrs.mgmt_ip is only what the UI shows (§6.7.0). A Device without a reporter that holds several addresses (one per segment) shows the one of its
-	// newest key (the latest first_seen; ties by the key string), so the picture does not depend on the order in which the rows came. A reporter's Device shows its own.
-	$q_key_col = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? '"key"' : '`key`';
-	$multi_ip = $pdo->query("SELECT k.device_id FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id".
-		" WHERE k.kind = 'ip' AND k.replaced = 0 AND (d.represented_by_matched_by IS NULL OR d.represented_by_matched_by <> 'reporter_self')".
-		" GROUP BY k.device_id HAVING COUNT(*) > 1")->fetchAll(PDO::FETCH_COLUMN);
-	foreach ($multi_ip as $device_id) {
-		$stmt = $pdo->prepare("SELECT {$q_key_col} AS k FROM topo_identity_keys WHERE device_id = ? AND kind = 'ip' AND replaced = 0 ORDER BY first_seen DESC, {$q_key_col}");
-		$stmt->execute([$device_id]);
-		$first = $stmt->fetchColumn();
-		if ($first !== false && preg_match('/^ip:(?:server|pg:\d+|proxy:\d+):(.*)$/s', (string) $first, $m) === 1) {
-			$attrs = $snap_node_attrs((int) $device_id);
-			if (($attrs['mgmt_ip'] ?? null) !== $m[1]) {
-				$before = $attrs;
-				$attrs['mgmt_ip'] = $m[1];
-				$snap_write_attrs((int) $device_id, $attrs, $before);
+	// `same_address` and `same_name` (§6.7.5, 2.47), from the current evidence: two Devices that have one address in one segment (the addresses of their current
+	// observations: `rem_mgmt_ip` and every entry of `rem_man_addrs`, and a reporter's SNMP interface address; unspecified, loopback and link-local addresses do not
+	// count); two Devices without a chassis with equal name keys. Any pair, with or without a chassis. Read from the tables as the run leaves them: the observations
+	// of a failed reporter are the ones of its last good snapshot.
+	$by_address = [];      // "segment|address" => [device id => true]
+	$device_segments = []; // device id => [segment => true]: where the Device is seen from (its observations, its own host, the port it is scoped to)
+	foreach ($pdo->query('SELECT o.device_id, o.remote_attrs, i.hostid FROM topo_observations o JOIN items i ON i.itemid = o.itemid WHERE o.device_id IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$device_segments[(int) $row['device_id']][$segment_of($row['hostid'])] = true;
+		foreach (CTopologyAddress::claimAddresses(json_decode((string) $row['remote_attrs'], true) ?: []) as $address) {
+			$by_address[$segment_of($row['hostid']).'|'.$address][(int) $row['device_id']] = true;
+		}
+	}
+	foreach ($identified as $hostid => $result) {
+		$device_segments[(int) $result['device_id']][$reporter_own_of[$hostid]['segment']] = true;
+	}
+	// a Device without a chassis that no row sees now ("not seen") still has its last address (attrs.mgmt_ip), in the segment of the reporter whose port it is scoped to
+	$port_hosts = [];
+	foreach ($pdo->query("SELECT p.id, h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
+			" WHERE p.type = 'port'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$port_hosts[(int) $row['id']] = (int) $row['host_ref'];
+	}
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%scope_port%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$device_attrs = json_decode($row['attrs'], true) ?: [];
+		if (isset($device_attrs['scope_port'], $port_hosts[(int) $device_attrs['scope_port']])) {
+			$device_segments[(int) $row['id']][$segment_of($port_hosts[(int) $device_attrs['scope_port']])] = true;
+		}
+	}
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%mgmt_ip%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$device_attrs = json_decode($row['attrs'], true) ?: [];
+		if (is_string($device_attrs['mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($device_attrs['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
+			foreach (array_keys($device_segments[(int) $row['id']] ?? []) as $segment) {
+				$by_address[$segment.'|'.$text][(int) $row['id']] = true;
 			}
 		}
 	}
-	// `split_identity` (§6.7.5): the rows recorded Device A (found by its chassis) and the address key; the other holder of that key is read now, after the stale
-	// keys went and the Devices that waited for them took theirs, so the list is the one the next run over the same snapshots gives (§6.10).
-	foreach ($split_evidence as [$split_a, $split_key, $split_address]) {
-		$others = array_values(array_diff($key_holders($split_key), [$split_a]));
-		if (count($others) === 1) {
-			$note_duplicate($split_a, $others[0], 'split_identity', 'mgmt_ip', $split_address);
-			$note_duplicate($others[0], $split_a, 'split_identity', 'mgmt_ip', $split_address);
+	foreach ($identified as $hostid => $result) {
+		$own = $reporter_own_of[$hostid];
+		if ($own['mgmt_ip'] !== null && ($text = CTopologyAddress::ipText((string) $own['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
+			$by_address[$own['segment'].'|'.$text][(int) $result['device_id']] = true;
+		}
+	}
+	foreach ($by_address as $key => $device_ids) {
+		$device_ids = array_keys($device_ids);
+		$address = substr($key, strpos($key, '|') + 1);
+		foreach ($device_ids as $one) {
+			foreach ($device_ids as $other) {
+				if ($one !== $other) {
+					$note_duplicate($one, $other, 'same_address', 'address', $address);
+				}
+			}
+		}
+	}
+	$by_name = [];         // name key => [device id => true], the Devices without a chassis
+	foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")
+			->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		$device_attrs = json_decode($row['attrs'], true) ?: [];
+		if (($device_attrs['chassis_id'] ?? '') === '' && ($name_key = CTopologyAddress::nameKey((string) ($device_attrs['sysname'] ?? ''))) !== '') {
+			$by_name[$name_key][(int) $row['id']] = true;
+		}
+	}
+	foreach ($by_name as $name_key => $device_ids) {
+		$device_ids = array_keys($device_ids);
+		foreach ($device_ids as $one) {
+			foreach ($device_ids as $other) {
+				if ($one !== $other) {
+					$note_duplicate($one, $other, 'same_name', 'sysname', $name_key);
+				}
+			}
 		}
 	}
 	foreach ($chassis_changes as $s_id => [$chassis, $chassis_key_y]) {

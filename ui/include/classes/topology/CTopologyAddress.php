@@ -183,6 +183,52 @@ class CTopologyAddress {
 	}
 
 	/**
+	 * An address that can identify or match a neighbor (topology-1-model.md §6.7.1 "Match", §6.7.5 `same_address`): a valid address that is not unspecified, not loopback
+	 * and not link-local. (The section Addresses of the side panel shows the link-local ones; the match never uses them.)
+	 */
+	public static function countsAsIdentity(string $address): bool {
+		return !self::isHidden($address) && !self::isLinkLocal($address);
+	}
+
+	/**
+	 * The addresses of one neighbor claim that count for the match: `rem_mgmt_ip` and every entry of `rem_man_addrs` (normalization §4.4), in normal form, without
+	 * duplicates, in the order they come. $attrs = the remote attributes of the claim (or the row).
+	 */
+	public static function claimAddresses(array $attrs): array {
+		$found = [];
+		if (is_string($attrs['rem_man_addrs'] ?? null)) {
+			foreach (self::decodeEntries($attrs['rem_man_addrs']) as $entry) {
+				$found[$entry['address']] = true;
+			}
+		}
+		if (is_string($attrs['rem_mgmt_ip'] ?? null) && ($text = self::ipText($attrs['rem_mgmt_ip'])) !== null) {
+			$found[$text] = true;
+		}
+
+		return array_values(array_filter(array_keys($found), [self::class, 'countsAsIdentity']));
+	}
+
+	/**
+	 * The name key of a neighbor (§6.7.1 "Names"): the name without white space at the ends, ASCII lower case, without the domain (`SW-X.lab` = `SW-X`; a name that is
+	 * an address, or has no label before the first dot, keeps its dots). Empty for no name.
+	 */
+	public static function nameKey(string $name): string {
+		$key = strtolower(trim($name));
+		if ($key !== '' && !preg_match('/^[0-9.]+$/D', $key) && ($dot = strpos($key, '.')) !== false && $dot > 0) {
+			$key = substr($key, 0, $dot);
+		}
+
+		return $key;
+	}
+
+	/**
+	 * A text that is a MAC address (six octets with `:` or `-`, or twelve hex digits): a CDP device id of this form is not a name (§6.7.1).
+	 */
+	public static function isMacText(string $text): bool {
+		return preg_match('/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/Di', $text) === 1 || preg_match('/^[0-9a-f]{12}$/Di', $text) === 1;
+	}
+
+	/**
 	 * The sort key of an address, the one order of the section: the addresses that are not link-local before the link-local ones, then IPv4 before IPv6 (family), then the
 	 * numeric order (the packed bytes). The Device's `mgmt_ip` goes before all of them; the caller puts it first.
 	 */

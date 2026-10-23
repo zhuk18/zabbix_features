@@ -192,11 +192,10 @@ $Y = 'b0:00:00:00:00:0b';
 $IP = '192.168.1.1';
 
 // ============================================================================================================
-echo "\n=== 1: factory IP — Device A (chassis X, IP 192.168.1.1); a row with chassis Y and the same IP ===\n";
+echo "\n=== 1: factory IP — Device A (chassis X, IP 192.168.1.1); a row with chassis Y and the same IP (2.47: an address finds no Device) ===\n";
 reset_all($pdo);
-add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
 $A = device($pdo, $X, $IP, 'A');
-// (handoff 021: A is advertised with its factory IP all along; an address stays a key of a Device only while a row gives it, model §6.7.0)
 reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
 	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']]);
 for ($i = 1; $i <= 5; $i++) {
@@ -209,57 +208,126 @@ check($new !== null && $new !== $A, 'the row got a NEW Device (chassis Y)');
 check(dev_count($pdo) === 3, 'three Devices: the reporter, A and the new one');
 check(dev_attr($pdo, $new, 'mgmt_ip') === $IP, 'the new Device carries the IP as well (both Devices now have it)');
 check(observation_of($pdo, 1)['device_id'] == $new, 'the observation points to the new Device');
+$cand = static fn (int $id): array => array_values(array_map(static fn (array $c): array => [$c['reason'], $c['device_id'], $c['key'], $c['value']], attrs($pdo, $id)['duplicate_candidates'] ?? []));
+check($cand($A) === [['same_address', $new, 'address', $IP]] && $cand($new) === [['same_address', $A, 'address', $IP]], 'same_address on both Devices (the factory IP), key address');
 
 echo "  -- a row with chassis X finds A --\n";
 reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
-	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']], 'lldp', CLOCK + 100);   // A still advertises its factory IP (handoff 021: an address stays a key only while a row gives it, model §6.7.0)
+	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']], 'lldp', CLOCK + 100);
 run_ingest($dsn, $user, $password);
 check(observation_of($pdo, 2)['device_id'] == $A && dev_count($pdo) === 3, 'chassis X: Device A, nothing created');
 
-echo "  -- a row with only that IP: two Devices have it --\n";
+echo "  -- a row with only that IP and a name: a Device of its own (no key is shared, nothing is ambiguous) --\n";
 reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'NewBox'],
 	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A'],
 	['if_index' => 3, 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'who']], 'lldp', CLOCK + 200);
 $before = dev_count($pdo);
 $r = run_ingest($dsn, $user, $password);
 $o = observation_of($pdo, 3);
-check($o !== null && $o['outcome'] === 'ambiguous' && $o['device_id'] === null && $o['edge_id'] === null, 'the observation is ambiguous, no Device, no link');
-check(dev_count($pdo) === $before, 'no Device was created');
+check($o !== null && $o['outcome'] !== 'ambiguous' && $o['device_id'] !== null && dev_count($pdo) === $before + 1, 'the claim without a chassis has a Device of its own (scope_port = its port)');
 check(dev_attr($pdo, $A, 'chassis_id') === $X && dev_attr($pdo, $new, 'chassis_id') === $Y, 'no chassis_id changed');
-$list = shared_list($r['summary']);
-check(($r['summary']['identity_keys_shared']['count'] ?? 0) === 1 && count($list) === 1 && $list[0]['key'] === 'mgmt_ip'
-	&& $list[0]['value'] === $IP && count($list[0]['node_ids']) === 2, 'identity_keys_shared lists the IP with both node ids');
+check(($r['summary']['identity_keys_shared']['count'] ?? 0) === 0 && shared_list($r['summary']) === [], 'identity_keys_shared has chassis keys only: none');
+$who = (int) $o['device_id'];
+check(count($cand($who)) === 2 && count($cand($A)) === 2 && count($cand($new)) === 2, 'same_address on all three Devices that have the IP');
 for ($i = 1; $i <= 4; $i++) {
 	run_ingest($dsn, $user, $password);
 }
-check(dev_attr($pdo, $A, 'chassis_id') === $X && dev_attr($pdo, $new, 'chassis_id') === $Y && dev_count($pdo) === $before,
+check(dev_attr($pdo, $A, 'chassis_id') === $X && dev_attr($pdo, $new, 'chassis_id') === $Y && dev_count($pdo) === $before + 1,
 	'5 runs: no chassis_id changes, no new Device');
 
 // ============================================================================================================
-echo "\n=== 2: CDP + LLDP — a Device made from a CDP row (IP 1, no chassis) gets the chassis of the LLDP row ===\n";
+echo "\n=== 2: LLDP and CDP on one port: the claims match, or they are two neighbors (model §6.7.1, 2.47) ===\n";
+/** R's LLDP rule (item 1002) and CDP rule (item 1003) with the given rows; the neighbor rows get source and loc_chassis. */
+function two_rules(PDO $pdo, string $R, array $lldp, array $cdp, int $clock = CLOCK): void {
+	reporter_rows($pdo, $R, [], 'lldp', $clock);
+	$fill = static fn (array $rows, string $source): array => array_map(static fn (array $r): array => $r + ['loc_chassis' => $R, 'source' => $source, 'rem_port' => 'Gi0/24', 'rem_port_type' => 'interfaceName'], $rows);
+	snapshot($pdo, 1002, 101, 2, $clock + 10, $fill($lldp, 'lldp'));
+	snapshot($pdo, 1003, 101, 2, $clock + 10, $fill($cdp, 'cdp'));
+}
+$C = 'c0:00:00:00:00:0c';
 reset_all($pdo);
-add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
-reporter_rows($pdo, $R, [['if_index' => 1, 'rem_mgmt_ip' => '10.1.1.1', 'rem_sysname' => 'cdpbox', 'rem_port' => 'Gi0/24']], 'cdp');
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+two_rules($pdo, $R, [['if_index' => 1, 'rem_chassis' => $C, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'SW-X']],
+	[['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.5']]);
 run_ingest($dsn, $user, $password);
-$cdp = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.mgmt_ip'))='10.1.1.1'");
-check($cdp > 0 && dev_attr($pdo, $cdp, 'chassis_id') === null, 'the CDP row made a Device with an IP and no chassis');
-reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => '10.1.1.1', 'rem_sysname' => 'cdpbox']],
-	'lldp', CLOCK + 100);
-$before = dev_count($pdo);
+$r = run_ingest($dsn, $user, $password);
+check(dev_count($pdo) === 2 && $r['summary']['devices_created'] === 0 && count(edges($pdo)) === 1, 'LLDP chassis C + address 10.0.0.5, CDP no chassis + the same address, one port -> both claims are the Device of C, one link');
+check(array_unique($pdo->query('SELECT device_id FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)) === [(string) device_id($pdo, $C)] || count(array_unique($pdo->query('SELECT device_id FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN))) === 1, 'both observations point at the Device of C');
+
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+two_rules($pdo, $R, [['if_index' => 1, 'rem_chassis' => $C, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'SW-X']],
+	[['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'PHONE-Y']]);
 run_ingest($dsn, $user, $password);
-check(dev_count($pdo) === $before, 'the LLDP row created no Device');
-check(dev_attr($pdo, $cdp, 'chassis_id') === $Y, 'the CDP Device got chassis Y');
-check(observation_of($pdo, 1)['device_id'] == $cdp, 'the observation points to it');
+$r = run_ingest($dsn, $user, $password);
+$phone = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'PHONE-Y'");
+$port1 = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = ?", [$R]), 1);
+check(dev_count($pdo) === 3 && $phone > 0 && attrs($pdo, $phone)['scope_port'] === $port1, 'LLDP chassis C name SW-X, CDP no chassis name PHONE-Y, the same address -> no join: a Device with scope_port = the port for the CDP claim');
+check(array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)) === ['ambiguous'] && count(edges($pdo)) === 0, '§8.5: two neighbors on one port, no link -> both claims ambiguous');
+check($r['summary']['devices_created'] === 0, 'the second run creates nothing');
 
 // ============================================================================================================
-echo "\n=== 3: a row with only an IP that one Device has -> that Device, whatever its chassis ===\n";
+echo "\n=== 3: a CDP claim that names its neighbor as text, and the reporter's own SNMP address (model §6.7.1, 2.47) ===\n";
 reset_all($pdo);
-add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
-$A = device($pdo, $X, '10.2.2.2', 'A');
-reporter_rows($pdo, $R, [['if_index' => 1, 'rem_mgmt_ip' => '10.2.2.2', 'rem_sysname' => 'A']]);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+two_rules($pdo, $R, [['if_index' => 1, 'rem_chassis' => 'PC-7', 'rem_chassis_type' => 'local']], [['if_index' => 1, 'rem_sysname' => 'PC-7']]);
 run_ingest($dsn, $user, $password);
-check(observation_of($pdo, 1)['device_id'] == $A && dev_count($pdo) === 2, 'the Device with that IP, nothing created');
-check(dev_attr($pdo, $A, 'chassis_id') === $X, 'its chassis is untouched');
+check(dev_count($pdo) === 2 && count(edges($pdo)) === 1, 'CDP device id = the LLDP chassis id as text (HP ProCurve, F-1), no address -> the Device of the LLDP claim');
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+add_host($pdo, 102, 'H', 'H', '10.0.0.7');
+snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => 'b0:00:00:00:00:77']]);
+two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.7', 'rem_sysname' => 'H']]);
+run_ingest($dsn, $user, $password);
+$h_dev = device_id($pdo, 'b0:00:00:00:00:77');
+check($h_dev !== null && (int) scalar($pdo, 'SELECT device_id FROM topo_observations') === $h_dev && dev_count($pdo) === 2, 'CDP no chassis, address = the SNMP interface address of reporter H, name = H\'s sysname -> the Device of H, nothing created');
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+add_host($pdo, 102, 'H', 'H', '10.0.0.7');
+snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => 'b0:00:00:00:00:77']]);
+two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.7', 'rem_sysname' => 'R2']]);
+run_ingest($dsn, $user, $password);
+$h_dev = device_id($pdo, 'b0:00:00:00:00:77');
+$o = $pdo->query('SELECT outcome, device_id FROM topo_observations')->fetch(PDO::FETCH_ASSOC);
+check($o['device_id'] !== null && (int) $o['device_id'] !== $h_dev && dev_count($pdo) === 3, 'name R2 is not H\'s sysname (a VRRP address): not H; a Device of the port');
+$vrrp = (int) $o['device_id'];
+check(array_map(static fn (array $c): array => [$c['reason'], $c['device_id']], attrs($pdo, $h_dev)['duplicate_candidates'] ?? []) === [['same_address', $vrrp]], 'same_address with H\'s Device');
+
+// ============================================================================================================
+echo "\n=== 3b: a Device without a chassis keeps its identity while its name or one address stays (model §6.7.1, 2.47) ===\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.20', 'rem_sysname' => 'AP-7']]);
+run_ingest($dsn, $user, $password);
+$ap = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'AP-7'");
+two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.21', 'rem_sysname' => 'AP-7']], CLOCK + 100);
+run_ingest($dsn, $user, $password);
+check($ap > 0 && dev_count($pdo) === 2 && (int) scalar($pdo, 'SELECT device_id FROM topo_observations') === $ap && dev_attr($pdo, $ap, 'mgmt_ip') === '10.0.0.21', 'D (name AP-7, 10.0.0.20); the next snapshot AP-7, 10.0.0.21 -> D, no new Device');
+
+echo "  -- the same neighbor without a chassis seen by two reporters: two Devices, marks, and the operator's answers --\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
+add_host($pdo, 102, 'SwS', 'SwS', '10.0.0.2');
+snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => $R]]);
+snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => 'b0:00:00:00:00:02']]);
+$cdp_row = ['rem_mgmt_ip' => '10.0.0.30', 'rem_sysname' => 'PRINTER', 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName', 'source' => 'cdp'];
+snapshot($pdo, 1003, 101, 2, CLOCK + 10, [['if_index' => 1, 'loc_chassis' => $R] + $cdp_row]);
+snapshot($pdo, 2003, 102, 2, CLOCK + 10, [['if_index' => 1, 'loc_chassis' => 'b0:00:00:00:00:02'] + $cdp_row]);
+run_ingest($dsn, $user, $password);
+$printers = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'PRINTER' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+check(count($printers) === 2, 'two Devices for the same printer (one per reporter and port)');
+$reasons = static fn (int $id): array => array_values(array_unique(array_column(attrs($pdo, $id)['duplicate_candidates'] ?? [], 'reason')));
+check($reasons($printers[0]) === ['same_address', 'same_name'] && $reasons($printers[1]) === ['same_address', 'same_name'], 'same_address and same_name on both');
+echo "  -- Not the same device: no candidate for the pair on the later runs --\n";
+foreach ([[$printers[0], $printers[1]], [$printers[1], $printers[0]]] as [$one, $other]) {
+	$a = attrs($pdo, $one);
+	$a['duplicate_dismissed'] = [['device_id' => $other, 'at' => 1, 'by' => 'Admin']];
+	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $one]);
+}
+$dismissed_before = [attrs($pdo, $printers[0])['duplicate_dismissed'], attrs($pdo, $printers[1])['duplicate_dismissed']];
+run_ingest($dsn, $user, $password);
+check(!isset(attrs($pdo, $printers[0])['duplicate_candidates']) && !isset(attrs($pdo, $printers[1])['duplicate_candidates']), 'dismissed on both: no candidate for the pair');
+check([attrs($pdo, $printers[0])['duplicate_dismissed'], attrs($pdo, $printers[1])['duplicate_dismissed']] === $dismissed_before, 'ingest keeps duplicate_dismissed byte-identical');
 
 // ============================================================================================================
 echo "\n=== 4: two Devices with the same chassis_id (old data) — a row with it is ambiguous, the IP is not tried ===\n";
@@ -307,7 +375,7 @@ function key_shared_setup(PDO $pdo, string $X, bool $second_reporter): array {
 	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1',
 		'loc_chassis' => $X]]);
 	if ($second_reporter) {
-		// a reporter without a chassis whose SNMP IP is old1's: it takes old1 (a Device with no representation), whatever the order
+		// a reporter without a chassis whose SNMP IP is old1's address: the address is not looked up (2.47); it gets its own Device without a key, whatever the order
 		add_host($pdo, 103, 'SwIp', 'Switch Ip', '10.3.3.1');
 		snapshot($pdo, 2002, 103, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1']]);
 	}
@@ -344,7 +412,7 @@ foreach (['hostid order' => null, 'reporters 103, 102' => '103,102', 'reporters 
 	key_shared_setup($pdo, $X, true);
 	$r = run_ingest($dsn, $user, $password, [], $order);
 	$results[$label] = key_shared_state($pdo);
-	check(empty($r['summary']['reporters_skipped']) && dev_count($pdo) === 3, "{$label}: nothing skipped; old1 (taken by 103), old2 and the new Device of 102");
+	check(empty($r['summary']['reporters_skipped']) && dev_count($pdo) === 4, "{$label}: nothing skipped; old1, old2, the new Device of 102 and the key-less Device of 103");
 }
 check($results['hostid order'] === $results['reporters 103, 102'] && $results['hostid order'] === $results['reporters 102, 103'], 'the result does not depend on the reporter order');
 check(count(array_filter($results['hostid order'], static fn (array $v): bool => (string) $v[0] === '102')) === 1, 'host 102 has its own Device in every order');

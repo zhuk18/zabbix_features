@@ -6,9 +6,10 @@ declare(strict_types=1);
 /**
  * test_identity_keys.php — the identity key table (topology-1-model.md §6.7.0), handoff 017 section 2.
  *
- * Devices that hold no key (data written before the table) get their keys from their attributes in the next ingest run:
+ * Devices that hold no key (data written before the table) get their chassis keys from their attributes in the next ingest run:
  * the segment of a reporter's Device is the segment of its host, of any other Device the segment of the reporter of its latest
  * observation; a MAC chassis is global; a Device whose scoped keys cannot be built is reported and skipped. The run summary counts them.
+ * 2.47: the key is the chassis only; a Device without a chassis gets attrs.scope_port (from the local port of its latest observation, here) and no key.
  *
  * Usage: test_identity_keys.php <PDO DSN> <database user> [password]
  * Expects a THROWAWAY database (drops and recreates the topology tables and stand-ins of the Zabbix tables).
@@ -99,23 +100,31 @@ $keys = static function (int $device) use ($pdo): array {
 	return array_map('intval', $stmt->fetchAll(PDO::FETCH_KEY_PAIR));
 };
 
+$attrs_of = static function (int $id) use ($pdo): string {
+	$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+	$stmt->execute([$id]);
+	return (string) $stmt->fetchColumn();
+};
 echo "\n=== keys built from the attributes in one run ===\n";
 [$summary, $err] = $run();
 check($err === '', 'the run is clean '.$err);
-check($keys($d1) === ['chassis:mac:02:00:00:00:07:01' => 0, 'ip:proxy:5:10.7.0.1' => 0], 'a reporter\'s Device: the MAC chassis (global) and the address in the segment of its host (proxy:5)');
-check($keys($d2) === ['chassis:mac:02:00:00:00:07:02' => 0, 'chassis:mac:02:00:00:00:07:99' => 1, 'ip:pg:3:10.7.0.2' => 0],
-	'a reporter in a proxy group: the segment is the group (pg:3), the replaced chassis is a key with replaced = 1');
-check($keys($d3) === ['ip:proxy:5:10.7.0.3' => 0], 'a Device with no reporter: the segment of the reporter of its LATEST observation (proxy:5, not the server)');
-check($keys($d4) === [], 'no reporter, no observation: no scoped key');
+check($keys($d1) === ['chassis:mac:02:00:00:00:07:01' => 0], 'a reporter\'s Device: the MAC chassis (global) only; the address is an attribute (2.47)');
+check($keys($d2) === ['chassis:mac:02:00:00:00:07:02' => 0, 'chassis:mac:02:00:00:00:07:99' => 1],
+	'a reporter in a proxy group: the chassis and the replaced chassis as a key with replaced = 1');
+check($keys($d3) === [] && (json_decode((string) $attrs_of($d3), true)['scope_port'] ?? null) === $port,
+	'a Device without a chassis: no key; scope_port = the local port of its latest observation');
+check($keys($d4) === [] && !isset(json_decode((string) $attrs_of($d4), true)['scope_port']), 'no chassis, no observation: no key, no scope_port');
 check($keys($d5) === ['chassis:mac:02:00:00:00:07:05' => 0], 'no reporter, no observation, MAC chassis only: the global key does not need a segment');
 check($keys($d6) === [], 'a text chassis needs a segment: skipped');
 $built = $summary['identity_keys_built'] ?? [];
-check(($built['devices'] ?? null) === 6 && ($built['keys'] ?? null) === 7 && ($built['skipped'] ?? null) === [$d4, $d6],
-	'the summary counts the Devices (6), the keys (7) and lists the skipped Devices: '.json_encode($built));
+check(($built['devices'] ?? null) === 4 && ($built['keys'] ?? null) === 4 && ($built['skipped'] ?? null) === [$d6],
+	'the summary counts the Devices with a chassis (4), the keys (4) and lists the skipped Devices: '.json_encode($built));
 
 echo "\n=== a second run builds nothing and changes nothing ===\n";
 $before = [$keys($d1), $keys($d2), $keys($d3), $keys($d5)];
+$attrs_before = $pdo->query('SELECT id, attrs FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
 [$summary] = $run();
 check([$keys($d1), $keys($d2), $keys($d3), $keys($d5)] === $before, 'the keys are the same');
+check($pdo->query('SELECT id, attrs FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $attrs_before, 'the attributes (scope_port) are the same');
 check(($summary['identity_keys_built']['keys'] ?? null) === 0, 'no key is built again (the Devices without keys are retried and stay skipped: '.json_encode($summary['identity_keys_built'] ?? null).')');
 echo "\nAll identity key checks passed.\n";

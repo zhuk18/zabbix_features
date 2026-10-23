@@ -744,8 +744,14 @@ c('I-03', 'Правило', function () {
 	h_tick();
 	h_nbrs('R', [NR(1, mac(11), 'box', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])], 'lldp');
 	h_ingest('LLDP with chassis Y and the same IP');
-	$d = h_dev('box');
-	ex(h_dev_count() === 2 && $d !== null && $d['chassis'] === mac(11), 'one Device; it got chassis Y');
+	// 2.47 (§6.7.1): a Device is never given a chassis by a later row (no automatic join). The chassis claim makes the Device of chassis Y; the CDP claim joins it
+	// (same port, one claim with a chassis, the names are equal); the Device that the CDP claim made first stays, with no claim ("not seen"), and no mark
+	$with_chassis = array_values(array_filter(h_state()['devices'], static fn ($d) => $d['chassis'] === mac(11)));
+	$without = array_values(array_filter(h_state()['devices'], static fn ($d) => $d['name'] === 'box' && $d['chassis'] === null));
+	ex(h_dev_count() === 3 && count($with_chassis) === 1 && count($without) === 1, 'the Device of chassis Y is new; the Device that the CDP row made stays without a chassis (R, the two Devices)');
+	ex(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'device')) === ['box'] && count(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome'))) === 1, 'both claims of the port point at the Device of chassis Y, applied');
+	global $pdo;
+	exv((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE device_id = ?", [$without[0]['id'] ?? 0]), 0, 'the first Device has no claim any more');
 });
 
 c('I-04', 'Правило', function () {
@@ -754,16 +760,19 @@ c('I-04', 'Правило', function () {
 	h_ports('R2', [1 => 'Gi0/1']);
 	h_nbrs('R', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('sysname-only neighbor');
-	ex((h_dev('S-only')['matched_by'] ?? null) === 'sysname', 'a Device created by sysname has matched_by sysname in the same run');
+	global $pdo;
+	$port = static fn (string $rep) => (int) h_node_id_of_port($rep, 'Gi0/1');
+	ex(((int) (attrs($pdo, h_device_id('S-only'))['scope_port'] ?? 0)) === $port('R') && !isset(attrs($pdo, h_device_id('S-only'))['matched_by']), 'a Device made for a name-only claim has scope_port = the reporter\'s port, no matched_by (removed in 2.47)');
 	h_tick();
 	h_nbrs('R', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('seen again on the same port');
-	ex(h_dev_count() === 3 && (h_dev('S-only')['matched_by'] ?? null) === 'sysname', 'found by sysname on the same R and P: matched_by sysname, one Device');
-	ex(in_array('attributes other than ids and last_seen* changed once on the first repeat (e.g. matched_by) and then stayed', $GLOBALS['H']['notes'], true) === false, 'the first repeat run changes no attribute (matched_by is set at creation)');
+	ex(h_dev_count() === 3, 'found by its port and name: one Device');
 	h_tick();
 	h_nbrs('R2', [NR(1, null, 'S-only', 'Gi0/24')]);
 	h_ingest('the same sysname behind another reporter');
-	ex(h_dev_count() === 4, 'the key is scoped to R and P: another reporter makes another Device (R, R2, two S-only)');
+	ex(h_dev_count() === 4, 'the match is scoped to the port: another reporter makes another Device (R, R2, two S-only)');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => $l === [$l[0]] && str_starts_with($l[0], 'same_name->'))) === 2, 'same_name on both Devices without a chassis (actual: '.json_encode($cand).')');
 });
 
 c('I-05', 'Ограничение', function () {
@@ -823,18 +832,19 @@ c('I-09', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
 	h_ingest('chassis X');
 	h_tick();
-	// (handoff 021: the old box must still be advertised for its address to stay a key of its Device, §6.7.0 "Address keys follow the current rows";
-	// after a real RMA the old box is gone, its address goes with it, and a row with only the IP finds the new Device)
 	h_nbrs('R', [NR(1, mac(11), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']), NR(3, mac(10), 'DX-old', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
 	h_ingest('RMA, the old box is still on the network');
 	h_tick();
 	h_nbrs('R', [NR(1, mac(11), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']), NR(3, mac(10), 'DX-old', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9']),
 		NR(2, null, 'only-ip', null, ['rem_mgmt_ip' => '10.9.9.9'])]);
 	$summary = h_ingest('a row with only the IP');
+	// 2.47 (§6.7.1, §6.7.4): an address is no key, so it is never a shared identifier: the row makes a Device of its port; the three Devices with one address are marked
 	$o = h_obs('R', 'Gi0/2');
-	ex($o !== null && $o['outcome'] === 'ambiguous' && $o['device'] === null, 'ambiguous, no Device');
-	ex(count(h_active_on('R:Gi0/2')) === 0, 'no link');
-	ex(($summary['identity_keys_shared']['count'] ?? 0) === 1, 'identity_keys_shared lists the IP');
+	ex($o !== null && $o['device'] === 'only-ip', 'the row without a chassis gets a Device of its own (scope_port = Gi0/2), not ambiguous');
+	ex(count(h_active_on('R:Gi0/2')) === 0, 'no link (no far port advertised)');
+	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared lists chassis keys only: none');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => count($l) === 2 && count(array_unique($l)) === 2 && !array_diff(array_map(static fn ($x) => explode('->', $x)[0], $l), ['same_address']))) === 3, 'same_address on the three Devices that have 10.9.9.9 (actual: '.json_encode($cand).')');
 });
 
 c('I-10', 'Правило', function () {
@@ -864,9 +874,11 @@ c('I-10', 'Правило', function () {
 	$c = $by_chassis(mac(5));
 	global $pdo;
 	$cand = static fn (int $id): array => json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_nodes WHERE id=?', [$id]), true)['duplicate_candidates'] ?? [];
+	$chassis_change = static fn (array $list): array => array_values(array_filter($list, static fn (array $e): bool => $e['reason'] === 'reporter_chassis_change'));
 	ex($by_chassis(mac(1)) === $s && $c !== null && $c !== $s, 'the reporter\'s Device S keeps the stored chassis X; the neighbors made Device C for Y (3 Devices)');
-	ex($cand($s) === [['device_id' => $c, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]]
-		&& $cand($c) === [['device_id' => $s, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]], 'candidate reporter_chassis_change on S and on C');
+	ex($chassis_change($cand($s)) === [['device_id' => $c, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]]
+		&& $chassis_change($cand($c)) === [['device_id' => $s, 'reason' => 'reporter_chassis_change', 'key' => 'chassis_id', 'value' => mac(5)]], 'candidate reporter_chassis_change on S and on C');
+	ex(count($cand($s)) === 2 && $cand($s)[1]['reason'] === 'same_address' && $cand($s)[1]['value'] === '10.0.0.1', 'and same_address (R\'s SNMP address 10.0.0.1 is the address N advertises for C)');
 	h_note('operator merge: keep S, remove C');
 	CTopologyPrototype::mergeDevices((string) $s, (string) $c, 'Admin');
 	h_tick();
@@ -890,7 +902,7 @@ c('I-11', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.2'])]);
 	h_ingest('chassis X, IP 2');
 	ex(h_dev_count() === 2 && (h_dev('DX')['ip'] ?? null) === '10.1.1.2', 'found by chassis, mgmt_ip updated');
-	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.2'], 'the keys after the address change: the chassis and only the new address (§6.7.0)');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10)], 'the keys after the address change: the chassis only (addresses are attributes, 2.47)');
 });
 
 c('I-12', 'Правило', function () {
@@ -908,9 +920,11 @@ c('I-13', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'A', 'Gi0/24', ['rem_mgmt_ip' => '192.168.1.1']), NR(2, mac(11), 'B', 'Gi0/24', ['rem_mgmt_ip' => '192.168.1.1']),
 		NR(3, null, 'by-ip', null, ['rem_mgmt_ip' => '192.168.1.1'])]);
 	$summary = h_ingest('factory IP on two devices, and a row with only that IP');
-	ex(h_dev_count() === 3 && h_dev('A') !== null && h_dev('B') !== null, 'two Devices by chassis');
-	ex((h_obs('R', 'Gi0/3')['outcome'] ?? null) === 'ambiguous', 'the IP-only row is ambiguous');
-	ex(($summary['identity_keys_shared']['list'][0]['value'] ?? null) === '192.168.1.1', 'the IP is in identity_keys_shared');
+	ex(h_dev_count() === 4 && h_dev('A') !== null && h_dev('B') !== null && h_dev('by-ip') !== null, 'two Devices by chassis and a Device for the claim without a chassis (an address finds no Device, 2.47)');
+	ex(($h = h_obs('R', 'Gi0/3')) !== null && $h['device'] === 'by-ip', 'the IP-only row is not ambiguous: it has its own Device');
+	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared has chassis keys only: none');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 3 && count(array_filter($cand, static fn ($l) => count($l) === 2 && array_unique(array_map(static fn ($x) => explode('->', $x)[0], $l)) === ['same_address'])) === 3, 'same_address on the three Devices (actual: '.json_encode($cand).')');
 });
 
 c('I-14', 'Правило', function () {
@@ -918,8 +932,10 @@ c('I-14', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'A', 'Gi0/24', ['rem_mgmt_ip' => '10.7.7.7']), NR(2, mac(11), 'B', 'Gi0/24', ['rem_mgmt_ip' => '10.7.7.7']),
 		NR(3, mac(12), 'C', 'Gi0/24', ['rem_mgmt_ip' => '10.7.7.7']), NR(4, null, 'vip', null, ['rem_mgmt_ip' => '10.7.7.7'])]);
 	$summary = h_ingest('a virtual IP advertised by several neighbors');
-	ex(h_dev_count() === 4 && (h_obs('R', 'Gi0/4')['outcome'] ?? null) === 'ambiguous', 'as I-13: three Devices by chassis, the IP-only row ambiguous');
-	ex(($summary['identity_keys_shared']['count'] ?? 0) === 1, 'the IP is in identity_keys_shared');
+	ex(h_dev_count() === 5 && h_dev('vip') !== null && (h_obs('R', 'Gi0/4')['device'] ?? null) === 'vip', 'as I-13: three Devices by chassis and a Device for the claim without a chassis');
+	ex(($summary['identity_keys_shared']['count'] ?? 0) === 0, 'identity_keys_shared has chassis keys only: none');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 4 && count(array_filter($cand, static fn ($l) => count($l) === 3)) === 4, 'same_address: every Device of the four is marked with the other three (actual: '.json_encode($cand).')');
 });
 
 c('I-15', 'Пробел', function () {
@@ -2488,32 +2504,30 @@ c('J-01', 'Правило', function () {
 	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1')], 'lldp');                                        // LLDP without a management address: chassis only
 	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');           // CDP: IP only
 	h_ingest('LLDP (chassis only) and CDP (IP only) for one neighbor');
-	ex(h_dev_count() === 3, 'two Devices for one neighbor after run 1');
+	ex(h_dev_count() === 2, 'one Device for one neighbor after run 1: the CDP claim joins the claim with a chassis on the same port (the names are equal, 2.47)');
 	h_tick();
 	h_rep('N', mac(10), '10.5.5.5');
 	h_ports('N', [1 => 'Gi0/1']);
 	h_nbrs('N', []);
 	$summary = h_ingest('the neighbor becomes a reporter: loc_chassis + SNMP IP');
-	ex(h_dev_count() === 2, 'one Device (A kept, B deleted)');
+	ex(h_dev_count() === 2, 'the Device of the chassis is the reporter\'s Device (no second Device, nothing joined or deleted)');
 	ex(count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 1 && count(h_links('R:Gi0/1', 'N:Gi0/1', 'physical_link', 'active')) === 1, 'one link, pseudo ports merged by name');
 	ex(array_unique(array_column(h_obs_all('R', 'Gi0/1'), 'outcome')) === ['applied'], 'the CDP observation is applied, not ambiguous');
-	ex((int) ($summary['devices_joined']['count'] ?? 0) === 1, 'devices_joined = 1');
-}, 'test_join_identity.php §1');
+	ex(!isset($summary['devices_joined']) && !isset($summary['devices_join_refused']) && !isset($summary['join_links_deleted']), 'the counters of the automatic join are gone (2.47)');
+}, 'test_shared_identifier.php');
 
 c('J-02', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1')], 'lldp');
 	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
-	h_ingest('a split identity: A (chassis), B (IP)');
-	ex(h_dev_count() === 3, 'two Devices for the neighbor');
+	h_ingest('LLDP chassis + CDP address for one neighbor');
+	ex(h_dev_count() === 2, 'one Device for the neighbor (the claims match by name)');
 	h_tick();
 	h_nbrs('R', [NR(1, mac(10), 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
 	h_nbrs('R', [NR(1, null, 'N', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'cdp');
-	$summary = h_ingest('LLDP now carries the management address: a row with chassis + IP');
-	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'a neighbor row with both keys never merges (devices_joined = 0, both Devices stay)');
-	$cand = dup_candidates_of();
-	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => $l === [$l[0]] && str_starts_with($l[0], 'split_identity->'))) === 2, 'the candidate split_identity is on both Devices');
-}, 'test_join_identity.php §2');
+	h_ingest('LLDP now carries the management address: a row with chassis + IP');
+	ex(h_dev_count() === 2 && dup_candidates_of() === [], 'still one Device, no candidate (no split_identity in 2.47)');
+}, 'test_shared_identifier.php');
 
 c('J-03', 'Правило', function () {
 	base_r();
@@ -2525,11 +2539,11 @@ c('J-03', 'Правило', function () {
 	ex(h_dev_count() === 3, 'setup: three Devices (R, A, B)');
 	h_tick();
 	h_nbrs('R', [NR(1, mac(10), 'NA', 'Gi0/1', ['rem_mgmt_ip' => '10.5.5.5'])], 'lldp');
-	$summary = h_ingest('a row names the chassis of A and the IP of B');
-	ex(h_dev_count() === 3 && (int) ($summary['devices_joined']['count'] ?? 0) === 0, 'no merge from a neighbor row: all Devices stay (R, A, B)');
+	h_ingest('a row names the chassis of A and the IP of B');
+	ex(h_dev_count() === 3, 'no merge from a neighbor row: all Devices stay (R, A, B); the row finds A by its chassis');
 	$cand = dup_candidates_of();
-	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => str_starts_with($l[0], 'split_identity->'))) === 2, 'the candidate is on both Devices (a merge would be refused: two associations)');
-}, 'test_join_identity.php §3');
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => count($l) === 1 && str_starts_with($l[0], 'same_address->'))) === 2, 'same_address on A and B (the address of B is advertised for A): '.json_encode($cand));
+}, 'test_shared_identifier.php');
 
 // ============================================================================================================
 // X. Two hosts of one box (handoff 013 section 1; since 015 a rule: the reporter's own data wins, model §6.7.1)
@@ -2583,8 +2597,9 @@ c('X-01', 'Правило', function () {
 		$names = array_map(static fn ($d) => strstr($d, ' ', true), $run['devices']);
 		sort($names);
 		ex($names === ['H1', 'H2', 'R'] && !$run['skipped'], 'order '.$run['order'].': R, H1 and H2 keep their own Devices, nothing is skipped (actual: '.json_encode($run['devices'], JSON_UNESCAPED_UNICODE).')');
-		ex(isset($run['cands']['H1'], $run['cands']['H2']) && preg_grep('/^split_identity->/', $run['cands']['H1']) && preg_grep('/^split_identity->/', $run['cands']['H2']),
-			'order '.$run['order'].': split_identity on both reporters\' Devices (actual: '.json_encode($run['cands'], JSON_UNESCAPED_UNICODE).')');
+		ex(isset($run['cands']['H1'], $run['cands']['H2']) && preg_grep('/^same_address->/', $run['cands']['H1']) && preg_grep('/^same_address->/', $run['cands']['H2'])
+			&& !preg_grep('/^split_identity->/', $run['cands']['H1']),
+			'order '.$run['order'].': same_address on both reporters\' Devices, no split_identity (2.47) (actual: '.json_encode($run['cands'], JSON_UNESCAPED_UNICODE).')');
 		$h1 = array_values(array_filter($run['devices'], static fn ($d) => str_starts_with($d, 'H1 ')));
 		ex(($h1[0] ?? '') === 'H1 chassis a0:00:00:00:00:0a ip 10.0.0.30 reporter_self', 'order '.$run['order'].': no key or attribute of the reporter\'s Device changed by the row (actual: '.($h1[0] ?? '-').')');
 	}
@@ -2599,9 +2614,9 @@ c('X-02', 'Правило', function () {
 	ex(!($summary['reporters_skipped'] ?? []) && (int) ($summary['reporters_processed'] ?? 0) === 2, 'both reporters are processed, none is skipped (actual: '.json_encode($summary['reporters_skipped'] ?? null).')');
 	$ports = h_state()['ports'];
 	ex(h_dev_count() === 2 && count($ports['H1'] ?? []) === 2 && count($ports['H2'] ?? []) === 1, 'each reporter has its own Device and its own ports (actual: '.json_encode($ports).')');
-	ex((int) ($summary['identity_keys_shared']['count'] ?? 0) === 1 && ($summary['identity_keys_shared']['list'][0]['key'] ?? '') === 'mgmt_ip', 'the IP key is shared: '.json_encode($summary['identity_keys_shared'] ?? null));
+	ex((int) ($summary['identity_keys_shared']['count'] ?? 0) === 0, 'an address is no key: identity_keys_shared is empty (2.47): '.json_encode($summary['identity_keys_shared'] ?? null));
 	$cand = dup_candidates_of();
-	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => count($l) === 1 && str_starts_with($l[0], 'reporters_share_key->'))) === 2, 'reporters_share_key on both Devices (actual: '.json_encode($cand).')');
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => count($l) === 1 && str_starts_with($l[0], 'same_address->'))) === 2, 'same_address on both Devices (was: the IP key shared, reporters_share_key) (actual: '.json_encode($cand).')');
 });
 
 // ============================================================================================================
@@ -2715,13 +2730,11 @@ c('S-04', 'Правило', function () {
 	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
 	h_ingest('the same host, now behind proxy B, reports the same neighbor');
 	s_picture('S-04');
-	ex(h_dev_count() === 3, 'no re-keying: the Device made in segment A stays, the same row in segment B makes another one (actual: '.h_dev_count().')');
+	// 2.47: the match is by the port, the name and the addresses of one reporter; the segment is not part of it, so the move changes nothing
+	ex(h_dev_count() === 2, 'the neighbor is the same Device after the move: found by its port and name (actual: '.h_dev_count().')');
 	global $pdo;
-	$keys = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex($keys === ['ip:proxy:1:10.0.0.1', 'ip:proxy:2:10.0.0.1'], 'the key of segment A is not rewritten, the key of segment B is new, on two Devices (actual: '.json_encode($keys).')');
-	$own = $pdo->query("SELECT k.`key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE k.kind = 'ip' AND d.represented_by_node_id IS NOT NULL ORDER BY k.`key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex($own === ['ip:proxy:2:10.1.1.1'], 'the host that moved has the address of its segment now; the key of segment A is no current input of its Device and goes (§6.7.0 "Address keys follow the current rows") (actual: '.json_encode($own).')');
-	ex(count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')) === 1, 'the port has one active link, to the Device of the new segment; the old one is superseded by the normal rule (actual: '.count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')).')');
+	exv((int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind <> 'chassis'"), 0, 'there are no address keys to rewrite or to go stale');
+	ex(count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')) === 1, 'the port has one active link (actual: '.count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')).')');
 });
 
 c('S-05', 'Правило', function () {
@@ -2740,7 +2753,8 @@ c('S-05', 'Правило', function () {
 	ex(h_dev_count() === 3 && count(array_filter(h_state()['links_full'], static fn ($l) => $l['state'] === 'active')) === 2, 'one Device, one link per cable (actual: devices='.h_dev_count().')');
 	global $pdo;
 	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE device_id = ".(int) ($core[0]['id'] ?? 0)." ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex($keys === ['chassis:mac:'.mac(30), 'ip:proxy:1:10.0.0.1', 'ip:proxy:2:10.0.0.9'], 'the Device holds the MAC chassis and both addresses, each in its segment (actual: '.json_encode($keys).')');
+	ex($keys === ['chassis:mac:'.mac(30)], 'the Device holds the MAC chassis only; the two addresses are attributes, each marked in its segment (actual: '.json_encode($keys).')');
+	ex(dup_candidates_of() === [], 'one address per segment, no second Device with it: no mark');
 });
 
 c('S-06', 'Правило', function () {
@@ -2770,8 +2784,8 @@ c('S-07', 'Правило', function () {
 	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
 	h_ingest('the group fails over to proxy 2');
 	s_picture('S-07');
-	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind = 'ip' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex(h_dev_count() === 2 && $keys === ['ip:pg:1:10.0.0.1', 'ip:pg:1:10.1.1.1'], 'a failover inside a proxy group changes nothing: one neighbor Device, the keys of the group (actual: '.json_encode($keys).')');
+	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind <> 'chassis' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
+	ex(h_dev_count() === 2 && $keys === [], 'a failover inside a proxy group changes nothing: one neighbor Device, no address keys (actual: '.json_encode($keys).')');
 });
 
 
@@ -2824,7 +2838,7 @@ c('A-01', 'Правило', function () {
 	h_tick();
 	h_nbrs('R', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.2'])]);
 	h_ingest('DX advertises IP 2 in the same segment');
-	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.2'], 'after the run only the new address is a key');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10)], 'after the run only the chassis is a key (addresses are attributes, 2.47)');
 	h_tick();
 	h_nbrs('R', [NR(2, null, 'OLD-IP', 'Gi0/1', ['rem_mgmt_ip' => '10.1.1.1'])], 'cdp');
 	h_ingest('a CDP-only row with the old address');
@@ -2839,21 +2853,24 @@ c('A-02', 'Правило', function () {
 	h_nbrs('R1', [NR(1, mac(10), 'DX', 'Gi0/24', ['rem_mgmt_ip' => '10.1.1.1'])]);
 	h_nbrs('R2', [NR(1, mac(10), 'DX', 'Gi0/25', ['rem_mgmt_ip' => '10.1.1.2'])]);
 	h_ingest('two neighbors advertise two addresses for one Device');
-	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.1', 'ip:server:10.1.1.2'], 'both addresses stay');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10)], 'one Device by the chassis; no address keys (2.47)');
+	ex(h_dev_count() === 3, 'R1, R2, DX');
 	h_tick();
 	h_ingest('and the next run');
-	exv(a_key_names('DX'), ['chassis:mac:'.mac(10), 'ip:server:10.1.1.1', 'ip:server:10.1.1.2'], 'both addresses still stay');
+	exv(a_key_names('DX'), ['chassis:mac:'.mac(10)], 'still the chassis only');
+	ex(h_dev_count() === 3 && dup_candidates_of() === [], 'nothing changes, no mark: one Device has two addresses');
 });
 
 c('A-03', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, null, 'IPONLY', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.2'])], 'cdp');
-	h_ingest('an IP-only Device');
+	h_ingest('a Device without a chassis');
 	h_tick();
 	h_nbrs('R', [NR(2, null, 'OTHER', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.3'])], 'cdp');
 	h_ingest('its row is gone');
-	exv(a_key_names('IPONLY'), ['ip:server:10.2.2.2'], 'the only key of a Device is kept');
-	exv(a_key_names('OTHER'), ['ip:server:10.2.2.3'], 'the new Device has its key');
+	exv(a_key_names('IPONLY'), [], 'a Device without a chassis has no key (2.47)');
+	exv(a_key_names('OTHER'), [], 'the new Device has none either');
+	ex(h_dev_count() === 3 && h_dev('IPONLY') !== null, 'ingest never deletes the Device whose row is gone ("not seen", §8.7): R, IPONLY, OTHER');
 });
 
 c('A-04', 'Правило', function () {
@@ -2864,18 +2881,18 @@ c('A-04', 'Правило', function () {
 	h_ports('R2', [1 => 'Gi0/1']);
 	h_nbrs('R', [NR(1, mac(40), 'DH', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
 	h_nbrs('R2', [NR(1, mac(40), 'DH', 'Gi0/25', ['rem_mgmt_ip' => '10.9.9.8'])]);
-	h_ingest('neighbor rows give DH a key in the segment server and one in proxy:2');
+	h_ingest('neighbor rows give DH an address in the segment server and one in proxy:2');
 	$dh = h_device_id('DH');
-	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:proxy:2:10.9.9.8', 'ip:server:10.9.9.9'], 'before it has a reporter: both addresses');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'before it has a reporter: the chassis only');
 	h_tick();
 	h_rep('H', mac(40), '10.9.9.7');
 	h_ports('H', [1 => 'Gi0/1']);
 	h_ingest('DH gets a reporter (its own address 10.9.9.7 in the segment server)');
 	exv(a_reporter_of($dh), 'H', 'DH is the Device of H');
-	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:server:10.9.9.7'], 'the keys neighbor rows gave are gone in every segment; the row of proxy:2 added none');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'the chassis only');
 	h_tick();
 	h_ingest('and once more');
-	exv(a_key_names($dh), ['chassis:mac:'.mac(40), 'ip:server:10.9.9.7'], 'nothing comes back with the next run');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'nothing comes back with the next run');
 });
 
 c('A-05', 'Правило', function () {
@@ -2898,15 +2915,15 @@ c('A-06', 'Правило', function () {
 	global $pdo;
 	h_rep('R2', null, '10.0.0.2');            // the lower hostid, no chassis: only its SNMP IP Y
 	h_rep('R1', mac(1), '10.0.0.1');          // chassis X
-	$d = a_device(mac(1), '10.0.0.2', 'D', ['chassis:mac:'.mac(1), 'ip:server:10.0.0.2']);
+	$d = a_device(mac(1), '10.0.0.2', 'D', ['chassis:mac:'.mac(1)]);
 	h_ports('R1', [1 => 'Gi0/1']);
 	h_ports('R2', [1 => 'Gi0/1']);
-	h_ingest('R1 (chassis X) and R2 (SNMP IP Y, no chassis) both find D');
-	exv(a_reporter_of($d), 'R1', 'D is the Device of the reporter with the stronger key (the chassis), not of the lowest hostid');
+	h_ingest('R1 (chassis X) and R2 (SNMP IP Y, no chassis) both exist, D has chassis X');
+	exv(a_reporter_of($d), 'R1', 'D is the Device of the reporter with the chassis; the SNMP address is not looked up (2.47)');
 	$r2 = array_values(array_filter(h_state()['devices'], static fn (array $x): bool => $x['represented_by'] === 'reporter_self' && (int) $x['id'] !== $d));
-	ex(count($r2) === 1, 'R2 has its own Device (actual: '.json_encode(h_state()['devices']).')');
+	ex(count($r2) === 1, 'R2 has its own Device, without a key (actual: '.json_encode(h_state()['devices']).')');
 	$cand = dup_candidates_of();
-	exv(count(array_filter($cand, static fn ($l) => in_array('reporters_share_device->'.($l ? explode('->', $l[0])[1] : ''), $l, true))), 2, 'reporters_share_device on both Devices (actual: '.json_encode($cand).')');
+	ex(!array_filter($cand, static fn ($l) => in_array('reporters_share_device->'.($l ? explode('->', $l[0])[1] : ''), $l, true)), 'reporters_share_device is removed (2.47; actual: '.json_encode($cand).')');
 });
 
 c('A-07', 'Правило', function () {
@@ -2966,33 +2983,38 @@ function a_chassis_setup(): int {
 
 c('A-09', 'Правило', function () {
 	$dh = a_chassis_setup();
-	h_ingest('H finds DH by its SNMP IP');
-	exv(a_reporter_of($dh), 'H', 'DH is the Device of H');
-	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'the chassis key the neighbor row gave DH is gone; only the reporter\'s own address stays');
+	h_ingest('H, a reporter with only an SNMP IP, appears');
+	exv(a_reporter_of($dh), null, 'DH is not the Device of H: the SNMP address is not looked up (2.47)');
+	$h = h_device_id('H');
+	ex($h !== null && $h !== $dh && a_reporter_of((int) $h) === 'H', 'H has its own Device, without a key (actual: '.json_encode(h_devices()).')');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'DH keeps its chassis key');
+	exv(a_key_names((int) $h), [], 'the Device of H has no key');
+	$cand = dup_candidates_of();
+	ex(($cand[$dh] ?? null) === ['same_address->'.$h] && ($cand[(int) $h] ?? null) === ['same_address->'.$dh], 'same_address on DH and on the Device of H (actual: '.json_encode($cand).')');
 	h_tick();
 	h_ingest('and once more');
-	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'nothing comes back with the next run');
+	ex(h_dev_count() === 3 && dup_candidates_of() === $cand, 'nothing changes with the next run');
 });
 
 c('A-10', 'Правило', function () {
 	$dh = a_chassis_setup();
-	h_ingest('H finds DH by its SNMP IP');
+	h_ingest('H appears');
 	h_tick();
 	h_nbrs('R0', [NR(1, mac(40), 'DH', 'Gi0/24', ['rem_mgmt_ip' => '10.9.9.9'])]);
 	h_ingest('a later row with chassis X and the address of H');
-	ex(h_dev_count() === 2, 'the row finds DH by the IP (DH has no chassis key now), no Device is created (Devices: '.json_encode(h_devices()).')');
-	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'the row adds no key to the reporter\'s Device');
-	exv(h_obs('R0', 'Gi0/1')['device'] ?? null, 'H', 'the observation points to DH');
+	ex(h_dev_count() === 3, 'the row finds DH by the chassis, no Device is created (Devices: '.json_encode(h_devices()).')');
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'the row adds no key');
+	exv(h_obs('R0', 'Gi0/1')['device'] ?? null, 'DH', 'the observation points to DH, not to the Device of H');
 });
 
 c('A-11', 'Правило', function () {
 	$dh = a_chassis_setup();
-	h_ingest('H finds DH by its SNMP IP');
+	h_ingest('H appears');
 	h_tick();
 	h_nbrs('R0', [NR(1, mac(40), 'DH', 'Gi0/24')]);
 	h_ingest('a later row with only the chassis X');
-	ex(h_dev_count() === 3, 'a row with only chassis X makes a new Device (expected, §6.7.0): Devices '.json_encode(h_devices()));
-	exv(a_key_names($dh), ['ip:server:10.9.9.9'], 'DH keeps only its own address');
+	ex(h_dev_count() === 3, 'a row with only chassis X finds DH: no new Device: Devices '.json_encode(h_devices()));
+	exv(a_key_names($dh), ['chassis:mac:'.mac(40)], 'DH keeps its chassis key');
 });
 
 
@@ -3135,7 +3157,9 @@ c('PH-02', 'Правило', function () {
 	h_nbrs('R1', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.1']), NR(2, 'ff:ff:ff:ff:ff:ff', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.2'])]);
 	h_nbrs('R2', [NR(1, '00:00:00:00:00:00', null, 'Gi0/24', ['rem_mgmt_ip' => '10.5.5.1'])]);
 	h_ingest('placeholder chassis with a management address');
-	ex(h_dev_count() === 4, 'each neighbor is found by its ip: key: 10.5.5.1 seen by both reporters is one Device, 10.5.5.2 another (Devices: '.json_encode(h_devices()).')');
+	ex(h_dev_count() === 5, 'a placeholder is no chassis: each claim without a chassis is a Device of its reporter and port; 10.5.5.1 seen by both reporters is two Devices, 10.5.5.2 a third (Devices: '.json_encode(h_devices()).')');
+	$cand = dup_candidates_of();
+	ex(count($cand) === 2 && count(array_filter($cand, static fn ($l) => count($l) === 1 && str_starts_with($l[0], 'same_address->'))) === 2, 'same_address on the two Devices with 10.5.5.1 (actual: '.json_encode($cand).')');
 });
 
 c('PH-07', 'Правило', function () {

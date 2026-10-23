@@ -483,7 +483,7 @@ check(count($x_ports()) === $ports_before && (int) scalar($pdo, "SELECT COUNT(*)
 	'an existing pseudo port is found by its normalized name, whatever index it has');
 
 // ============================================================================================================
-echo "\n=== 14: a Device created by sysname has matched_by sysname at once (topology-1-model.md \"Far Device\") ===\n";
+echo "\n=== 14: a Device created for a claim with a name only has scope_port = the local port, no matched_by (topology-1-model.md §6.7.1, 2.47) ===\n";
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'items', 'interface', 'hosts', 'host_inventory'] as $t) {
 	$pdo->exec("DELETE FROM {$t}");
@@ -494,7 +494,8 @@ snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_c
 snapshot($pdo, 1002, 101, 2, CLOCK + 10, [['if_index' => 1, 'rem_sysname' => 'only-a-name', 'rem_port' => 'eth0', 'source' => 'lldp', 'loc_chassis' => 'a0:00:00:00:00:99']]);
 run_ingest($dsn, $user, $password);
 $d = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname'))='only-a-name'");
-check($d > 0 && (attrs($pdo, $d)['matched_by'] ?? null) === 'sysname', 'created by sysname: matched_by is set in the same run');
+$local_port = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:99'"), 1);
+check($d > 0 && (attrs($pdo, $d)['scope_port'] ?? null) === $local_port && !isset(attrs($pdo, $d)['matched_by']), 'created for a name only: scope_port is the reporter\'s port, there is no matched_by (removed in 2.47)');
 $before = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $before, 'the first repeat run changes no attribute');

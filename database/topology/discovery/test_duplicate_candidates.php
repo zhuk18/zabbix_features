@@ -5,8 +5,8 @@ declare(strict_types=1);
 
 /**
  * test_duplicate_candidates.php — topology-1-model.md §6.7.5 "Duplicate candidates and operator merge" and §6.4 step 1 (chassis change, RMA):
- * ingest lists possible duplicates in attrs.duplicate_candidates (split_identity, reporter_chassis_change) and never merges on weaker evidence
- * than the reporter's own identity; the operator merges (CTopologyPrototype::mergeDevices), accepts a new chassis or dismisses.
+ * ingest lists possible duplicates in attrs.duplicate_candidates (same_address, same_name, reporter_key_shared, reporters_share_key, reporter_chassis_change)
+ * and never merges (2.47: the automatic join is removed); the operator merges (CTopologyPrototype::mergeDevices), accepts a new chassis or dismisses.
  *
  * Same method as test_snapshot_ingest.php. Writes rows straight into topo_lld_snapshot (what the server's LLD worker would store) and runs the REAL
  * ingest.php as a subprocess after every change, so the actual CLI path is exercised end to end — no test-only
@@ -300,18 +300,19 @@ function setup_r(PDO $pdo, string $R): void {
 }
 
 // ============================================================================================================
-echo "\n=== 1: split_identity — the candidate on both Devices, nothing merged ===\n";
+echo "\n=== 1: same_address — two Devices advertise one address; the candidate on both Devices, nothing merged ===\n";
 reset_all($pdo);
 setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
 $A = device($pdo, $X, null, 'N');
-$B = device($pdo, null, $IP, 'N');
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
+$B = device($pdo, $Y, null, 'N2');
+$rows_ab = [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)];
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, $rows_ab);
 $r = run_ingest($dsn, $user, $password);
-$want_a = [['device_id' => $B, 'reason' => 'split_identity', 'key' => 'mgmt_ip', 'value' => $IP]];
-$want_b = [['device_id' => $A, 'reason' => 'split_identity', 'key' => 'mgmt_ip', 'value' => $IP]];
+$want_a = [['device_id' => $B, 'reason' => 'same_address', 'key' => 'address', 'value' => $IP]];
+$want_b = [['device_id' => $A, 'reason' => 'same_address', 'key' => 'address', 'value' => $IP]];
 check(exists($pdo, $A) && exists($pdo, $B), 'both Devices stay (a neighbor row never merges)');
-check(candidates($pdo, $A) === $want_a && candidates($pdo, $B) === $want_b, 'the candidate split_identity is on A (naming B) and on B (naming A)');
+check(candidates($pdo, $A) === $want_a && candidates($pdo, $B) === $want_b, 'the candidate same_address is on A (naming B) and on B (naming A), key address');
 $fp = fingerprint($pdo);
 for ($i = 0; $i < 5; $i++) {
 	run_ingest($dsn, $user, $password);
@@ -323,9 +324,8 @@ check(candidates($pdo, $A) === $want_a, 'a partial run does not touch the list')
 run_ingest($dsn, $user, $password);
 check(candidates($pdo, $A) === [] && candidates($pdo, $B) === [], 'a full run without the evidence removes the entry');
 
-// ============================================================================================================
 echo "\n=== 2: 'Not the same device' and its revocation ===\n";
-snapshot($pdo, 1002, 101, 2, CLOCK + 70, [nbr_row($R, 'N', $X, $IP)]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 70, $rows_ab);
 run_ingest($dsn, $user, $password);
 check(candidates($pdo, $A) === $want_a, 'the candidate is back');
 CTopologyPrototype::dismissDuplicate((string) $A, (string) $B, 'Admin');
@@ -568,10 +568,8 @@ $r = call(CControllerTopologyDevicesMergeGroup::class, ['keep_id' => (string) $A
 check(is_array($r) && isset($r['error']) || $r === null, 'the endpoint answers an empty list with an error');
 
 // ============================================================================================================
-echo "\n=== 7: the second run over the same snapshots gives the same list as the first (model 2.45 section 6.10, 052) ===\n";
-// The office case (R1 step 3 and back): a neighbor restarted with a new chassis and the same address. Device B (chassis Y) holds the address; the snapshot now shows
-// chassis X (Device A, no address key) with that address. The row finds A by the chassis and the address on B; B's key is stale (no current row gives it) and goes at the
-// end of the run, so the next run finds no split. The first run must not write a split_identity that the end of its own run no longer supports.
+echo "\n=== 7: the second run over the same snapshots gives the same list and the same keys as the first (model §6.10, P1, P2; 2.47) ===\n";
+// 2.47: the key table holds chassis keys only, so it converges in the first run by construction; the marks are computed from the current evidence every run.
 function list_of(PDO $pdo, array $ids): array {
 	$all = [];
 	foreach ($ids as $name => $id) {
@@ -587,8 +585,8 @@ reset_all($pdo);
 setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
 $A = device($pdo, $X, null, 'N');
-$B = device($pdo, $Y, $IP, 'N');
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
+$B = device($pdo, $Y, null, 'N2');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)]);
 $lists = [];
 $prints = [];
 $key_rows = [];
@@ -598,78 +596,71 @@ for ($i = 1; $i <= 5; $i++) {
 	$prints[$i] = md5(json_encode($pdo->query('SELECT id, attrs FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC)));
 	$key_rows[$i] = all_keys($pdo);
 }
-check(count(array_unique(array_map('json_encode', $key_rows))) === 1, 'all topo_identity_keys rows (ids, keys, first_seen) are the same after each of 5 runs: the first run already gives the keys of the second (054)');
-check(in_array('ip:server:'.$IP, array_column(array_filter($key_rows[1], static fn (array $k): bool => (int) $k['device_id'] === $A), 'key'), true)
-	&& !array_filter($key_rows[1], static fn (array $k): bool => (int) $k['device_id'] === $B && $k['kind'] === 'ip'), 'A took the address key in run 1; B lost it (stale)');
-check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list of every Device is the same after each of 5 runs: '.json_encode($lists[1]));
-check($lists[1] === ['A' => [], 'B' => []], 'it is the list of the end state: B lost its address key at the end of run 1, so there is no split (A got the address in run 2)');
-check(count(array_unique($prints)) === 1, 'all attrs of every Device are the same after each run');
-check(exists($pdo, $A) && exists($pdo, $B), 'both Devices stay');
+check(count(array_unique(array_map('json_encode', $lists))) === 1 && $lists[1] === ['A' => [['same_address', 'address', $IP, 'B']], 'B' => [['same_address', 'address', $IP, 'A']]],
+	'the list of every Device is the same after each of 5 runs, from the first: '.json_encode($lists[1]));
+check(count(array_unique($prints)) === 1, 'all attrs of every node are the same after each run');
+check(count(array_unique(array_map('json_encode', $key_rows))) === 1 && !array_filter($key_rows[1], static fn (array $k): bool => $k['kind'] !== 'chassis'),
+	'all topo_identity_keys rows (ids, keys, first_seen) are the same after each of 5 runs, chassis keys only');
 
-echo "  -- the address is still given to B by a current row of another reporter: the split stays, in every run --\n";
-reset_all($pdo);
-setup_r($pdo, $R);
-add_host($pdo, 102, 'SwS', 'Switch S', '10.0.0.2');
-API::$visible[] = 102;
-snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:02']]);
-run_ingest($dsn, $user, $password);
-$A = device($pdo, $X, null, 'N');
-$B = device($pdo, $Y, $IP, 'N');
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
-snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N', $Y, $IP)]);
-$lists = [];
-$key_rows = [];
-for ($i = 1; $i <= 5; $i++) {
-	run_ingest($dsn, $user, $password);
-	$lists[$i] = list_of($pdo, ['A' => $A, 'B' => $B]);
-	$key_rows[$i] = all_keys($pdo);
-}
-check(count(array_unique(array_map('json_encode', $key_rows))) === 1, 'all topo_identity_keys rows are the same after each of 5 runs');
-check(array_column(array_filter($key_rows[1], static fn (array $k): bool => $k['kind'] === 'ip' && $k['key'] === 'ip:server:'.$IP), 'device_id') === [$B],
-	'a key that a current row still gives to B stays on B, and A does not get it');
-check(count(array_unique(array_map('json_encode', $lists))) === 1, 'the list is the same after each of 5 runs: '.json_encode($lists[1]));
-check($lists[1] === ['A' => [['split_identity', 'mgmt_ip', $IP, 'B']], 'B' => [['split_identity', 'mgmt_ip', $IP, 'A']]], 'the pair stays listed on both Devices while B still holds the address');
-
-echo "  -- two Devices wait for the address that B's stale key held: the same result in every reporter order --\n";
-$X2 = 'b0:00:00:00:00:0c';
+echo "  -- two reporters see Devices that share an address: the same result in both reporter orders --\n";
 $orders = [];
 foreach (['hostid order' => null, 'reporters 102, 101' => '102,101'] as $label => $order) {
 	reset_all($pdo);
 	setup_r($pdo, $R);
-	add_host($pdo, 102, 'SwS', 'Switch S', '10.0.0.2');
+	add_host($pdo, 102, 'SwS', 'SwS', '10.0.0.2');
 	API::$visible[] = 102;
 	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:02']]);
-	run_ingest($dsn, $user, $password);
-	$A = device($pdo, $X, null, 'N');
-	$A2 = device($pdo, $X2, null, 'N2');
-	$B = device($pdo, $Y, $IP, 'N');
 	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
-	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N2', $X2, $IP)]);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N2', $Y, $IP)]);
 	$states = [];
 	for ($i = 1; $i <= 3; $i++) {
 		run_ingest($dsn, $user, $password, [], $order);
-		// the Devices by name, not by id (the ids of the two orders differ: the test makes the Devices again)
 		$names = [];
 		foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $d) {
-			$names[(int) $d['id']] = ($id_attrs = json_decode($d['attrs'], true))['sysname'].'/'.$id_attrs['chassis_id'];
+			$a = json_decode($d['attrs'], true);
+			$names[(int) $d['id']] = ($a['sysname'] ?? '').'/'.($a['chassis_id'] ?? '-');
 		}
 		$named = static fn ($id): string => $names[(int) $id] ?? 'id'.$id;
-		$states[$i] = [
-			array_map(static fn (array $k): array => [$named($k['device_id']), $k['key'], $k['kind'], $k['first_seen'], $k['replaced']], all_keys($pdo)),
-			array_map(static function (array $d) use ($named): array {
-				$attrs = json_decode($d['attrs'], true);
-				foreach ($attrs['duplicate_candidates'] ?? [] as $n => $c) {
-					$attrs['duplicate_candidates'][$n]['device_id'] = $named($c['device_id']);
-				}
-				return [$named($d['id']), $d['type'], $attrs];
-			}, $pdo->query("SELECT id, type, attrs FROM topo_nodes WHERE type = 'device' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC))
-		];
+		$key_list = array_map(static fn (array $k): array => [$named($k['device_id']), $k['key'], $k['kind'], $k['first_seen'], $k['replaced']], all_keys($pdo));
+		$device_list = array_map(static function (array $d) use ($named): array {
+			$a = json_decode($d['attrs'], true);
+			foreach ($a['duplicate_candidates'] ?? [] as $n => $c) {
+				$a['duplicate_candidates'][$n]['device_id'] = $named($c['device_id']);
+			}
+			return [$named($d['id']), $a];
+		}, $pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC));
+		sort($key_list);
+		sort($device_list);
+		$states[$i] = [$key_list, $device_list];
 	}
-	check(count(array_unique(array_map('json_encode', $states))) === 1, "{$label}: the key rows and the nodes are the same after each of 3 runs");
-	$holders = array_column(array_filter($states[1][0], static fn (array $k): bool => $k[1] === 'ip:server:'.$IP), 0);
-	check($holders === ['N/'.$X], "{$label}: the lowest Device id (A) takes the address; B lost it, A2 does not have it");
+	check(count(array_unique(array_map('json_encode', $states))) === 1, "{$label}: the key rows and the Devices are the same after each of 3 runs");
 	$orders[$label] = json_encode($states[1]);
 }
-check($orders['hostid order'] === $orders['reporters 102, 101'], 'the two reporter orders give the same key rows and the same nodes');
+check($orders['hostid order'] === $orders['reporters 102, 101'], 'the two reporter orders give the same key rows and the same Devices (compared by name)');
+check(str_contains($orders['hostid order'], 'same_address'), 'and the marks are there: same_address on the two Devices that advertise '.$IP);
+
+echo "\n=== 8: merge and scope_port (model §6.7.5 merge steps, 2.47): K keeps its own scope_port, a Device with a chassis has none ===\n";
+$with_scope = static function (?string $chassis, string $name, ?int $scope) use ($pdo): int {
+	$id = device($pdo, $chassis, null, $name);
+	$a = dev_attrs($pdo, $id);
+	if ($scope !== null) {
+		$a['scope_port'] = $scope;
+	}
+	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $id]);
+	return $id;
+};
+reset_all($pdo);
+$k = $with_scope(null, 'K', 5);
+$rm = $with_scope(null, 'R', 6);
+CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
+check((dev_attrs($pdo, $k)['scope_port'] ?? null) === 5 && !exists($pdo, $rm), 'two Devices without a chassis: K keeps its own scope_port, the one of R is not copied');
+$k = $with_scope(null, 'K2', null);
+$rm = $with_scope(null, 'R2', 6);
+CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
+check(!isset(dev_attrs($pdo, $k)['scope_port']), 'K had no scope_port: R\'s is not copied either');
+$k = $with_scope($X, 'K3', 5);
+$rm = $with_scope(null, 'R3', 6);
+CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
+check(!isset(dev_attrs($pdo, $k)['scope_port']), 'K has a chassis: it has no scope_port');
 
 echo "\nAll duplicate candidate checks passed.\n";
