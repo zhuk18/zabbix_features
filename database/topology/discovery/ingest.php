@@ -1869,10 +1869,16 @@ $find_chassisless_device = static function (int $hostid, string $segment, int $l
 	if (count($reporters) === 1 && isset($reporter_device_of[array_key_first($reporters)])) {
 		return ['found', $reporter_device_of[array_key_first($reporters)]];
 	}
-	// on the same local port of the same reporter exactly one claim has a chassis, and the two claims match
-	$on_port = $port_chassis_claims[$hostid.'|'.$local_port_id] ?? [];
-	if (count($on_port) === 1 && $on_port[0]['device_id'] !== null && CTopologyAddress::claimsMatch($claim, $on_port[0])) {
-		return ['found', $on_port[0]['device_id']];
+	// the claims with a chassis on the same local port of the same reporter that match this claim resolve to exactly one Device (2.50: with two LLDP claims of two
+	// Devices on the port, a claim that matches both takes neither: no guess)
+	$matching = [];
+	foreach ($port_chassis_claims[$hostid.'|'.$local_port_id] ?? [] as $on_port) {
+		if ($on_port['device_id'] !== null && CTopologyAddress::claimsMatch($claim, $on_port)) {
+			$matching[(int) $on_port['device_id']] = $on_port['device_id'];
+		}
+	}
+	if (count($matching) === 1) {
+		return ['found', reset($matching)];
 	}
 	// exactly one Device without a chassis with this scope_port that matches
 	$load_port_scope();

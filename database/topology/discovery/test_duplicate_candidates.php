@@ -827,4 +827,67 @@ check(in_array($A, $scope, true) && in_array($dr, $scope, true) && !in_array($B,
 CTopologyPrototype::dismissDuplicate((string) $A, (string) $B, 'Admin');
 check(CTopologyPrototype::duplicatesScope(null) === [], 'a dismissed pair is not drawn: no candidate, empty scope');
 
+echo "\n=== 14: the same-port row (model 2.50 section 6.7.1, section 15 MikroTik; task 063) ===\n";
+$MK = 'b0:00:00:00:00:44';
+$mk = static fn (string $kind, array $extra): array => ['if_index' => 1, 'rem_sysname' => 'MikroTik', 'rem_port' => 'bridge/ether1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R] + $extra + ['source' => $kind];
+reset_all($pdo);
+setup_r($pdo, $R);
+$cdp_text = ['if_index' => 1, 'rem_sysname' => 'MikroTik', 'rem_man_addrs' => 'cdp:1:c0:a8:58:01', 'rem_port' => 'bridge/ether1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp'];
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [
+	$mk('lldp', ['rem_chassis' => 'MikroTik', 'rem_chassis_type' => 'local', 'rem_man_addrs' => 'lldp:1.4.192.168.88.1']),
+	$mk('lldp', ['rem_chassis' => $MK, 'rem_chassis_type' => 'macAddress', 'rem_man_addrs' => 'lldp:1.4.192.168.88.1'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_sysname' => $MK, 'rem_man_addrs' => 'cdp:1:c0:a8:58:01', 'rem_port' => 'bridge/ether1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp'], $cdp_text]);
+run_ingest($dsn, $user, $password);
+$dm = device_id($pdo, $MK);
+$dl = device_id($pdo, 'MikroTik');
+$dt = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND id NOT IN (".(int) $dm.','.(int) $dl.") AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'MikroTik'");
+check($dm !== null && $dl !== null && $dt > 0 && dev_count($pdo) === 4, 'LLDP local, LLDP MAC M, CDP id M, CDP text id MikroTik -> three Devices (the local one, M, and the Device of the text claim) and the reporter');
+check(dev_attrs($pdo, $dt)['chassis_id'] === null && dev_attrs($pdo, $dt)['scope_port'] !== null, 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device of the port');
+$group = static fn (int $id): array => array_values(array_map(static fn (array $c): int => (int) $c['device_id'], array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'same_address')));
+$members = [$dm, $dl, $dt];
+sort($members);
+$got = array_merge([$dt], $group($dt));
+sort($got);
+check($got === $members, 'same_address on the group: the Device of the text claim is a candidate with both others');
+run_ingest($dsn, $user, $password);
+check(dev_count($pdo) === 4, 'the next run makes no fourth Device (the text claim finds its Device of the port)');
+$r = CTopologyPrototype::mergeGroup((string) $dm, [(string) $dl, (string) $dt], 'Admin');            // keep M
+check(!exists($pdo, $dl) && !exists($pdo, $dt), 'Merge a group (keep M): the others are gone');
+run_ingest($dsn, $user, $password);
+run_ingest($dsn, $user, $password);
+check(dev_count($pdo) === 2 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type = 'physical_link'") === 1 && (int) scalar($pdo, 'SELECT COUNT(DISTINCT device_id) FROM topo_observations') === 1
+	&& !array_diff(array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)), ['applied']),
+	'the next runs: both LLDP claims and both CDP claims are M, one Device, one link, every claim applied');
+$before = fingerprint($pdo);
+for ($i = 0; $i < 3; $i++) {
+	run_ingest($dsn, $user, $password);
+}
+check($before === fingerprint($pdo) && dev_count($pdo) === 2, 'five runs in all: nothing changes after the merge');
+
+// a port with two chassis claims of two different Devices and a CDP claim without a chassis
+reset_all($pdo);
+setup_r($pdo, $R);
+$P1 = 'b0:00:00:00:00:51';
+$P2 = 'b0:00:00:00:00:52';
+$row = static fn (string $name, string $chassis, string $ip): array => ['if_index' => 1, 'rem_sysname' => $name, 'rem_port' => 'Gi0/1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R,
+	'rem_chassis' => $chassis, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $ip, 'source' => 'lldp'];
+$cdp = static fn (?string $name, string $ip): array => ['if_index' => 1, 'rem_port' => 'Gi0/1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'rem_mgmt_ip' => $ip, 'source' => 'cdp'] + ($name !== null ? ['rem_sysname' => $name] : []);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [$row('AA', $P1, '10.9.0.1'), $row('BB', $P2, '10.9.0.2')]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [$cdp('AA', '10.9.0.1')]);
+run_ingest($dsn, $user, $password);
+$d1 = device_id($pdo, $P1);
+$d2 = device_id($pdo, $P2);
+check($d1 !== null && $d2 !== null && dev_count($pdo) === 3 && (int) scalar($pdo, 'SELECT device_id FROM topo_observations WHERE itemid = 1003') === $d1,
+	'two LLDP claims of two Devices and a CDP claim that matches only one of them (address and name) -> that Device, no new Device');
+reset_all($pdo);
+setup_r($pdo, $R);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [$row('AA', $P1, '10.9.0.9'), $row('BB', $P2, '10.9.0.9')]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [$cdp(null, '10.9.0.9')]);
+run_ingest($dsn, $user, $password);
+$d1 = device_id($pdo, $P1);
+$d2 = device_id($pdo, $P2);
+$on = (int) scalar($pdo, 'SELECT device_id FROM topo_observations WHERE itemid = 1003');
+check($d1 !== null && $d2 !== null && dev_count($pdo) === 4 && $on > 0 && !in_array($on, [$d1, $d2], true),
+	'the CDP claim (address only) matches both LLDP claims, which are two Devices -> its own Device of the port');
+
 echo "\nAll duplicate candidate checks passed.\n";
