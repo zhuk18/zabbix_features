@@ -109,9 +109,14 @@ fi
 if (cd "$here/discovery/step_golden" && ./build.sh >/tmp/topo_t_step_build.log 2>&1); then
 	exec_test discovery/step_golden/compare.php /tmp/topo_t_step_compare.log php "$here/discovery/step_golden/compare.php"
 	exec_test discovery/step_golden/edge_cases.php /tmp/topo_t_step_edge.log php "$here/discovery/step_golden/edge_cases.php"
+	# generated values through the native step, push.py and ingest (handoff 060)
+	fresh topo_t_generated
+	php_test topo_t_generated discovery/test_generated.php
+	[ $failed = 0 ] && mysql -u"$user" -e "DROP DATABASE topo_t_generated"
 else
 	skip discovery/step_golden/compare.php "build.sh failed (make the server first): /tmp/topo_t_step_build.log"
 	skip discovery/step_golden/edge_cases.php "build.sh failed (make the server first): /tmp/topo_t_step_build.log"
+	skip discovery/test_generated.php "build.sh failed (make the server first): /tmp/topo_t_step_build.log"
 fi
 
 # ---- 4. lab unit tests and the converter of the corpus (PyYAML, mysql-connector: the lab venv) ----
