@@ -602,6 +602,16 @@ const view = new class {
 		// Device has no on-screen position of its own (topology-1-model.md "Side panels"), so its /neighbors + /ports are fetched here,
 		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
 		// Problems section is Host-only (topology-1-model.md "API" /problems, topology-1-model.md "Side panels") — Zabbix has no clean "this problem
+		else if (action === 'delete') {
+			// Delete Device (§6.7.5, 2.47): the operator deletes for real; the server refuses a Device with an association or a manual link
+			if (!confirm(<?= json_encode(_('Delete this Device? Its ports and discovered links are deleted too. If a current neighbor row reports it again, ingest makes it again with a new id.')) ?>)) {
+				return;
+			}
+			await post('topology.devices.delete', {id: data.device});
+			this.details.innerHTML = '';
+			await this.loadDevices();
+			return;
+		}
 		// belongs to this proxy" semantics, so a Proxy panel never fetches or shows one.
 		if (node.type === 'host' || node.type === 'proxy') {
 			const problems = node.type === 'host'
@@ -1253,7 +1263,9 @@ const view = new class {
 				<div class="topology-promote-results"></div>
 				<div class="topology-promote-selected"></div>
 				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
-			</div>`;
+			</div>
+			<div class="topology-promote"><button type="button" class="btn-alt topology-delete-device-button" data-topology-dup="delete" data-device="${this.escape(device.id)}">` +
+				`${this.escape(<?= json_encode(_('Delete Device')) ?>)}</button></div>`;
 		// A pick started on another Device's port can also end at this Device as a whole (a manual device-level link,
 		// topology-1-model.md "Manual links" (creation)): the far port is not chosen.
 		const link_to_device = this.link_pick && String(this.link_pick.device_id) !== String(device.id)

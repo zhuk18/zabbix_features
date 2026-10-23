@@ -493,7 +493,8 @@ login(true);
 check(call(CControllerTopologyDevicesMerge::class, ['keep_id' => (string) $A, 'remove_id' => (string) $B]) === 'denied', 'the guest user is denied: merge');
 check(call(CControllerTopologyDevicesAcceptChassis::class, ['id' => (string) $A]) === 'denied', 'the guest user is denied: accept-chassis');
 check(call(CControllerTopologyDevicesDismissDuplicate::class, ['a' => (string) $A, 'b' => (string) $B]) === 'denied', 'the guest user is denied: dismiss-duplicate');
-check(exists($pdo, $B), 'and nothing was written');
+check(call(CControllerTopologyDevicesDelete::class, ['id' => (string) $C]) === 'denied', 'the guest user is denied: delete (Delete Device)');
+check(exists($pdo, $B) && exists($pdo, $C), 'and nothing was written');
 login();
 $r = call(CControllerTopologyDevicesDismissDuplicate::class, ['a' => (string) $A, 'b' => (string) $C]);
 check(($r['success'] ?? false) === true && isset(dev_attrs($pdo, $A)['duplicate_dismissed']), 'dismiss-duplicate: success, written on both');
@@ -507,6 +508,12 @@ $r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => (string) $A, 're
 check(($r['success'] ?? false) === true && $r['kept'] === $A && $r['removed'] === $B && !exists($pdo, $B), 'merge: success, answers kept and removed');
 $r = call(CControllerTopologyDevicesMerge::class, ['keep_id' => 'x', 'remove_id' => '1']);
 check(is_array($r) && isset($r['error']['messages']), 'a malformed id is refused with an answer in JSON (the input validation)');
+$r = call(CControllerTopologyDevicesDelete::class, ['id' => 'x']);
+check(is_array($r) && isset($r['error']['messages']), 'delete: a malformed id is refused with an answer in JSON');
+$r = call(CControllerTopologyDevicesDelete::class, ['id' => '999999']);
+check(isset($r['error']['messages']), 'delete: an unknown Device: an error message');
+$r = call(CControllerTopologyDevicesDelete::class, ['id' => (string) $C]);
+check(($r['success'] ?? false) === true && $r['deleted'] === $C && !exists($pdo, $C), 'delete: success, answers deleted, the Device is gone');
 
 // ============================================================================================================
 echo "\n=== 6: merge a group (keep K, remove R1..Rn): any order inside gives the same result ===\n";
@@ -686,5 +693,69 @@ check(array_column(dev_attrs($pdo, $B)['duplicate_dismissed'], 'device_id') === 
 CTopologyPrototype::revokeDismissal((string) $A, (string) $B);
 run_ingest($dsn, $user, $password);
 check($pairs($A) === ['same_address->'.$B] && $pairs($B) === ['same_address->'.$A, 'same_address->'.$C], 'revoked: the pair is back, the other candidate is unchanged');
+
+echo "\n=== 10: Delete Device (model §6.7.5, 2.47, FR-C O-13, task 057) ===\n";
+$refused = static function (callable $fn): ?string {
+	try {
+		$fn();
+	}
+	catch (Exception $e) {
+		return $e->getMessage();
+	}
+	return null;
+};
+// a Device with an association is refused
+add_host($pdo, 150, 'H150', 'H150', null);
+$pdo->prepare("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', 150, '{}', 1, 1)")->execute();
+$host_node = (int) $pdo->lastInsertId();
+$assoc = device($pdo, 'b0:00:00:00:00:21', null, 'assoc');
+$pdo->prepare("UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = 'manual', represented_by_at = 1 WHERE id = ?")->execute([$host_node, $assoc]);
+$message = $refused(static fn () => CTopologyPrototype::deleteDevice((string) $assoc, 'Admin'));
+check($message !== null && str_contains($message, 'association') && exists($pdo, $assoc), 'a Device with represented_by is refused (remove the association first) and stays');
+// a Device with a manual link is refused
+$mdev = device($pdo, 'b0:00:00:00:00:22', null, 'manual-peer');
+$mport = add_port($pdo, $mdev, 1, 'eth0', false);
+$rport = add_port($pdo, $assoc, 1, 'Gi0/9', false);
+$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")->execute([$mport, $rport, json_encode(['discovered_via' => 'manual'])]);
+$message = $refused(static fn () => CTopologyPrototype::deleteDevice((string) $mdev, 'Admin'));
+check($message !== null && str_contains($message, 'manual link') && exists($pdo, $mdev), 'a Device with a manual link is refused (delete the link first) and stays');
+check($refused(static fn () => CTopologyPrototype::deleteDevice('999999', 'Admin')) !== null, 'an unknown Device is refused');
+$edges_before = (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_edges');
+
+// the cascade: the Device, its Ports and its discovered links go; observations keep their claim with device_id and edge_id NULL; the entries that name it go
+reset_all($pdo);
+setup_r($pdo, $R);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), array_replace(nbr_row($R, 'N2', $Y, $IP), ['if_index' => 2])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, []);
+run_ingest($dsn, $user, $password);
+$dx = device_id($pdo, $X);
+$dy = device_id($pdo, $Y);
+check($dx !== null && $dy !== null && !empty(candidates($pdo, $dy)), 'setup: two neighbor Devices that advertise one address');
+CTopologyPrototype::dismissDuplicate((string) $dx, (string) $dy, 'Admin');          // an entry in duplicate_dismissed of the other Device
+$ports_of_dx = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'port' AND device_id = ?", [$dx]);
+$mlink_port = add_port($pdo, $dy, 7, 'eth7', false);
+$rport7 = add_port($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = ?", [$R]), 9, 'Gi0/9', false);
+$pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES ('physical_link', ?, ?, ?, 1)")->execute([$mlink_port, $rport7,
+	json_encode(['discovered_via' => 'manual', 'shadow_ack' => [['device_id' => $dx, 'remote_key' => 'k', 'at' => 1, 'by' => 'Admin'], ['device_id' => 999, 'remote_key' => 'k2', 'at' => 1, 'by' => 'Admin']]])]);
+$manual_edge = (int) $pdo->lastInsertId();
+$links_dx = (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_edges e JOIN topo_nodes p ON p.id IN (e.src_id, e.dst_id) WHERE p.device_id = ? OR p.id = ?', [$dx, $dx]);
+$obs_dx = (int) scalar($pdo, 'SELECT id FROM topo_observations WHERE device_id = ?', [$dx]);
+$result = CTopologyPrototype::deleteDevice((string) $dx, 'Admin');
+check($result['deleted'] === $dx && !exists($pdo, $dx), 'the Device is deleted');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'port' AND device_id = ?", [$dx]) === 0 && $result['ports'] === $ports_of_dx, 'its Ports are deleted');
+check($result['links'] >= 1 && (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_edges e WHERE e.src_id = ? OR e.dst_id = ?', [$dx, $dx]) === 0, 'its discovered links are deleted ('.$result['links'].')');
+$observation = $pdo->query('SELECT id, remote_key, device_id, edge_id, outcome FROM topo_observations WHERE id = '.$obs_dx)->fetch(PDO::FETCH_ASSOC);
+check($observation !== false && $observation['device_id'] === null && $observation['edge_id'] === null && $observation['remote_key'] !== '', 'the observation keeps its claim; device_id and edge_id are NULL');
+check(!isset(dev_attrs($pdo, $dy)['duplicate_dismissed']) && !isset(dev_attrs($pdo, $dy)['duplicate_candidates']), 'the entries that name the Device in duplicate_dismissed and duplicate_candidates of the other Device are gone');
+$ack = json_decode((string) scalar($pdo, 'SELECT attrs FROM topo_edges WHERE id = ?', [$manual_edge]), true)['shadow_ack'] ?? [];
+check(count($ack) === 1 && (int) $ack[0]['device_id'] === 999, 'the shadow_ack entry that names the Device is removed, the other stays');
+check(exists($pdo, $dy), 'the other Device is untouched');
+// the next full run gives the observation a verdict; a current row recreates the Device, with a new id
+run_ingest($dsn, $user, $password);
+$new_dx = device_id($pdo, $X);
+check($new_dx !== null && $new_dx !== $dx && $new_dx > $dx, 'the next full run creates the Device again with a new id ('.$dx.' -> '.$new_dx.')');
+$observation = $pdo->query('SELECT device_id, outcome FROM topo_observations WHERE id = '.$obs_dx)->fetch(PDO::FETCH_ASSOC);
+check($observation !== false && (int) $observation['device_id'] === $new_dx, 'and the observation has its verdict again: it points at the new Device');
+check(!empty(candidates($pdo, $new_dx)), 'the candidate is derived again from the current evidence');
 
 echo "\nAll duplicate candidate checks passed.\n";

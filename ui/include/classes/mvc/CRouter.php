@@ -423,6 +423,7 @@ final class CRouter {
 		'topology.devices.mergegroup'				=> [CControllerTopologyDevicesMergeGroup::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.devices.acceptchassis'			=> [CControllerTopologyDevicesAcceptChassis::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.devices.dismissduplicate'			=> [CControllerTopologyDevicesDismissDuplicate::class,			ZBX_LAYOUT_JSON,		null],
+		'topology.devices.delete'					=> [CControllerTopologyDevicesDelete::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.problems.get'						=> [CControllerTopologyProblemsGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.observations.get'					=> [CControllerTopologyObservationsGet::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.addresses.get'					=> [CControllerTopologyAddressesGet::class,						ZBX_LAYOUT_JSON,		null],

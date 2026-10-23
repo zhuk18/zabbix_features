@@ -2515,6 +2515,111 @@ class CTopologyPrototype {
 		}
 	}
 
+	/**
+	 * Delete Device (topology-1-model.md §6.7.5, 2.47, FR-C O-13): the operator deletes a Device that has no association and no manual link. The Device, its Ports and its
+	 * discovered links go (the foreign keys cascade); the observations keep their claim, their `device_id` and `edge_id` become NULL (the next full ingest gives them a verdict);
+	 * the entries that name the Device in `duplicate_dismissed` / `duplicate_candidates` of other Devices and in `shadow_ack` of manual links are removed. If a current row
+	 * reports the neighbor again, ingest makes a Device again, with a new id.
+	 *
+	 * @throws Exception  with a message for the operator when the Device is refused
+	 * @return array      ['deleted' => id, 'ports' => n, 'links' => n]
+	 */
+	public static function deleteDevice(string $device_id, string $username): array {
+		$device = self::getDeviceRow($device_id);
+
+		if ($device['represented_by_node_id'] !== null) {
+			throw new Exception('The Device is associated with a host or proxy: remove the association first (Depromote).');
+		}
+
+		$ports = [];
+		$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id));
+		while ($row = DBfetch($result, false)) {
+			$ports[] = (string) $row['id'];
+		}
+
+		// the links of the Device: physical links on its Ports, device links on its Ports or to the Device
+		$ends = array_merge([$device_id], $ports);
+		$links = [];
+		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE type IN ('.zbx_dbstr('physical_link').','.zbx_dbstr('device_link').') AND ('.
+			dbConditionInt('src_id', $ends).' OR '.dbConditionInt('dst_id', $ends).')');
+		while ($edge = DBfetch($result, false)) {
+			if (!self::isDiscovered($edge)) {
+				throw new Exception('The Device has a manual link: delete the link first.');
+			}
+			$links[] = (string) $edge['id'];
+		}
+
+		DBstart();
+
+		try {
+			// the entries that name the Device elsewhere
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND id<>'.zbx_dbstr($device_id).
+				' AND (attrs LIKE '.zbx_dbstr('%duplicate_dismissed%').' OR attrs LIKE '.zbx_dbstr('%duplicate_candidates%').')');
+			while ($row = DBfetch($result, false)) {
+				$attrs = self::attrs($row);
+				$changed = false;
+
+				foreach (['duplicate_dismissed', 'duplicate_candidates'] as $list) {
+					if (!array_key_exists($list, $attrs)) {
+						continue;
+					}
+
+					$kept = array_values(array_filter($attrs[$list],
+						static fn (array $entry): bool => (string) ($entry['device_id'] ?? '') !== $device_id));
+
+					if (count($kept) !== count($attrs[$list])) {
+						$changed = true;
+
+						if ($kept) {
+							$attrs[$list] = $kept;
+						}
+						else {
+							unset($attrs[$list]);
+						}
+					}
+				}
+
+				if ($changed) {
+					DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($row['id']));
+				}
+			}
+
+			$result = DBselect('SELECT id,attrs FROM topo_edges WHERE attrs LIKE '.zbx_dbstr('%shadow_ack%'));
+			while ($edge = DBfetch($result, false)) {
+				$attrs = self::attrs($edge);
+				$kept = array_values(array_filter($attrs['shadow_ack'] ?? [],
+					static fn (array $entry): bool => (string) ($entry['device_id'] ?? '') !== $device_id));
+
+				if (count($kept) !== count($attrs['shadow_ack'] ?? [])) {
+					if ($kept) {
+						$attrs['shadow_ack'] = $kept;
+					}
+					else {
+						unset($attrs['shadow_ack']);
+					}
+
+					DBexecute('UPDATE topo_edges SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($edge['id']));
+				}
+			}
+
+			// the discovered links, the Ports and the Device (observations: device_id and edge_id become NULL by the foreign keys)
+			if ($links) {
+				DBexecute('DELETE FROM topo_edges WHERE '.dbConditionInt('id', $links));
+			}
+
+			DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($device_id));
+		}
+		catch (Throwable $exception) {
+			DBend(false);
+
+			throw $exception;
+		}
+
+		DBend(true);
+
+		return ['deleted' => (int) $device_id, 'ports' => count($ports), 'links' => count($links)];
+	}
+
 	/** Not the same device: the other Device's id goes to attrs.duplicate_dismissed of both (with at and by), and out of both candidate lists. */
 	public static function dismissDuplicate(string $a, string $b, string $username): void {
 		if ($a === $b) {
