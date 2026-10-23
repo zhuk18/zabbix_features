@@ -251,6 +251,11 @@ cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0:
 cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "bf:41:c2-66-f5-e2", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "bf:41:c2-66-f5-e2", "rem_sysname": "a"}})
 cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0-c-29-a-b-c", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "0-c-29-a-b-c", "rem_sysname": "a"}})
 cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0c-29-0a-0b-0c-0d", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "0c:29:0a:0b:0c:0d", "rem_sysname": "a"}})
+# §4.1, model §6.7.1 (task 066): a CDP device id in ANY MAC form is a hardware ID (the net-snmp form with 1-2 digit groups too); a placeholder in that form is a name
+# of no use (no chassis key later); mixed separators are a name
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:c:29:a:b:c", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_port": "Gi0/1", "rem_chassis": "00:0c:29:0a:0b:0c", "rem_chassis_type": "macAddress"}})
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:0:0:0:0:0", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_sysname": "0:0:0:0:0:0", "rem_port": "Gi0/1"}})
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:c:29-a-b-c", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_sysname": "0:c:29-a-b-c", "rem_port": "Gi0/1"}})
 cases["local_port"] = [
     lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
     lp("no PORTS rows at all", [], {"loc_port_num": 1}, None, "no_ports"),

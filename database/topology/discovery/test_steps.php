@@ -93,6 +93,16 @@ check($problem === null && $row['rem_chassis'] === 'aa:bb:cc:00:00:01' && $row['
 [$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_chassis' => 'aa:bb:cc:00:00', 'rem_sysname' => 'x']);
 check($row === null && $problem !== null, 'a MAC of 5 octets: the row is invalid, not guessed');
 
+// 066: a CDP device id in the net-snmp MAC form is a hardware ID: the chassis key of kind MAC; a placeholder in that form and mixed separators are a name (no chassis key)
+$run = new_run($pdo);
+[$row] = TopologyNormalize::row(['source' => 'cdp', 'rem_sysname' => '0:c:29:a:b:c', 'rem_port' => 'Gi0/1']);
+check(($row['rem_chassis'] ?? null) === '00:0c:29:0a:0b:0c' && !isset($row['rem_sysname']) && $run->keys->chassisKey($row['rem_chassis'], $row['rem_chassis_type'], 'server') === 'chassis:mac:00:0c:29:0a:0b:0c',
+	'a CDP device id 0:c:29:a:b:c: chassis:mac:00:0c:29:0a:0b:0c', $row);
+[$row] = TopologyNormalize::row(['source' => 'cdp', 'rem_sysname' => '0:0:0:0:0:0', 'rem_port' => 'Gi0/1']);
+check(!isset($row['rem_chassis']) && ($row['rem_sysname'] ?? null) === '0:0:0:0:0:0', 'a placeholder in that form: a name, no chassis, so no key', $row);
+[$row] = TopologyNormalize::row(['source' => 'cdp', 'rem_sysname' => '0:c:29-a-b-c', 'rem_port' => 'Gi0/1']);
+check(!isset($row['rem_chassis']) && ($row['rem_sysname'] ?? null) === '0:c:29-a-b-c', 'mixed separators: a name', $row);
+
 echo "\n=== Identify: the chassis rows of model §6.7.1 (resolveDevice) ===\n";
 $run = new_run($pdo);
 check($run->identify->resolveDevice(['chassis' => ['chassis:mac:aa:bb:cc:00:00:01', 'aa:bb:cc:00:00:01']]) === null, 'a chassis that no Device has: none (a new Device is made by the caller)');

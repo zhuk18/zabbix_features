@@ -238,22 +238,34 @@ class CTopologyAddress {
 	}
 
 	/**
+	 * The one place of the MAC text forms (normalization §4.1): the octets of a value that is shaped like a MAC, or null (text). Forms: groups of 1-2 hex digits with `:`
+	 * only, pairs with `-` only, Cisco dotted `xxxx.xxxx.xxxx`; one separator in a value, so `:` and `-` mixed, or a group of 1 digit with `-`, is not a MAC (0.13).
+	 * The count of octets is not checked here (the caller decides: 6 is a MAC, another count is an error where the field is known to be a MAC). The octets are as written
+	 * (a group of 1 digit is not padded yet).
+	 *
+	 * @return string[]|null
+	 */
+	public static function macOctets(string $value): ?array {
+		if (preg_match('/^(?:[0-9a-f]{1,2}(?::[0-9a-f]{1,2})+|[0-9a-f]{2}(?:-[0-9a-f]{2})+)$/i', $value) === 1) {
+			return preg_split('/[:-]/', $value);
+		}
+		if (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4})+$/i', $value) === 1) {
+			return str_split(str_replace('.', '', $value), 2);
+		}
+
+		return null;
+	}
+
+	/**
 	 * A CDP device id in MAC form (normalization §4.1: six octets with `:` or `-`, or the Cisco form `xxxx.xxxx.xxxx`) that is not a placeholder: the MAC in normal
 	 * form, which is the claim's hardware ID (model §6.7.1, 2.48); else null. The text of any other form is a name.
 	 */
 	public static function macFormId(string $text): ?string {
-		$text = trim($text);
-		if (preg_match('/^[0-9a-f]{2}([:-])(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}$/Di', $text) === 1) {
-			$octets = preg_split('/[:-]/', $text);
-		}
-		elseif (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4}){2}$/Di', $text) === 1) {
-			$octets = str_split(str_replace('.', '', $text), 2);
-		}
-		else {
+		$octets = self::macOctets(trim($text));
+		if ($octets === null || count($octets) !== 6) {
 			return null;
 		}
-
-		$mac = strtolower(implode(':', $octets));
+		$mac = strtolower(implode(':', array_map(static fn (string $o): string => str_pad($o, 2, '0', STR_PAD_LEFT), $octets)));
 
 		return in_array($mac, ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'], true) ? null : $mac;
 	}

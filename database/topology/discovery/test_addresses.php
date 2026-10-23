@@ -367,7 +367,7 @@ check(CTopologyAddress::nameKey('N9K-1(FDO2101X0AB)') === 'n9k-1' && CTopologyAd
 	&& CTopologyAddress::nameKey('10.0.0.1') === '10.0.0.1' && CTopologyAddress::nameKey('(serial)') === '(serial)' && CTopologyAddress::nameKey('a(b)c') === 'a(b)c',
 	'name key: a final group in parentheses removed, then the domain; an address keeps its dots; a name that is only a group stays');
 check(CTopologyAddress::macFormId('A8-52-D4-53-11-00') === 'a8:52:d4:53:11:00' && CTopologyAddress::macFormId('a852.d453.1100') === 'a8:52:d4:53:11:00' && CTopologyAddress::macFormId('f4:03:43:e8:ba:00') === 'f4:03:43:e8:ba:00'
-	&& CTopologyAddress::macFormId('f4:03:43:e8:ba') === null && CTopologyAddress::macFormId('f4:03:43-e8-ba-00') === null && CTopologyAddress::macFormId('204c9e6e08fe') === null && CTopologyAddress::macFormId('00:00:00:00:00:00') === null
+	&& CTopologyAddress::macFormId('0:c:29:a:b:c') === '00:0c:29:0a:0b:0c' && CTopologyAddress::macFormId('0:0:0:0:0:0') === null && CTopologyAddress::macFormId('0:c:29-a-b-c') === null && CTopologyAddress::macFormId('0-c-29-a-b-c') === null && CTopologyAddress::macFormId('f4:03:43:e8:ba') === null && CTopologyAddress::macFormId('f4:03:43-e8-ba-00') === null && CTopologyAddress::macFormId('204c9e6e08fe') === null && CTopologyAddress::macFormId('00:00:00:00:00:00') === null
 	&& CTopologyAddress::macFormId('FF:FF:FF:FF:FF:FF') === null && CTopologyAddress::macFormId('SW-A') === null,
 	'a CDP device id in MAC form (6 octets with : or -, or xxxx.xxxx.xxxx) is a MAC; 5 octets, 12 digits, a placeholder, a name are not');
 // the one match predicate (§6.7.1 "Match"): the 11 cases of task 056, the NX-OS name, multicast

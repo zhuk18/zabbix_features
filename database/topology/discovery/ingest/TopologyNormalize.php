@@ -109,14 +109,7 @@ class TopologyNormalize {
 	// other chassis / port id is text, trimmed of trailing NUL and spaces. Returns [row, null] or [null, "field: why"].
 	public static function row(array $row): array {
 		$mac = static function (string $value, bool $strict): ?string {
-			$octets = null;
-			// one separator in a value (normalization 0.13): groups of 1-2 digits with ':', or pairs with '-'; ':' and '-' mixed, or a group of 1 digit with '-', is not a MAC
-			if (preg_match('/^(?:[0-9a-f]{1,2}(?::[0-9a-f]{1,2})+|[0-9a-f]{2}(?:-[0-9a-f]{2})+)$/i', $value)) {
-				$octets = preg_split('/[:-]/', $value);
-			}
-			elseif (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4})+$/i', $value)) {
-				$octets = str_split(str_replace('.', '', $value), 2);
-			}
+			$octets = CTopologyAddress::macOctets($value);      // the one place of the MAC forms (normalization §4.1)
 			if ($octets === null) {
 				return $value;                       // not shaped like a MAC: text, left alone
 			}

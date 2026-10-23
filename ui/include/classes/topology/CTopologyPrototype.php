@@ -2072,15 +2072,11 @@ class CTopologyPrototype {
 	/** A placeholder MAC (normalization §4.1: all zero or all ones, in any of the MAC spellings): never an identity. The mirror of `$is_placeholder_mac` of ingest.php. */
 	private static function isPlaceholderMac(string $value): bool {
 		$value = strtolower(trim($value));
-		if (preg_match('/^[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}$/', $value) === 1) {
-			$octets = str_split(str_replace('.', '', $value), 2);
-		}
-		elseif (preg_match('/^(?:[0-9a-f]{1,2}(?::[0-9a-f]{1,2}){5}|[0-9a-f]{2}(?:-[0-9a-f]{2}){5})$/', $value) === 1) {
-			$octets = array_map(static fn (string $o): string => str_pad($o, 2, '0', STR_PAD_LEFT), preg_split('/[:-]/', $value));
-		}
-		else {
+		$octets = CTopologyAddress::macOctets($value);
+		if ($octets === null || count($octets) !== 6) {
 			return false;
 		}
+		$octets = array_map(static fn (string $o): string => str_pad($o, 2, '0', STR_PAD_LEFT), $octets);
 
 		return in_array(implode(':', $octets), ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'], true);
 	}

@@ -1291,6 +1291,43 @@
     "rem_chassis": "0c:29:0a:0b:0c:0d",
     "rem_sysname": "a"
    }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "0:c:29:a:b:c",
+    "rem_port": "Gi0/1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_port": "Gi0/1",
+    "rem_chassis": "00:0c:29:0a:0b:0c",
+    "rem_chassis_type": "macAddress"
+   }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "0:0:0:0:0:0",
+    "rem_port": "Gi0/1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_sysname": "0:0:0:0:0:0",
+    "rem_port": "Gi0/1"
+   }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "0:c:29-a-b-c",
+    "rem_port": "Gi0/1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_sysname": "0:c:29-a-b-c",
+    "rem_port": "Gi0/1"
+   }
   }
  ],
  "local_port": [
