@@ -48,6 +48,7 @@ class IngestRun {
 	public IngestLinks $links;
 	public IngestObserve $observe;
 	public IngestSelf $own;
+	public IngestMarks $marks;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;
