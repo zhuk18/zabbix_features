@@ -1255,6 +1255,42 @@
     "rem_sysname": "a"
    },
    "out": null
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "bf:41:c2-66-f5-e2",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "bf:41:c2-66-f5-e2",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0-c-29-a-b-c",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0-c-29-a-b-c",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0c-29-0a-0b-0c-0d",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0c:29:0a:0b:0c:0d",
+    "rem_sysname": "a"
+   }
   }
  ],
  "local_port": [

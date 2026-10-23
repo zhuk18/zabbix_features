@@ -58,10 +58,7 @@ $known_seen = [];
 $known_hit = [];
 
 /** Known findings (questions of report 060): property key => the question. */
-$known = [
-	'mac.near' => '063 Q: mixed separators and one-digit groups with a dash are read as a MAC',
-	'mac.near_key' => '063 Q: mixed separators and one-digit groups with a dash are read as a MAC',
-];
+$known = [];
 
 function check(bool $ok, string $what, $detail = null, ?string $key = null): void {
 	global $checks, $failures, $known, $known_hit;

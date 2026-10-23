@@ -243,7 +243,7 @@ class CTopologyAddress {
 	 */
 	public static function macFormId(string $text): ?string {
 		$text = trim($text);
-		if (preg_match('/^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$/Di', $text) === 1) {
+		if (preg_match('/^[0-9a-f]{2}([:-])(?:[0-9a-f]{2}\1){4}[0-9a-f]{2}$/Di', $text) === 1) {
 			$octets = preg_split('/[:-]/', $text);
 		}
 		elseif (preg_match('/^[0-9a-f]{4}(\.[0-9a-f]{4}){2}$/Di', $text) === 1) {

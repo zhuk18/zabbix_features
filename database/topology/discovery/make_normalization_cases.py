@@ -247,6 +247,10 @@ cases["row"] = [
 # §4.1 (0.12): 6 groups of 1 or 2 hex digits separated by `:` are a MAC (net-snmp prints `0:c:29:a:b:c`); a group of 1 digit gets a leading 0
 cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0:c:29:a:b:c", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "00:0c:29:0a:0b:0c", "rem_sysname": "a"}})
 cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0:c:29:a:b", "rem_sysname": "a"}, "out": None})
+# §4.1 (0.13): one separator in a value: ':' and '-' mixed, or a group of 1 digit with '-', is not a MAC (text, left alone: no key of kind MAC, no invalid row)
+cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "bf:41:c2-66-f5-e2", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "bf:41:c2-66-f5-e2", "rem_sysname": "a"}})
+cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0-c-29-a-b-c", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "0-c-29-a-b-c", "rem_sysname": "a"}})
+cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0c-29-0a-0b-0c-0d", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "0c:29:0a:0b:0c:0d", "rem_sysname": "a"}})
 cases["local_port"] = [
     lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
     lp("no PORTS rows at all", [], {"loc_port_num": 1}, None, "no_ports"),

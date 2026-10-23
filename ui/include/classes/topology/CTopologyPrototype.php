@@ -2075,7 +2075,7 @@ class CTopologyPrototype {
 		if (preg_match('/^[0-9a-f]{4}(?:\.[0-9a-f]{4}){2}$/', $value) === 1) {
 			$octets = str_split(str_replace('.', '', $value), 2);
 		}
-		elseif (preg_match('/^[0-9a-f]{1,2}([:-])(?:[0-9a-f]{1,2}\1){4}[0-9a-f]{1,2}$/', $value) === 1) {
+		elseif (preg_match('/^(?:[0-9a-f]{1,2}(?::[0-9a-f]{1,2}){5}|[0-9a-f]{2}(?:-[0-9a-f]{2}){5})$/', $value) === 1) {
 			$octets = array_map(static fn (string $o): string => str_pad($o, 2, '0', STR_PAD_LEFT), preg_split('/[:-]/', $value));
 		}
 		else {
