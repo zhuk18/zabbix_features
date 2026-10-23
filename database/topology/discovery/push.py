@@ -210,10 +210,10 @@ def _has_control(text: str) -> bool:
 
 def text_or_hex(raw: bytes) -> str:
     """A text column from a Hex-STRING: trailing NUL bytes removed; the rest is text when it is valid UTF-8 without a control character other than tab,
-    else the hex form."""
-    raw = raw.rstrip(b"\0")
+    else the hex form of ALL the bytes, the trailing NUL bytes included (normalization 0.9 section 3: a last `00` of a binary value is a byte)."""
+    trimmed = raw.rstrip(b"\0")
     try:
-        text = raw.decode("utf-8")
+        text = trimmed.decode("utf-8")
     except UnicodeDecodeError:
         return _hex_form(raw)
     return _hex_form(raw) if _has_control(text) else text

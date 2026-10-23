@@ -440,19 +440,21 @@ static unsigned char	*topo_hex_bytes(const char *value, size_t *len)
 }
 
 /* a text column from a Hex-STRING: trailing NUL bytes removed; the rest is text when it is valid UTF-8 without a control character other than tab, else
- * the hex form */
+ * the hex form of ALL the bytes, the trailing NUL bytes included (normalization 0.9 section 3: SW12 sends its chassis MAC a8 52 d4 53 11 00 as
+ * cdpCacheDeviceId, and the last 00 is a byte of the value, not a terminator) */
 static char	*topo_text_or_hex(const unsigned char *bytes, size_t len)
 {
 	char	*out;
+	size_t	text_len = len;
 
-	while (0 < len && '\0' == bytes[len - 1])
-		len--;
+	while (0 < text_len && '\0' == bytes[text_len - 1])
+		text_len--;
 
-	out = (char *)zbx_malloc(NULL, len + 1);
-	memcpy(out, bytes, len);
-	out[len] = '\0';
+	out = (char *)zbx_malloc(NULL, text_len + 1);
+	memcpy(out, bytes, text_len);
+	out[text_len] = '\0';
 
-	if (strlen(out) == len && SUCCEED == zbx_is_utf8(out) && SUCCEED != topo_has_control(bytes, len))
+	if (strlen(out) == text_len && SUCCEED == zbx_is_utf8(out) && SUCCEED != topo_has_control(bytes, text_len))
 		return out;
 
 	zbx_free(out);

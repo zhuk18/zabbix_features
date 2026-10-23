@@ -127,6 +127,14 @@ case("cdp: the address raw as cdp:<type>:<hex octets>", "cdp", ci + line(cdp + "
      {"{#IFINDEX}": "5", "{#IFNAME}": "Gi0/5", "{#REM_MAN_ADDRS}": "cdp:1:c0:a8:01:0b", "{#REM_SYSNAME}": "sw-b", "{#REM_PORT}": "Gi1/0/48", "{#REM_PORT_TYPE}": "interfaceName", "{#SOURCE}": "cdp"})
 case("cdp: a type 65535 entry with an empty address is raw too", "cdp", ci + line(cdp + ".3.5.1", "INTEGER", 65535) + line(cdp + ".4.5.1", H, "") + line(cdp + ".6.5.1", S, '"sw-c"'),
      {"{#REM_MAN_ADDRS}": "cdp:65535:"})
+# normalization 0.9 section 3 (task 059): the hex form of a text column holds ALL the bytes, trailing NUL bytes included
+case("cdp: a binary device id keeps its last 00 byte (SW12, a8 52 d4 53 11 00)", "cdp", ci + line(cdp + ".6.5.1", H, hexs(bytes.fromhex("a852d4531100"))),
+     {"{#REM_SYSNAME}": "a8:52:d4:53:11:00"})
+case("cdp: a binary device id keeps its last 00 byte (HP 2530, f4 03 43 e8 ba 00)", "cdp", ci + line(cdp + ".6.5.1", H, hexs(bytes.fromhex("f40343e8ba00"))),
+     {"{#REM_SYSNAME}": "f4:03:43:e8:ba:00"})
+case("cdp: two trailing 00 bytes of a binary device id are bytes too", "cdp", ci + line(cdp + ".6.5.1", H, hexs(bytes.fromhex("fffe0000"))), {"{#REM_SYSNAME}": "ff:fe:00:00"})
+case("cdp: a text device id with a trailing NUL still loses it", "cdp", ci + line(cdp + ".6.5.1", H, hexs(b"SW-A\0")), {"{#REM_SYSNAME}": "SW-A"})
+case("text: a binary ifName (invalid UTF-8) keeps its trailing 00 byte in the hex form", "ports", ports_walk((H, hexs(bytes.fromhex("fffe00")))), {"{#IFNAME}": "ff:fe:00"})
 case("cdp: a device id that is a bare MAC is text", "cdp", ci + line(cdp + ".6.5.1", S, '"204c9e6e08fe"'), {"{#REM_SYSNAME}": "204c9e6e08fe", "{#REM_MAN_ADDRS}": None})
 
 with open(os.path.join(HERE, "decoding_cases.json"), "w", encoding="utf-8") as fh:

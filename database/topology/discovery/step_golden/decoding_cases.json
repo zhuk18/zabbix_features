@@ -506,6 +506,46 @@
   }
  },
  {
+  "name": "cdp: a binary device id keeps its last 00 byte (SW12, a8 52 d4 53 11 00)",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = Hex-STRING: A8 52 D4 53 11 00 \n",
+  "expect": {
+   "{#REM_SYSNAME}": "a8:52:d4:53:11:00"
+  }
+ },
+ {
+  "name": "cdp: a binary device id keeps its last 00 byte (HP 2530, f4 03 43 e8 ba 00)",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = Hex-STRING: F4 03 43 E8 BA 00 \n",
+  "expect": {
+   "{#REM_SYSNAME}": "f4:03:43:e8:ba:00"
+  }
+ },
+ {
+  "name": "cdp: two trailing 00 bytes of a binary device id are bytes too",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = Hex-STRING: FF FE 00 00 \n",
+  "expect": {
+   "{#REM_SYSNAME}": "ff:fe:00:00"
+  }
+ },
+ {
+  "name": "cdp: a text device id with a trailing NUL still loses it",
+  "source": "cdp",
+  "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = Hex-STRING: 53 57 2D 41 00 \n",
+  "expect": {
+   "{#REM_SYSNAME}": "SW-A"
+  }
+ },
+ {
+  "name": "text: a binary ifName (invalid UTF-8) keeps its trailing 00 byte in the hex form",
+  "source": "ports",
+  "walk": ".1.3.6.1.2.1.2.2.1.1.1 = INTEGER: 1\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)\n.1.3.6.1.2.1.31.1.1.1.1.1 = Hex-STRING: FF FE 00 \n",
+  "expect": {
+   "{#IFNAME}": "ff:fe:00"
+  }
+ },
+ {
   "name": "cdp: a device id that is a bare MAC is text",
   "source": "cdp",
   "walk": ".1.3.6.1.2.1.31.1.1.1.1.5 = STRING: \"Gi0/5\"\n.1.3.6.1.4.1.9.9.23.1.2.1.1.6.5.1 = STRING: \"204c9e6e08fe\"\n",
