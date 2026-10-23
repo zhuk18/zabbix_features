@@ -596,16 +596,17 @@ const TOPO_PORT_NAME_FORMS = [
 // all compare names through it.
 // ---- topology-6-normalization.md §3-§4: the same functions as the native step (preproc_topology.c) and push.py; normalization_cases.json tests all three ----
 $norm_white = " \t\n\x0B\f\r";
-/** §3, text fields from a Hex-STRING: trailing NUL bytes removed; valid UTF-8 without a control character other than tab is text, else the hex form aa:bb:.. */
+/** §3, text fields from a Hex-STRING: trailing NUL bytes removed; valid UTF-8 without a control character other than tab is text, else the hex form aa:bb:.. of all the bytes (0.9) */
 $norm_text_or_hex = static function (string $raw): string {
-	$raw = rtrim($raw, "\0");
-	if ($raw === '') {
+	$text = rtrim($raw, "\0");
+	if ($text === '') {
 		return '';
 	}
-	if (preg_match('//u', $raw) !== 1 || preg_match('/[\x00-\x08\x0A-\x1F\x7F]|\xC2[\x80-\x9F]/', $raw) === 1) {
+	// the hex form holds ALL the bytes, trailing NUL bytes included (0.9, task 059: a binary id that ends in 00 is not text)
+	if (preg_match('//u', $text) !== 1 || preg_match('/[\x00-\x08\x0A-\x1F\x7F]|\xC2[\x80-\x9F]/', $text) === 1) {
 		return implode(':', str_split(bin2hex($raw), 2));
 	}
-	return $raw;
+	return $text;
 };
 /** §4.5 steps 2-4: trailing NUL characters, white space, one pair of surrounding quotes (".." '..' U+201C U+201D), white space; null = no value */
 $norm_clean = static function (string $value) use ($norm_white): ?string {
