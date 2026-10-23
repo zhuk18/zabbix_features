@@ -9,12 +9,12 @@ patch:
     Switch1:
       cdp: true
     PC1:
-      ip: 127.0.0.90
+      ip: 192.0.2.190
       chassis: {subtype: mac, value: "00:11:22:33:44:31"}
       ports: [{ifindex: 1, name: eth0}]
       zabbix: {monitored: false}
     PC2:
-      ip: 127.0.0.91
+      ip: 192.0.2.191
       chassis: {subtype: mac, value: "00:11:22:33:44:32"}
       cdp: true
       ports: [{ifindex: 1, name: eth0}]

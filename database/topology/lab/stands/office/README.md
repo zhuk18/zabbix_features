@@ -41,7 +41,7 @@ The gateway side has a LAG (`lag_id`), the core side has none (F-3).
    `""` → empty `4`.
 2. Untyped integers (net-snmp `-Ot`) → TimeTicks `67`.
 3. `No Such Object` and `No more variables` lines → removed.
-4. **Address remap 192.168.17.N → 127.0.17.N** in the LLDP management
+4. **Address remap 192.168.17.N → 192.0.2.N** (task 065; was 127.0.17.N) in the LLDP management
    address indexes (`lldpConfigManAddr`, `lldpLocManAddr`,
    `lldpRemManAddr`), `ipAddrTable`, `ipNetToMediaTable` and the 4-octet
    `cdpCacheAddress`. Other addresses (192.168.88.1, 192.168.131.x,
@@ -53,7 +53,7 @@ The gateway side has a LAG (`lag_id`), the core side has none (F-3).
 6. OIDs sorted numerically.
 
 **Check done (2026-10-19).** All 14 files served by snmpsim 1.x on
-127.0.17.N:1611, walked with `snmpbulkwalk -v2c` (GETBULK), converted
+192.0.2.N:1611, walked with `snmpbulkwalk -v2c` (GETBULK), converted
 back to rows and resolved: Devices, links, device links and counters are
 equal to the result from the original capture (switches only). The only
 differences are the 14 remapped CDP addresses. With the gateways: 14
@@ -64,7 +64,7 @@ reporters, 119 Devices, 69 links.
 1. Copy the stand into the lab directory (`database/topology/lab/`),
    for example as `stands/office/`.
 2. `labsim run R1 --reset` with `lab-office.yaml` as the lab file.
-3. The 127.0.17.0/24 addresses need no alias (127/8).
+3. The 192.0.2.0/24 addresses are local through one route that Dima adds once, as root: `ip route add local 192.0.2.0/24 dev lo` (AnyIP, lab spec §6.1); `labsim up` checks it and never runs sudo. A stand made before task 065 (127.0.17.N) is moved by `tools/remap_stand.py <stand data dir>` (the data directory is not in the repository).
 
 ## Lab tool support
 

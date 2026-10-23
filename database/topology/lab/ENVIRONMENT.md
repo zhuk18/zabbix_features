@@ -83,7 +83,7 @@ Server configuration `etc/zabbix_server.conf` (non-default parameters): `LogFile
 Agent `etc/zabbix_agentd.conf`: `LogFile=/home/zhuk/work/logs/zabbix_agent.log`, `Server=0.0.0.0/0`, `Hostname=DevLinux`. The log directory `/home/zhuk/work/logs/` must exist and be writable.
 
 Start (manual, nothing is a systemd unit): `cd /home/zhuk/work/branches/zabbix && sbin/zabbix_server -c etc/zabbix_server.conf` (and `sbin/zabbix_agentd -c etc/zabbix_agentd.conf`). The frontend is started with Apache (`systemctl is-enabled apache2` = enabled).
-Ports: 10051 (server trapper), 80 and 443 (Apache), 3306 (database, listens on 0.0.0.0 here: `bind-address = 0.0.0.0` in `/etc/mysql/mariadb.conf.d/50-server.cnf` — the new VM does not need that), 161 (local snmpd), lab simulators on `127.0.0.2-6:1611`, corpus devices `127.0.10.N:1611`.
+Ports: 10051 (server trapper), 80 and 443 (Apache), 3306 (database, listens on 0.0.0.0 here: `bind-address = 0.0.0.0` in `/etc/mysql/mariadb.conf.d/50-server.cnf` — the new VM does not need that), 161 (local snmpd), lab simulators on `192.0.2.102-106:1611` (lab.yaml), `192.0.2.N:1611` (office stand), corpus devices `192.0.2.200+N:1611`.
 After a reboot the server is **not** running until it is started by hand (this was true on 2026-10-12).
 
 API token for the lab: environment variable `ZBX_TOKEN` (set in `~/.bashrc` or `~/.profile`; the value is a secret and is never written to a file by the tools).
@@ -118,7 +118,7 @@ The test harness builds its throwaway databases itself from stand-in tables plus
 
 - `labsim`: `database/topology/lab/` (`python -m labsim …` from that directory, `~/work/labenv/bin/python`). Data: `lab/data/` (generated snmprec, git-ignored), `lab/run/` (pids, logs; git-ignored), `lab/reports/` (S0-S5 reports are tracked; `SC*.json` is ignored),
   `lab/variation/` (the snmpsim module `labmultiplex`), `lab/php/` (read-only PHP helpers, they read `ui/conf/zabbix.conf.php`), `lab/lab.yaml`, `lab/scenarios/`.
-  The simulators run on `127.0.0.0/8` addresses; no IP alias is needed. `ctl.py` would create a `dummy` interface with `sudo -n ip` for an address outside 127/8 (not used).
+  The simulators run on `192.0.2.0/24` addresses (lab spec §6.1, task 065): `lab.yaml` 192.0.2.100+N, the office stand 192.0.2.N, corpus devices 192.0.2.200+N. They are local through one route that Dima added once, as root: `ip route add local 192.0.2.0/24 dev lo` (AnyIP); `ctl.py up` checks it with `ip route get` and never runs sudo. If the route is gone after a reboot, `labsim up` stops with that command in its message.
 - Lab settings that name this VM (`lab.yaml`): `url: http://localhost/zabbix/ui/api_jsonrpc.php`, `group: Test`, templates `Topology by SNMP`, `Topology by push`, `Network Generic Device by SNMP`, `adopt: [Router1, Switch1, Switch2, UPS1, AccessSwitch1]` (hosts that already exist in the `zabbix` database).
   `export_dir` default `~/work/lab-backup`.
 - Environment variables read (names only): `ZBX_TOKEN` (lab API), `TMPDIR` (status file location), `TOPOLOGY_PDO_DSN`, `TOPOLOGY_PDO_USER`, `TOPOLOGY_PDO_PASSWORD` (ingest), `ZABBIX_API_URL`, `ZABBIX_API_TOKEN` (ingest, optional API),
@@ -144,8 +144,8 @@ Paths and users: the lab and the tests hard-code very little; this is the list (
 | `database/topology/corpus/corpus_walk.py:22` | default corpus `/media/sf_topology-specs/corpus` (`TOPOLOGY_CORPUS`) |
 | `database/topology/lab/README.md:15-16, 47` | `~/work/labenv`, `~/work/lab-backup` |
 | `database/topology/lab/lab.yaml:12` | API url `http://localhost/zabbix/ui/api_jsonrpc.php` (the path `/zabbix/` comes from the Apache DocumentRoot above) |
-| `database/topology/lab/lab.yaml:5, 20-56` | `127.0.0.0/24`, hosts `127.0.0.2-6`, `snmp_port: 1611`, community `zbxlab` |
-| `database/topology/lab/labsim/corpus.py:20` | corpus devices on `127.0.10.N` |
+| `database/topology/lab/lab.yaml:5, 20-56` | `192.0.2.0/24`, hosts `192.0.2.102-106`, `snmp_port: 1611`, community `zbxlab` |
+| `database/topology/lab/labsim/corpus.py:20` | corpus devices on `192.0.2.200+N` |
 | `database/topology/run_php_tests.sh:22, 26, 51` | `localhost` database host, `/tmp/topo_t_*.log` |
 | `database/topology/discovery/*` tests | `localhost` in the DSNs and `SERVER => 'localhost'` (`test_scenario_catalog.php:215`, `test_topology_model.php:165`, `test_duplicate_candidates.php:201`, `test_manual_link_busy_port.php:38, 78`) |
 | `database/topology/discovery/push.py:76` | `ZABBIX_SENDER_BIN = <repo>/bin/zabbix_sender` (relative to the checkout) |
@@ -157,4 +157,4 @@ Paths and users: the lab and the tests hard-code very little; this is the list (
 | `/home/zhuk/.bashrc` or `~/.profile` | `ZBX_TOKEN` |
 | `database/topology/lab/lab.yaml:10` | `adopt` list: the five hosts must exist, or `provision` creates them |
 
-User names: `zhuk` (OS and database user `zhuk@%`), database user `zabbix`. IP addresses: `127.0.0.1/2-6/10.N`; no external address is used by the lab.
+User names: `zhuk` (OS and database user `zhuk@%`), database user `zabbix`. IP addresses: `127.0.0.1`, the lab range `192.0.2.0/24` (local route, task 065); no external address is used by the lab.

@@ -1,5 +1,4 @@
 """labctl: one snmpsim process per device (topology-4-lab-simulator.md "snmpsim control (`labctl`)")."""
-import ipaddress
 import json
 import os
 import signal
@@ -14,7 +13,6 @@ RUN_DIR = os.path.join(HERE, 'run')
 DATA_DIR = os.path.join(HERE, 'data')
 STATE = os.path.join(RUN_DIR, 'state.json')
 OUR_VARIATION = os.path.join(HERE, 'variation')
-DUMMY_IF = 'lab0'
 
 
 def _repo_root():
@@ -63,14 +61,14 @@ def snmp(tool, dev, *args):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def _need_alias(ip):
-    return ipaddress.ip_address(ip) not in ipaddress.ip_network('127.0.0.0/8')
-
-
-def _sudo_ip(*args):
-    r = subprocess.run(['sudo', '-n', 'ip'] + list(args), capture_output=True, text=True)
-    if r.returncode:
-        raise LabError('cannot run "sudo -n ip %s": %s' % (' '.join(args), r.stderr.strip()))
+def _not_local(ips):
+    """The lab addresses that are not local on this VM: `ip route get` says `local <ip> dev lo ...` for an address of 127.0.0.0/8 or of the AnyIP route (lab spec 6.1)."""
+    bad = []
+    for ip in sorted(set(ips)):
+        r = subprocess.run(['ip', 'route', 'get', ip], capture_output=True, text=True)
+        if r.returncode or not r.stdout.startswith('local'):
+            bad.append(ip)
+    return bad
 
 
 def up(scenario, settings, log=print):
@@ -80,19 +78,14 @@ def up(scenario, settings, log=print):
     out = os.path.join(DATA_DIR, scenario.id)
     manifest = gen.generate(scenario, out)
     port = settings.get('snmp_port', 161)
-    aliases = []
     ips = [d['ip'] for d in manifest['devices'].values()]
-    if any(_need_alias(ip) for ip in ips):
-        if subprocess.run(['ip', 'link', 'show', DUMMY_IF], capture_output=True).returncode:
-            _sudo_ip('link', 'add', DUMMY_IF, 'type', 'dummy')
-            _sudo_ip('link', 'set', DUMMY_IF, 'up')
-            aliases.append('link')
-        for ip in ips:
-            if _need_alias(ip):
-                _sudo_ip('addr', 'add', '%s/32' % ip, 'dev', DUMMY_IF)
-                aliases.append(ip)
+    # no alias and never sudo (lab spec 6.1): the addresses are local through one route that Dima adds once, as root
+    bad = _not_local(ips)
+    if bad:
+        raise LabError('the lab address(es) %s are not local on this VM. The lab uses 192.0.2.0/24 through one route that is added once, as root, '
+                       'and kept across reboots: ip route add local 192.0.2.0/24 dev lo' % ', '.join(bad))
     os.makedirs(RUN_DIR, exist_ok=True)
-    st = {'scenario': scenario.id, 'step': 0, 'aliases': aliases, 'devices': {}}
+    st = {'scenario': scenario.id, 'step': 0, 'devices': {}}
     stock = stock_variation_dir(settings)
     for name, d in sorted(manifest['devices'].items()):
         logf = open(os.path.join(RUN_DIR, '%s.log' % name), 'w')
@@ -135,11 +128,6 @@ def down(log=print):
     for name, d in st['devices'].items():
         if alive(d['pid']):
             os.kill(d['pid'], signal.SIGKILL)
-    aliases = st.get('aliases') or []
-    for ip in [a for a in aliases if a not in ('link',)]:
-        _sudo_ip('addr', 'del', '%s/32' % ip, 'dev', DUMMY_IF)
-    if 'link' in aliases:
-        _sudo_ip('link', 'del', DUMMY_IF)
     os.remove(STATE)
     log('lab down')
 

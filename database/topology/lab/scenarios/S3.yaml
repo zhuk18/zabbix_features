@@ -9,7 +9,7 @@ patch:
         - {ifindex: 7, name: Gi0/7}
         - {ifindex: 8, name: Gi0/8}
     AP1:                                   # monitored in this scenario: it reports Switch1 and Switch2 itself
-      ip: 127.0.0.7
+      ip: 192.0.2.107
       port_mac_prefix: "02:00:00:07"
       add_ports:
         - {ifindex: 2, name: eth0}

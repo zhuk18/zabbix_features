@@ -9,7 +9,7 @@ Facts taken from the real capture and kept:
   - LACP system id 84:39:8f:37:3a:82 / 84:39:8f:1b:a3:2e (SW12 dot3adAggPortPartnerOperSystemID)
   - no LLDP management address towards SW12 (SW12 has none for them)
 Invented: sysDescr, sysObjectID, ifIndex values, port MACs, the HA cable
-gw1 ha1 - gw2 ha1, lab addresses 127.0.17.251 / .252, firmware text.
+gw1 ha1 - gw2 ha1, lab addresses 192.0.2.251 / .252, firmware text.
 """
 import json, os, sys
 
@@ -18,15 +18,15 @@ def mac(s): return bytes(int(x, 16) for x in s.split(':'))
 def txt(s): return s.encode().hex()
 
 # far ends taken from the replay data of SW12 (rows/*.json of the capture)
-SW12 = {'sysname': 'SW12-10-CORE-6000-48G', 'chassis': 'a8:52:d4:53:11:00', 'ip': '127.0.17.2',
+SW12 = {'sysname': 'SW12-10-CORE-6000-48G', 'chassis': 'a8:52:d4:53:11:00', 'ip': '192.0.2.2',
         'sysdesc': 'Aruba 6000 48G 4SFP Core Switch'}
 
 GW = {
-  'zbx-office-gw1': {'ip': '127.0.17.251', 'chassis': '84:39:8f:37:3a:7c', 'lacp': '84:39:8f:37:3a:82',
+  'zbx-office-gw1': {'ip': '192.0.2.251', 'chassis': '84:39:8f:37:3a:7c', 'lacp': '84:39:8f:37:3a:82',
                      'ports': {3: ('port1', '84:39:8f:37:3a:7c'), 4: ('port2', '84:39:8f:37:3a:7d'), 7: ('ha1', '84:39:8f:37:3a:80')},
                      'lag': (30, 'core-lag', [3, 4]),
                      'nbr': {3: ('sw', '1/1/37'), 4: ('sw', '1/1/38'), 7: ('gw', 'zbx-office-gw2')}},
-  'zbx-office-gw2': {'ip': '127.0.17.252', 'chassis': '84:39:8f:1b:a3:28', 'lacp': '84:39:8f:1b:a3:2e',
+  'zbx-office-gw2': {'ip': '192.0.2.252', 'chassis': '84:39:8f:1b:a3:28', 'lacp': '84:39:8f:1b:a3:2e',
                      'ports': {3: ('port1', '84:39:8f:1b:a3:28'), 4: ('port2', '84:39:8f:1b:a3:29'), 7: ('ha1', '84:39:8f:1b:a3:2c')},
                      'lag': (30, 'core-lag', [3, 4]),
                      'nbr': {3: ('sw', '1/1/39'), 4: ('sw', '1/1/40'), 7: ('gw', 'zbx-office-gw1')}},

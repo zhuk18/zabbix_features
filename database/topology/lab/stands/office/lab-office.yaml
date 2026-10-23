@@ -2,7 +2,7 @@
 # Needs lab spec 2.6 (replay devices, §4.1a). See README.md.
 settings:
   database: zabbix
-  network: 127.0.17.0/24        # last octet = last octet of the captured address
+  network: 192.0.2.0/24          # last octet = last octet of the captured address (192.168.17.N -> 192.0.2.N); AnyIP route, lab spec 6.1
   snmp_port: 1611
   community: zbxlab
   zabbix:                        # as in lab.yaml
@@ -13,59 +13,59 @@ settings:
     template_interfaces: Network Generic Device by SNMP
 devices:
   SW12-10-CORE-6000-48G:
-    ip: 127.0.17.2
+    ip: 192.0.2.2
     replay: data/SW12-10-CORE-6000-48G/zbxlab.snmprec   # from SW12-10-CORE-6000-48G CORE.walk, 192.168.17.2
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW13-10-ACC-6000-48G:
-    ip: 127.0.17.3
+    ip: 192.0.2.3
     replay: data/SW13-10-ACC-6000-48G/zbxlab.snmprec   # from SW13-10-ACC-6000-48G.walk, 192.168.17.3
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW14-10-ACC-6000-48G:
-    ip: 127.0.17.4
+    ip: 192.0.2.4
     replay: data/SW14-10-ACC-6000-48G/zbxlab.snmprec   # from SW14-10-ACC-6000-48G.walk, 192.168.17.4
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW15-10-POE-6000-24G:
-    ip: 127.0.17.5
+    ip: 192.0.2.5
     replay: data/SW15-10-POE-6000-24G/zbxlab.snmprec   # from SW15-10-POE-6000-24G PoE.walk, 192.168.17.5
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW16-09-ACC-2530-48G:
-    ip: 127.0.17.6
+    ip: 192.0.2.6
     replay: data/SW16-09-ACC-2530-48G/zbxlab.snmprec   # from SW16-09-ACC-2530-48G Access.walk, 192.168.17.6
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW17-09-ACC-2530-48G:
-    ip: 127.0.17.7
+    ip: 192.0.2.7
     replay: data/SW17-09-ACC-2530-48G/zbxlab.snmprec   # from SW17-09-ACC-2530-48G Access.walk, 192.168.17.7
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW18-09-ACC-2530-48G:
-    ip: 127.0.17.8
+    ip: 192.0.2.8
     replay: data/SW18-09-ACC-2530-48G/zbxlab.snmprec   # from SW18-09-ACC-2530-48G Access.walk, 192.168.17.8
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW19-09-POE-6000-24G:
-    ip: 127.0.17.9
+    ip: 192.0.2.9
     replay: data/SW19-09-POE-6000-24G/zbxlab.snmprec   # from SW19-09-POE-6000-24G PoE.walk, 192.168.17.9
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW20-07-ACC-2530-48G:
-    ip: 127.0.17.10
+    ip: 192.0.2.10
     replay: data/SW20-07-ACC-2530-48G/zbxlab.snmprec   # from SW20-07-ACC-2530-48G Access.walk, 192.168.17.10
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW21-07-ACC-2530-48G:
-    ip: 127.0.17.11
+    ip: 192.0.2.11
     replay: data/SW21-07-ACC-2530-48G/zbxlab.snmprec   # from SW21-07-ACC-2530-48G Access.walk, 192.168.17.11
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW22-07-ACC-2530-48G:
-    ip: 127.0.17.12
+    ip: 192.0.2.12
     replay: data/SW22-07-ACC-2530-48G/zbxlab.snmprec   # from SW22-07-ACC-2530-48G Access.walk, 192.168.17.12
     zabbix: {monitored: true, transport: lld, proxy: null}
   SW23-07-POE-6000-24G:
-    ip: 127.0.17.13
+    ip: 192.0.2.13
     replay: data/SW23-07-POE-6000-24G/zbxlab.snmprec   # from SW23-07-POE-6000-24G PoE.walk, 192.168.17.13
     zabbix: {monitored: true, transport: lld, proxy: null}
   zbx-office-gw1:
-    ip: 127.0.17.251
+    ip: 192.0.2.251
     replay: data/zbx-office-gw1/zbxlab.snmprec   # SYNTHETIC, tools/gen_gateways.py
     zabbix: {monitored: true, transport: lld, proxy: null}
   zbx-office-gw2:
-    ip: 127.0.17.252
+    ip: 192.0.2.252
     replay: data/zbx-office-gw2/zbxlab.snmprec   # SYNTHETIC, tools/gen_gateways.py
     zabbix: {monitored: true, transport: lld, proxy: null}
 cables: []                     # replay devices: neighbors come from the capture

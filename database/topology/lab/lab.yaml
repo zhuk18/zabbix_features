@@ -2,7 +2,7 @@
 # S0 compares a fresh ingest of the data generated from this file with reference-s0.json.
 settings:
   database: zabbix            # the only allowed value (topology-4-lab-simulator.md "Constraints"); the tool refuses to start otherwise
-  network: 127.0.0.0/24       # lab address range; 127/8 is local, no IP aliases are needed
+  network: 192.0.2.0/24        # lab address range, TEST-NET-1 (RFC 5737), local through `ip route add local 192.0.2.0/24 dev lo` (lab spec 6.1); here 192.0.2.100+N, the office stand uses 192.0.2.N
   snmp_port: 1611             # the existing lab hosts use 1611 (161 needs root)
   community: zbxlab
   emit_subtypes: false        # the current fixtures carry no lldp*IdSubtype columns
@@ -20,7 +20,7 @@ settings:
 
 devices:
   Router1:
-    ip: 127.0.0.2
+    ip: 192.0.2.102
     chassis: {subtype: mac, value: "00:11:22:33:44:01"}
     port_mac_prefix: "02:00:00:01"
     ports:
@@ -28,7 +28,7 @@ devices:
       - {ifindex: 2, name: Gi0/1}
     zabbix: {monitored: true, transport: lld, proxy: null}
   Switch1:
-    ip: 127.0.0.3
+    ip: 192.0.2.103
     chassis: {subtype: mac, value: "00:11:22:33:44:02"}
     port_mac_prefix: "02:00:00:02"
     ports:
@@ -37,7 +37,7 @@ devices:
       - {ifindex: 3, name: Gi0/3, admin: down, oper: down}
     zabbix: {monitored: true, transport: lld, proxy: null}
   Switch2:
-    ip: 127.0.0.4
+    ip: 192.0.2.104
     chassis: {subtype: mac, value: "00:11:22:33:44:12"}
     port_mac_prefix: "02:00:00:03"
     ports:
@@ -49,14 +49,14 @@ devices:
       - {ifindex: 6, name: Gi0/5}
     zabbix: {monitored: true, transport: lld, proxy: null}
   UPS1:
-    ip: 127.0.0.5
+    ip: 192.0.2.105
     chassis: {subtype: mac, value: "00:11:22:33:44:05"}
     port_mac_prefix: "02:00:00:04"
     ports:
       - {ifindex: 1, name: eth0}
     zabbix: {monitored: true, transport: lld, proxy: null}
   AccessSwitch1:
-    ip: 127.0.0.6
+    ip: 192.0.2.106
     chassis: {subtype: mac, value: "00:11:22:33:44:07"}
     port_mac_prefix: "02:00:00:05"
     ports:

@@ -37,7 +37,7 @@ w('# Lab stand "office": real capture of 12 switches (2026-10-14) + 2 synthetic 
 w('# Needs lab spec 2.6 (replay devices, §4.1a). See README.md.')
 w('settings:')
 w('  database: zabbix')
-w('  network: 127.0.17.0/24        # last octet = last octet of the captured address')
+w('  network: 192.0.2.0/24          # last octet = last octet of the captured address (192.168.17.N -> 192.0.2.N); AnyIP route, lab spec 6.1')
 w('  snmp_port: 1611')
 w('  community: zbxlab')
 w('  zabbix: {url: <as lab.yaml>, group: Test, template_lld: "Topology by SNMP", template_interfaces: "Network Generic Device by SNMP"}')

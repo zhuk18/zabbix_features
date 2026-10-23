@@ -17,7 +17,7 @@ from .model import HERE, LabError
 
 CORPUS_DEFAULT = '/media/sf_topology-specs/corpus'
 BATCH = 30
-IP_PREFIX = '127.0.10.'          # 127/8 is local: no alias is needed
+IP_PREFIX = '192.0.2.'           # the lab range, local through the route of lab spec 6.1; corpus device i of a batch is 192.0.2.(200 + i), the batch has at most BATCH = 30
 # the files of the core set of the task (findings F1-F10), as names of corpus files
 CORE_SET = ['vrp_ac6605-26', 'dell-os10', 'zynos', 'gam', 'aos7', 'dlink_dgs-1510-28x-me', 'mypoweros', 'raisecom-ros', 'jetstream_vlans',
             'slxos_slx9150', 'edgecos_ecs4610-24f', 'arubaos-cx', 'ciscosb_sg350x-24p']
@@ -97,7 +97,7 @@ def batch_scenario(batch, transport=None, lab=None, sid='SC', ifindex=False):
     lab.devices, lab.cables, lab.deviations = {}, [], {}
     cd = {}
     for i, p in enumerate(batch):
-        cd[host_name(p)] = {'snmprec': p, 'ip': IP_PREFIX + str(i + 1), 'transport': transport or 'lld', 'proxy': None, 'ifindex': ifindex}
+        cd[host_name(p)] = {'snmprec': p, 'ip': IP_PREFIX + str(200 + i + 1), 'transport': transport or 'lld', 'proxy': None, 'ifindex': ifindex}
     data = {'id': sid, 'title': 'corpus smoke', 'steps': [{'note': 'step 0: one poll of every corpus device'}], 'patch': {'corpus_devices': cd}}
     return model.Scenario(data, lab)
 

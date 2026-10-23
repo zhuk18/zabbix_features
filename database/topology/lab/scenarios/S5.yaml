@@ -13,7 +13,7 @@ patch:
       cdp: true
       lldp_local_port_subtype: interfaceName
     AP1:
-      ip: 127.0.0.7
+      ip: 192.0.2.107
       port_mac_prefix: "02:00:00:07"
       cdp: true
       lldp_local_port_subtype: interfaceName
