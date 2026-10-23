@@ -26,6 +26,9 @@ class IngestRun {
 	/** segment => address => [hostid => true]: the SNMP interface addresses of the reporters identified in this run; hostid => the Device of that reporter */
 	public array $reporter_by_address = [];
 	public array $reporter_device_of = [];
+	/** the link candidates of all the reporters of the run, and their NEIGHBORS snapshots: IngestObserve fills them in pass B, IngestLinks resolves them (§6.8) */
+	public array $link_candidates = [];
+	public array $neighbor_snapshots = [];
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 
@@ -40,6 +43,7 @@ class IngestRun {
 	public IngestIdentify $identify;
 	public IngestFarPort $farport;
 	public IngestLinks $links;
+	public IngestObserve $observe;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;

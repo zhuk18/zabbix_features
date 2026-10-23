@@ -56,6 +56,7 @@ require_once __DIR__.'/ingest/IngestStore.php';
 require_once __DIR__.'/ingest/IngestIdentify.php';
 require_once __DIR__.'/ingest/IngestFarPort.php';
 require_once __DIR__.'/ingest/IngestLinks.php';
+require_once __DIR__.'/ingest/IngestObserve.php';
 require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyAddress.php';      // the decoder of the addresses of a neighbor (§4.3, §4.4), shared with the side panel
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
@@ -163,6 +164,7 @@ $run->store = new IngestStore($run);
 $run->identify = new IngestIdentify($run);
 $run->farport = new IngestFarPort($run);
 $run->links = new IngestLinks($run);
+$run->observe = new IngestObserve($run);
 // the state of the run is bound BEFORE any closure captures it by reference: the closures, the modules and the frame write the same arrays
 $summary = &$run->summary;
 $duplicate_candidates = &$run->duplicate_candidates;
@@ -171,6 +173,8 @@ $port_scope = &$run->port_scope;
 $port_chassis_claims = &$run->port_chassis_claims;
 $reporter_by_address = &$run->reporter_by_address;
 $reporter_device_of = &$run->reporter_device_of;
+$link_candidates = &$run->link_candidates;
+$neighbor_snapshots = &$run->neighbor_snapshots;
 $segment_of = [$run->keys, 'segmentOf'];
 $mac_like = static fn (string $value): bool => TopologyNormalize::macLike($value);
 /** normalization §4.1 "Placeholder MAC": the one predicate (TopologyNormalize::isPlaceholderMac) */
@@ -315,65 +319,7 @@ $norm_numeric_id = static fn (string $value): ?int => TopologyNormalize::numeric
 $norm_port_mac = static fn (string $mac, array $port_macs): ?int => TopologyNormalize::portMac($mac, $port_macs);
 $norm_ip_text = static fn (string $text): ?string => TopologyNormalize::ipText($text);
 $norm_man_addrs = static fn (string $entries): ?string => TopologyNormalize::manAddrs($entries);
-/** Model §6.7.6: [if_index, null] or [null, reason] for a NEIGHBORS row with `loc_port_num`; $ports = PORTS rows [if_index, name, descr, mac] (cleaned) */
-$resolve_local_port = static function (array $row, array $ports) use ($norm_clean, $norm_name_key, $norm_numeric_id, $norm_port_mac): array {
-	if (isset($row['if_index']) && $row['if_index'] !== '') {
-		return [(int) $row['if_index'], null];
-	}
-	if (!$ports) {
-		return [null, 'no_ports'];
-	}
-	$by_index = [];
-	foreach ($ports as $port) {
-		$by_index[(int) $port['if_index']] = $port;
-	}
-	$id = isset($row['loc_port_id']) ? (string) $row['loc_port_id'] : null;
-	$type = (string) ($row['loc_port_id_type'] ?? '');
-	// step 1: by the subtype of the port id
-	if ($id !== null && $id !== '') {
-		if ($type === 'interfaceName') {
-			$hits = array_keys(array_filter($ports, static fn (array $p): bool => ($p['name'] ?? null) !== null && $norm_clean((string) $p['name']) === $norm_clean($id)));
-			if (count($hits) === 1) {
-				return [(int) $ports[$hits[0]]['if_index'], null];
-			}
-		}
-		elseif ($type === 'macAddress') {
-			$hit = $norm_port_mac(strtolower($id), array_map(static fn (array $p): string => strtolower((string) ($p['mac'] ?? '')), $ports));
-			if ($hit !== null) {
-				return [(int) $ports[$hit]['if_index'], null];
-			}
-		}
-		elseif ($type === 'local') {
-			$number = $norm_numeric_id($id);
-			if ($number !== null && isset($by_index[$number])) {
-				return [$number, null];
-			}
-		}
-	}
-	// step 2: id, then description, against name, then descr; the cleaned names first, then the name key
-	$several = false;
-	foreach ([$norm_clean, $norm_name_key] as $compare) {
-		foreach ([['loc_port_id', 'name'], ['loc_port_id', 'descr'], ['loc_port_desc', 'name'], ['loc_port_desc', 'descr']] as [$from, $to]) {
-			$value = isset($row[$from]) ? $compare((string) $row[$from]) : null;
-			if ($value === null) {
-				continue;
-			}
-			$hits = array_keys(array_filter($ports, static fn (array $p): bool => isset($p[$to]) && $compare((string) $p[$to]) === $value));
-			if (count($hits) === 1) {
-				return [(int) $ports[$hits[0]]['if_index'], null];
-			}
-			$several = $several || count($hits) > 1;
-		}
-	}
-	if ($several) {
-		return [null, 'name_on_several_ports'];
-	}
-	// step 3: the port number as an ifIndex
-	if (isset($row['loc_port_num']) && $norm_numeric_id((string) $row['loc_port_num']) !== null && isset($by_index[$norm_numeric_id((string) $row['loc_port_num'])])) {
-		return [$norm_numeric_id((string) $row['loc_port_num']), null];
-	}
-	return [null, 'if_index_missing'];
-};
+$resolve_local_port = [$run->observe, 'resolveLocalPort'];
 $normalize_port_name = [$run->farport, 'normalizePortName'];
 
 $pseudo_local_if_index = [$run->farport, 'pseudoLocalIfIndex'];
@@ -506,18 +452,7 @@ $snap_link_reporter_self = [$run->links, 'linkReporterSelf'];
 
 $snap_observation = [$run->store, 'observation'];
 
-// remote_key: the strongest identity present, prefixed with its kind, so the same neighbor seen by the same
-// rule on the same port always maps to the same row.
-$snap_remote_key = static function (array $row, string $segment) use ($chassis_key, $ip_key): string {
-	// the key string of §6.7.0: the same neighbor seen by the same rule on the same port maps to the same row
-	if (($key = $chassis_key($row['rem_chassis'] ?? null, $row['rem_chassis_type'] ?? null, $segment)) !== null) {
-		return $key;
-	}
-	if (($key = $ip_key($row['rem_mgmt_ip'] ?? null, $segment)) !== null) {
-		return $key;
-	}
-	return substr('sysname:'.($row['rem_sysname'] ?? ''), 0, 300);
-};
+$snap_remote_key = [$run->observe, 'remoteKey'];
 
 // Reporters = hosts with at least one usable snapshot. Snapshots of disabled rules are skipped; a snapshot
 // written under a topology type the rule no longer has is ignored (the API also deletes it on a change of the topology type — this is
@@ -886,149 +821,7 @@ $load_port_scope = [$run->identify, 'loadPortScope'];
 $register_port_device = [$run->identify, 'registerPortDevice'];
 $find_chassisless_device = [$run->identify, 'findChassisless'];
 
-/** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). */
-$snap_reporter_neighbors = static function (array $reporter, int $device_id, string $segment) use (
-
-	$pdo, $snap_device, $note_chassis_change, $segment_of, $chassis_key, $ip_key, $register_keys, $device_has_kind, $device_holds_key, $snap_port, $snap_link, $snap_other_links, $snap_observation, $snap_remote_key,
-	$resolve_local_port, $is_placeholder_mac, $find_chassisless_device, $register_port_device, &$port_chassis_claims, $snap_node_attrs, $snap_write_attrs, $snap_if_type, $snap_status, $snap_link_reporter_self, $merge_pseudo_port,
-	$far_pseudo_name, $pseudo_local_if_index, $normalize_port_name, $update_node, $now, &$summary,
-	$convert_leftover_pseudo_ports, &$link_candidates, &$neighbor_snapshots
-): array {
-	$snapshots = $reporter['snapshots'];
-
-	// ---- NEIGHBORS, pass B (topology-1-model.md §6.5, §6.8 "Collect"): the rows of this reporter in the sorted order (if_index, remote_key, itemid);
-	// the reporters come in hostid order, so all rows of all reporters are processed in one sorted order ----
-	// Devices and remote ports are resolved and created, but no link and no observation is written here: whether a candidate link may take its
-	// port depends on what EVERY reporter's latest snapshot says, so the decision is made once, after all reporters, by $snap_resolve_links().
-	$sorted_rows = [];
-	// the reporter's ports from its PORTS snapshots (pass A): rows of several rules join by if_index, the first value of a field wins
-	$ports = [];
-	foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
-		foreach ($snapshot['rows'] as $row) {
-			$port = &$ports[(int) $row['if_index']];
-			$port ??= ['if_index' => (int) $row['if_index']];
-			foreach (['name', 'descr', 'mac'] as $field) {
-				if (($row[$field] ?? '') !== '' && !isset($port[$field])) {
-					$port[$field] = $row[$field];
-				}
-			}
-			unset($port);
-		}
-	}
-	$ports = array_values($ports);
-	foreach ($snapshots[TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
-		$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
-		foreach ($snapshot['rows'] as $row) {
-			[$resolved, $reason] = $resolve_local_port($row, $ports);
-			if ($resolved === null) {
-				$summary['rows_local_port_unresolved']['count']++;
-				$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
-				echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
-				continue;
-			}
-			$row['if_index'] = $resolved;
-			$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
-		}
-	}
-	// Within one local port the claims with a chassis come before the claims without (rank 0, 1, §6.5), so the same-port rule of §6.7.1 finds the claim with a
-	// chassis first. A remote key `chassis:...` is a claim with a chassis; the rank states it, so a new key prefix cannot change it.
-	$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'chassis:') ? 0 : 1, $r[1], $r[2]];
-	usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
-	$claims_seen = [];
-	foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row]) {
-		$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
-			'pseudo' => false], ['name' => $row['if_name'] ?? null]);
-		// Rows of one snapshot with the same claim key (rule, local port, remote key): the first row in the row order makes the observation, the others are
-		// counted per rule and give no Device, no observation (§7.1; the claim key of the table is (itemid, local_port_id, remote_key)).
-		$claim_key = $itemid.'|'.$local_port_id.'|'.$row_remote_key;
-		if (isset($claims_seen[$claim_key])) {
-			$summary['rows_duplicate_claim']['count']++;
-			$summary['rows_duplicate_claim']['by_rule'][$itemid] = ($summary['rows_duplicate_claim']['by_rule'][$itemid] ?? 0) + 1;
-			continue;
-		}
-		$claims_seen[$claim_key] = true;
-
-		$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
-		if ($chassis_id !== null && in_array($row['rem_chassis_type'] ?? null, [null, '', 'macAddress'], true) && $is_placeholder_mac($chassis_id)) {
-			$chassis_id = null;     // a placeholder MAC is no identity (normalization §4.1): no chassis key, no chassis_id/mac attribute; $remote_attrs keeps the value as received
-		}
-		$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
-		$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
-			'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
-			static fn ($value): bool => $value !== '' && $value !== null);
-		$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
-
-		$row_ip = ($row['rem_mgmt_ip'] ?? '') !== '' ? $row['rem_mgmt_ip'] : null;
-		// model §6.7.1: a claim with no chassis, no address and no name (for example only a placeholder MAC chassis) makes no Device, no observation and no link; it is
-		// counted. An address that never matches (unspecified, loopback, link-local: §6.7.1 "Match") is no address here: a Device made for such a claim could never be found
-		// by the next run (a second Device every run, P1), so a claim whose only identity is such an address counts as having none.
-		if ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && CTopologyAddress::claimAddresses($remote_attrs) === [] && ($row['rem_sysname'] ?? '') === '') {
-			$summary['rows_no_identity']['count']++;
-			$summary['rows_no_identity']['by_rule'][$itemid] = ($summary['rows_no_identity']['by_rule'][$itemid] ?? 0) + 1;
-			continue;
-		}
-		$row_chassis_key = $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment);
-		$incoming = [
-			'mac' => $looks_like_mac ? strtolower($chassis_id) : null,
-			'chassis_id' => $chassis_id,
-			'mgmt_ip' => $row_ip,
-			'chassis_key' => $row_chassis_key,
-			'chassis_raw' => $chassis_id,
-			'sysname' => $row['rem_sysname'] ?? null,
-			'vendor' => 'unknown',
-			'source' => $source,
-		];
-		$claim_addrs = CTopologyAddress::claimAddresses($remote_attrs);
-		if ($row_chassis_key === null) {
-			// a claim without a chassis: the match of §6.7.1 (the reporter's SNMP address, the claim with a chassis on the same port, the Devices of this port)
-			$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? '')]);
-			if ($found[0] === 'ambiguous') {
-				$remote_device_id = null;          // several Devices of the port match: the observation is `ambiguous`, no Device, no link
-			}
-			else {
-				if ($found[0] === 'found') {
-					$incoming['found_device_id'] = $found[1];
-				}
-				else {
-					$incoming['scope_port'] = $local_port_id;
-				}
-				$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
-				if ($remote_device_id !== null) {
-					$register_port_device($local_port_id, $remote_device_id, $claim_addrs, (string) ($snap_node_attrs($remote_device_id)['sysname'] ?? ''));
-				}
-			}
-		}
-		else {
-			$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
-			// a claim with a chassis: the claims without one on this port may join it (the claims of one port come in rank order, §6.5)
-			$port_chassis_claims[$reporter['hostid'].'|'.$local_port_id][] = ['device_id' => $remote_device_id, 'addrs' => $claim_addrs,
-				'name' => (string) ($row['rem_sysname'] ?? ''), 'chassis' => (string) $chassis_id];
-		}
-		// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
-
-		$has_remote_port = ($row['rem_port_desc'] ?? '') !== '' || ($row['rem_port'] ?? '') !== '';
-		// The far port is decided in phase 2 ($snap_classify_candidates), once every reporter's own ports are known:
-		// whether the advertisement names a real port, a pseudo one, or none (topology-1-model.md "Port-level or device-level").
-		$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
-			'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
-			'remote_key' => $snap_remote_key($row, $segment), 'remote_attrs' => $remote_attrs,
-			'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
-			'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
-			'port_label' => $has_remote_port ? $far_pseudo_name($row + ['source' => $source]) : null,
-			'rem_port_desc' => (string) ($row['rem_port_desc'] ?? ''),
-			'pseudo_index' => $has_remote_port ? $pseudo_local_if_index($row['rem_port'] ?? null,
-				$row['rem_port_type'] ?? null) : null,
-			'pseudo_key' => $has_remote_port ? $normalize_port_name($far_pseudo_name($row + ['source' => $source])) : null,
-			'rem_port' => (string) ($row['rem_port'] ?? ''), 'rem_port_type' => (string) ($row['rem_port_type'] ?? ''),
-			'far_port_hint' => array_filter(array_intersect_key($row, array_flip(['rem_port', 'rem_port_desc',
-				'rem_port_type'])), static fn ($value): bool => $value !== '' && $value !== null),
-			'pseudo_mac' => $looks_like_mac ? strtolower($chassis_id) : null];
-
-		$link_candidates[] = $candidate;
-	}
-
-	return ['status' => 'ok'];
-};
+$snap_reporter_neighbors = [$run->observe, 'reporterNeighbors'];
 
 $alloc_pseudo_index = [$run->farport, 'allocPseudoIndex'];
 
