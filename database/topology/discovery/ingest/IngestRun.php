@@ -39,6 +39,7 @@ class IngestRun {
 	public IngestStore $store;
 	public IngestIdentify $identify;
 	public IngestFarPort $farport;
+	public IngestLinks $links;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;
