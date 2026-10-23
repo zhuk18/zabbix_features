@@ -16,6 +16,16 @@ class IngestRun {
 	public string $q_key;
 	/** the run summary (the status file: model "Run summary") */
 	public array $summary = [];
+	/** the duplicate candidates and the chassis changes of the run (IngestIdentify; the marks, model §6.7.5, are made from them at the end) */
+	public array $duplicate_candidates = [];
+	public array $chassis_changes = [];
+	/** local port node id => the Devices without a chassis that have it as scope_port (IngestIdentify::loadPortScope); null until the first claim without a chassis needs it */
+	public ?array $port_scope = null;
+	/** "hostid|local port" => the claims with a chassis of this run (pass B resolves them first, §6.5) */
+	public array $port_chassis_claims = [];
+	/** segment => address => [hostid => true]: the SNMP interface addresses of the reporters identified in this run; hostid => the Device of that reporter */
+	public array $reporter_by_address = [];
+	public array $reporter_device_of = [];
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 
@@ -27,6 +37,7 @@ class IngestRun {
 
 	public IngestKeys $keys;
 	public IngestStore $store;
+	public IngestIdentify $identify;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;
