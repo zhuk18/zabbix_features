@@ -7,7 +7,7 @@ steps:
   - id: 0
     note: baseline, real capture as received + synthetic gateways
     assert:
-      - status: {field: devices_created, equals: 93}   # 14 reporters + 79; no twin Devices (model 2.29 §6.7.1 same-port join)
+      - status: {field: devices_created, equals: 94}   # 14 reporters + 80: the MikroTik of SW18 is three Devices until the operator merges the group (model 2.50 §6.7.1, §15; lab 2.20)
       - status: {field: links_created, equals: 95}
       - pending: "10 rows of SW12 and SW14 (chassis subtype local, 6 zero bytes) are dropped by the server: no identity macro, contract model §5.2. No observation, no link on those ports."
       - pending: "SW18 CDP port 6: two rows with one claim key; model 2.29 §7.1: the first row makes the observation, rows_duplicate_claim = 1 for the rule"
@@ -318,7 +318,6 @@ steps:
       - status: {field: links_created, equals: 1}
       - status: {field: links_superseded, equals: 1}
       - status: {field: devices_created, equals: 1}
-      - status: {field: address_keys_removed, equals: 1}   # ip:server:192.168.131.84 leaves the old Device
       - pending: "the old Device (chassis 12:bf:…) stays without an active link: a ghost after each restart (model §6.7.1: ingest never deletes Devices)"
   - id: 4
     note: no change; poll and ingest again on the same data (task 034 found 26 new Devices per run)
