@@ -232,6 +232,8 @@ const CLOCK = 1_800_000_000;
 $R = 'a0:00:00:00:00:01';
 $X = 'b0:00:00:00:00:0a';
 $Y = 'b0:00:00:00:00:0b';
+$LY = 'chassis-y';       // Devices with a chassis that is not a MAC: same_address needs one of the two without a MAC chassis (2.48)
+$LZ = 'chassis-z';
 $IP = '10.5.5.5';
 
 function reset_all(PDO $pdo): void {
@@ -285,7 +287,7 @@ function exists(PDO $pdo, int $id): bool {
 function nbr_row(string $R, string $sysname, ?string $chassis, ?string $ip, string $port = 'Gi0/1', string $source = 'lldp'): array {
 	$row = ['if_index' => 1, 'rem_sysname' => $sysname, 'rem_port' => $port, 'rem_port_type' => 'interfaceName', 'source' => $source, 'loc_chassis' => $R];
 	if ($chassis !== null) {
-		$row += ['rem_chassis' => $chassis, 'rem_chassis_type' => 'macAddress'];
+		$row += ['rem_chassis' => $chassis, 'rem_chassis_type' => preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis) ? 'macAddress' : 'local'];
 	}
 	if ($ip !== null) {
 		$row['rem_mgmt_ip'] = $ip;
@@ -305,8 +307,8 @@ reset_all($pdo);
 setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
 $A = device($pdo, $X, null, 'N');
-$B = device($pdo, $Y, null, 'N2');
-$rows_ab = [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)];
+$B = device($pdo, $LY, null, 'N2');
+$rows_ab = [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $LY, $IP)];
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, $rows_ab);
 $r = run_ingest($dsn, $user, $password);
 $want_a = [['device_id' => $B, 'reason' => 'same_address', 'key' => 'address', 'value' => $IP]];
@@ -592,8 +594,8 @@ reset_all($pdo);
 setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
 $A = device($pdo, $X, null, 'N');
-$B = device($pdo, $Y, null, 'N2');
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)]);
+$B = device($pdo, $LY, null, 'N2');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $LY, $IP)]);
 $lists = [];
 $prints = [];
 $key_rows = [];
@@ -618,7 +620,7 @@ foreach (['hostid order' => null, 'reporters 102, 101' => '102,101'] as $label =
 	API::$visible[] = 102;
 	snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => 'a0:00:00:00:00:02']]);
 	snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP)]);
-	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N2', $Y, $IP)]);
+	snapshot($pdo, 2002, 102, 2, CLOCK + 50, [nbr_row('a0:00:00:00:00:02', 'N2', $LY, $IP)]);
 	$states = [];
 	for ($i = 1; $i <= 3; $i++) {
 		run_ingest($dsn, $user, $password, [], $order);
@@ -676,11 +678,11 @@ setup_r($pdo, $R);
 run_ingest($dsn, $user, $password);
 $Z = 'b0:00:00:00:00:0d';
 $A = device($pdo, $X, null, 'N');
-$B = device($pdo, $Y, null, 'N2');
-$C = device($pdo, $Z, null, 'N3');
+$B = device($pdo, $LY, null, 'N2');
+$C = device($pdo, $LZ, null, 'N3');
 // A and B advertise 10.5.5.5, B and C advertise 10.5.5.6: B has two candidates, with A and with C
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)]);
-snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nbr_row($R, 'N2', $Y, '10.5.5.6', 'Gi0/1', 'cdp'), nbr_row($R, 'N3', $Z, '10.5.5.6', 'Gi0/1', 'cdp')]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $LY, $IP)]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nbr_row($R, 'N2', $LY, '10.5.5.6', 'Gi0/1', 'cdp'), nbr_row($R, 'N3', $LZ, '10.5.5.6', 'Gi0/1', 'cdp')]);
 run_ingest($dsn, $user, $password);
 $pairs = static fn (int $id): array => array_values(array_unique(array_map(static fn (array $c): string => $c['reason'].'->'.$c['device_id'], candidates($pdo, $id))));
 check($pairs($A) === ['same_address->'.$B] && $pairs($B) === ['same_address->'.$A, 'same_address->'.$C] && $pairs($C) === ['same_address->'.$B], 'setup: A-B (10.5.5.5) and B-C (10.5.5.6) are candidates');
@@ -725,11 +727,11 @@ $edges_before = (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_edges');
 // the cascade: the Device, its Ports and its discovered links go; observations keep their claim with device_id and edge_id NULL; the entries that name it go
 reset_all($pdo);
 setup_r($pdo, $R);
-snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), array_replace(nbr_row($R, 'N2', $Y, $IP), ['if_index' => 2])]);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), array_replace(nbr_row($R, 'N2', $LY, $IP), ['if_index' => 2])]);
 snapshot($pdo, 1003, 101, 2, CLOCK + 50, []);
 run_ingest($dsn, $user, $password);
 $dx = device_id($pdo, $X);
-$dy = device_id($pdo, $Y);
+$dy = device_id($pdo, $LY);
 check($dx !== null && $dy !== null && !empty(candidates($pdo, $dy)), 'setup: two neighbor Devices that advertise one address');
 CTopologyPrototype::dismissDuplicate((string) $dx, (string) $dy, 'Admin');          // an entry in duplicate_dismissed of the other Device
 $ports_of_dx = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'port' AND device_id = ?", [$dx]);
@@ -757,5 +759,72 @@ check($new_dx !== null && $new_dx !== $dx && $new_dx > $dx, 'the next full run c
 $observation = $pdo->query('SELECT device_id, outcome FROM topo_observations WHERE id = '.$obs_dx)->fetch(PDO::FETCH_ASSOC);
 check($observation !== false && (int) $observation['device_id'] === $new_dx, 'and the observation has its verdict again: it points at the new Device');
 check(!empty(candidates($pdo, $new_dx)), 'the candidate is derived again from the current evidence');
+
+echo "\n=== 11: MikroTik on one port (model 2.48, §15): two Devices, one same_address pair; merge -> one Device and one link on the next run ===\n";
+$MK = 'b0:00:00:00:00:44';
+$mk = static fn (string $kind, array $extra): array => ['if_index' => 1, 'rem_sysname' => 'MikroTik', 'rem_port' => 'bridge/ether1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R] + $extra + ['source' => $kind];
+reset_all($pdo);
+setup_r($pdo, $R);
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [
+	$mk('lldp', ['rem_chassis' => 'MikroTik', 'rem_chassis_type' => 'local', 'rem_man_addrs' => 'lldp:1.4.192.168.88.1']),
+	$mk('lldp', ['rem_chassis' => $MK, 'rem_chassis_type' => 'macAddress', 'rem_man_addrs' => 'lldp:1.4.192.168.88.1'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_sysname' => $MK, 'rem_man_addrs' => 'cdp:1:c0:a8:58:01', 'rem_port' => 'bridge/ether1', 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp']]);
+run_ingest($dsn, $user, $password);
+$dm = device_id($pdo, $MK);
+$dl = device_id($pdo, 'MikroTik');
+check($dm !== null && $dl !== null && $dm !== $dl && dev_count($pdo) === 3, 'LLDP chassis local MikroTik, LLDP chassis MAC M, CDP device id M with 192.168.88.1 -> two Devices (the local one and M) and the reporter');
+check((int) scalar($pdo, 'SELECT COUNT(DISTINCT device_id) FROM topo_observations WHERE itemid = 1003') === 1 && (int) scalar($pdo, 'SELECT device_id FROM topo_observations WHERE itemid = 1003') === $dm, 'the CDP claim is the Device of M (its device id is a MAC form: a hardware ID)');
+$pairs = static fn (int $id): array => array_values(array_map(static fn (array $c): string => $c['reason'].'->'.$c['device_id'], candidates($pdo, $id)));
+check($pairs($dm) === ['same_address->'.$dl] && $pairs($dl) === ['same_address->'.$dm], 'same_address on the pair (the local chassis is not a MAC), nothing else');
+run_ingest($dsn, $user, $password);
+CTopologyPrototype::mergeDevices((string) $dm, (string) $dl, 'Admin');          // keep M
+check(!exists($pdo, $dl) && in_array('MikroTik', dev_attrs($pdo, $dm)['replaced_chassis'] ?? [], true), 'operator merge (keep M): the local chassis is a replaced key of the kept Device');
+run_ingest($dsn, $user, $password);
+run_ingest($dsn, $user, $password);
+check(dev_count($pdo) === 2 && (int) scalar($pdo, 'SELECT COUNT(DISTINCT device_id) FROM topo_observations') === 1 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type = 'physical_link'") === 1
+	&& !array_diff(array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)), ['applied']),
+	'the next runs: both LLDP claims are one Device, one link, every claim applied (§8.5)');
+
+echo "\n=== 12: Not the same device for a whole group in one action (model §6.7.5, 2.48, FR-C O-12, task 059) ===\n";
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, $X, null, 'N');
+$B = device($pdo, $LY, null, 'N2');
+$C = device($pdo, $LZ, null, 'N3');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), array_replace(nbr_row($R, 'N2', $LY, $IP), ['if_index' => 2]), array_replace(nbr_row($R, 'N3', $LZ, $IP), ['if_index' => 3])]);
+run_ingest($dsn, $user, $password);
+$n_pairs = static fn (int $id): int => count(array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'same_address'));
+check($n_pairs($A) === 2 && $n_pairs($B) === 2 && $n_pairs($C) === 2, 'setup: a group of three Devices, every pair is a candidate');
+login(true);
+check(call(CControllerTopologyDevicesDismissGroup::class, ['ids' => [(string) $A, (string) $B, (string) $C]]) === 'denied', 'the guest user is denied');
+login();
+check(isset(call(CControllerTopologyDevicesDismissGroup::class, ['ids' => [(string) $A]])['error']), 'a group of one Device: an error message');
+check(isset(call(CControllerTopologyDevicesDismissGroup::class, ['ids' => [(string) $A, '999999']])['error']), 'an unknown Device in the group: an error message, nothing written');
+check(!isset(dev_attrs($pdo, $A)['duplicate_dismissed']), 'nothing was written by the refused calls');
+$r = call(CControllerTopologyDevicesDismissGroup::class, ['ids' => [(string) $C, (string) $A, (string) $B]]);
+check(($r['success'] ?? false) === true && $r['pairs'] === 3, 'the group of three: three pairs dismissed in one action');
+check(count(dev_attrs($pdo, $A)['duplicate_dismissed']) === 2 && count(dev_attrs($pdo, $B)['duplicate_dismissed']) === 2 && count(dev_attrs($pdo, $C)['duplicate_dismissed']) === 2, 'every Device lists the other two with at and by');
+$before = [json_encode(dev_attrs($pdo, $A)['duplicate_dismissed']), json_encode(dev_attrs($pdo, $B)['duplicate_dismissed'])];
+for ($i = 0; $i < 3; $i++) {
+	run_ingest($dsn, $user, $password);
+}
+check($n_pairs($A) === 0 && $n_pairs($B) === 0 && $n_pairs($C) === 0, 'no candidate on the later runs');
+check($before === [json_encode(dev_attrs($pdo, $A)['duplicate_dismissed']), json_encode(dev_attrs($pdo, $B)['duplicate_dismissed'])], 'ingest keeps duplicate_dismissed byte-identical');
+CTopologyPrototype::revokeDismissal((string) $A, (string) $B);
+run_ingest($dsn, $user, $password);
+check($n_pairs($A) === 1 && $n_pairs($B) === 1 && $n_pairs($C) === 0, 'the revocation stays per pair: only A-B is a candidate again');
+
+echo "\n=== 13: the scope of the filter \"Possible duplicates only\" (model 2.49 section 12.1, FR-C V-17, task 059) ===\n";
+$dr = device_id($pdo, $R);
+// the Host node of the reporter is in the scope too: a represented Device and its Host are one place (no hop between them)
+$scope = array_map('intval', CTopologyPrototype::duplicatesScope(null));
+check(in_array($A, $scope, true) && in_array($B, $scope, true) && in_array($dr, $scope, true) && !in_array($C, $scope, true),
+	'A and B (a pair), and their link partner R as context (one hop); C (dismissed pair, no candidate) is not in it');
+check(CTopologyPrototype::duplicatesScope([(string) $C]) === [], 'a view scope that holds no Device with a candidate: nothing');
+$scope = array_map('intval', CTopologyPrototype::duplicatesScope([(string) $A]));
+check(in_array($A, $scope, true) && in_array($dr, $scope, true) && !in_array($B, $scope, true), 'a view scope with A only: A and its context; the partner B is outside the view scope');
+CTopologyPrototype::dismissDuplicate((string) $A, (string) $B, 'Admin');
+check(CTopologyPrototype::duplicatesScope(null) === [], 'a dismissed pair is not drawn: no candidate, empty scope');
 
 echo "\nAll duplicate candidate checks passed.\n";

@@ -11,7 +11,8 @@ class CControllerTopologyDevicesGet extends CController {
 			// topology-1-model.md §12.1 "View scope": the Hosts of the groups and the focus host are the start nodes, together.
 			'groupids' => 'array_id',
 			'hostid' => 'id',
-			'hops' => 'int32'
+			'hops' => 'int32',
+			'duplicates' => 'in 0,1'
 		]);
 	}
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
@@ -22,7 +23,7 @@ class CControllerTopologyDevicesGet extends CController {
 		$hops = $this->hasInput('hops') ? min(6, max(1, (int) $this->getInput('hops'))) : null;
 
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode(
-			CTopologyPrototype::getView($groupids, $hostid, $hops),
+			CTopologyPrototype::getView($groupids, $hostid, $hops, (int) $this->getInput('duplicates', 0) === 1),
 			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
 		)]));
 	}

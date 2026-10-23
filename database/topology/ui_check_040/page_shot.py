@@ -173,7 +173,7 @@ CHECKS = {
         return r;
     })()''',
     # model §12.2, §12.1 (2.47, task 057): with a Device that has a duplicate candidate selected (--select), the panel names the reason in words and offers Merge,
-    # Not the same device and Delete Device; the filter "possible duplicate" leaves only the Devices that have a candidate, each with its badge
+    # Not the same device and Delete Device; the filter "possible duplicate" draws the Devices that have a candidate (also without a link) with a badge and a labelled pair line, the context dimmed
     'duplicates': '''(async () => {
         const panel = document.querySelector('.topology-panel');
         const r = {reason_text: (panel.textContent.match(/Possible duplicate: (same address|same name)/) || [null])[0],
@@ -181,10 +181,16 @@ CHECKS = {
         const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
         r.nodes_before = nodes();
         document.getElementById('topology-filter-duplicates').click();
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        // V-17: the server answers with the Devices that have a candidate, their partners and one hop of context (dimmed), and each pair has a labelled line
         r.nodes_filtered = nodes();
+        r.duplicate_nodes = document.querySelectorAll('#topology-canvas .topology-node:not(.topology-context)').length;
+        r.context_nodes = document.querySelectorAll('#topology-canvas .topology-context').length;
         r.badges_filtered = document.querySelectorAll('#topology-canvas .topology-duplicate-badge').length;
-        r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.nodes_filtered > 0 && r.nodes_filtered < r.nodes_before && r.badges_filtered === r.nodes_filtered;
+        r.pair_lines = document.querySelectorAll('#topology-canvas .topology-pair-line').length;
+        r.pair_labels = Array.from(document.querySelectorAll('#topology-canvas .topology-pair-line text')).map(t => t.textContent);
+        r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.duplicate_nodes > 0 && r.badges_filtered === r.duplicate_nodes
+            && r.pair_lines > 0 && r.pair_labels.every(t => /^(same address|same name|two hosts|chassis of|new chassis)/.test(t));
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table

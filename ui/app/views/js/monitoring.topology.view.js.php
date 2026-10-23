@@ -56,12 +56,12 @@ const view = new class {
 			this.link_filter = event.target.value;
 			this.render();
 		});
-		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47): only the Devices with a duplicate candidate (a represented Device through its Host/Proxy).
-		// A client-side render filter like the link filter: the candidates are in what loadDevices() fetched.
+		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47, 2.49; FR-C V-16, V-17): the server answers with the Devices that have a candidate (linked
+		// or not), their partners and one hop of context; render() dims the context and draws the pair lines.
 		this.only_duplicates = false;
 		document.getElementById('topology-filter-duplicates').addEventListener('change', event => {
 			this.only_duplicates = event.target.checked;
-			this.render();
+			this.guard(() => this.loadDevices());
 		});
 		// Device details panel: collapsible so a wide canvas/graph gets the room back when the
 		// panel isn't needed — purely a CSS class toggle (topology-panel-collapsed on the grid
@@ -297,6 +297,9 @@ const view = new class {
 		if (query !== '' && hops !== '') {
 			query += `&hops=${encodeURIComponent(hops)}`;
 		}
+		if (this.only_duplicates) {
+			query += '&duplicates=1';
+		}
 		return query;
 	}
 
@@ -514,7 +517,7 @@ const view = new class {
 
 	// Duplicate candidates of a Device (topology-1-model.md §6.7.5, "Side panels"): every value shown comes from the network or from
 	// the operator and is escaped (§13). Merge asks which Device to keep; the proposal is the one with a represented_by, else the older one.
-	duplicatesFragment(device) {
+	duplicatesFragment(device, only_device_id = null) {
 		const post_label = {
 			same_address: <?= json_encode(_('Possible duplicate: same address')) ?>,
 			same_name: <?= json_encode(_('Possible duplicate: same name')) ?>,
@@ -523,7 +526,7 @@ const view = new class {
 			reporter_chassis_change: <?= json_encode(_('Possible duplicate: the host reports a new chassis')) ?>
 		};
 		const rows = [];
-		(device.duplicates ?? []).forEach(candidate => {
+		(device.duplicates ?? []).filter(candidate => only_device_id === null || String(candidate.device_id) === String(only_device_id)).forEach(candidate => {
 			const other = candidate.device_id === null ? null : this.nodes.get(String(candidate.device_id));
 			const title = `${this.escape(post_label[candidate.reason] ?? candidate.reason)} (${this.escape(candidate.key)} ${this.escape(candidate.value)})`;
 			if (candidate.device_id === null) {
@@ -543,24 +546,48 @@ const view = new class {
 				`<button type="button" class="btn-alt" data-topology-dup="dismiss" data-a="${this.escape(device.id)}" data-b="${this.escape(candidate.device_id)}">` +
 				`${this.escape(<?= json_encode(_('Not the same device')) ?>)}</button></li>`);
 		});
-		(device.dismissed ?? []).forEach(entry => rows.push(`<li>${this.escape(<?= json_encode(_('Not the same device')) ?>)}: ` +
+		(only_device_id === null ? device.dismissed ?? [] : []).forEach(entry => rows.push(`<li>${this.escape(<?= json_encode(_('Not the same device')) ?>)}: ` +
 			`${this.escape(entry.name ?? entry.device_id)} — ${this.escape(entry.by)} ${this.escape(<?= json_encode(_('on')) ?>)} ${this.escape(this.formatDate(entry.at))} ` +
 			`<button type="button" class="btn-alt" data-topology-dup="revoke" data-a="${this.escape(device.id)}" data-b="${this.escape(entry.device_id)}">` +
 			`${this.escape(<?= json_encode(_('Revoke')) ?>)}</button></li>`));
 
 		// A group (§6.7.5 "Merge a group"): three or more Devices linked by candidates. One action merges all of them into the chosen Device; the proposal
 		// is the Device with a represented_by, else the oldest.
-		const group = (device.duplicate_group ?? []).map(id => this.nodes.get(String(id))).filter(Boolean);
+		const group = (only_device_id === null ? device.duplicate_group ?? [] : []).map(id => this.nodes.get(String(id))).filter(Boolean);
 		if (group.length >= 3) {
 			const proposed = group.slice().sort((a, b) => (Boolean(b.represented) - Boolean(a.represented)) || ((a.created_at ?? 0) - (b.created_at ?? 0)) || (a.id - b.id))[0];
 			rows.push(`<li>${this.escape(<?= json_encode(_('A group of Devices linked by candidates')) ?>)} (${group.length}):<br>` +
 				`<select class="topology-group-keep">${group.map(member => `<option value="${this.escape(member.id)}"${member.id === proposed.id ? ' selected' : ''}>` +
 					`${this.escape(this.deviceLabel(member))}</option>`).join('')}</select> ` +
 				`<button type="button" class="btn-alt" data-topology-dup="mergegroup" data-ids="${this.escape(group.map(member => member.id).join(','))}">` +
-				`${this.escape(<?= json_encode(_('Merge all into the selected Device')) ?>)}</button></li>`);
+				`${this.escape(<?= json_encode(_('Merge all into the selected Device')) ?>)}</button> ` +
+				// 2.48: "Not the same device" for every pair of the group in one action (the revocation stays per pair)
+				`<button type="button" class="btn-alt" data-topology-dup="dismissgroup" data-ids="${this.escape(group.map(member => member.id).join(','))}">` +
+				`${this.escape(<?= json_encode(_('Not the same device (all of the group)')) ?>)}</button></li>`);
 		}
 
 		return rows.length ? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Possible duplicates')) ?>)}</h3><ul>${rows.join('')}</ul></section>` : '';
+	}
+
+	// "same address 10.0.0.5", "same name AP-7", "new chassis": the label of a pair line (SVG text, not HTML; the value comes from the network)
+	pairReason(candidate) {
+		const labels = {
+			same_address: <?= json_encode(_('same address')) ?>,
+			same_name: <?= json_encode(_('same name')) ?>,
+			reporters_share_key: <?= json_encode(_('two hosts report one chassis')) ?>,
+			reporter_key_shared: <?= json_encode(_('chassis of the host on several Devices')) ?>,
+			reporter_chassis_change: <?= json_encode(_('new chassis')) ?>
+		};
+		const label = labels[candidate.reason] ?? candidate.reason;
+		return ['same_address', 'same_name'].includes(candidate.reason) ? `${label} ${candidate.value}` : label;
+	}
+
+	// The pair of a pair line (V-17): the Merge and Not the same device actions of that one pair
+	selectPair(device, candidate) {
+		this.setDetailsTitle(<?= json_encode(_('Possible duplicates')) ?>);
+		const other = this.nodes.get(String(candidate.device_id));
+		this.details.innerHTML = `<h2>${this.escape(this.deviceLabel(device))} ↔ ${this.escape(other ? this.deviceLabel(other) : candidate.name ?? candidate.device_id)}</h2>` +
+			this.duplicatesFragment(device, candidate.device_id);
 	}
 
 	// A Device named so that two Devices with one name can be told apart: name, chassis or address, id.
@@ -597,6 +624,10 @@ const view = new class {
 		else if (action === 'dismiss') {
 			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b});
 			stay = data.a;
+		}
+		else if (action === 'dismissgroup') {
+			await post('topology.devices.dismissgroup', {ids: data.ids.split(',')});
+			stay = this.details.querySelector('.topology-group-keep')?.value ?? data.ids.split(',')[0];
 		}
 		else if (action === 'revoke') {
 			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b, revoke: 1});
@@ -1507,9 +1538,9 @@ const view = new class {
 		// 1:1 on represented_by (backend-enforced) guarantees at most one represented Device per Host/Proxy —
 		// no ambiguity about which Device a node's .device points at.
 		const has_duplicates = node => (node.duplicates ?? []).length > 0;
-		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))))
-			// the filter "possible duplicate": the Devices with a candidate, and the Host/Proxy of a represented Device that has one
-			.filter(node => !this.only_duplicates || (node.type === 'device' ? has_duplicates(node) : Boolean(node.device && has_duplicates(node.device))));
+		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))));
+		// the filter "possible duplicate" (V-17): a node is a duplicate node when it, or the Device it represents, has a candidate; the others are context
+		const is_duplicate_node = node => node.type === 'device' ? has_duplicates(node) : Boolean(node.device && has_duplicates(node.device));
 		const rendered_ids = new Set(nodes.map(node => String(node.id)));
 		const resolve_display_id = id => target_id_of_device.get(id) ?? id;
 		const simulation_links = this.links
@@ -1688,6 +1719,31 @@ const view = new class {
 		ghosts.append('title').text(ghost => this.shadowText(ghost.shadow));
 		const ghost_labels = ghosts.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
 			.style('fill', '#c2410c').style('pointer-events', 'none').text(ghost => ghost.shadow.remote_port ?? '');
+		// Pair lines of the filter (V-17): one dashed line per pair of candidates, labelled with the reason; not a link. A click opens the pair.
+		const pair_data = [];
+		if (this.only_duplicates) {
+			const pair_seen = new Set();
+			this.nodes.forEach(device => {
+				(device.type === 'device' ? device.duplicates ?? [] : []).forEach(candidate => {
+					const from = node_by_id.get(resolve_display_id(String(device.id)));
+					const to = candidate.device_id === null ? null : node_by_id.get(resolve_display_id(String(candidate.device_id)));
+					const key = [device.id, candidate.device_id].sort().join('-');
+					if (!from || !to || from === to || pair_seen.has(key)) {
+						return;
+					}
+					pair_seen.add(key);
+					pair_data.push({from, to, a: device, candidate});
+				});
+			});
+		}
+		const pairs = this.canvas.append('g').selectAll('g').data(pair_data).join('g')
+			.attr('class', 'topology-pair-line').style('cursor', 'pointer')
+			.on('click', (event, pair) => this.selectPair(pair.a, pair.candidate));
+		const pair_lines = pairs.append('line').attr('stroke', '#b45309').attr('stroke-width', 2)
+			.attr('stroke-dasharray', '8 4').style('pointer-events', 'stroke');
+		pairs.append('title').text(pair => this.pairReason(pair.candidate));
+		const pair_labels = pairs.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
+			.style('fill', '#b45309').style('pointer-events', 'none').text(pair => this.pairReason(pair.candidate));
 		const contradicted_links = simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type) && link.edge_id !== null
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
 		const link_badges = this.canvas.append('g').selectAll('g').data(contradicted_links).join('g')
@@ -1727,7 +1783,8 @@ const view = new class {
 		const label_x = subject => has_icon(subject) ? 9 : 0;
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
-			.attr('class', node => `topology-node ${node.type}`)
+			.attr('class', node => `topology-node ${node.type}${this.only_duplicates && !is_duplicate_node(node) ? ' topology-context' : ''}`)
+			.style('opacity', node => this.only_duplicates && !is_duplicate_node(node) ? 0.45 : null)
 			// Manual positioning: fx/fy pin a node in place for the force simulation (it stops
 			// pushing that node around once set) and, since render() only auto-places a node
 			// whose x/y aren't already finite (see the "give a good initial position" loop
@@ -1866,6 +1923,9 @@ const view = new class {
 			ghost_lines.attr('x1', ghost => ghost.from.x).attr('y1', ghost => ghost.from.y)
 				.attr('x2', ghost => ghost.to.x).attr('y2', ghost => ghost.to.y);
 			ghost_labels.attr('x', ghost => (ghost.from.x + ghost.to.x) / 2).attr('y', ghost => (ghost.from.y + ghost.to.y) / 2 - 5);
+			pair_lines.attr('x1', pair => pair.from.x).attr('y1', pair => pair.from.y)
+				.attr('x2', pair => pair.to.x).attr('y2', pair => pair.to.y);
+			pair_labels.attr('x', pair => (pair.from.x + pair.to.x) / 2).attr('y', pair => (pair.from.y + pair.to.y) / 2 - 5);
 			link_badges.attr('transform', link => `translate(${(link.source.x + link.target.x) / 2},${(link.source.y + link.target.y) / 2})`);
 			bundle_labels.attr('x', link => (link.source.x + link.target.x) / 2).attr('y', link => (link.source.y + link.target.y) / 2 - 6);
 		});

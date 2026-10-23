@@ -729,8 +729,11 @@ class CTopologyPrototype {
 	 * The answer of topology.devices.get (the view page, topology-1-model.md §12.1): the nodes and relations of the view scope and the contradictions.
 	 * $hops null: no limit. Nothing selected: every node.
 	 */
-	public static function getView(array $groupids, string $hostid, ?int $hops): array {
+	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false): array {
 		$node_ids = self::resolveScope($groupids, $hostid, $hops);
+		if ($duplicates) {
+			$node_ids = self::duplicatesScope($node_ids);
+		}
 
 		return [
 			'devices' => self::getDevices($node_ids),
@@ -739,6 +742,35 @@ class CTopologyPrototype {
 			// and details. Strings inside come from the network and are escaped where they are rendered.
 			'contradictions' => self::getContradictions()
 		];
+	}
+
+	/**
+	 * The scope of the filter "Possible duplicates only" (model §12.1, FR-C V-17): the Devices of the view scope that have a candidate, the partners of
+	 * those candidates, and one hop of context around them (links and the Devices at their other ends). Pairs in duplicate_dismissed are not candidates.
+	 *
+	 * @param array|null $node_ids  the view scope, null = every node
+	 *
+	 * @return array topo_nodes.id values
+	 */
+	public static function duplicatesScope(?array $node_ids): array {
+		$seeds = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND attrs LIKE '.zbx_dbstr('%duplicate_candidates%'));
+		while ($row = DBfetch($result)) {
+			foreach (self::attrs($row)['duplicate_candidates'] ?? [] as $candidate) {
+				$seeds[$row['id']] = true;
+				if ($candidate['device_id'] !== null) {
+					$seeds[$candidate['device_id']] = true;
+				}
+			}
+		}
+		if ($node_ids !== null) {
+			$seeds = array_intersect_key($seeds, array_flip($node_ids));
+		}
+		if (!$seeds) {
+			return [];
+		}
+
+		return CTopologyHopScope::neighborhood(array_map('strval', array_keys($seeds)), 1, self::getAdjacency(), self::getRepresentedPairs());
 	}
 
 	public static function resolveScope(array $groupids, string $hostid, ?int $hops): ?array {
@@ -2644,6 +2676,45 @@ class CTopologyPrototype {
 			}
 			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).' WHERE id='.zbx_dbstr($device_id));
 		}
+	}
+
+	/**
+	 * Not the same device for a whole group (topology-1-model.md §6.7.5, 2.48; FR-C O-12): every pair of the Devices of the group, as dismissDuplicate() for each pair, in one
+	 * action. A group of n Devices has up to n(n-1)/2 pairs. The revocation stays per pair (revokeDismissal()).
+	 *
+	 * @param string[] $ids  the Devices of the group
+	 * @return array         ['pairs' => the number of pairs dismissed]
+	 */
+	public static function dismissGroup(array $ids, string $username): array {
+		$ids = array_values(array_unique(array_map('strval', $ids)));
+		if (count($ids) < 2) {
+			throw new Exception('Choose a group of at least two Devices.');
+		}
+		sort($ids, SORT_NUMERIC);
+		foreach ($ids as $id) {
+			self::getDeviceRow($id);
+		}
+
+		DBstart();
+
+		try {
+			$pairs = 0;
+			for ($i = 0; $i < count($ids); $i++) {
+				for ($j = $i + 1; $j < count($ids); $j++) {
+					self::dismissDuplicate($ids[$i], $ids[$j], $username);
+					$pairs++;
+				}
+			}
+		}
+		catch (Throwable $exception) {
+			DBend(false);
+
+			throw $exception;
+		}
+
+		DBend(true);
+
+		return ['pairs' => $pairs];
 	}
 
 	/** Revoke "not the same device": the pair is listed again by the next full ingest if the evidence is still there. */
