@@ -6,7 +6,7 @@ import subprocess
 import time
 
 from . import ctl, db, gen, zbx
-from .model import HERE, LabError
+from .model import HERE, LabError, OPERATOR_ACTIONS, operator_actions
 
 INGEST = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'ingest.php'))
 SCHEDULE_FILE = os.path.join(ctl.RUN_DIR, 'schedule.json')
@@ -111,6 +111,33 @@ def resolve_device(state, key):
     if len(found) > 1:
         raise LabError('ambiguous key %s' % key)
     return found
+
+
+def device_ids(state, key):
+    """The Device node ids that a key gives, for `device_count` and `candidate` (lab spec 8.3, 2.21): the same lookup as resolve_device, but several Devices are
+    not an error: they are what is counted."""
+    nodes = state.get('device_nodes') or []
+    if isinstance(key, dict):
+        kind, value = next(iter(key.items()))
+        want = str(value) if kind == 'sysname' else normal_chassis(value)
+        return [n['id'] for n in nodes if (n['sysname'] == want if kind == 'sysname' else want in (n['chassis_id'], n['mac']))]
+    named = [n['id'] for n in nodes if n['sysname'] == key]
+    if len(named) == 1:
+        return named
+    want = normal_chassis(key)
+    return [n['id'] for n in nodes if want in (n['chassis_id'], n['mac'])] or named
+
+
+def candidate_pairs(state, ids, reason):
+    """The pairs among the Devices `ids` that have a duplicate candidate of this reason on each other (an unordered pair counts once)."""
+    ids = set(ids)
+    pairs = set()
+    for n in state.get('device_nodes') or []:
+        if n['id'] in ids:
+            for c in n.get('candidates') or []:
+                if c['device_id'] in ids and c['reason'] == reason:
+                    pairs.add(frozenset((n['id'], c['device_id'])))
+    return len(pairs)
 
 
 def _end_matches(state, link, idx, ref, cache):
@@ -277,6 +304,17 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         ok = {l['id'] for l in was} & {l['id'] for l in now}
         return Result('edge_id_same_as', a, 'pass' if ok else 'fail',
                       '' if ok else 'edge ids differ: step %s %s, now %s' % (r['step'], sorted(l['id'] for l in was), sorted(l['id'] for l in now)))
+    if 'device_count' in a:
+        r = a['device_count']
+        n = len(device_ids(state, r['key']))
+        return Result('device_count', a, 'pass' if n == r['equals'] else 'fail',
+                      '' if n == r['equals'] else '%d Device(s) for the key %s, expected %s' % (n, r['key'], r['equals']))
+    if 'candidate' in a:
+        r = a['candidate']
+        ids = device_ids(state, r['key'])
+        n = candidate_pairs(state, ids, r['reason'])
+        return Result('candidate', a, 'pass' if n == r['pairs'] else 'fail',
+                      '' if n == r['pairs'] else '%d %s pair(s) among the %d Device(s) of the key %s, expected %s' % (n, r['reason'], len(ids), r['key'], r['pairs']))
     if 'status' in a:
         f = a['status']
         v = ingest['summary']
@@ -314,6 +352,64 @@ def _sub(a, b):
     if isinstance(a, dict):
         return {k: v for k, v in a.items() if b.get(k) != v}
     return [x for x in a if x not in b]
+
+
+def operator_commands(state, actions):
+    """The calls of php/operator.php for the actions of a step key `operator` (lab spec 4.5, 2.21), by the Device ids of `state` (the state after the ingest of the
+    previous step): [(action, args)]. A key that gives no Device, or a `merge`/`delete`/`dismiss` key that gives several, is a LabError."""
+    def one(key):
+        ids = device_ids(state, key)
+        if len(ids) != 1:
+            raise LabError('operator: the key %s gives %d Devices, one is needed' % (key, len(ids)))
+        return ids[0]
+
+    out = []
+    for a in actions:
+        kind = next(k for k in OPERATOR_ACTIONS if k in a)
+        if kind == 'merge':
+            ids = {str(k): one(k) for k in a['merge']}
+            keep = ids[str(a['keep'])]
+            out.append(('merge', {'keep': keep, 'remove': next(v for v in ids.values() if v != keep)}))
+        elif kind == 'merge_group':
+            ids = device_ids(state, a['merge_group'])
+            keep_key, keep_port = split_end(a['keep'])
+            keeps = set()
+            for l in state['links']:
+                for idx in (0, 1):
+                    if l['end_ports'][idx] == keep_port and l['end_devices'][idx] in resolve_device(state, keep_key):
+                        keeps.add(l['end_devices'][1 - idx])
+            keeps &= set(ids)
+            if len(keeps) != 1:
+                raise LabError('operator: keep %s names %d Devices of the group %s, one is needed' % (a['keep'], len(keeps), a['merge_group']))
+            keep = next(iter(keeps))
+            out.append(('merge_group', {'keep': keep, 'remove': [i for i in ids if i != keep]}))
+        elif kind == 'dismiss':
+            x, y = [one(k) for k in a['dismiss']]
+            out.append(('dismiss', {'a': x, 'b': y}))
+        elif kind == 'dismiss_group':
+            out.append(('dismiss_group', {'ids': device_ids(state, a['dismiss_group'])}))
+        else:
+            out.append(('delete', {'id': one(a['delete'])}))
+    return out
+
+
+def run_operator(scenario, i, state, log):
+    """The step key `operator`: the actions run through CTopologyPrototype (php/operator.php), the code path of the UI endpoints, on the state left by the previous
+    step's ingest and before this step's collection (lab spec 4.5, 2.21)."""
+    actions = operator_actions(scenario.id, i, scenario.steps[i].get('operator'))
+    if not actions:
+        return
+    if state is None:
+        raise LabError('step %d: operator needs the state of a previous step' % i)
+    for action, args in operator_commands(state, actions):
+        p = subprocess.run(['php', os.path.join(HERE, 'php', 'operator.php'), action, json.dumps(args)], capture_output=True, text=True, timeout=120)
+        try:
+            answer = json.loads(p.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            answer = {'error': (p.stderr or p.stdout).strip()[:300]}
+        if p.returncode or 'error' in answer:
+            raise LabError('operator %s %s: the UI code path refused it: %s' % (action, args, answer.get('error')))
+        log('  operator %s %s through CTopologyPrototype' % (action, json.dumps(args)))
 
 
 def create_manual_links(conn, scenario, i, log):
@@ -474,6 +570,10 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
             report['steps'].append(sr)
+            try:
+                run_operator(scenario, i, history.get(i - 1), log)          # lab spec 4.5 (2.21): after the ingest of the previous step, before this step's collection
+            except LabError as e:
+                sr['errors'].append(str(e))
             faults = step.get('faults') or {}
             for dev, f in faults.items():
                 if f in (None, 'none'):

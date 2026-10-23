@@ -1,5 +1,6 @@
 """Lab description, scenarios and per-step state (topology-4-lab-simulator.md "Lab description")."""
 import copy
+import ipaddress
 import os
 
 import yaml
@@ -56,6 +57,9 @@ class Lab:
         d.setdefault('community', self.settings.get('community', 'public'))
         d.setdefault('lldp', True)
         d.setdefault('cdp', False)
+        d.setdefault('cdp_device_id', 'name')
+        d.setdefault('cdp_address', False)
+        check_cdp_keys(name, d)
         d.setdefault('fdb', 'none')
         d.setdefault('lldp_local_port_subtype', None)
         d.setdefault('lldp_loc_port_num', 'ifindex')
@@ -155,6 +159,7 @@ class Lab:
             if bad:
                 raise LabError('step changes %s of device %s: only attributes of its LLDP/CDP/FDB behavior can change in a step' % (sorted(bad), name))
             self.devices[name].update(change)
+            check_cdp_keys(name, self.devices[name])
         for ref, load in (step.get('load') or {}).items():       # port `load` {in: %, out: %} from this step on (lab spec 4.1)
             _, p = self.port(ref)
             bad = set(load or {}) - {'in', 'out'}
@@ -252,6 +257,55 @@ class Lab:
 WAIT_KEYS = {'unsupported', 'timeout', 'seconds', 'until'}
 
 
+def check_cdp_keys(name, d):
+    """`cdp_device_id` (lab spec 4.1, 2.21): `name` (the sysname), `mac` (the chassis MAC as 6 bytes) or a literal text; `cdp_address`: `true` (the device ip), `false`
+    (none) or an IPv4 address."""
+    device_id = d.get('cdp_device_id', 'name')
+    if not isinstance(device_id, str) or device_id == '':
+        raise LabError('device %s: cdp_device_id is "name", "mac" or a literal text, got %r' % (name, device_id))
+    if device_id == 'mac' and not (d.get('chassis') or {}).get('value') and not d.get('replay'):
+        raise LabError('device %s: cdp_device_id mac needs a chassis' % name)
+    address = d.get('cdp_address', False)
+    if isinstance(address, bool):
+        if address and not d.get('ip'):
+            raise LabError('device %s: cdp_address true needs an ip' % name)
+        return
+    try:
+        if not isinstance(address, str) or ipaddress.ip_address(address).version != 4:
+            raise ValueError(address)
+    except ValueError:
+        raise LabError('device %s: cdp_address is true, false or an IPv4 address, got %r' % (name, address))
+
+
+OPERATOR_ACTIONS = ('merge', 'merge_group', 'dismiss', 'dismiss_group', 'delete')
+
+
+def operator_actions(scenario_id, i, operator):
+    """The actions of a step key `operator` (lab spec 4.5, 2.21): one mapping or a list of them, each `{merge: [A, B], keep: A}`, `{merge_group: <Device key>, keep: <end>}`,
+    `{dismiss: [A, B]}`, `{dismiss_group: <Device key>}` or `{delete: A}`. Returns the list; a wrong form is an error."""
+    if operator is None:
+        return []
+    where = 'scenario %s step %d: operator' % (scenario_id, i)
+    actions = operator if isinstance(operator, list) else [operator]
+    for a in actions:
+        if not isinstance(a, dict):
+            raise LabError('%s: each action is a mapping, got %r' % (where, a))
+        kinds = [k for k in a if k in OPERATOR_ACTIONS]
+        if len(kinds) != 1:
+            raise LabError('%s: an action has exactly one of %s, got %r' % (where, list(OPERATOR_ACTIONS), a))
+        kind = kinds[0]
+        extra = set(a) - {kind} - ({'keep'} if kind in ('merge', 'merge_group') else set())
+        if extra:
+            raise LabError('%s: unknown key(s) %s in %s' % (where, sorted(extra), kind))
+        if kind in ('merge', 'dismiss') and (not isinstance(a[kind], list) or len(a[kind]) != 2):
+            raise LabError('%s: %s takes a list of two Device keys, got %r' % (where, kind, a[kind]))
+        if kind in ('merge', 'merge_group') and a.get('keep') is None:
+            raise LabError('%s: %s needs keep' % (where, kind))
+        if kind == 'merge' and str(a['keep']) not in [str(x) for x in a['merge']]:
+            raise LabError('%s: keep %r is not one of the two Devices %r' % (where, a['keep'], a['merge']))
+    return actions
+
+
 def validate_wait(scenario_id, i, wait):
     """`wait` has two forms that can be combined: {unsupported, timeout} and {seconds: N} (topology-4-lab-simulator.md "Scenario format")."""
     if wait is None:
@@ -280,6 +334,8 @@ ASSERTION_FORMS = {
     'link_items': (set(), {'link'}),
     'link_load': (set(), {'link', 'percent', 'tolerance'}),
     'link_severity': (set(), {'link', 'present'}),
+    'device_count': (set(), {'key', 'equals'}),
+    'candidate': (set(), {'key', 'reason', 'pairs'}),
     'matches_reference': (set(), None),
     'pending': (set(), None),
 }
@@ -339,6 +395,7 @@ class Scenario:
                            % (self.id, self.freshness_seconds))
         for i, step in enumerate(self.steps):
             validate_wait(self.id, i, step.get('wait'))
+            operator_actions(self.id, i, step.get('operator'))
             for a in step.get('assert') or []:
                 validate_assertion(self.id, i, a)
         settings = data.get('settings') or {}

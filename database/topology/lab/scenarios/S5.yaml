@@ -11,11 +11,13 @@ patch:
       add_ports:
         - {ifindex: 6, name: Gi0/6}
       cdp: true
+      cdp_address: true
       lldp_local_port_subtype: interfaceName
     AP1:
       ip: 192.0.2.107
       port_mac_prefix: "02:00:00:07"
       cdp: true
+      cdp_address: true
       lldp_local_port_subtype: interfaceName
       lldp_loc_port_num: ifindex
       add_ports:

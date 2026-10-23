@@ -289,6 +289,8 @@ def device_records(lab, name):
                 if fd not in lab.devices:
                     raise LabError('cable to unknown device %s' % fd)
                 far = lab.devices[fd]
+                if not far['lldp']:
+                    continue                                   # a CDP-only device (lldp: false, cdp: true): its neighbors get only a CDP entry (lab spec 4.1)
                 fport = next((q for q in far['ports'] if q['name'] == fp), None)
                 if fport is None:
                     raise LabError('unknown port %s:%s' % (fd, fp))
@@ -317,11 +319,21 @@ def device_records(lab, name):
                 if not far['cdp'] or not carries(p['name'], fd, fp, 'cdp'):
                     continue
                 ix = (p['ifindex'], k)
-                r.put_str(cb + (6,) + ix, far['sysname'])
+                # cdpCacheDeviceId (lab spec 4.1, 2.21): the sysname (default), the chassis MAC as 6 binary bytes, or a literal text
+                device_id = far.get('cdp_device_id', 'name')
+                if device_id == 'name':
+                    r.put_str(cb + (6,) + ix, far['sysname'])
+                elif device_id == 'mac':
+                    r.put_hex(cb + (6,) + ix, mac_bytes(far['chassis']['value']))
+                else:
+                    r.put_str(cb + (6,) + ix, device_id)
                 r.put_str(cb + (7,) + ix, fp)
-                if far.get('ip'):
+                # cdpCacheAddress: `true` the device ip, `false` none (default), or an IPv4 address (another device's: the VRRP case of S8)
+                address = far.get('cdp_address', False)
+                address = far.get('ip') if address is True else (address or None)
+                if address:
                     r.put(cb + (3,) + ix, '2', 1)
-                    r.put_hex(cb + (4,) + ix, bytes(int(x) for x in far['ip'].split('.')))
+                    r.put_hex(cb + (4,) + ix, bytes(int(x) for x in str(address).split('.')))
 
     # FDB
     if dev['fdb'] != 'none' and 'fdb' not in omit:

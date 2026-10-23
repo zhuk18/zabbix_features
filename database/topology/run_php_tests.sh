@@ -121,7 +121,7 @@ fi
 
 # ---- 4. lab unit tests and the converter of the corpus (PyYAML, mysql-connector: the lab venv) ----
 if [ -x "$labpy" ]; then
-	exec_test "lab/tests (unittest discover, 13 files)" /tmp/topo_t_lab_unit.log bash -c "cd '$here/lab' && '$labpy' -m unittest discover -s tests"
+	exec_test "lab/tests (unittest discover, 14 files)" /tmp/topo_t_lab_unit.log bash -c "cd '$here/lab' && '$labpy' -m unittest discover -s tests"
 	exec_test corpus/test_corpus_walk.py /tmp/topo_t_corpus_walk.log bash -c "cd '$here/corpus' && '$labpy' -m unittest test_corpus_walk.py"
 else
 	skip "lab/tests (unittest discover)" "no python with PyYAML at $labpy (LABPY)"

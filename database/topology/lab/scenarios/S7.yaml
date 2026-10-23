@@ -8,6 +8,7 @@ patch:
   devices:
     Switch1:
       cdp: true
+      cdp_address: true
     PC1:
       ip: 192.0.2.190
       chassis: {subtype: mac, value: "00:11:22:33:44:31"}
@@ -17,6 +18,7 @@ patch:
       ip: 192.0.2.191
       chassis: {subtype: mac, value: "00:11:22:33:44:32"}
       cdp: true
+      cdp_address: true
       ports: [{ifindex: 1, name: eth0}]
       zabbix: {monitored: false}
   deviations:
