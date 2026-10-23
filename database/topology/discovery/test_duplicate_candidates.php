@@ -663,4 +663,28 @@ $rm = $with_scope(null, 'R3', 6);
 CTopologyPrototype::mergeDevices((string) $k, (string) $rm, 'Admin');
 check(!isset(dev_attrs($pdo, $k)['scope_port']), 'K has a chassis: it has no scope_port');
 
+echo "\n=== 9: Not the same device is per pair: the other candidates of the same Devices stay (model §6.7.5, 2.47, task 057) ===\n";
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$Z = 'b0:00:00:00:00:0d';
+$A = device($pdo, $X, null, 'N');
+$B = device($pdo, $Y, null, 'N2');
+$C = device($pdo, $Z, null, 'N3');
+// A and B advertise 10.5.5.5, B and C advertise 10.5.5.6: B has two candidates, with A and with C
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, $IP), nbr_row($R, 'N2', $Y, $IP)]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nbr_row($R, 'N2', $Y, '10.5.5.6', 'Gi0/1', 'cdp'), nbr_row($R, 'N3', $Z, '10.5.5.6', 'Gi0/1', 'cdp')]);
+run_ingest($dsn, $user, $password);
+$pairs = static fn (int $id): array => array_values(array_unique(array_map(static fn (array $c): string => $c['reason'].'->'.$c['device_id'], candidates($pdo, $id))));
+check($pairs($A) === ['same_address->'.$B] && $pairs($B) === ['same_address->'.$A, 'same_address->'.$C] && $pairs($C) === ['same_address->'.$B], 'setup: A-B (10.5.5.5) and B-C (10.5.5.6) are candidates');
+CTopologyPrototype::dismissDuplicate((string) $A, (string) $B, 'Admin');
+for ($i = 0; $i < 3; $i++) {
+	run_ingest($dsn, $user, $password);
+}
+check($pairs($A) === [] && $pairs($B) === ['same_address->'.$C] && $pairs($C) === ['same_address->'.$B], 'dismissed A-B: no candidate for that pair on the later runs; the candidate B-C stays on both');
+check(array_column(dev_attrs($pdo, $B)['duplicate_dismissed'], 'device_id') === [$A] && !isset(dev_attrs($pdo, $C)['duplicate_dismissed']), 'duplicate_dismissed names only the pair');
+CTopologyPrototype::revokeDismissal((string) $A, (string) $B);
+run_ingest($dsn, $user, $password);
+check($pairs($A) === ['same_address->'.$B] && $pairs($B) === ['same_address->'.$A, 'same_address->'.$C], 'revoked: the pair is back, the other candidate is unchanged');
+
 echo "\nAll duplicate candidate checks passed.\n";
