@@ -110,6 +110,12 @@ $page_styles = '
 							'manual' => _('Manual only')
 						]))
 				]))->addClass('topology-header-field'),
+				// §12.1 (2.47, FR-C V-16): the filter "possible duplicate": only the Devices that have a duplicate candidate
+				(new CDiv([
+					(new CCheckBox('only_duplicates'))
+						->setId('topology-filter-duplicates')
+						->setLabel(_('Possible duplicates only'))
+				]))->addClass('topology-header-field'),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
 				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --

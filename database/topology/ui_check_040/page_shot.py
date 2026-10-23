@@ -172,6 +172,21 @@ CHECKS = {
         r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID') && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty);
         return r;
     })()''',
+    # model §12.2, §12.1 (2.47, task 057): with a Device that has a duplicate candidate selected (--select), the panel names the reason in words and offers Merge,
+    # Not the same device and Delete Device; the filter "possible duplicate" leaves only the Devices that have a candidate, each with its badge
+    'duplicates': '''(async () => {
+        const panel = document.querySelector('.topology-panel');
+        const r = {reason_text: (panel.textContent.match(/Possible duplicate: (same address|same name)/) || [null])[0],
+            actions: ['merge', 'dismiss', 'delete'].map(a => panel.querySelectorAll('[data-topology-dup="' + a + '"]').length)};
+        const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
+        r.nodes_before = nodes();
+        document.getElementById('topology-filter-duplicates').click();
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        r.nodes_filtered = nodes();
+        r.badges_filtered = document.querySelectorAll('#topology-canvas .topology-duplicate-badge').length;
+        r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.nodes_filtered > 0 && r.nodes_filtered < r.nodes_before && r.badges_filtered === r.nodes_filtered;
+        return r;
+    })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
     'escape': '''(() => {
         const evil = '<img src=x onerror="window.__xss=1">SW-<b>very</b>-long-name-for-a-node';

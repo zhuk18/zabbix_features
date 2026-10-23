@@ -56,6 +56,13 @@ const view = new class {
 			this.link_filter = event.target.value;
 			this.render();
 		});
+		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47): only the Devices with a duplicate candidate (a represented Device through its Host/Proxy).
+		// A client-side render filter like the link filter: the candidates are in what loadDevices() fetched.
+		this.only_duplicates = false;
+		document.getElementById('topology-filter-duplicates').addEventListener('change', event => {
+			this.only_duplicates = event.target.checked;
+			this.render();
+		});
 		// Device details panel: collapsible so a wide canvas/graph gets the room back when the
 		// panel isn't needed — purely a CSS class toggle (topology-panel-collapsed on the grid
 		// container shrinks the panel's column), nothing about the loaded data changes.
@@ -509,7 +516,10 @@ const view = new class {
 	// the operator and is escaped (§13). Merge asks which Device to keep; the proposal is the one with a represented_by, else the older one.
 	duplicatesFragment(device) {
 		const post_label = {
-			split_identity: <?= json_encode(_('Possible duplicate: a chassis-only and an IP-only Device of one neighbor')) ?>,
+			same_address: <?= json_encode(_('Possible duplicate: same address')) ?>,
+			same_name: <?= json_encode(_('Possible duplicate: same name')) ?>,
+			reporters_share_key: <?= json_encode(_('Possible duplicate: two hosts report one chassis')) ?>,
+			reporter_key_shared: <?= json_encode(_('Possible duplicate: the chassis of the host is on several Devices')) ?>,
 			reporter_chassis_change: <?= json_encode(_('Possible duplicate: the host reports a new chassis')) ?>
 		};
 		const rows = [];
@@ -592,16 +602,6 @@ const view = new class {
 			await post('topology.devices.dismissduplicate', {a: data.a, b: data.b, revoke: 1});
 			stay = data.a;
 		}
-		await this.loadDevices({reselect_device: stay});
-	}
-
-	async selectNode(node) {
-		// Host/Proxy: one combined panel, plus a Device section when this node has an active
-		// represented_by (node.device, set in render() from the same represented_by edges that used
-		// to drive the old split-node merge — see render()'s device_of_target map). A represented
-		// Device has no on-screen position of its own (topology-1-model.md "Side panels"), so its /neighbors + /ports are fetched here,
-		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
-		// Problems section is Host-only (topology-1-model.md "API" /problems, topology-1-model.md "Side panels") — Zabbix has no clean "this problem
 		else if (action === 'delete') {
 			// Delete Device (§6.7.5, 2.47): the operator deletes for real; the server refuses a Device with an association or a manual link
 			if (!confirm(<?= json_encode(_('Delete this Device? Its ports and discovered links are deleted too. If a current neighbor row reports it again, ingest makes it again with a new id.')) ?>)) {
@@ -612,6 +612,16 @@ const view = new class {
 			await this.loadDevices();
 			return;
 		}
+		await this.loadDevices({reselect_device: stay});
+	}
+
+	async selectNode(node) {
+		// Host/Proxy: one combined panel, plus a Device section when this node has an active
+		// represented_by (node.device, set in render() from the same represented_by edges that used
+		// to drive the old split-node merge — see render()'s device_of_target map). A represented
+		// Device has no on-screen position of its own (topology-1-model.md "Side panels"), so its /neighbors + /ports are fetched here,
+		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
+		// Problems section is Host-only (topology-1-model.md "API" /problems, topology-1-model.md "Side panels") — Zabbix has no clean "this problem
 		// belongs to this proxy" semantics, so a Proxy panel never fetches or shows one.
 		if (node.type === 'host' || node.type === 'proxy') {
 			const problems = node.type === 'host'
@@ -1496,7 +1506,10 @@ const view = new class {
 		});
 		// 1:1 on represented_by (backend-enforced) guarantees at most one represented Device per Host/Proxy —
 		// no ambiguity about which Device a node's .device points at.
-		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))));
+		const has_duplicates = node => (node.duplicates ?? []).length > 0;
+		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))))
+			// the filter "possible duplicate": the Devices with a candidate, and the Host/Proxy of a represented Device that has one
+			.filter(node => !this.only_duplicates || (node.type === 'device' ? has_duplicates(node) : Boolean(node.device && has_duplicates(node.device))));
 		const rendered_ids = new Set(nodes.map(node => String(node.id)));
 		const resolve_display_id = id => target_id_of_device.get(id) ?? id;
 		const simulation_links = this.links

@@ -164,6 +164,12 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	else
 		skip "page Addresses labels (ui_check_040/page_shot.py --check addresses)" "the office host SW15-10-POE-6000-24G is not in the lab"
 	fi
+	# the duplicate panel and the filter "possible duplicate" (057): the four FortiAP Devices of SW19 share the address 192.168.1.2
+	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from topo_nodes where type = 'device' and attrs like '%same_address%' limit 1" 2>/dev/null)" ] && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW19-09-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
+		exec_test "page duplicate panel and filter 1460x900, menu open" /tmp/topo_t_dup_1460.log python3 "$shot" --host SW19-09-POE-6000-24G --depth 1 --select FortiAP-231K --width 1460 --height 900 --menu open --check duplicates --out /tmp/topo_t_dup_1460.png
+	else
+		skip "page duplicate panel and filter (ui_check_040/page_shot.py --check duplicates)" "no Device with a same_address candidate in the lab (run the scenario R1 first) or the office host SW19 is missing"
+	fi
 else
 	skip "page layout and escaping (ui_check_040/page_shot.py)" "needs ZBX_UI_USER and ZBX_UI_PASSWORD in the environment, google-chrome, and the office stand host SW12 in the lab"
 fi
