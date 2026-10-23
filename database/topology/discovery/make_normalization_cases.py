@@ -47,6 +47,11 @@ cases = {
         {"in": "\t a \r\n", "out": "a"},
         {"in": "a\u0000", "out": "a"},
         {"in": "a\u0000\u0000", "out": "a"},
+        # §4.5 step 5 (0.12): repeat until the value does not change
+        {"in": "\"\"a\"\"", "out": "a"},
+        {"in": "\"a\u0000\"", "out": "a"},
+        {"in": "\u201c\"a\"\u201d", "out": "a"},
+        {"in": "' \"a\" '", "out": "a"},
         {"in": "a  b", "out": "a  b"},
         {"in": "\"x\"", "out": "x"},
         {"in": "'x'", "out": "x"},
@@ -57,8 +62,9 @@ cases = {
         {"in": "\"x", "out": "\"x"},
         {"in": "x\"", "out": "x\""},
         {"in": "“x\"", "out": "“x\""},
-        {"in": "\"'x'\"", "out": "'x'"},
-        {"in": "\"\"x\"\"", "out": "\"x\""},
+        # §4.5 step 5 (0.12): the quotes of a pair inside a pair go too
+        {"in": "\"'x'\"", "out": "x"},
+        {"in": "\"\"x\"\"", "out": "x"},
         {"in": "“GigabitEthernet1/0/1”", "out": "GigabitEthernet1/0/1"},
         {"in": "", "out": None},
         {"in": " \t\n ", "out": None},
@@ -69,6 +75,10 @@ cases = {
         # the examples of §4.6
         {"in": "GigabitEthernet0/0/1", "out": "gi0/0/1"},
         {"in": "gi0/0/1", "out": "gi0/0/1"},
+        # §4.6 step 3 (0.12): white space after leading letters and hyphens
+        {"in": "Port-channel 1", "out": "po1"},
+        {"in": "port-channel  10", "out": "po10"},
+        {"in": "Eth-Trunk 1", "out": "eth-trunk1"},
         {"in": "GE0/0/1", "out": "gi0/0/1"},
         {"in": "XGigabitEthernet0/0/1", "out": "xge0/0/1"},
         {"in": "TenGigabitEthernet1/1/1\u0000", "out": "te1/1/1"},
@@ -234,6 +244,9 @@ cases["row"] = [
     {"in": {"rem_port_type": "interfaceAlias", "rem_port": "00:11:22", "rem_sysname": "a"}, "out": {"rem_port_type": "interfaceAlias", "rem_port": "00:11:22", "rem_sysname": "a"}},
     {"in": {"rem_chassis_type": "networkAddress", "rem_chassis": "10.0.0.9", "rem_sysname": "a"}, "out": {"rem_chassis_type": "networkAddress", "rem_chassis": "10.0.0.9", "rem_sysname": "a"}},
 ]
+# §4.1 (0.12): 6 groups of 1 or 2 hex digits separated by `:` are a MAC (net-snmp prints `0:c:29:a:b:c`); a group of 1 digit gets a leading 0
+cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0:c:29:a:b:c", "rem_sysname": "a"}, "out": {"rem_chassis_type": "macAddress", "rem_chassis": "00:0c:29:0a:0b:0c", "rem_sysname": "a"}})
+cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0:c:29:a:b", "rem_sysname": "a"}, "out": None})
 cases["local_port"] = [
     lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
     lp("no PORTS rows at all", [], {"loc_port_num": 1}, None, "no_ports"),
@@ -275,10 +288,8 @@ def form_cases(table):
     for long_form, short_form in table:
         out.append({"in": "%s1/2" % long_form, "out": "%s1/2" % short_form})
         out.append({"in": "%s1/2" % long_form.upper(), "out": "%s1/2" % short_form})
-        if long_form.isalpha():          # white space is removed only between LETTERS and the first digit (§4.6 step 3): "Port-channel 1" keeps its space
-            out.append({"in": "%s%s 1/2" % (long_form[0].upper(), long_form[1:]), "out": "%s1/2" % short_form})
-        else:
-            out.append({"in": "%s 1/2" % long_form, "out": "%s 1/2" % long_form})
+        # white space is removed between the leading letters and hyphens and the first digit (§4.6 step 3, 0.12): "Port-channel 1" is "po1/2"-style too
+        out.append({"in": "%s%s 1/2" % (long_form[0].upper(), long_form[1:]), "out": "%s1/2" % short_form})
         out.append({"in": "%s-1" % long_form, "out": "%s-1" % long_form})
         out.append({"in": long_form, "out": long_form})
     return out

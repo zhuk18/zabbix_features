@@ -75,6 +75,22 @@
    "out": "a"
   },
   {
+   "in": "\"\"a\"\"",
+   "out": "a"
+  },
+  {
+   "in": "\"a\u0000\"",
+   "out": "a"
+  },
+  {
+   "in": "“\"a\"”",
+   "out": "a"
+  },
+  {
+   "in": "' \"a\" '",
+   "out": "a"
+  },
+  {
    "in": "a  b",
    "out": "a  b"
   },
@@ -116,11 +132,11 @@
   },
   {
    "in": "\"'x'\"",
-   "out": "'x'"
+   "out": "x"
   },
   {
    "in": "\"\"x\"\"",
-   "out": "\"x\""
+   "out": "x"
   },
   {
    "in": "“GigabitEthernet1/0/1”",
@@ -151,6 +167,18 @@
   {
    "in": "gi0/0/1",
    "out": "gi0/0/1"
+  },
+  {
+   "in": "Port-channel 1",
+   "out": "po1"
+  },
+  {
+   "in": "port-channel  10",
+   "out": "po10"
+  },
+  {
+   "in": "Eth-Trunk 1",
+   "out": "eth-trunk1"
   },
   {
    "in": "GE0/0/1",
@@ -493,8 +521,8 @@
    "out": "po1/2"
   },
   {
-   "in": "port-channel 1/2",
-   "out": "port-channel 1/2"
+   "in": "Port-channel 1/2",
+   "out": "po1/2"
   },
   {
    "in": "port-channel-1",
@@ -1207,6 +1235,26 @@
     "rem_chassis": "10.0.0.9",
     "rem_sysname": "a"
    }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0:c:29:a:b:c",
+    "rem_sysname": "a"
+   },
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "00:0c:29:0a:0b:0c",
+    "rem_sysname": "a"
+   }
+  },
+  {
+   "in": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0:c:29:a:b",
+    "rem_sysname": "a"
+   },
+   "out": null
   }
  ],
  "local_port": [

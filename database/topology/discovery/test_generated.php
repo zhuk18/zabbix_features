@@ -59,12 +59,8 @@ $known_hit = [];
 
 /** Known findings (questions of report 060): property key => the question. */
 $known = [
-	'mac.near' => '060 Q1: one-digit octets are read as a MAC',
-	'mac.near_key' => '060 Q1: one-digit octets are read as a MAC',
-	'clean.stable' => '060 Q2: one pair of quotes is removed per pass',
-	'key.stable' => '060 Q2: one pair of quotes is removed per pass',
-	'row.stable' => '060 Q2: one pair of quotes is removed per pass',
-	'forms.table' => '060 Q3: a long form with a hyphen and a space',
+	'mac.near' => '063 Q: mixed separators and one-digit groups with a dash are read as a MAC',
+	'mac.near_key' => '063 Q: mixed separators and one-digit groups with a dash are read as a MAC',
 ];
 
 function check(bool $ok, string $what, $detail = null, ?string $key = null): void {
@@ -553,7 +549,9 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use ($step, $push, 
 		$near[] = ['cisco 2 groups', substr(implode('', array_slice($h, 0, 4)), 0, 4).'.'.substr(implode('', array_slice($h, 0, 4)), 4, 4)];
 		$near[] = ['cisco 4 groups', implode('.', str_split(bin2hex(random_bytes_seeded(8)), 4))];
 		$near[] = ['non hex', 'gg:'.implode(':', array_slice($h, 1, 5))];
-		$near[] = ['single digit octets', implode(':', array_map(static fn (string $o): string => ltrim($o, '0') === '' ? '0' : substr(ltrim($o, '0'), 0, 1), array_slice($h, 0, 6)))];
+		// 6 groups of 1 or 2 hex digits separated by ':' are a MAC (0.12): accepted, with a leading 0 for a group of one digit
+		$mixed = array_map(static fn (string $o): string => mt_rand(0, 1) && $o[0] === '0' ? $o[1] : $o, array_slice($h, 0, 6));
+		$accepted[] = [implode(':', $mixed), implode(':', array_slice($h, 0, 6))];
 	}
 	$bad_form = $bad_stable = $bad_key = $crash = $bad_near = $bad_near_key = [];
 	foreach ($accepted as [$text, $normal]) {

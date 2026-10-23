@@ -37,26 +37,30 @@ class TopologyNormalize {
 		return $text;
 	}
 
-	/** §4.5 steps 2-4: trailing NUL characters, white space, one pair of surrounding quotes (".." '..' U+201C U+201D), white space; null = no value */
+	/** §4.5 steps 2-4, repeated until the value does not change (step 5, 0.12): trailing NUL characters, white space, one pair of surrounding quotes (".." '..' U+201C U+201D), white space; null = no value */
 	public static function clean(string $value): ?string {
-		$value = trim(rtrim($value, "\0"), self::WHITE);
-		foreach ([['"', '"'], ["'", "'"], ["\u{201C}", "\u{201D}"]] as [$left, $right]) {
-			if (strlen($value) >= strlen($left) + strlen($right) && str_starts_with($value, $left) && str_ends_with($value, $right)) {
-				$value = trim(substr($value, strlen($left), strlen($value) - strlen($left) - strlen($right)), self::WHITE);
-				break;
+		do {
+			$before = $value;
+			$value = trim(rtrim($value, "\0"), self::WHITE);
+			foreach ([['"', '"'], ["'", "'"], ["\u{201C}", "\u{201D}"]] as [$left, $right]) {
+				if (strlen($value) >= strlen($left) + strlen($right) && str_starts_with($value, $left) && str_ends_with($value, $right)) {
+					$value = trim(substr($value, strlen($left), strlen($value) - strlen($left) - strlen($right)), self::WHITE);
+					break;
+				}
 			}
-		}
+		} while ($value !== $before);
+
 		return $value === '' ? null : $value;
 	}
 
-	/** §4.6: clean, ASCII lower case, no white space between the leading letters and the first digit, a long form of the table replaced by its short form when a digit follows */
+	/** §4.6: clean, ASCII lower case, no white space between the leading letters and hyphens and the first digit, a long form of the table replaced by its short form when a digit follows */
 	public static function nameKey(string $value): ?string {
 		$key = self::clean($value);
 		if ($key === null) {
 			return null;
 		}
 		$key = strtr($key, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
-		$key = preg_replace('/^([a-z]+)[ \t\n\x0B\f\r]+(?=[0-9])/', '$1', $key);
+		$key = preg_replace('/^([a-z-]+)[ \t\n\x0B\f\r]+(?=[0-9])/', '$1', $key);
 		foreach (TOPO_PORT_NAME_FORMS as [$long, $short]) {
 			$next = $key[strlen($long)] ?? '';
 			if (str_starts_with($key, $long) && $next !== '' && $next >= '0' && $next <= '9') {
