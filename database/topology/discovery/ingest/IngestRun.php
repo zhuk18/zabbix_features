@@ -29,6 +29,9 @@ class IngestRun {
 	/** the link candidates of all the reporters of the run, and their NEIGHBORS snapshots: IngestObserve fills them in pass B, IngestLinks resolves them (§6.8) */
 	public array $link_candidates = [];
 	public array $neighbor_snapshots = [];
+	/** a reporter with a failed step is failed for the rest of the run (§6.8): hostid => true; the itemids of its NEIGHBORS snapshots whose links are held */
+	public array $failed_hosts = [];
+	public array $frozen_itemids = [];
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 
@@ -44,6 +47,7 @@ class IngestRun {
 	public IngestFarPort $farport;
 	public IngestLinks $links;
 	public IngestObserve $observe;
+	public IngestSelf $own;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;
