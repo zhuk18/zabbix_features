@@ -52,6 +52,7 @@ require_once __DIR__.'/../topology_contradiction.inc.php';
 require_once __DIR__.'/ingest/TopologyNormalize.php';          // the step Normalize (model §6.0)
 require_once __DIR__.'/ingest/IngestRun.php';                  // the state of a run, the step modules
 require_once __DIR__.'/ingest/IngestKeys.php';
+require_once __DIR__.'/ingest/IngestStore.php';
 require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyAddress.php';      // the decoder of the addresses of a neighbor (§4.3, §4.4), shared with the side panel
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
@@ -155,6 +156,7 @@ $q_key = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? '"key"' : '`key
 // the state of the run and the step modules (ingest/): what the closures shared is a property of $run
 $run = new IngestRun($pdo, $now, $q_key);
 $run->keys = new IngestKeys($run);
+$run->store = new IngestStore($run);
 // the state of the run is bound BEFORE any closure captures it by reference: the closures, the modules and the frame write the same arrays
 $summary = &$run->summary;
 $segment_of = [$run->keys, 'segmentOf'];
@@ -226,21 +228,17 @@ $resolve_device = static function (array $identity, bool $for_reporter = false, 
 	return null;
 };
 
-$find_port = static function (int $device_id, int $if_index) use ($pdo): ?int {
-	$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
-		" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
-	$stmt->execute([$device_id, $if_index]);
-	$row = $stmt->fetch(PDO::FETCH_ASSOC);
-	return $row ? (int) $row['id'] : null;
-};
+$find_port = [$run->store, 'findPort'];
 
 $insert_node = $pdo->prepare('INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES (?, ?, ?, ?)');
+$run->insert_node = $insert_node;
 $insert_port_node = $pdo->prepare('INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
+$run->insert_port_node = $insert_port_node;
 $update_node = $pdo->prepare('UPDATE topo_nodes SET attrs = ?, updated_at = ? WHERE id = ?');
+$run->update_node = $update_node;
 $insert_edge = $pdo->prepare('INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) VALUES (?, ?, ?, ?, ?)');
-$last_insert_id = static function () use ($pdo): int {
-	return (int) $pdo->lastInsertId($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? 'topo_nodes_id_seq' : null);
-};
+$run->insert_edge = $insert_edge;
+$last_insert_id = [$run->store, 'lastInsertId'];
 
 // topology-1-model.md "Far Device" (§6.7.1, 2.47): a Device is found by its chassis key, or (a claim without a chassis) by the match of a port; there is no matched_by.
 // $summary tallies create-vs-update counts for the /topo/ingest/status endpoint (topology-1-model.md "Run summary"). Just counting,
@@ -288,49 +286,9 @@ $pseudo_note = static function (string $outcome, int $device_id, int $port_id, s
 	$seen[$port_id] = ['outcome' => $outcome, 'index' => $index];
 };
 
-// Byte-for-byte mirror of CTopologyPrototype::promote()'s 1:1-guard + write, called only from
-// $associate_hosts_by_mac() below with matched_by='mac' (never 'manual' — manual promotion is the separate
-// /promote endpoint's job (topology-1-model.md "`represented_by` (Device → Host or Proxy)"), not ingest's) and from the reporter_self call in the main loop below
-// with matched_by='reporter_self'. topology-1-model.md "`represented_by` (Device → Host or Proxy)": represented_by is stored as three columns directly on
-// the Device's own topo_nodes row, not a topo_edges row — matched_mac is deliberately not accepted or
-// stored here (no consumer in the new column-based model, per the spec addendum).
-$promote = static function (int $device_id, int $target_nodeid, string $matched_by) use ($pdo, $now): bool {
-	$represented = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_node_id IS NOT NULL");
-	$represented->execute([$device_id]);
-	if ($represented->fetch()) {
-		return false; // this Device is already represented — not an error, just no match (1:1, topology-1-model.md "`represented_by` (Device → Host or Proxy)").
-	}
-	$represented_target = $pdo->prepare(
-		"SELECT 1 FROM topo_nodes WHERE type = 'device' AND represented_by_node_id = ?");
-	$represented_target->execute([$target_nodeid]);
-	if ($represented_target->fetch()) {
-		return false; // this Host/Proxy is already represented by some other Device.
-	}
-	$pdo->prepare(
-		"UPDATE topo_nodes SET represented_by_node_id = ?, represented_by_matched_by = ?, represented_by_at = ?".
-		" WHERE id = ? AND type = 'device'"
-	)->execute([$target_nodeid, $matched_by, $now, $device_id]);
-	return true;
-};
+$promote = [$run->store, 'promote'];
 
-// topology-1-model.md "`represented_by` (Device → Host or Proxy)", "Reporter identity (`reporter_self`)": find-or-create the Host pointer node for a reporter's own hostid, scoped to the new
-// deterministic reporter-self-link path only (see the $promote() call in the main loop below) — NOT used
-// by the inventory MAC match ($associate_hosts_by_mac), which creates the Host node itself on a match. Mirrors
-// CTopologyPrototype::upsertPointerNode() (ui/include/classes/topology/CTopologyPrototype.php ~line 709):
-// look up topo_nodes by (type='host', host_ref=hostid), insert {type:'host', host_ref:hostid, attrs:'{}'}
-// if missing. This is the whole point of the reporter-self-link change: ingest already knows the exact
-// hostid with certainty (from the item.get call that located this reporter, topology-1-model.md "Reporters and usable snapshots"), so linking the
-// reporter's Device to its own Host does not depend on an inventory MAC.
-$find_or_create_host_node = static function (string $hostid) use ($pdo, $now, $last_insert_id): int {
-	$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'host' AND host_ref = ?");
-	$stmt->execute([$hostid]);
-	if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-		return (int) $row['id'];
-	}
-	$pdo->prepare('INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-		->execute(['host', $hostid, '{}', $now, $now]);
-	return $last_insert_id();
-};
+$find_or_create_host_node = [$run->store, 'findOrCreateHostNode'];
 
 // topology-1-model.md §10.2 "Automatic MAC match (Host only)": part of every run (full and partial), after pass B; there is no separate action. One batched read of the
 // inventory MACs (host_inventory.macaddress_a / macaddress_b of the monitored and not monitored hosts: what host.get with selectInventory returns; a run has no API
@@ -758,50 +716,11 @@ $summary += [
 	'device_level_reasons' => [],
 ];
 
-$snap_node_attrs = static function (int $node_id) use ($pdo): array {
-	$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
-	$stmt->execute([$node_id]);
-	$raw = $stmt->fetchColumn();
-	return $raw ? (json_decode($raw, true, 512, JSON_THROW_ON_ERROR) ?: []) : [];
-};
+$snap_node_attrs = [$run->store, 'nodeAttrs'];
 
-// Writes attrs only when they actually changed, so an idempotent re-run leaves updated_at alone too.
-$snap_write_attrs = static function (int $node_id, array $attrs, array $before) use ($update_node, $now): bool {
-	$sorted_attrs = $attrs;
-	$sorted_before = $before;
-	ksort($sorted_attrs);
-	ksort($sorted_before);
-	if ($sorted_attrs === $sorted_before) {
-		return false;
-	}
-	$update_node->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $now, $node_id]);
-	return true;
-};
+$snap_write_attrs = [$run->store, 'writeAttrs'];
 
-// topology-1-model.md "Relationships" (type validation): an edge's ends are checked on write. A physical_link joins two Ports, a
-// device_link goes from a Port to a Device; any other combination (and an unknown far_port_reason) is rejected, so
-// code that assumes "a physical link joins two ports" can never receive a device row.
-$validate_edge = static function (string $type, int $src_id, int $dst_id, ?array $attrs = null) use ($pdo): void {
-	$stmt = $pdo->prepare('SELECT id, type FROM topo_nodes WHERE id IN (?, ?)');
-	$stmt->execute([$src_id, $dst_id]);
-	$types = [];
-	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-		$types[(int) $row['id']] = $row['type'];
-	}
-	$want = ['physical_link' => ['port', 'port'], 'device_link' => ['port', 'device']][$type] ?? null;
-	if ($want === null) {
-		throw new InvalidArgumentException("unknown edge type '{$type}'");
-	}
-	if (($types[$src_id] ?? null) !== $want[0] || ($types[$dst_id] ?? null) !== $want[1]) {
-		throw new InvalidArgumentException("a {$type} joins a {$want[0]} to a {$want[1]}, got ".
-			($types[$src_id] ?? '?').' #'.$src_id.' -> '.($types[$dst_id] ?? '?').' #'.$dst_id);
-	}
-	if ($type === 'device_link' && $attrs !== null
-			&& !in_array($attrs['far_port_reason'] ?? null, TOPO_FAR_PORT_REASONS, true)) {
-		throw new InvalidArgumentException('a device_link needs a known far_port_reason, got '.
-			json_encode($attrs['far_port_reason'] ?? null));
-	}
-};
+$validate_edge = [$run->store, 'validateEdge'];
 
 // A Device whose own walk returned real ports must have no pseudo-Ports left. Run after the PORTS merge
 // ($merge_pseudo_port): a pseudo-Port that is still there stands for a port the Device does not have by that name (the
@@ -937,39 +856,7 @@ $snap_status = static function (?string $value): string {
 	return $value === '1' || $value === 'up' ? 'up' : 'down';
 };
 
-// Merge-upserts a Port by (device_id, if_index): only the attrs in $overlay are written, everything else the
-// row already carries (learned_macs from a LEARNED_MACS rule, a name from a PORTS rule, ...) is kept. $soft keys
-// are applied only when the port has no value for them yet (a NEIGHBORS row's if_name must not overwrite the
-// name a PORTS rule reported). The reporter's own side is always confirmed, never pseudo.
-$snap_port = static function (int $device_id, int $if_index, array $overlay = [], array $soft = []) use (
-	$pdo, $insert_port_node, $find_port, $snap_node_attrs, $snap_write_attrs, $now, $last_insert_id, &$summary
-): int {
-	$existing_id = $find_port($device_id, $if_index);
-	if ($existing_id !== null) {
-		$before = $snap_node_attrs($existing_id);
-		$attrs = $overlay + $before;
-		foreach ($soft as $key => $value) {
-			if ($value !== null && $value !== '' && ($before[$key] ?? '') === '') {
-				$attrs[$key] = $value;
-			}
-		}
-		$snap_write_attrs($existing_id, $attrs, $before);
-		return $existing_id;
-	}
-	$attrs = $overlay + [
-		'if_index' => $if_index, 'name' => '', 'if_type' => 'physical', 'mac' => null, 'speed' => null,
-		'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => [],
-		'pseudo' => false,
-	];
-	foreach ($soft as $key => $value) {
-		if ($value !== null && $value !== '' && ($attrs[$key] ?? '') === '') {
-			$attrs[$key] = $value;
-		}
-	}
-	$insert_port_node->execute(['port', $device_id, json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
-	$summary['ports_created']++;
-	return $last_insert_id();
-};
+$snap_port = [$run->store, 'port'];
 
 // topology-1-model.md §6.7.5 "Duplicate candidates": evidence of two Devices that may be one, collected in the collect phase and written to
 // attrs.duplicate_candidates at the end of every FULL run (a partial run leaves the list alone). [device id on which it is shown => key => entry].
@@ -1173,57 +1060,9 @@ $snap_device_link = static function (int $port_id, int $device_id, string $sourc
 	return $last_insert_id();
 };
 
-// A device-level sighting that confirms an existing PORT-level link at lower precision (topology-1-model.md "Lost precision", any
-// cause): the link stays a physical_link, last_seen_* advances, last_seen_port does not. A row without last_seen_port
-// is pinned to its last_seen first, so the "not confirmed since" flag has a date; no rule reads last_seen_port.
-$snap_link_confirm_lower = static function (int $edge_id, int $reporter_port_id, int $seen_at) use ($pdo): void {
-	$stmt = $pdo->prepare('SELECT src_id, dst_id, attrs FROM topo_edges WHERE id = ?');
-	$stmt->execute([$edge_id]);
-	if (!($row = $stmt->fetch(PDO::FETCH_ASSOC))) {
-		return;
-	}
-	$before = json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
-	$attrs = $before;
-	if (!array_key_exists('last_seen_port', $attrs)) {
-		$attrs['last_seen_port'] = (int) ($attrs['last_seen'] ?? 0);
-	}
-	$side = $reporter_port_id === (int) $row['src_id'] ? 'last_seen_src' : 'last_seen_dst';
-	$attrs[$side] = max((int) ($attrs[$side] ?? 0), $seen_at);
-	$attrs['last_seen'] = max((int) ($attrs['last_seen_src'] ?? 0), (int) ($attrs['last_seen_dst'] ?? 0));
-	if ($attrs !== $before) {
-		$pdo->prepare('UPDATE topo_edges SET attrs = ? WHERE id = ?')
-			->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $edge_id]);
-	}
-};
+$snap_link_confirm_lower = [$run->store, 'confirmLower'];
 
-// Physical links touching either port, other than the (a,b) pair itself, split by provenance. A manual link
-// on either port shadows the discovered observation (topology-1-model.md "Manual wins": manual wins, discovery never
-// deletes it); a different discovered link on the local port is the cable-move case (topology-1-model.md "Replacement of discovered links").
-$snap_other_links = static function (int $port_a, int $port_b) use ($pdo): array {
-	$stmt = $pdo->prepare(
-		"SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link'".
-		" AND (src_id IN (?, ?) OR dst_id IN (?, ?)) ORDER BY id");
-	$stmt->execute([$port_a, $port_b, $port_a, $port_b]);
-	$manual = [];
-	$discovered = [];
-	foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $edge) {
-		$pair = [(int) $edge['src_id'], (int) $edge['dst_id']];
-		sort($pair);
-		$wanted = [$port_a, $port_b];
-		sort($wanted);
-		if ($pair === $wanted) {
-			continue;
-		}
-		$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
-		if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
-			$manual[] = (int) $edge['id'];
-		}
-		elseif (in_array($port_a, $pair, true)) {
-			$discovered[] = (int) $edge['id'];
-		}
-	}
-	return ['manual' => $manual, 'discovered' => $discovered];
-};
+$snap_other_links = [$run->store, 'otherLinks'];
 
 // The reporter's own Device is represented by its own Host (topology-1-model.md "Reporter identity (`reporter_self`)"). $promote() itself is untouched.
 $snap_link_reporter_self = static function (int $device_id, string $hostid, string $host_label) use (
@@ -1244,41 +1083,7 @@ $snap_link_reporter_self = static function (int $device_id, string $hostid, stri
 	}
 };
 
-// Observation upsert keyed by (rule, local port, remote identity). first_seen survives while the observation
-// stays continuously present; last_seen is the snapshot clock. Nothing is written when nothing changed.
-$snap_observation = static function (int $itemid, int $local_port_id, string $remote_key, array $remote_attrs,
-		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at, ?string $precision = null,
-		?string $far_port_reason = null, bool $precision_lower = false) use ($pdo): int {
-	// remote_attrs holds only what the remote device advertised. How precisely the far end was identified is ours:
-	// link_precision ('port' / 'device', NULL when no link was made), far_port_reason (for 'device') and
-	// precision_lower (the observation confirms a port-level link only at device level).
-	$attrs_json = json_encode($remote_attrs, JSON_THROW_ON_ERROR);
-	$lower = $precision_lower ? 1 : 0;
-	$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, link_precision, far_port_reason,'.
-		' precision_lower, last_seen FROM topo_observations WHERE itemid = ? AND local_port_id = ? AND remote_key = ?');
-	$stmt->execute([$itemid, $local_port_id, $remote_key]);
-	if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-		$same = json_decode($row['remote_attrs'], true) === $remote_attrs && $row['outcome'] === $outcome
-			&& ($row['edge_id'] === null ? null : (int) $row['edge_id']) === $edge_id
-			&& ($row['device_id'] === null ? null : (int) $row['device_id']) === $device_id
-			&& $row['link_precision'] === $precision && $row['far_port_reason'] === $far_port_reason
-			&& (int) $row['precision_lower'] === $lower
-			&& (int) $row['last_seen'] === $seen_at;
-		if (!$same) {
-			$pdo->prepare('UPDATE topo_observations SET remote_attrs = ?, outcome = ?, edge_id = ?, device_id = ?,'.
-				' link_precision = ?, far_port_reason = ?, precision_lower = ?, last_seen = ? WHERE id = ?')
-				->execute([$attrs_json, $outcome, $edge_id, $device_id, $precision, $far_port_reason, $lower, $seen_at,
-					$row['id']]);
-		}
-		return (int) $row['id'];
-	}
-	$pdo->prepare('INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id,'.
-		' device_id, link_precision, far_port_reason, precision_lower, first_seen, last_seen)'.
-		' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-		->execute([$itemid, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $precision,
-			$far_port_reason, $lower, $seen_at, $seen_at]);
-	return (int) $pdo->lastInsertId();
-};
+$snap_observation = [$run->store, 'observation'];
 
 // remote_key: the strongest identity present, prefixed with its kind, so the same neighbor seen by the same
 // rule on the same port always maps to the same row.

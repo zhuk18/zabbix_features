@@ -19,7 +19,14 @@ class IngestRun {
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 
+	/** the prepared statements of topo_nodes and topo_edges */
+	public PDOStatement $insert_node;
+	public PDOStatement $insert_port_node;
+	public PDOStatement $update_node;
+	public PDOStatement $insert_edge;
+
 	public IngestKeys $keys;
+	public IngestStore $store;
 
 	public function __construct(PDO $pdo, int $now, string $q_key) {
 		$this->pdo = $pdo;
