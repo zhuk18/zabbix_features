@@ -140,6 +140,42 @@ def candidate_pairs(state, ids, reason):
     return len(pairs)
 
 
+def links_to_several(state, near, far, type_=None):
+    """Lab spec 8.3 (2.22), "Several Devices at the far end of a link": the near end is `Device:port` (one Device, one port) and the far end is a key that gives several
+    Devices. The links on the near port whose far Device is one of the Devices of the key (and, for `Device:port`, whose far port has that name). Returns None when the
+    exception does not apply (the near end has no port or gives not one Device, or the far key gives one Device or none): the caller uses find_links, where an ambiguous
+    key fails as before."""
+    near_key, near_port = split_end(near)
+    far_key, far_port = split_end(far)
+    if near_port is None or isinstance(far_key, dict):          # an explicit key keeps its rule: several Devices fail (2.10)
+        return None
+    try:
+        near_ids = resolve_device(state, near_key)
+    except LabError:
+        return None
+    if len(near_ids) != 1:
+        return None
+    far_ids = set(device_ids(state, far_key))
+    if len(far_ids) < 2:
+        return None
+    out = []
+    for l in state['links']:
+        if type_ and l['type'] != type_:
+            continue
+        for i in (0, 1):
+            if l['end_devices'][i] == near_ids[0] and l['end_ports'][i] == near_port and l['end_devices'][1 - i] in far_ids \
+                    and (far_port is None or l['end_ports'][1 - i] == far_port):
+                out.append(l)
+                break
+    return out
+
+
+def link_candidates(state, a, b, type_=None):
+    """The links of a `link` assertion: the exception of lab spec 8.3 (2.22) first, else find_links (an ambiguous key fails)."""
+    several = links_to_several(state, a, b, type_)
+    return several if several is not None else find_links(state, a, b, type_)
+
+
 def _end_matches(state, link, idx, ref, cache):
     key, port = split_end(ref)
     ck = (id(state), repr(key))
@@ -200,7 +236,7 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         return Result('pending', a, 'pending', a['pending'])
     if 'link' in a:
         x, y = a['link']
-        ls = find_links(state, x, y, a.get('type'))
+        ls = link_candidates(state, x, y, a.get('type'))
         if a.get('discovered_via'):
             ls = [l for l in ls if l['discovered_via'] == a['discovered_via']]
         if a.get('far_port_reason'):

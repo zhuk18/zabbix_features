@@ -74,10 +74,30 @@ class Ends(unittest.TestCase):
         self.assertEqual(link_status('SW1:1/1/4', {'device': '94:f3:92:df:07:70', 'port': 'eth0'}), 'fail')      # the other FAP has the other link
 
     def test_a_key_with_several_devices_is_ambiguous(self):
-        with self.assertRaisesRegex(LabError, 'ambiguous key FAP'):
-            link_status('SW1:1/1/2', 'FAP:eth0')
         with self.assertRaisesRegex(LabError, 'ambiguous key NA1'):
-            link_status('SW1', {'device': 'NA1'})
+            link_status('SW1', {'device': 'NA1'})                      # the near end has no port
+        with self.assertRaisesRegex(LabError, 'ambiguous key FAP'):
+            link_status('SW1', 'FAP')
+        with self.assertRaisesRegex(LabError, 'ambiguous key FAP'):
+            link_status('FAP:eth0', 'NA1')                             # the near end gives several Devices
+        with self.assertRaisesRegex(LabError, 'ambiguous key'):
+            link_status('FAP', 'NA1')                                  # both ends
+
+    def test_several_devices_at_the_far_end_of_a_link_on_a_near_port(self):
+        # lab spec 8.3 (2.22): the near end is Device:port, the far key gives several Devices: the link on the near port decides
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP'), 'pass')                           # the link goes to one of the two FAP
+        self.assertEqual(link_status('SW1:1/1/4', 'FAP'), 'pass')                           # ... to the other one
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP:eth0'), 'pass')                      # the far port has that name
+        self.assertEqual(link_status('SW1:1/1/2', {'device': 'FAP', 'port': 'eth0'}), 'pass')
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP:eth9'), 'fail')                      # a wrong far port name
+        self.assertEqual(link_status('SW1:1/1/1', 'FAP'), 'fail')                           # the link on that port goes to a Device of another key (NA1)
+        self.assertEqual(link_status('SW1:1/1/9', 'FAP'), 'fail')                           # no link on that port
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP', state='absent'), 'fail')           # absent: there is an active link
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP', type='physical_link'), 'pass')
+        self.assertEqual(link_status('SW1:1/1/2', 'FAP', type='device_link'), 'fail')
+        # the exception is for the far end of a `link` and not for an explicit key
+        with self.assertRaisesRegex(LabError, 'ambiguous key'):
+            link_status('SW1:1/1/2', {'device': {'sysname': 'FAP'}, 'port': 'eth0'})
 
     def test_no_device_is_no_link(self):
         self.assertEqual(link_status('SW1', 'NOBODY'), 'fail')
