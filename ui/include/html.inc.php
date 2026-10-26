@@ -1214,15 +1214,13 @@ function makeTopologyTypeFormRows(int $topology_type, bool $readonly): array {
 			->addClass($type_value == $topology_type ? null : ZBX_STYLE_DISPLAY_NONE)
 			->setAttribute('data-topology-type', $type_value);
 
-		// LLD spec 2.6: under the topology type field for the topology types that refuse the throttling step
-		if (CTopologyType::getDiscardRefusal((int) $type_value) !== null) {
-			$hints[] = (new CDiv(_('Do not use "Discard unchanged" preprocessing: every value confirms the topology data.')))
-				->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
-				->addClass(ZBX_STYLE_GREY)
-				->addClass('js-topology-type-hint')
-				->addClass($type_value == $topology_type ? null : ZBX_STYLE_DISPLAY_NONE)
-				->setAttribute('data-topology-type', $type_value);
-		}
+		// LLD spec 2.6 (2.10): under the topology type field, for every topology type other than None; a note, it blocks nothing
+		$hints[] = (new CDiv(_('With "Discard unchanged with heartbeat", the time when topology data was last seen is accurate only to the heartbeat.')))
+			->addStyle('max-width: '.ZBX_TEXTAREA_STANDARD_WIDTH.'px; white-space: normal;')
+			->addClass(ZBX_STYLE_GREY)
+			->addClass('js-topology-type-hint')
+			->addClass($type_value == $topology_type ? null : ZBX_STYLE_DISPLAY_NONE)
+			->setAttribute('data-topology-type', $type_value);
 	}
 
 	$note_class = $topology_type == ZBX_TOPOLOGY_TYPE_NONE ? ZBX_STYLE_DISPLAY_NONE : null;
