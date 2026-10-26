@@ -402,7 +402,6 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 		self::checkLifetimeFields($items);
 		self::checkHostInterfaces($items);
 		self::checkDependentItems($items);
-		self::checkTopologyPreprocessing($items);
 		CConditionHelper::checkFilterFormula($items);
 		self::checkOverridesFilterFormula($items);
 		self::checkOverridesOperationTemplates($items);
@@ -573,7 +572,6 @@ class CDiscoveryRulePrototype extends CDiscoveryRuleGeneral {
 		self::checkLifetimeFields($items);
 		self::checkHostInterfaces($items, $db_items);
 		self::checkDependentItems($items, $db_items);
-		self::checkTopologyPreprocessing($items, $db_items);
 		CConditionHelper::checkFilterFormula($items);
 		self::checkOverridesFilterFormula($items);
 		self::checkOverridesOperationTemplates($items);

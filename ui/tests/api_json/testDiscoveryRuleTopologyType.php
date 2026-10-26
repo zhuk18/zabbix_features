@@ -381,20 +381,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		$this->call('discoveryrule.update', ['itemid' => $rules[0]['itemid'], 'topology_type' => ZBX_TOPOLOGY_TYPE_LAG]);
 	}
 
-	/**
-	 * Topology types that refuse "Discard unchanged with heartbeat": topology type => the text of the refusal (LLD spec 2.3). PORTS accepts it (FR-B D-23).
-	 */
-	private const DISCARD_REFUSED = [
-		ZBX_TOPOLOGY_TYPE_NEIGHBORS => ['Neighbors', 'every value must confirm the neighbors'],
-		ZBX_TOPOLOGY_TYPE_LEARNED_MACS => ['Learned MACs', 'every value must confirm the learned MACs'],
-		ZBX_TOPOLOGY_TYPE_LAG => ['LAG membership', 'every value must confirm the LAG membership']
-	];
-
-	private static function discardError(int $topology_type, string $path): string {
-		[$name, $reason] = self::DISCARD_REFUSED[$topology_type];
-
-		return 'Invalid parameter "'.$path.'": "Discard unchanged" is not allowed for the topology type "'.$name.'": '.$reason.'.';
-	}
+	private const TOPOLOGY_TYPES = [ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG];
 
 	private static function heartbeatStep(): array {
 		return [
@@ -412,24 +399,23 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		])['templateids'][0];
 	}
 
+	private function stepTypes(string $itemid): array {
+		return array_map('intval', CDBHelper::getColumn('SELECT type FROM item_preproc WHERE itemid='.zbx_dbstr($itemid), 'type'));
+	}
+
 	/**
-	 * "Discard unchanged with heartbeat" stops the snapshot clock, so a rule with the topology type Neighbors, Learned MACs or LAG membership must not have it;
-	 * a Ports rule may. The check runs on the resulting state, in every direction: create, topology type change, preprocessing change.
+	 * "Discard unchanged with heartbeat" is accepted on a rule of every topology type (LLD spec 2.10, FR-B D-23): the snapshot clock is then accurate only to the
+	 * heartbeat, which is the user's choice. Create, in every direction of update (topology type, preprocessing, both), prototypes and template linking.
 	 */
 	public function testDiscoveryRuleTopologyType_DiscardUnchangedCreate(): void {
 		$hostid = $this->createDiscardTemplate('discard create');
 
-		foreach ([ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG] as $topology_type) {
-			$rule = ['hostid' => $hostid, 'name' => 'Discard '.$topology_type, 'key_' => 'topo.discard.create'.$topology_type, 'type' => ITEM_TYPE_TRAPPER,
-				'topology_type' => $topology_type, 'preprocessing' => [self::heartbeatStep()]
-			];
+		foreach (self::TOPOLOGY_TYPES as $topology_type) {
+			$id = $this->call('discoveryrule.create', ['hostid' => $hostid, 'name' => 'Discard '.$topology_type, 'key_' => 'topo.discard.create'.$topology_type,
+				'type' => ITEM_TYPE_TRAPPER, 'topology_type' => $topology_type, 'preprocessing' => [self::heartbeatStep()]
+			])['result']['itemids'][0];
 
-			if (array_key_exists($topology_type, self::DISCARD_REFUSED)) {
-				$this->call('discoveryrule.create', $rule, self::discardError($topology_type, '/1/preprocessing'));
-			}
-			else {
-				$this->call('discoveryrule.create', $rule);		// Ports keeps the step
-			}
+			$this->assertSame([ZBX_PREPROC_THROTTLE_TIMED_VALUE], $this->stepTypes($id), 'the step is stored, topology type '.$topology_type);
 		}
 
 		// Without a topology type the step stays available.
@@ -441,7 +427,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 	public function testDiscoveryRuleTopologyType_DiscardUnchangedUpdate(): void {
 		$hostid = $this->createDiscardTemplate('discard update');
 
-		foreach (self::DISCARD_REFUSED as $topology_type => $text) {
+		foreach (self::TOPOLOGY_TYPES as $topology_type) {
 			$with_step = $this->call('discoveryrule.create', [
 				'hostid' => $hostid, 'name' => 'Has step '.$topology_type, 'key_' => 'topo.discard.step'.$topology_type, 'type' => ITEM_TYPE_TRAPPER,
 				'preprocessing' => [self::heartbeatStep()]
@@ -451,28 +437,16 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 				'topology_type' => $topology_type
 			])['result']['itemids'][0];
 
-			// The step is already stored; only the topology type arrives: a refusing topology type fails, Ports does not.
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => $topology_type], self::discardError($topology_type, '/1/topology_type'));
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => ZBX_TOPOLOGY_TYPE_PORTS]);
+			// The step is stored, only the topology type arrives; and the other way round.
+			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => $topology_type]);
+			$this->call('discoveryrule.update', ['itemid' => $with_type, 'preprocessing' => [self::heartbeatStep()]]);
+			$this->assertSame([ZBX_PREPROC_THROTTLE_TIMED_VALUE], $this->stepTypes($with_step));
+			$this->assertSame([ZBX_PREPROC_THROTTLE_TIMED_VALUE], $this->stepTypes($with_type));
 
-			// The topology type is already stored; only the step arrives.
-			$this->call('discoveryrule.update', ['itemid' => $with_type, 'preprocessing' => [self::heartbeatStep()]],
-				self::discardError($topology_type, '/1/preprocessing')
-			);
-
-			// Unrelated updates of a rule that is valid stay possible.
+			// Both in one call, a change of the topology type with the step present, and an unrelated update.
+			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => ZBX_TOPOLOGY_TYPE_NONE, 'preprocessing' => [self::heartbeatStep()]]);
+			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => $topology_type, 'preprocessing' => [self::heartbeatStep()]]);
 			$this->call('discoveryrule.update', ['itemid' => $with_type, 'description' => 'still fine']);
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'description' => 'still fine']);
-
-			// Removing the topology type and setting the step, or removing the step and setting the topology type, in one call is valid.
-			$this->call('discoveryrule.update', [
-				'itemid' => $with_type, 'topology_type' => ZBX_TOPOLOGY_TYPE_NONE, 'preprocessing' => [self::heartbeatStep()]
-			]);
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => $topology_type, 'preprocessing' => []]);
-
-			// A topology type change with the step present: Ports to a refusing topology type fails.
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => ZBX_TOPOLOGY_TYPE_PORTS, 'preprocessing' => [self::heartbeatStep()]]);
-			$this->call('discoveryrule.update', ['itemid' => $with_step, 'topology_type' => $topology_type], self::discardError($topology_type, '/1/topology_type'));
 		}
 	}
 
@@ -484,56 +458,37 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		])['result']['itemids'][0];
 		$prototype = ['hostid' => $hostid, 'ruleid' => $parent, 'type' => ITEM_TYPE_TRAPPER];
 
-		foreach ([ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG] as $topology_type) {
-			$create = $prototype + [
+		foreach (self::TOPOLOGY_TYPES as $topology_type) {
+			$this->call('discoveryruleprototype.create', $prototype + [
 				'name' => 'Proto '.$topology_type.' {#N}', 'key_' => 'topo.discard.proto'.$topology_type.'[{#N}]',
 				'topology_type' => $topology_type, 'preprocessing' => [self::heartbeatStep()]
-			];
-
-			if (array_key_exists($topology_type, self::DISCARD_REFUSED)) {
-				$this->call('discoveryruleprototype.create', $create, self::discardError($topology_type, '/1/preprocessing'));
-			}
-			else {
-				$this->call('discoveryruleprototype.create', $create);
-			}
+			]);
 
 			$plain = $this->call('discoveryruleprototype.create', $prototype + [
 				'name' => 'Proto plain '.$topology_type.' {#N}', 'key_' => 'topo.discard.plain'.$topology_type.'[{#N}]',
 				'preprocessing' => [self::heartbeatStep()]
 			])['result']['itemids'][0];
 
-			if (array_key_exists($topology_type, self::DISCARD_REFUSED)) {
-				$this->call('discoveryruleprototype.update', ['itemid' => $plain, 'topology_type' => $topology_type],
-					self::discardError($topology_type, '/1/topology_type')
-				);
-			}
-			else {
-				$this->call('discoveryruleprototype.update', ['itemid' => $plain, 'topology_type' => $topology_type]);
-			}
+			$this->call('discoveryruleprototype.update', ['itemid' => $plain, 'topology_type' => $topology_type]);
 		}
 	}
 
 	/**
-	 * Linking goes through the inheritance code, not through validateCreate/validateUpdate. Template linking overwrites the host rule's preprocessing
-	 * with the template's, so the template-level check covers inherited rules: the host rule ends with the template's steps, and a refusing topology type never
-	 * ends together with the step.
+	 * Linking goes through the inheritance code, not through validateCreate/validateUpdate. A template rule of each topology type with the step, linked to a
+	 * host: the host rule has the topology type and keeps the step of the template.
 	 */
 	public function testDiscoveryRuleTopologyType_DiscardUnchangedOnLink(): void {
-		foreach ([ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG] as $topology_type) {
+		foreach (self::TOPOLOGY_TYPES as $topology_type) {
 			$templateid = $this->createDiscardTemplate('discard link template '.$topology_type);
 			$this->call('discoveryrule.create', [
 				'hostid' => $templateid, 'name' => 'Linked', 'key_' => 'topo.discard.link', 'type' => ITEM_TYPE_TRAPPER,
-				'topology_type' => $topology_type
+				'topology_type' => $topology_type, 'preprocessing' => [self::heartbeatStep()]
 			]);
 
 			$hostid = $this->call('host.create', [
 				'host' => 'API topology type discard link host '.$topology_type,
 				'groups' => [['groupid' => self::$ids['groupid']]]
 			])['result']['hostids'][0];
-			$this->call('discoveryrule.create', [
-				'hostid' => $hostid, 'name' => 'Linked', 'key_' => 'topo.discard.link', 'type' => ITEM_TYPE_TRAPPER,
-				'preprocessing' => [self::heartbeatStep()]
-			]);
 
 			$this->call('host.update', ['hostid' => $hostid, 'templates' => [['templateid' => $templateid]]]);
 
@@ -543,14 +498,9 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 				'filter' => ['key_' => 'topo.discard.link']
 			])['result'][0];
 
-			$steps = CDBHelper::getColumn(
-				'SELECT type FROM item_preproc WHERE itemid='.zbx_dbstr($rule['itemid']), 'type'
-			);
-
 			$this->assertEquals($topology_type, $rule['topology_type']);
-			$this->assertFalse(array_key_exists($topology_type, self::DISCARD_REFUSED)
-					&& array_intersect($steps, [ZBX_PREPROC_THROTTLE_VALUE, ZBX_PREPROC_THROTTLE_TIMED_VALUE]) !== [],
-				'A linked rule ended up with the topology type '.$topology_type.' and a "Discard unchanged" step.'
+			$this->assertSame([ZBX_PREPROC_THROTTLE_TIMED_VALUE], $this->stepTypes($rule['itemid']),
+				'the linked rule keeps the step of the template, topology type '.$topology_type
 			);
 		}
 	}

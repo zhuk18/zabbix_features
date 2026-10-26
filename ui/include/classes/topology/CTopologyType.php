@@ -88,23 +88,6 @@ class CTopologyType {
 		];
 	}
 
-	/**
-	 * Why "Discard unchanged with heartbeat" is refused for a topology type, or null when the topology type accepts it (LLD spec 2.3). PORTS accepts it: the PORTS snapshot
-	 * clock is not used for link freshness (FR-B D-23). For the other topology types every value confirms the topology data.
-	 */
-	public static function getDiscardRefusal(int $topology_type): ?string {
-		switch ($topology_type) {
-			case ZBX_TOPOLOGY_TYPE_NEIGHBORS:
-				return _('every value must confirm the neighbors');
-			case ZBX_TOPOLOGY_TYPE_LEARNED_MACS:
-				return _('every value must confirm the learned MACs');
-			case ZBX_TOPOLOGY_TYPE_LAG:
-				return _('every value must confirm the LAG membership');
-		}
-
-		return null;
-	}
-
 	public static function getLabel(int $topology_type): string {
 		return self::getLabels()[$topology_type] ?? _('Unknown');
 	}
