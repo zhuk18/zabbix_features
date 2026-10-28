@@ -150,6 +150,28 @@ foreach ([['', 'error'], ['bogus', 'error'], ['ports', 'sometimes'], ['fdb', 'em
 	check(!$r['ok'] && str_contains($r['text'], 'invalid'), 'invalid parameters '.json_encode($args).' -> error', $r['text']);
 }
 
+echo "\n=== lldp anchor and index (LLD spec 2.11 §4.4, §4.5, §6.2; corpus F13, F14): the synthetic walks of fixtures/ ===\n";
+$lldp_walk = static fn (string $name): string => (string) file_get_contents(__DIR__.'/fixtures/synthetic-lldp-'.$name.'.walk');
+foreach (['error', 'empty'] as $mode) {
+	$r = step($lldp_walk('noloc'), 'lldp', $mode);
+	check($r['ok'] && count($r['rows']) === 2 && !array_key_exists('{#LOC_PORT_ID}', $r['rows'][0]) && !array_key_exists('{#LOC_PORT_ID_TYPE}', $r['rows'][0])
+		&& !array_key_exists('{#LOC_PORT_DESC}', $r['rows'][1]) && array_column($r['rows'], '{#LOC_PORT_NUM}') === ['1', '2'],
+		"lldp: lldpRemTable without lldpLocPortTable gives two rows with {#LOC_PORT_NUM} only, not a missing MIB (missing_mib={$mode}, F13)", $r['text']);
+}
+$r = step($lldp_walk('nolldp'), 'lldp', 'error');
+check(!$r['ok'] && str_contains($r['text'], 'lldpLocPortTable or lldpRemTable'), 'lldp: neither lldpLocPortTable nor lldpRemTable: missing MIB (error)', $r['text']);
+$r = step($lldp_walk('nolldp'), 'lldp', 'empty');
+check($r['ok'] && $r['rows'] === [], 'lldp: neither table, missing_mib=empty: []', $r['text']);
+foreach (['badindex' => '1- and 2-part index', 'fourpart' => '4-part index'] as $name => $what) {
+	$r = step($lldp_walk($name), 'lldp', 'error');
+	check($r['ok'] && array_column($r['rows'], '{#LOC_PORT_NUM}') === (['badindex' => ['7', '8'], 'fourpart' => ['7']][$name])
+		&& !str_contains($r['text'], 'one-part') && !str_contains($r['text'], 'two-part') && !str_contains($r['text'], 'four-part'),
+		"lldp: a row with a {$what} is dropped, the other rows are emitted (F14)", $r['text']);
+}
+$r = step($lldp_walk('port0'), 'lldp', 'error');
+check($r['ok'] && array_column($r['rows'], '{#LOC_PORT_NUM}') === ['0', '1'] && $r['rows'][0]['{#REM_SYSNAME}'] === 'peer-zero',
+	'lldp: LocalPortNum 0 is emitted as it is', $r['text']);
+
 echo "\n=== decoding (decoding_cases.json, also run through push.py; the step extracts, ingest decides) ===\n";
 foreach (json_decode((string) file_get_contents(__DIR__.'/decoding_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
 	$r = step($case['walk'], $case['source'], 'error');

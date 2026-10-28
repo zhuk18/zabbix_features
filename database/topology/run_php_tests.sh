@@ -109,6 +109,12 @@ fi
 if (cd "$here/discovery/step_golden" && ./build.sh >/tmp/topo_t_step_build.log 2>&1); then
 	exec_test discovery/step_golden/compare.php /tmp/topo_t_step_compare.log php "$here/discovery/step_golden/compare.php"
 	exec_test discovery/step_golden/edge_cases.php /tmp/topo_t_step_edge.log php "$here/discovery/step_golden/edge_cases.php"
+	# the YAML cases of the step (tests/libs/zbxpreproc/zbx_item_preproc.yaml) through the driver: the C framework needs cmocka and libyaml (handoff 071)
+	if [ -x "$labpy" ]; then
+		exec_test discovery/step_golden/check_yaml_cases.py /tmp/topo_t_step_yaml.log "$labpy" "$here/discovery/step_golden/check_yaml_cases.py"
+	else
+		skip discovery/step_golden/check_yaml_cases.py "no python with PyYAML at $labpy (LABPY)"
+	fi
 	# generated values through the native step, push.py and ingest (handoff 060)
 	fresh topo_t_generated
 	php_test topo_t_generated discovery/test_generated.php

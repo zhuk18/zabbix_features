@@ -1,0 +1,11 @@
+[
+    {
+        "{#LOC_PORT_ID_TYPE}": "interfaceName",
+        "{#LOC_PORT_ID}": "Gi0/7",
+        "{#LOC_PORT_NUM}": "7",
+        "{#REM_CHASSIS}": "aa:bb:cc:00:00:07",
+        "{#REM_PORT}": "Te1/0/1",
+        "{#REM_SYSNAME}": "peer-seven",
+        "{#SOURCE}": "lldp"
+    }
+]

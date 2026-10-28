@@ -839,7 +839,9 @@ static char	*lldp_man_addrs(const topo_table_t *man_addr, const char *suffix)
 }
 
 /* One row per lldpRemTable entry (index TimeMark.LocalPortNum.RemIndex). The local port is NOT resolved here (model §6.7.6): the row carries the
- * LocalPortNum and the local port id, its subtype and description from lldpLocPortTable. Nothing is dropped. */
+ * LocalPortNum and, when the walk holds lldpLocPortTable, the local port id, its subtype and description (without the table: LocalPortNum only; LLD spec
+ * 2.11, corpus F13). LocalPortNum 0 is emitted as it is. The one drop (LLD spec §4.5, corpus F14): an index that is not exactly the three parts
+ * TimeMark.LocalPortNum.RemIndex has no LocalPortNum to trust and is not guessed. */
 static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *chassis, const char *chassis_type,
 		zbx_vector_topo_row_ptr_t *rows)
 {
@@ -891,8 +893,8 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		for (const char *p = suffix; '\0' != *p; p++)
 			parts += ('.' == *p);
 
-		if (parts < 3)
-			continue;	/* not a TimeMark.LocalPortNum.RemIndex index */
+		if (3 != parts)
+			continue;	/* not exactly TimeMark.LocalPortNum.RemIndex: dropped, the missing or extra parts are not guessed (LLD spec 2.11 §4.5, F14) */
 
 		second = strchr(suffix, '.') + 1;
 		port_num = zbx_strdup(NULL, second);
@@ -1451,9 +1453,9 @@ static const char	*topo_anchor_missing(int source, const zbx_snmp_value_cache_t 
 		case TOPO_SOURCE_PORTS:
 			return SUCCEED == topo_walk_has(cache, OID_IF_TYPE) ? NULL : "ifType";
 		case TOPO_SOURCE_LLDP:
-			/* the local port table, or the neighbor table of a device that does not expose it */
+			/* the local port table, or the neighbor table of a device that does not expose it (LLD spec 2.11, corpus F13: MikroTik RouterOS, FortiGate) */
 			return (SUCCEED == topo_walk_has(cache, OID_LLDP_LOC_PORT_TABLE) ||
-					SUCCEED == topo_walk_has(cache, OID_LLDP_REM_TABLE)) ? NULL : "lldpLocPortTable";
+					SUCCEED == topo_walk_has(cache, OID_LLDP_REM_TABLE)) ? NULL : "lldpLocPortTable or lldpRemTable";
 		case TOPO_SOURCE_CDP:
 			return (SUCCEED == topo_walk_has(cache, OID_CDP_CACHE_TABLE) ||
 					SUCCEED == topo_walk_has(cache, OID_CDP_GLOBAL_RUN)) ? NULL : "cdpCacheTable";
