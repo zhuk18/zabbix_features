@@ -152,10 +152,13 @@ IF_TYPE_BASE = "1.3.6.1.2.1.2.2.1.3"
 
 
 class WalkUnusable(Exception):
-    """The walk holds no variables, or no ifType: the rules cannot be told from an empty device."""
+    """The walk holds no variables, or no ifType, or it is garbage text (a non-numeric OID part): the rules cannot be told from an empty device."""
 
 
 _WALK_LINE = re.compile(r"^\s*\.?([0-9][0-9.]*)\s*=\s*(?:([A-Za-z][\w-]*):\s*)?(.*)$")
+# A line that starts like a numeric OID and goes on with another character (`.1.0.8802.1.1.2.1.4.1.1.9.0.x.1 = ...`): `walk[]` prints numeric OIDs only, so this is garbage text,
+# not a row to skip (LLD spec 2.12 §4.5, §6.2): the whole walk fails, as in the native step ("invalid value separator following OID")
+_BAD_OID_LINE = re.compile(r"^\s*\.?[0-9][0-9.]*[^0-9.\s=]")
 
 
 def _quote_open(value: str) -> bool:
@@ -186,6 +189,8 @@ def parse_walk(text: str) -> dict[str, tuple[str, str]]:
                 rows[key] = (row_type, raw + "\n" + line)
                 continue
         m = _WALK_LINE.match(line)
+        if m is None and _BAD_OID_LINE.match(line):
+            raise WalkUnusable("cannot parse the SNMP walk: invalid OID (a non-numeric part) in %r" % line[:80])
         if m is None or re.match(r"^No Such (Object|Instance)", m.group(3)) or "No more variables" in line:
             key = None
             continue

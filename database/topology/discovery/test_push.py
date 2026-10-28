@@ -49,6 +49,22 @@ compared = 0
 for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
     text = open(path, encoding="utf-8").read()
+    error_files = glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error"))
+    if error_files:
+        # garbage text (LLD spec 2.12 §6.2): the native step fails the whole walk; push.py fails the same way (WalkUnusable, nothing sent for any rule). Compared: both fail,
+        # and the message of push.py starts with the text of the .error file (the native message has its own tail: "invalid value separator following OID")
+        want = open(error_files[0], encoding="utf-8").read().strip()
+        try:
+            push.parse_walk(text)
+            check(False, f"{name}: garbage text is an error in push.py")
+        except push.WalkUnusable as exc:
+            check(str(exc).startswith(want), f"{name}: garbage text is an error in push.py, not a dropped row ({exc})")
+        try:
+            push.build_rule_values(text)
+            check(False, f"{name}: build_rule_values sends nothing for a garbage walk")
+        except push.WalkUnusable:
+            check(True, f"{name}: build_rule_values fails the whole walk (nothing sent for any rule)")
+        continue
     rows = push.parse_walk(text)
     for rule, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
         expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{rule}.json")
@@ -71,6 +87,8 @@ identity_keys = ("{#LOC_CHASSIS}", "{#REM_CHASSIS}", "{#REM_CHASSIS_TYPE}", "{#R
 seen = 0
 for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
+    if glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error")):
+        continue                                            # garbage text: an error, checked above
     rows = push.parse_walk(open(path, encoding="utf-8").read())
     for rule, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
         expected_path = os.path.join(HERE, "step_golden", "expected", f"{name}.{rule}.json")

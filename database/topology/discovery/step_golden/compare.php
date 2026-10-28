@@ -161,6 +161,15 @@ foreach ($fixtures as $walk_file) {
 
 		$c = run_c($topo_step, $walk_file, $source);
 
+		// an expected error (LLD spec 2.12 §6.2: garbage text, a non-numeric index part): the step fails and its message holds the text of the file
+		$error_file = __DIR__.'/expected/'.$name.'.'.$source.'.error';
+
+		if (file_exists($error_file)) {
+			$want = trim((string) file_get_contents($error_file));
+			check(!$c['ok'] && str_contains($c['text'], $want), "{$name} {$source}: the step fails with \"{$want}…\" (garbage text, never a drop or an empty result)", $c['text']);
+			continue;
+		}
+
 		if (!file_exists($expected_file) && $rule === null) {
 			// CDP is reviewed by hand: a walk without an expectation has no CDP data and must yield no rows
 			check($c['ok'] && $c['rows'] === [], "{$name} {$source}: no CDP data, no rows", $c['text']);
