@@ -155,47 +155,118 @@ class WalkUnusable(Exception):
     """The walk holds no variables, or no ifType, or it is garbage text (a non-numeric OID part): the rules cannot be told from an empty device."""
 
 
-_WALK_LINE = re.compile(r"^\s*\.?([0-9][0-9.]*)\s*=\s*(?:([A-Za-z][\w-]*):\s*)?(.*)$")
-# A line that starts like a numeric OID and goes on with another character (`.1.0.8802.1.1.2.1.4.1.1.9.0.x.1 = ...`): `walk[]` prints numeric OIDs only, so this is garbage text,
-# not a row to skip (LLD spec 2.12 §4.5, §6.2): the whole walk fails, as in the native step ("invalid value separator following OID")
-_BAD_OID_LINE = re.compile(r"^\s*\.?[0-9][0-9.]*[^0-9.\s=]")
+def _walk_error(message: str) -> WalkUnusable:
+    return WalkUnusable("cannot parse the SNMP walk: " + message)
 
 
-def _quote_open(value: str) -> bool:
-    """A quoted STRING value whose closing quote is not on this line: the value goes on in the next line (a raw line feed inside the quotes)."""
-    v = value.lstrip()
-    if not v.startswith('"'):
-        return False
-    i = 1
-    while i < len(v):
-        if v[i] == "\\":
-            i += 2
-            continue
-        if v[i] == '"':
-            return False
-        i += 1
-    return True
+def _trim_walk(text: str) -> str:
+    """The native step's edges (`topo_walk_trim`): leading blank lines and lines that start with '#' are comments (the template's bridge master item stores
+    "# device has no bridge tables"); trailing white space is dropped. Only the edges are touched."""
+    pos = 0
+    while True:
+        end = pos
+        while end < len(text) and text[end] in " \t\r":
+            end += 1
+        if end >= len(text) or text[end] not in "#\n":
+            break
+        nl = text.find("\n", end)
+        if nl < 0:
+            return ""
+        pos = nl + 1
+    return text[pos:].rstrip(" \t\r\n")
+
+
+_OID_CHARS = re.compile(r"[.0-9]*")
+_TYPE_CHARS = re.compile(r"[A-Za-z0-9-]*")
+
+
+def _is_upper(ch: str) -> bool:
+    return "A" <= ch <= "Z"
 
 
 def parse_walk(text: str) -> dict[str, tuple[str, str]]:
-    """{oid (no leading dot): (type, raw)}; lines that are not a variable are ignored. A quoted value with a raw line feed inside is ONE value
-    (the `walk[]` text, topology-2-lld-delivery.md §4.1): the lines up to the closing quote belong to it."""
+    """{oid (no leading dot): (type, raw)} of the `walk[]` text (topology-2-lld-delivery.md §4.1): a port of the parser of the native step (`topo_walk_trim` and
+    `preproc_snmp_walk_to_pairs` of src/libs/zbxpreproc), so that push.py accepts exactly what the native step accepts and fails on the rest (LLD spec 2.12
+    §6.2: garbage text is an error, never a dropped line): WalkUnusable "cannot parse the SNMP walk: <the native message>". A line is
+    `<OID> = [<TYPE>: ]<value>`; a quoted value may hold raw line feeds; a Hex-STRING or BITS value goes on in the lines that do not start with '.'; a line
+    `No more variables left in this MIB View` or `NULL` is accepted and has no value (not stored). The first value of an OID wins, as in the native step."""
+    text = _trim_walk(str(text))
     rows: dict[str, tuple[str, str]] = {}
-    key = None
-    for line in str(text).split("\n"):
-        if key is not None:
-            row_type, raw = rows[key]
-            if _quote_open(raw):
-                rows[key] = (row_type, raw + "\n" + line)
-                continue
-        m = _WALK_LINE.match(line)
-        if m is None and _BAD_OID_LINE.match(line):
-            raise WalkUnusable("cannot parse the SNMP walk: invalid OID (a non-numeric part) in %r" % line[:80])
-        if m is None or re.match(r"^No Such (Object|Instance)", m.group(3)) or "No more variables" in line:
-            key = None
-            continue
-        key = m.group(1)
-        rows[key] = (m.group(2) or "STRING", m.group(3))
+    pos, n = 0, len(text)
+    type_buf = ""                       # the native parser keeps the type of the previous line for a line that has none
+    while pos < n:
+        m = _OID_CHARS.match(text, pos)
+        if m.end() == pos:
+            raise _walk_error("invalid OID format")
+        oid = m.group(0)
+        p = m.end()
+        while p < n and text[p] == " ":
+            p += 1
+        if p >= n or text[p] != "=":
+            raise _walk_error("invalid value separator following OID")
+        p += 1
+        has_value = True
+        explicit_type = ""
+        while True:                     # reparse_type
+            while p < n and text[p] == " ":
+                p += 1
+            if p < n and _is_upper(text[p]):
+                tm = _TYPE_CHARS.match(text, p + 1)
+                word, p = text[p:tm.end()], tm.end()
+                type_buf = explicit_type = word
+                if p >= n or text[p] != ":":
+                    if word == "No" and text.startswith(" more variables", p):
+                        has_value = False
+                        while p < n and text[p] != "\n":
+                            p += 1
+                        break
+                    if word == "NULL" and (p >= n or text[p] == "\n"):
+                        has_value = False
+                        break
+                    if word == "Wrong" and text.startswith(" Type", p):
+                        while p < n and text[p] not in ":\n":
+                            p += 1
+                        if p < n and text[p] == ":":
+                            p += 1
+                            continue
+                    raise _walk_error("invalid value type format")
+                p += 1
+                while p < n and text[p] == " ":
+                    p += 1
+                if word == "Opaque":
+                    continue
+            break
+        if has_value:
+            value_type = type_buf
+            start = p
+            if p < n and text[p] == '"':
+                q, escape = p + 1, False
+                while q < n and (text[q] != '"' or escape):
+                    escape = (not escape) and text[q] == "\\"
+                    q += 1
+                if q >= n:
+                    raise _walk_error("invalid text following value")        # an unterminated quote: the native parser stops at the quote
+                q += 1
+            else:
+                nl = text.find("\n", p)
+                if nl < 0:
+                    q = n
+                else:
+                    q = nl
+                    if value_type in ("Hex-STRING", "BITS"):
+                        while q + 1 < n and text[q + 1] != ".":
+                            q += 1
+                    elif value_type == "STRING":
+                        while q + 1 < n and not (text[q] == "\n" and text[q + 1] == "." and q + 2 < n and text[q + 2].isdigit()):
+                            q += 1
+            raw = text[start:q]
+            p = q
+            oid_key = oid.lstrip(".")
+            if oid_key not in rows:
+                rows[oid_key] = (explicit_type or "STRING", raw)          # a line without a type is a STRING here, as before; the previous type only decides how far the value goes
+        if p < n and text[p] != "\n":
+            raise _walk_error("invalid text following value")
+        pos = p + 1
     return rows
 
 

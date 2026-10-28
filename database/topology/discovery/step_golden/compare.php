@@ -164,6 +164,10 @@ foreach ($fixtures as $walk_file) {
 		// an expected error (LLD spec 2.12 §6.2: garbage text, a non-numeric index part): the step fails and its message holds the text of the file
 		$error_file = __DIR__.'/expected/'.$name.'.'.$source.'.error';
 
+		if (!file_exists($error_file)) {
+			$error_file = __DIR__.'/expected/'.$name.'.error';			// one file for every source (the garbage fixtures)
+		}
+
 		if (file_exists($error_file)) {
 			$want = trim((string) file_get_contents($error_file));
 			check(!$c['ok'] && str_contains($c['text'], $want), "{$name} {$source}: the step fails with \"{$want}…\" (garbage text, never a drop or an empty result)", $c['text']);

@@ -1,0 +1,9 @@
+[
+    {
+        "{#LOC_CHASSIS_TYPE}": "local",
+        "{#LOC_CHASSIS}": "00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:01:02:03",
+        "{#LOC_PORT_NUM}": "1",
+        "{#REM_SYSNAME}": "line one\nline two",
+        "{#SOURCE}": "lldp"
+    }
+]

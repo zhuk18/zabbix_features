@@ -49,7 +49,8 @@ compared = 0
 for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
     text = open(path, encoding="utf-8").read()
-    error_files = glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error"))
+    error_files = glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error")) + \
+        glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.error"))
     if error_files:
         # garbage text (LLD spec 2.12 §6.2): the native step fails the whole walk; push.py fails the same way (WalkUnusable, nothing sent for any rule). Compared: both fail,
         # and the message of push.py starts with the text of the .error file (the native message has its own tail: "invalid value separator following OID")
@@ -82,12 +83,30 @@ for path in walks:
               f"push: {canonical(got)[:3]}\n        ref:  {canonical(expected)[:3]}")
 check(compared >= 20, f"{compared} fixture x rule comparisons were made")
 
+print("\n=== the walk parser accepts what the native parser accepts (LLD spec 2.12 §4.1, §6.2) ===")
+IFT = ".1.3.6.1.2.1.2.2.1.3.1 = INTEGER: ethernetCsmacd(6)"
+for what, extra in [("a record `No more variables left in this MIB View`", ".1.3.6.1.2.1.2.2.1.9.1 = No more variables left in this MIB View (It is past the end of the MIB tree)"),
+                    ("a `NULL` value", ".1.3.6.1.2.1.2.2.1.9.1 = NULL"),
+                    ("`Wrong Type (should be …)` before the type", ".1.3.6.1.2.1.2.2.1.9.1 = Wrong Type (should be INTEGER): Gauge32: 5"),
+                    ("an OID without the leading dot", "1.3.6.1.2.1.2.2.1.9.1 = INTEGER: 5"),
+                    ("a value without a type", ".1.3.6.1.2.1.2.2.1.9.1 = 5"),
+                    ("an unknown type", ".1.3.6.1.2.1.2.2.1.9.1 = FOO: 5")]:
+    try:
+        rows = push.parse_walk(IFT + "\n" + extra + "\n")
+        check(push.parse_walk(IFT)["1.3.6.1.2.1.2.2.1.3.1"][1] == rows["1.3.6.1.2.1.2.2.1.3.1"][1], f"accepted: {what}")
+    except push.WalkUnusable as exc:
+        check(False, f"accepted: {what}", str(exc))
+check(push.parse_walk("# device has no bridge tables\n\n" + IFT + "\n\n  \n").keys() == {"1.3.6.1.2.1.2.2.1.3.1"}, "accepted: leading comment and blank lines, trailing white space (the edges only)")
+check(push.parse_walk(IFT + "\n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: 9\n")["1.3.6.1.2.1.2.2.1.3.1"][1] == "ethernetCsmacd(6)", "the first value of an OID wins, as in the native step")
+two = push.parse_walk(".1.0.8802.1.1.2.1.3.2.0 = Hex-STRING: 00 11 22 \n33 44 55 \n.1.3.6.1.2.1.2.2.1.3.1 = INTEGER: 6\n")
+check(len(two) == 2 and push._hex_bytes(two["1.0.8802.1.1.2.1.3.2.0"][1]) == bytes.fromhex("001122334455"), "a Hex-STRING goes on in the lines that do not start with '.' (net-snmp wraps long values)")
+
 print("\n=== identity bytes ===")
 identity_keys = ("{#LOC_CHASSIS}", "{#REM_CHASSIS}", "{#REM_CHASSIS_TYPE}", "{#REM_MGMT_IP}", "{#IFMAC}")
 seen = 0
 for path in walks:
     name = os.path.basename(path)[:-len(".walk")]
-    if glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error")):
+    if glob.glob(os.path.join(HERE, "step_golden", "expected", f"{name}.*.error")) or os.path.exists(os.path.join(HERE, "step_golden", "expected", f"{name}.error")):
         continue                                            # garbage text: an error, checked above
     rows = push.parse_walk(open(path, encoding="utf-8").read())
     for rule, builder in (("ports", push.rows_ports), ("lldp", push.rows_lldp)):
@@ -214,13 +233,13 @@ check(rem in failed and "non-increasing" in failed[rem], "a non-increasing OID i
 check(push.RULE_LLDP_KEY not in values and push.RULE_PORTS_KEY in values and len(problems) == 1,
       "the LLDP rule is not sent, the ports rule still is")
 
-early = rem_lines[:3] + [" ." + rem_lines[2].lstrip(" .").split(" =")[0] + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
+early = rem_lines[:3] + ["." + rem_lines[2].lstrip(" .").split(" =")[0] + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
 text, failed = run_with({rem: early})
 values, problems = push.build_rule_values(text, failed)
 check(rem in failed and "endOfMibView" in failed[rem] and push.RULE_LLDP_KEY not in values,
       "an early endOfMibView after rows of lldpRemTable fails the rule: the table is not shorter, it is cut")
 
-empty_end = [" ." + rem + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
+empty_end = ["." + rem + " = No more variables left in this MIB View (It is past the end of the MIB tree)"]
 text, failed = run_with({rem: empty_end})
 values, problems = push.build_rule_values(text, failed)
 check(not failed and values.get(push.RULE_LLDP_KEY) == "[]",
