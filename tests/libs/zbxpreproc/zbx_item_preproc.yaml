@@ -5384,3 +5384,26 @@ in:
 out:
   return: SUCCEED
   value: '[{"{#LOC_PORT_NUM}":"0","{#SOURCE}":"lldp","{#REM_CHASSIS}":"aa:bb:cc:00:00:00","{#REM_CHASSIS_TYPE}":"macAddress","{#REM_MAN_ADDRS}":"lldp:1.4.10.0.0.20","{#REM_SYSNAME}":"peer-zero","{#REM_PORT}":"ether0"},{"{#LOC_PORT_NUM}":"1","{#SOURCE}":"lldp","{#REM_CHASSIS}":"aa:bb:cc:00:00:01","{#REM_CHASSIS_TYPE}":"macAddress","{#REM_SYSNAME}":"peer-a","{#REM_PORT}":"ether1"}]'
+---
+test case: SNMP walk to topology rows - a non-numeric part in an lldpRemTable index is garbage text, an error
+in:
+  value:
+    value_type: ITEM_VALUE_TYPE_STR
+    time: 2017-10-29 03:15:00 +03:00
+    data: |
+      .1.0.8802.1.1.2.1.3.7.1.2.7 = INTEGER: interfaceName(5)
+      .1.0.8802.1.1.2.1.3.7.1.3.7 = STRING: "Gi0/7"
+      .1.0.8802.1.1.2.1.4.1.1.5.0.7.1 = Hex-STRING: AA BB CC 00 00 07
+      .1.0.8802.1.1.2.1.4.1.1.7.0.7.1 = STRING: "Te1/0/1"
+      .1.0.8802.1.1.2.1.4.1.1.9.0.7.1 = STRING: "peer-seven"
+      .1.0.8802.1.1.2.1.4.1.1.5.0.x.1 = Hex-STRING: AA BB CC 00 00 0A
+      .1.0.8802.1.1.2.1.4.1.1.7.0.x.1 = STRING: "non-numeric"
+      .1.0.8802.1.1.2.1.4.1.1.9.0.x.1 = STRING: "peer-non-numeric"
+  step:
+    type: ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY
+    params: |-
+      lldp
+      empty
+      20
+out:
+  return: FAIL
