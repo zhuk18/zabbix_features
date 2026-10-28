@@ -190,7 +190,7 @@ def run_with(mutations):
     def fake(cmd, **kwargs):
         root = cmd[-1]
         lines = mutations.get(root, walk_by_root[root])
-        return types.SimpleNamespace(returncode=0, stdout="\n".join(lines) + ("\n" if lines else ""), stderr="")
+        return types.SimpleNamespace(returncode=0, stdout=("\n".join(lines) + ("\n" if lines else "")).encode(), stderr=b"")
     real = push.subprocess.run
     push.subprocess.run = fake
     try:

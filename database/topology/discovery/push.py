@@ -455,6 +455,9 @@ def check_walk_output(root: str, lines: list[str]) -> None:
             in_subtree += 1
 
 
+_NO_VALUE_RECORD = re.compile(r"^\s*\.?[0-9][0-9.]*\s*=\s*(No Such (Instance|Object)|No more variables left in this MIB View)")
+
+
 def collect_walk(target: str, port: int, community: str, version: str) -> tuple[str, dict[str, str]]:
     """What the template's walk[] item would return (one variable per line) and {oid: why} for every OID whose walk did
     not complete. Raises SnmpError only when the device cannot be reached at all (the first walk times out)."""
@@ -467,11 +470,14 @@ def collect_walk(target: str, port: int, community: str, version: str) -> tuple[
             cmd += ["-Cr50"]
         cmd += [f"{target}:{port}", oid]
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            out = subprocess.run(cmd, capture_output=True, timeout=120)
+            stdout, stderr = out.stdout.decode("utf-8", errors="replace"), out.stderr.decode("utf-8", errors="replace")
             if out.returncode != 0:
-                detail = out.stderr.strip() or out.stdout.strip() or f"exit code {out.returncode}"
+                detail = stderr.strip() or stdout.strip() or f"exit code {out.returncode}"
                 raise SnmpError(f"{tool} failed for {oid} against {target}:{port}: {detail}")
-            walked = out.stdout.splitlines()
+            walked = stdout.split("\n")                 # not splitlines(): a value may hold \r, \f or U+2028, and the lines of a value with a raw line feed are joined again below
+            if walked and walked[-1] == "":
+                walked.pop()
             check_walk_output(oid, walked)
         except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
             if index == 0:
@@ -483,7 +489,10 @@ def collect_walk(target: str, port: int, community: str, version: str) -> tuple[
                 raise                                  # the device does not answer at all: nothing to send
             failed[oid] = str(exc)
             continue
-        lines += [l for l in walked if not re.search(r" = No Such (Instance|Object)", l)]
+        # what the net-snmp tool prints and `walk[]` text does not have (LLD spec §4.1): a record without a value of a missing subtree ("No Such Instance|Object"),
+        # and the endOfMibView records ("No more variables left in this MIB View", once per requested variable of a bulk walk). They were used above to find a walk
+        # that ended early; they are not part of the text (the parser of this file accepts what the native parser accepts, and no more)
+        lines += [l for l in walked if not _NO_VALUE_RECORD.match(l)]
     return "\n".join(lines), failed
 
 
