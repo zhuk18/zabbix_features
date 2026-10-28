@@ -364,8 +364,8 @@ def rows_lldp(rows: dict) -> list[dict]:
     out = []
     for sfx in sorted(suffixes, key=lambda x: (_suffix_key(x)[1:2], _suffix_key(x))):
         parts = sfx.split(".")
-        if len(parts) < 3:
-            continue                                               # not a TimeMark.LocalPortNum.RemIndex index
+        if len(parts) != 3:
+            continue                                               # not exactly TimeMark.LocalPortNum.RemIndex: dropped, not guessed (LLD spec 2.11 §4.5, F14)
         chassis_type = _parse_int(_decode(rem_chassis_type[sfx])) if sfx in rem_chassis_type else 0
         port_type = _parse_int(_decode(rem_port_type[sfx])) if sfx in rem_port_type else 0
         num = parts[1]
