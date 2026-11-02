@@ -237,6 +237,7 @@ $associate_hosts_by_mac = [$run->marks, 'associateHostsByMac'];
 $norm_text_or_hex = static fn (string $raw): string => TopologyNormalize::textOrHex($raw);
 $norm_clean = static fn (string $value): ?string => TopologyNormalize::clean($value);
 $norm_name_key = static fn (string $value): ?string => TopologyNormalize::nameKey($value);
+$norm_cdp_id = static fn (string $value): array => TopologyNormalize::cdpDeviceId($value);
 $norm_numeric_id = static fn (string $value): ?int => TopologyNormalize::numericId($value);
 $norm_port_mac = static fn (string $mac, array $port_macs): ?int => TopologyNormalize::portMac($mac, $port_macs);
 $norm_ip_text = static fn (string $text): ?string => TopologyNormalize::ipText($text);

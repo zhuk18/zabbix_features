@@ -1313,8 +1313,55 @@
    },
    "out": {
     "source": "cdp",
-    "rem_sysname": "0:0:0:0:0:0",
     "rem_port": "Gi0/1"
+   }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "204C9E6E08FE",
+    "rem_port": "Gi0/1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_port": "Gi0/1",
+    "rem_chassis": "20:4c:9e:6e:08:fe",
+    "rem_chassis_type": "macAddress"
+   }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "SEP001122334455",
+    "rem_port": "Port 1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_port": "Port 1",
+    "rem_chassis": "00:11:22:33:44:55",
+    "rem_chassis_type": "macAddress"
+   }
+  },
+  {
+   "in": {
+    "source": "cdp",
+    "rem_sysname": "Switch",
+    "rem_port": "Gi0/1"
+   },
+   "out": {
+    "source": "cdp",
+    "rem_sysname": "Switch",
+    "rem_port": "Gi0/1"
+   }
+  },
+  {
+   "in": {
+    "source": "lldp",
+    "rem_sysname": "204C9E6E08FE"
+   },
+   "out": {
+    "source": "lldp",
+    "rem_sysname": "204C9E6E08FE"
    }
   },
   {
@@ -2264,6 +2311,206 @@
     "if_index": null,
     "reason": "if_index_missing"
    }
+  }
+ ],
+ "cdp_id": [
+  {
+   "in": "a8:52:d4:53:11:00",
+   "out": [
+    "mac",
+    "a8:52:d4:53:11:00"
+   ]
+  },
+  {
+   "in": "A8-52-D4-53-11-00",
+   "out": [
+    "mac",
+    "a8:52:d4:53:11:00"
+   ]
+  },
+  {
+   "in": "a852.d453.1100",
+   "out": [
+    "mac",
+    "a8:52:d4:53:11:00"
+   ]
+  },
+  {
+   "in": "0:c:29:a:b:c",
+   "out": [
+    "mac",
+    "00:0c:29:0a:0b:0c"
+   ]
+  },
+  {
+   "in": "204c9e6e08fe",
+   "out": [
+    "mac",
+    "20:4c:9e:6e:08:fe"
+   ]
+  },
+  {
+   "in": "204C9E6E08FE",
+   "out": [
+    "mac",
+    "20:4c:9e:6e:08:fe"
+   ]
+  },
+  {
+   "in": "SEP001122334455",
+   "out": [
+    "mac",
+    "00:11:22:33:44:55"
+   ]
+  },
+  {
+   "in": "sep00112233445A",
+   "out": [
+    "mac",
+    "00:11:22:33:44:5a"
+   ]
+  },
+  {
+   "in": " \"SEP001122334455\" ",
+   "out": [
+    "mac",
+    "00:11:22:33:44:55"
+   ]
+  },
+  {
+   "in": "00:00:00:00:00:00",
+   "out": [
+    "none"
+   ]
+  },
+  {
+   "in": "FF-FF-FF-FF-FF-FF",
+   "out": [
+    "none"
+   ]
+  },
+  {
+   "in": "000000000000",
+   "out": [
+    "none"
+   ]
+  },
+  {
+   "in": "SEPFFFFFFFFFFFF",
+   "out": [
+    "none"
+   ]
+  },
+  {
+   "in": "",
+   "out": [
+    "none"
+   ]
+  },
+  {
+   "in": "204c9e6e08f",
+   "out": [
+    "key",
+    "204c9e6e08f"
+   ]
+  },
+  {
+   "in": "204c9e6e08fe0",
+   "out": [
+    "key",
+    "204c9e6e08fe0"
+   ]
+  },
+  {
+   "in": "SEP00112233445",
+   "out": [
+    "key",
+    "sep00112233445"
+   ]
+  },
+  {
+   "in": "SEP-001122334455",
+   "out": [
+    "key",
+    "sep-001122334455"
+   ]
+  },
+  {
+   "in": "N9K-1(FDO2101X0AB)",
+   "out": [
+    "key",
+    "n9k-1"
+   ]
+  },
+  {
+   "in": "SW-X.lab",
+   "out": [
+    "key",
+    "sw-x"
+   ]
+  },
+  {
+   "in": "Core-SW1",
+   "out": [
+    "key",
+    "core-sw1"
+   ]
+  },
+  {
+   "in": "10.1.2.3",
+   "out": [
+    "key",
+    "10.1.2.3"
+   ]
+  },
+  {
+   "in": "Switch",
+   "out": [
+    "name",
+    "Switch"
+   ]
+  },
+  {
+   "in": "switch",
+   "out": [
+    "name",
+    "switch"
+   ]
+  },
+  {
+   "in": "SWITCH.lab",
+   "out": [
+    "name",
+    "SWITCH.lab"
+   ]
+  },
+  {
+   "in": "Switch(FOC1234ABCD)",
+   "out": [
+    "name",
+    "Switch(FOC1234ABCD)"
+   ]
+  },
+  {
+   "in": "Router",
+   "out": [
+    "name",
+    "Router"
+   ]
+  },
+  {
+   "in": "Switch1",
+   "out": [
+    "key",
+    "switch1"
+   ]
+  },
+  {
+   "in": "my-switch",
+   "out": [
+    "key",
+    "my-switch"
+   ]
   }
  ]
 }

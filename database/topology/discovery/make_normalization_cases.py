@@ -13,6 +13,7 @@ A function is a key; each case is {"in": ..., "out": ...}. `null` is "no value".
   port_mac     §4.8 input {"mac", "ports": [macs of the Device's ports]}, output the 0-based index of the one port that has it
   ip_text      §4.3 input an address in any spelling, output the canonical text
   row          §5 input a NEIGHBORS row (snapshot field names), output the normalized row or null when the row is skipped (invalid identity)\n  placeholder  §4.1 input a MAC text, output its normal form when it is a placeholder MAC (zeros, ff) else null; checked through the row: valid, kept, loc_chassis dropped\n  man_addrs    §4.4 input the space-separated `rem_man_addrs` entries, output the management address text or null
+  cdp_id       §4.9, §4.10 input a decoded CDP device id, output ["mac", mac] | ["none"] | ["name", text] (a default name) | ["key", device name key]
   local_port   model §6.7.6 input {"name", "ports": [{if_index, name?, descr?, mac?}], "row": {if_index? loc_port_num loc_port_id loc_port_id_type loc_port_desc}},
                output {"if_index": n|null, "reason": null|name_on_several_ports|if_index_missing|no_ports}
 """
@@ -254,7 +255,12 @@ cases["row"].append({"in": {"rem_chassis_type": "macAddress", "rem_chassis": "0c
 # §4.1, model §6.7.1 (task 066): a CDP device id in ANY MAC form is a hardware ID (the net-snmp form with 1-2 digit groups too); a placeholder in that form is a name
 # of no use (no chassis key later); mixed separators are a name
 cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:c:29:a:b:c", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_port": "Gi0/1", "rem_chassis": "00:0c:29:0a:0b:0c", "rem_chassis_type": "macAddress"}})
-cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:0:0:0:0:0", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_sysname": "0:0:0:0:0:0", "rem_port": "Gi0/1"}})
+# 0.15 §4.9 step 1: a placeholder MAC as the CDP device id is no value: the claim has no device id
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:0:0:0:0:0", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_port": "Gi0/1"}})
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "204C9E6E08FE", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_port": "Gi0/1", "rem_chassis": "20:4c:9e:6e:08:fe", "rem_chassis_type": "macAddress"}})
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "SEP001122334455", "rem_port": "Port 1"}, "out": {"source": "cdp", "rem_port": "Port 1", "rem_chassis": "00:11:22:33:44:55", "rem_chassis_type": "macAddress"}})
+cases["row"].append({"in": {"source": "cdp", "rem_sysname": "Switch", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_sysname": "Switch", "rem_port": "Gi0/1"}})
+cases["row"].append({"in": {"source": "lldp", "rem_sysname": "204C9E6E08FE"}, "out": {"source": "lldp", "rem_sysname": "204C9E6E08FE"}})
 cases["row"].append({"in": {"source": "cdp", "rem_sysname": "0:c:29-a-b-c", "rem_port": "Gi0/1"}, "out": {"source": "cdp", "rem_sysname": "0:c:29-a-b-c", "rem_port": "Gi0/1"}})
 cases["local_port"] = [
     lp("row with if_index is the local port, nothing is looked up", P3, {"if_index": 2, "loc_port_num": 9}, 2),
@@ -288,6 +294,44 @@ cases["local_port"] = [
     lp("step 4 the ifIndex does not exist", P3, {"loc_port_num": 12, "loc_port_id": "nothing"}, None, "if_index_missing"),
     lp("step 4 no id, no description, the port number does not exist", P3, {"loc_port_num": 0}, None, "if_index_missing"),
     lp("step 4 a row with neither if_index nor loc_port_num", P3, {"loc_port_id": "nothing"}, None, "if_index_missing"),
+]
+
+
+cases["cdp_id"] = [
+    # §4.9 step 1: the MAC forms of §4.1, 12 bare hex digits, SEP + 12 hex digits
+    {"in": "a8:52:d4:53:11:00", "out": ["mac", "a8:52:d4:53:11:00"]},
+    {"in": "A8-52-D4-53-11-00", "out": ["mac", "a8:52:d4:53:11:00"]},
+    {"in": "a852.d453.1100", "out": ["mac", "a8:52:d4:53:11:00"]},
+    {"in": "0:c:29:a:b:c", "out": ["mac", "00:0c:29:0a:0b:0c"]},
+    {"in": "204c9e6e08fe", "out": ["mac", "20:4c:9e:6e:08:fe"]},
+    {"in": "204C9E6E08FE", "out": ["mac", "20:4c:9e:6e:08:fe"]},
+    {"in": "SEP001122334455", "out": ["mac", "00:11:22:33:44:55"]},
+    {"in": "sep00112233445A", "out": ["mac", "00:11:22:33:44:5a"]},
+    {"in": " \"SEP001122334455\" ", "out": ["mac", "00:11:22:33:44:55"]},
+    # a placeholder MAC is no value
+    {"in": "00:00:00:00:00:00", "out": ["none"]},
+    {"in": "FF-FF-FF-FF-FF-FF", "out": ["none"]},
+    {"in": "000000000000", "out": ["none"]},
+    {"in": "SEPFFFFFFFFFFFF", "out": ["none"]},
+    {"in": "", "out": ["none"]},
+    # not a MAC: 11 or 13 hex digits, SEP with 11, a text with a hex tail
+    {"in": "204c9e6e08f", "out": ["key", "204c9e6e08f"]},
+    {"in": "204c9e6e08fe0", "out": ["key", "204c9e6e08fe0"]},
+    {"in": "SEP00112233445", "out": ["key", "sep00112233445"]},
+    {"in": "SEP-001122334455", "out": ["key", "sep-001122334455"]},
+    # §4.9 step 3: the device name key (lower case, final parenthesis group, domain)
+    {"in": "N9K-1(FDO2101X0AB)", "out": ["key", "n9k-1"]},
+    {"in": "SW-X.lab", "out": ["key", "sw-x"]},
+    {"in": "Core-SW1", "out": ["key", "core-sw1"]},
+    {"in": "10.1.2.3", "out": ["key", "10.1.2.3"]},
+    # §4.10: a default name is only a name (kind exact: equal after the device name key)
+    {"in": "Switch", "out": ["name", "Switch"]},
+    {"in": "switch", "out": ["name", "switch"]},
+    {"in": "SWITCH.lab", "out": ["name", "SWITCH.lab"]},
+    {"in": "Switch(FOC1234ABCD)", "out": ["name", "Switch(FOC1234ABCD)"]},
+    {"in": "Router", "out": ["name", "Router"]},
+    {"in": "Switch1", "out": ["key", "switch1"]},
+    {"in": "my-switch", "out": ["key", "my-switch"]},
 ]
 
 

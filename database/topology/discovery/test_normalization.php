@@ -54,7 +54,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) {
 
 	$cases = json_decode((string) file_get_contents(__DIR__.'/normalization_cases.json'), true, 512, JSON_THROW_ON_ERROR);
 	$functions = [
-		'text_or_hex' => 'norm_text_or_hex', 'clean' => 'norm_clean', 'name_key' => 'norm_name_key', 'numeric_id' => 'norm_numeric_id',
+		'text_or_hex' => 'norm_text_or_hex', 'clean' => 'norm_clean', 'name_key' => 'norm_name_key', 'numeric_id' => 'norm_numeric_id', 'cdp_id' => 'norm_cdp_id',
 		'port_mac' => 'norm_port_mac', 'ip_text' => 'norm_ip_text', 'man_addrs' => 'norm_man_addrs', 'placeholder' => 'snap_normalize_row', 'row' => 'snap_normalize_row', 'local_port' => 'resolve_local_port',
 	];
 
