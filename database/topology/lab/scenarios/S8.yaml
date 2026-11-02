@@ -2,7 +2,7 @@ id: S8
 title: Identity without a chassis
 base: lab.yaml
 # topology-4-lab-simulator.md §9 S8 (model 2.47-2.52 §6.7.1, §6.7.5): a CDP-only reporter found by the reporter-address row, a name key with a serial, two Devices of
-# one name that the operator merges, a VRRP address. On R1 (task 065) no claim is resolved by an address, a name key with a serial, or a merge of a Device without a
+# one name that the operator merges, a VRRP address. Server2 advertises the factory device id `Switch` (a default name, 2.55: not a key); another device id on two ports is one Device, scenario S9. On R1 (task 065) no claim is resolved by an address, a name key with a serial, or a merge of a Device without a
 # chassis; this scenario makes each case happen. Addresses: 192.0.2.108 (Switch3), 192.0.2.150 and .151 (Server2).
 patch:
   settings: {emit_subtypes: true}
@@ -44,7 +44,7 @@ patch:
       chassis: {subtype: mac, value: "00:11:22:33:44:b5"}
       lldp: false
       cdp: true
-      cdp_device_id: name
+      cdp_device_id: Switch              # the factory host name: a default name is no identity key (normalization 4.10, model 2.55), so the Devices stay per port
       cdp_address: 192.0.2.150
       ports:
         - {ifindex: 1, name: eth0}
@@ -78,13 +78,13 @@ steps:
       - link: [Switch1:Gi0/11, N9K-1]
         state: active
       # two NICs of one server, seen on two switches: no join across ports (model 2.52: the Devices of one port), two Devices of one name and one address
-      - device_count: {key: SRV2, equals: 2}
-      - link: [Switch1:Gi0/12, SRV2]
+      - device_count: {key: Switch, equals: 2}
+      - link: [Switch1:Gi0/12, Switch]
         state: active
-      - link: [Switch2:Gi0/12, SRV2]
+      - link: [Switch2:Gi0/12, Switch]
         state: active
-      - candidate: {key: SRV2, reason: same_address, pairs: 1}
-      - candidate: {key: SRV2, reason: same_name, pairs: 1}
+      - candidate: {key: Switch, reason: same_address, pairs: 1}
+      - candidate: {key: Switch, reason: same_name, pairs: 1}
       # known limit (model 6.7.1: no lldpLocSysName): R2 sends 192.0.2.108, the address of Switch3 (a VRRP address), and the reporter has no name to compare: R2 resolves to Switch3
       # when the sysname of the reporter is collected, this row changes to "a Device R2"
       - link: [Switch2:Gi0/13, Switch3]
@@ -93,7 +93,7 @@ steps:
     note: Server2 advertises 192.0.2.151 on both NICs
     devices: {Server2: {cdp_address: 192.0.2.151}}
     assert:
-      - device_count: {key: SRV2, equals: 2}
+      - device_count: {key: Switch, equals: 2}
       - status: {field: devices_created, equals: 0}
   - id: 2
     note: Server2:eth0 moves from Switch1:Gi0/12 to Switch1:Gi0/14
@@ -102,26 +102,26 @@ steps:
       add: [[Switch1:Gi0/14, Server2:eth0]]
     assert:
       - status: {field: devices_created, equals: 1}
-      - device_count: {key: SRV2, equals: 3}
-      - link: [Switch1:Gi0/14, SRV2]
+      - device_count: {key: Switch, equals: 3}
+      - link: [Switch1:Gi0/14, Switch]
         state: active
-      - candidate: {key: SRV2, reason: same_address, pairs: 3}
+      - candidate: {key: Switch, reason: same_address, pairs: 3}
   - id: 3
-    note: the operator merges the three Devices SRV2 and keeps the one of Switch2:Gi0/12
-    operator: {merge_group: SRV2, keep: Switch2:Gi0/12}
+    note: the operator merges the three Devices Switch and keeps the one of Switch2:Gi0/12
+    operator: {merge_group: Switch, keep: Switch2:Gi0/12}
     assert:
-      - device_count: {key: SRV2, equals: 1}
-      - link: [Switch1:Gi0/14, SRV2]
+      - device_count: {key: Switch, equals: 1}
+      - link: [Switch1:Gi0/14, Switch]
         state: active
-      - link: [Switch2:Gi0/12, SRV2]
+      - link: [Switch2:Gi0/12, Switch]
         state: active
-      - candidate: {key: SRV2, reason: same_address, pairs: 0}
+      - candidate: {key: Switch, reason: same_address, pairs: 0}
       # the merged Device's scope_ports hold the three ports (model 2.52): the ingest after the merge makes no Device
       - status: {field: devices_created, equals: 0}
   - id: 4
     note: no change
     assert:
       - status: {field: devices_created, equals: 0}
-      - device_count: {key: SRV2, equals: 1}
-      - edge_id_same_as: {step: 3, link: [Switch1:Gi0/14, SRV2]}
-      - edge_id_same_as: {step: 3, link: [Switch2:Gi0/12, SRV2]}
+      - device_count: {key: Switch, equals: 1}
+      - edge_id_same_as: {step: 3, link: [Switch1:Gi0/14, Switch]}
+      - edge_id_same_as: {step: 3, link: [Switch2:Gi0/12, Switch]}

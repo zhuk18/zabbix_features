@@ -2,6 +2,7 @@
 # S0 compares a fresh ingest of the data generated from this file with reference-s0.json.
 settings:
   database: zabbix            # the only allowed value (topology-4-lab-simulator.md "Constraints"); the tool refuses to start otherwise
+  db_socket: /run/mysqld/mysqld.sock   # MariaDB of the dev VM binds only to the LAN address (99-heidisql-listen.cnf), not localhost
   network: 192.0.2.0/24        # lab address range, TEST-NET-1 (RFC 5737), local through `ip route add local 192.0.2.0/24 dev lo` (lab spec 6.1); here 192.0.2.100+N, the office stand uses 192.0.2.N
   snmp_port: 1611             # the existing lab hosts use 1611 (161 needs root)
   community: zbxlab

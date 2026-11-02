@@ -1,0 +1,196 @@
+id: S9
+title: CDP device ID as an identity key
+base: lab.yaml
+# topology-4-lab-simulator.md (task 074; model 2.55 6.7.0, 6.7.1; normalization 0.15 4.9, 4.10). Two reporters P (LLDP and CDP) and Q (CDP only, so the neighbors it sees
+# are CDP-only; every reporter advertises its address by CDP, or the neighbor reporter would not find it, row 4). Addresses: 192.0.2.160 (P), .161 (Q), .162 (Y, a reporter).
+#   L1 COREX: a CDP-only neighbor on 3 ports of P (a LAG): one Device, 3 links.   L2 COREX is also on a port of Q: still one Device, no same_name mark.
+#   L3 F1, F2: two different neighbors with the factory device id `Switch` (a default name is no key): two Devices, one per port.
+#   L4 PHONE1 `SEP001122334455`, L5 PHONE2 `204c9e6e08fe`: a hardware ID (chassis:mac: key).
+#   L6 EDGEX sends LLDP and CDP on a port of P; Q sees it by CDP only: one Device (P gives it the key, Q finds it by the key).
+#   L7 Y is a reporter (address 192.0.2.162): no key on it; Q finds it by its SNMP interface address (the CDP address of Y).
+#   L8 Z1, Z2: two different devices with one device id `ZCORE` in one segment: one Device (known limitation: one node, two links).
+patch:
+  settings: {emit_subtypes: true}
+  devices:
+    P:
+      ip: 192.0.2.160
+      chassis: {subtype: mac, value: "00:11:22:33:44:c0"}
+      port_mac_prefix: "02:00:00:0a"
+      lldp: true
+      cdp: true
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+        - {ifindex: 5, name: Gi0/5}
+        - {ifindex: 6, name: Gi0/6}
+        - {ifindex: 7, name: Gi0/7}
+        - {ifindex: 8, name: Gi0/8}
+        - {ifindex: 9, name: Gi0/9}
+        - {ifindex: 10, name: Gi0/10}
+        - {ifindex: 11, name: Gi0/11}
+        - {ifindex: 12, name: Gi0/12}
+        - {ifindex: 13, name: Gi0/13}
+        - {ifindex: 14, name: Gi0/14}
+        - {ifindex: 15, name: Gi0/15}
+        - {ifindex: 16, name: Gi0/16}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    Q:
+      ip: 192.0.2.161
+      chassis: {subtype: mac, value: "00:11:22:33:44:c8"}
+      port_mac_prefix: "02:00:00:0b"
+      lldp: false
+      cdp: true
+      cdp_address: true
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+        - {ifindex: 5, name: Gi0/5}
+        - {ifindex: 6, name: Gi0/6}
+        - {ifindex: 7, name: Gi0/7}
+        - {ifindex: 8, name: Gi0/8}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    COREX:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c1"}
+      lldp: false
+      cdp: true
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: Te1}
+        - {ifindex: 2, name: Te2}
+        - {ifindex: 3, name: Te3}
+        - {ifindex: 4, name: Te4}
+      zabbix: {monitored: false}
+    F1:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c2"}
+      lldp: false
+      cdp: true
+      cdp_device_id: Switch
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+    F2:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c3"}
+      lldp: false
+      cdp: true
+      cdp_device_id: Switch
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+    PHONE1:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c4"}
+      lldp: false
+      cdp: true
+      cdp_device_id: SEP001122334455
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+    PHONE2:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c5"}
+      lldp: false
+      cdp: true
+      cdp_device_id: 204c9e6e08fe
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+    EDGEX:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c6"}
+      lldp: true
+      cdp: true
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+        - {ifindex: 2, name: eth1}
+      zabbix: {monitored: false}
+    Y:
+      ip: 192.0.2.162
+      chassis: {subtype: mac, value: "00:11:22:33:44:c7"}
+      port_mac_prefix: "02:00:00:0c"
+      lldp: true
+      cdp: true
+      cdp_address: true
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    Z1:
+      chassis: {subtype: mac, value: "00:11:22:33:44:c9"}
+      lldp: false
+      cdp: true
+      cdp_device_id: ZCORE
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+    Z2:
+      chassis: {subtype: mac, value: "00:11:22:33:44:ca"}
+      lldp: false
+      cdp: true
+      cdp_device_id: ZCORE
+      cdp_address: false
+      ports:
+        - {ifindex: 1, name: eth0}
+      zabbix: {monitored: false}
+  cables:
+    add:
+      - [P:Gi0/1, COREX:Te1]
+      - [P:Gi0/2, COREX:Te2]
+      - [P:Gi0/3, COREX:Te3]
+      - [Q:Gi0/1, COREX:Te4]
+      - [P:Gi0/4, F1:eth0]
+      - [P:Gi0/5, F2:eth0]
+      - [P:Gi0/6, PHONE1:eth0]
+      - [P:Gi0/7, PHONE2:eth0]
+      - [P:Gi0/8, EDGEX:eth0]
+      - [Q:Gi0/2, EDGEX:eth1]
+      - [P:Gi0/9, Y:Gi0/1]
+      - [Q:Gi0/3, Y:Gi0/2]
+      - [P:Gi0/10, Z1:eth0]
+      - [P:Gi0/11, Z2:eth0]
+steps:
+  - id: 0
+    note: baseline
+    assert:
+      - device_count: {key: COREX, equals: 1}
+      - link: [P:Gi0/1, COREX:Te1]
+        state: active
+      - link: [P:Gi0/2, COREX:Te2]
+        state: active
+      - link: [P:Gi0/3, COREX:Te3]
+        state: active
+      - link: [Q:Gi0/1, COREX:Te4]
+        state: active
+      - candidate: {key: COREX, reason: same_name, pairs: 0}
+      - device_count: {key: Switch, equals: 2}
+      - device_count: {key: {chassis: "00:11:22:33:44:55"}, equals: 1}
+      - device_count: {key: {chassis: "20:4c:9e:6e:08:fe"}, equals: 1}
+      - device_count: {key: EDGEX, equals: 1}
+      - link: [P:Gi0/8, EDGEX:eth0]
+        state: active
+      - link: [Q:Gi0/2, EDGEX:eth1]
+        state: active
+      - device_count: {key: Y, equals: 1}
+      - link: [Q:Gi0/3, Y:Gi0/2]
+        state: active
+      - device_count: {key: ZCORE, equals: 1}
+      - link: [P:Gi0/10, ZCORE]
+        state: active
+      - link: [P:Gi0/11, ZCORE]
+        state: active
+  - id: 1
+    note: no change
+    assert:
+      - status: {field: devices_created, equals: 0}
+      - device_count: {key: COREX, equals: 1}
+      - device_count: {key: Switch, equals: 2}
+      - device_count: {key: ZCORE, equals: 1}
+      - edge_id_same_as: {step: 0, link: [P:Gi0/1, COREX:Te1]}
+      - edge_id_same_as: {step: 0, link: [Q:Gi0/3, Y:Gi0/2]}
