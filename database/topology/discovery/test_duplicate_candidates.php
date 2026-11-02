@@ -842,8 +842,7 @@ $dm = device_id($pdo, $MK);
 $dl = device_id($pdo, 'MikroTik');
 $dt = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND id NOT IN (".(int) $dm.','.(int) $dl.") AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'MikroTik'");
 check($dm !== null && $dl !== null && $dt > 0 && dev_count($pdo) === 4, 'LLDP local, LLDP MAC M, CDP id M, CDP text id MikroTik -> three Devices (the local one, M, and the Device of the text claim) and the reporter');
-check(dev_attrs($pdo, $dt)['chassis_id'] === null && !isset(dev_attrs($pdo, $dt)['scope_ports'])
-	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ? AND kind = 'cdp'", [$dt]) === 1, 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device with the device id key (2.55)');
+check(dev_attrs($pdo, $dt)['chassis_id'] === null && isset(dev_attrs($pdo, $dt)['scope_ports']), 'the text CDP claim (MikroTik is a default name, 0.16: no key) matches two LLDP claims that are two Devices: no guess, a Device of the port');
 $group = static fn (int $id): array => array_values(array_map(static fn (array $c): int => (int) $c['device_id'], array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'same_address')));
 $members = [$dm, $dl, $dt];
 sort($members);

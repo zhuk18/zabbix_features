@@ -2506,6 +2506,90 @@
    ]
   },
   {
+   "in": "Amnesiac",
+   "out": [
+    "name",
+    "Amnesiac"
+   ]
+  },
+  {
+   "in": "MikroTik",
+   "out": [
+    "name",
+    "MikroTik"
+   ]
+  },
+  {
+   "in": "UBNT",
+   "out": [
+    "name",
+    "UBNT"
+   ]
+  },
+  {
+   "in": "HUAWEI",
+   "out": [
+    "name",
+    "HUAWEI"
+   ]
+  },
+  {
+   "in": "H3C",
+   "out": [
+    "name",
+    "H3C"
+   ]
+  },
+  {
+   "in": "HP-2530-24G",
+   "out": [
+    "name",
+    "HP-2530-24G"
+   ]
+  },
+  {
+   "in": "HP-SW16",
+   "out": [
+    "key",
+    "hp-sw16"
+   ]
+  },
+  {
+   "in": "Aruba-2930F-24G-4SFPP",
+   "out": [
+    "name",
+    "Aruba-2930F-24G-4SFPP"
+   ]
+  },
+  {
+   "in": "aruba-core",
+   "out": [
+    "key",
+    "aruba-core"
+   ]
+  },
+  {
+   "in": "APa0b1.c2d3.e4f5",
+   "out": [
+    "key",
+    "apa0b1.c2d3.e4f5"
+   ]
+  },
+  {
+   "in": "APa0b1.c2d3.e4f5.lab",
+   "out": [
+    "key",
+    "apa0b1.c2d3.e4f5"
+   ]
+  },
+  {
+   "in": "AP-7.lab",
+   "out": [
+    "key",
+    "ap-7"
+   ]
+  },
+  {
    "in": "my-switch",
    "out": [
     "key",

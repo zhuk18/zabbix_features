@@ -273,5 +273,12 @@ const TOPO_PORT_NAME_FORMS = [
 const TOPO_DEFAULT_NAMES = [
 	['exact', 'switch'],
 	['exact', 'router'],
+	['exact', 'amnesiac'],
+	['exact', 'mikrotik'],
+	['exact', 'ubnt'],
+	['exact', 'huawei'],
+	['exact', 'h3c'],
+	['regex', 'hp-[0-9]{4}[a-z]*(-[0-9a-z]+)*'],
+	['regex', 'aruba-[0-9]{4}[a-z]*(-[0-9a-z]+)*'],
 ];
 // END default-names.tsv

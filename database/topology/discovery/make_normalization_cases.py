@@ -331,6 +331,21 @@ cases["cdp_id"] = [
     {"in": "Switch(FOC1234ABCD)", "out": ["name", "Switch(FOC1234ABCD)"]},
     {"in": "Router", "out": ["name", "Router"]},
     {"in": "Switch1", "out": ["key", "switch1"]},
+    # 0.16: every exact row of default-names.tsv, a default name is only a name (the vendor in the comment)
+    {"in": "Amnesiac", "out": ["name", "Amnesiac"]},          # Juniper
+    {"in": "MikroTik", "out": ["name", "MikroTik"]},          # MikroTik
+    {"in": "UBNT", "out": ["name", "UBNT"]},                  # Ubiquiti
+    {"in": "HUAWEI", "out": ["name", "HUAWEI"]},              # Huawei
+    {"in": "H3C", "out": ["name", "H3C"]},                    # H3C
+    # the regex rows (HPE ArubaOS-Switch model names): a match and no match each
+    {"in": "HP-2530-24G", "out": ["name", "HP-2530-24G"]},
+    {"in": "HP-SW16", "out": ["key", "hp-sw16"]},
+    {"in": "Aruba-2930F-24G-4SFPP", "out": ["name", "Aruba-2930F-24G-4SFPP"]},
+    {"in": "aruba-core", "out": ["key", "aruba-core"]},
+    # 0.16 / model 2.56: the dotted MAC of a name keeps its dots; a domain after it is cut (the code gives apa0b1.c2d3.e4f5 for APa0b1.c2d3.e4f5.lab); other domains are cut as before
+    {"in": "APa0b1.c2d3.e4f5", "out": ["key", "apa0b1.c2d3.e4f5"]},
+    {"in": "APa0b1.c2d3.e4f5.lab", "out": ["key", "apa0b1.c2d3.e4f5"]},
+    {"in": "AP-7.lab", "out": ["key", "ap-7"]},
     {"in": "my-switch", "out": ["key", "my-switch"]},
 ]
 
