@@ -1,7 +1,7 @@
 PERFORMANCE_RATIO_THRESHOLD=3.0
 
 declare -A BASELINE_TIMES=(
-  [Integration]=4561
+  [Integration]=4606
   [testTriggerCEPRestart]=1800
   [testTriggerCEP]=900
   [testVfsFsGet]=730
@@ -18,6 +18,8 @@ declare -A BASELINE_TIMES=(
   [testActiveCheckHeartbeat]=155
   [testPermissions]=138
   [testServiceRoles]=122
+  [testLLDTelemetrySyncAtScaleJsonPathTrigger]=120
+  [testLLDTelemetrySyncAtScale]=120
   [testBinaryAndJSONValueTypesDataCollection]=113
   [testCalculatedExpression]=102
   [testActiveAvailability]=100
@@ -34,9 +36,11 @@ declare -A BASELINE_TIMES=(
   [testComplexServiceStatus]=66
   [testItemRate]=66
   [testHousekeepingConfSync]=60
+  [testTelemetryQueryItemsWithProxyInput]=60
   [testTelnetChecks]=54
   [testUserParametersReload]=47
   [testHashicorpVault]=45
+  [testTrapperAuthentication]=45
   [testEventsCauseAndSymptoms]=44
   [testTimescaleDb]=44
   [testHistoryValueDuplicates]=43
@@ -67,5 +71,6 @@ declare -A BASELINE_TIMES=(
   [testUserMacrosWithContext]=10
   [testGraphLinking]=8
   [testScheduledReports]=5
+  [testReportTest]=5
   [testFunctions]=3
 )

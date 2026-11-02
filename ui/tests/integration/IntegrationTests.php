@@ -61,6 +61,7 @@ require_once dirname(__FILE__).'/testUserMacrosInItemNames.php';
 require_once dirname(__FILE__).'/testConnectorExport.php';
 require_once dirname(__FILE__).'/testScriptManualInput.php';
 require_once dirname(__FILE__).'/testAgentJsonProtocol.php';
+require_once dirname(__FILE__).'/testTrapperAuthentication.php';
 require_once dirname(__FILE__).'/testSnmpTrapsInHa.php';
 require_once dirname(__FILE__).'/testPermissions.php';
 require_once dirname(__FILE__).'/testFunctionChangeCount.php';
@@ -77,13 +78,19 @@ require_once dirname(__FILE__).'/testCalculatedExpression.php';
 require_once dirname(__FILE__).'/testDiagInfo.php';
 require_once dirname(__FILE__).'/testLLDHistorySyncAtScale.php';
 require_once dirname(__FILE__).'/testLLDProxyHistorySyncAtScale.php';
+require_once dirname(__FILE__).'/testLLDTelemetrySyncAtScale.php';
+require_once dirname(__FILE__).'/testLLDTelemetrySyncAtScaleJsonPathTrigger.php';
+/* require_once dirname(__FILE__).'/testLLDTelemetrySyncAtScaleClickHouseCollector.php'; */
+
 /* require_once dirname(__FILE__).'/testLLDHistorySyncAtScaleSingleSyncer.php'; can be enabled to test with single history syncer */
 require_once dirname(__FILE__).'/testHousekeepingConfSync.php';
 require_once dirname(__FILE__).'/testBridgeAdapter.php';
 require_once dirname(__FILE__).'/testTelnetChecks.php';
 require_once dirname(__FILE__).'/testHashicorpVault.php';
 require_once dirname(__FILE__).'/testScheduledReports.php';
+require_once dirname(__FILE__).'/testReportTest.php';
 /* require_once dirname(__FILE__).'/testTelemetryQueryItems.php'; */
+require_once dirname(__FILE__).'/testTelemetryQueryItemsWithProxyInput.php';
 
 use PHPUnit\Framework\TestSuite;
 
@@ -138,6 +145,7 @@ class IntegrationTests {
 		$suite->addTestSuite('testConnectorExport');
 		$suite->addTestSuite('testScriptManualInput');
 		$suite->addTestSuite('testAgentJsonProtocol');
+		$suite->addTestSuite('testTrapperAuthentication');
 		$suite->addTestSuite('testSnmpTrapsInHa');
 		$suite->addTestSuite('testPermissions');
 		$suite->addTestSuite('testFunctionChangeCount');
@@ -158,10 +166,16 @@ class IntegrationTests {
 		$suite->addTestSuite('testTelnetChecks');
 		$suite->addTestSuite('testHashicorpVault');
 		$suite->addTestSuite('testScheduledReports');
+		$suite->addTestSuite('testReportTest');
 		$suite->addTestSuite('testTriggerCEP');
 		$suite->addTestSuite('testTriggerCEPRestart');
 		$suite->addTestSuite('testLLDHistorySyncAtScale');
 		$suite->addTestSuite('testLLDProxyHistorySyncAtScale');
+		$suite->addTestSuite('testLLDTelemetrySyncAtScale');
+		$suite->addTestSuite('testLLDTelemetrySyncAtScaleJsonPathTrigger');
+		$suite->addTestSuite('testTelemetryQueryItemsWithProxyInput');
+		/* $suite->addTestSuite('testLLDTelemetrySyncAtScaleClickHouseCollector'); */
+
 		/* $suite->addTestSuite('testTriggerCEPAtScale'); */
 		/* $suite->addTestSuite('testLLDHistorySyncAtScaleSingleSyncer'); */
 		/* $suite->addTestSuite('testTelemetryQueryItems'); */

@@ -189,7 +189,7 @@ class CSettings extends CApiService {
 		$parameters['server_status'] += ['configuration' => [
 			'enable_global_scripts' => true,
 			'allow_software_update_check' => false,
-			'enable_mobile_devices' => false,
+			'enable_mobile_devices' => true,
 			'bridge_adapter_configured' => false
 		]];
 		$parameters['software_update_check_data'] =
@@ -433,6 +433,10 @@ class CSettings extends CApiService {
 
 		if (!CApiInputValidator::validate($api_input_rules, $apm_global_db, '/apm_global_db', $error)) {
 			self::exception(ZBX_API_ERROR_PARAMETERS, $error);
+		}
+
+		if (array_key_exists('url', $apm_global_db)) {
+			$apm_global_db['url'] = CUrlHelper::sanitize($apm_global_db['url']);
 		}
 
 		$apm_global_db += array_intersect_key($db_apm_global_db, array_flip(['url', 'authentication_type']));
