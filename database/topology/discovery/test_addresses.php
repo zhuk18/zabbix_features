@@ -363,6 +363,8 @@ check(!CTopologyAddress::countsAsIdentity('224.0.0.251') && !CTopologyAddress::c
 	&& CTopologyAddress::claimAddresses(['rem_mgmt_ip' => '10.0.0.1', 'rem_man_addrs' => 'lldp:1.4.224.0.0.251 lldp:1.4.10.0.0.2 lldp:1.4.127.0.0.1']) === ['10.0.0.2', '10.0.0.1'],
 	'multicast, loopback and link-local never match (claimAddresses keeps the others)');
 // the name key (§6.7.1 "Names", 2.49) and the MAC form of a CDP device id (2.48)
+check(CTopologyAddress::nameKey('APa0b1.c2d3.e4f5') === 'apa0b1.c2d3.e4f5' && CTopologyAddress::nameKey('APA0B1.C2D3.E4F5.lab') === 'apa0b1.c2d3.e4f5' && CTopologyAddress::nameKey('AP-7.lab') === 'ap-7',
+	'the device name key keeps the dots of a Cisco dotted MAC (2.56), a domain after it and other domains are cut');
 check(CTopologyAddress::nameKey('N9K-1(FDO2101X0AB)') === 'n9k-1' && CTopologyAddress::nameKey('SW-X.lab') === 'sw-x' && CTopologyAddress::nameKey('  SW-X.Lab.Example (FDO1) ') === 'sw-x'
 	&& CTopologyAddress::nameKey('10.0.0.1') === '10.0.0.1' && CTopologyAddress::nameKey('(serial)') === '(serial)' && CTopologyAddress::nameKey('a(b)c') === 'a(b)c',
 	'name key: a final group in parentheses removed, then the domain; an address keeps its dots; a name that is only a group stays');

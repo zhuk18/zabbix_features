@@ -221,13 +221,18 @@ class CTopologyAddress {
 
 	/**
 	 * The name key of a neighbor (§6.7.1 "Names", 2.49): trimmed, ASCII lower case, a final group in parentheses removed (`N9K-1(FDO2101X0AB)` = `n9k-1`, the Cisco NX-OS
-	 * CDP device id `name(serial)`), then the domain cut at the first dot (`SW-X.lab` = `sw-x`); a name that looks like an address keeps its dots. Empty for no name.
+	 * CDP device id `name(serial)`), then the domain cut at the first dot (`SW-X.lab` = `sw-x`); a name that looks like an address keeps its dots, so does the Cisco dotted MAC in a name (2.56: `APa0b1.c2d3.e4f5`, a domain after the MAC is cut). Empty for no name.
 	 */
 	public static function nameKey(string $name): string {
 		$key = strtolower(trim($name));
 		$without_group = rtrim((string) preg_replace('/\([^()]*\)$/D', '', $key));
 		if ($without_group !== '') {
 			$key = $without_group;
+		}
+
+		// 2.56 (normalization 4.9 step 3): a name that contains a Cisco dotted MAC (`APa0b1.c2d3.e4f5`, the Cisco AP default) keeps the dots of the MAC; a domain after it is cut
+		if (preg_match('/^(.*?[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4})(?:\..*)?$/Ds', $key, $m) === 1) {
+			return $m[1];
 		}
 
 		if ($key !== '' && !preg_match('/^[0-9.]+$/D', $key) && ($dot = strpos($key, '.')) !== false && $dot > 0) {
