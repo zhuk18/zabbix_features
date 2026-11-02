@@ -177,6 +177,9 @@ class IngestIdentify {
 		if (isset($incoming['chassis_key'])) {
 			$insert_key($created_id, $incoming['chassis_key'], 'chassis', $seen_at);
 		}
+		elseif (isset($incoming['cdp_key'])) {
+			$insert_key($created_id, $incoming['cdp_key'], 'cdp', $seen_at);
+		}
 		return $created_id;
 	}
 
@@ -275,6 +278,11 @@ class IngestIdentify {
 		}
 		if (count($matching) === 1) {
 			return ['found', reset($matching)];
+		}
+		// the device id key (2.55): one Device with the key is the Device; several: ambiguous; none: a new Device with the key (no scope port, so the rows below do not apply)
+		if (($claim['cdp_key'] ?? null) !== null) {
+			$holders = $this->run->keys->keyHolders($claim['cdp_key']);
+			return count($holders) === 1 ? ['found', $holders[0]] : ($holders ? ['ambiguous'] : ['new_key']);
 		}
 		// exactly one Device without a chassis with this scope_port that matches
 		$load_port_scope();

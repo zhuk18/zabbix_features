@@ -107,7 +107,12 @@ class IngestKeys {
 				return;
 			}
 		}
-		// 2.47 (§6.7.0): the identity key is the chassis only; addresses and names are attributes
+		// 2.55 (§6.7.1 row 5): a Device found through the claim with a chassis on the same port gets the device id key of the claim when no other Device has it
+		$cdp_key = $incoming['cdp_key'] ?? null;
+		if ($cdp_key !== null && !$key_holders($cdp_key)) {
+			$insert_key($device_id, $cdp_key, 'cdp', $seen_at);
+		}
+		// 2.47 (§6.7.0): the chassis is the identity key of a claim with one; addresses and names are attributes
 		$key = $incoming['chassis_key'] ?? null;
 		if ($key === null || $device_holds_key($device_id, $key) || $device_has_kind($device_id, 'chassis')) {
 			return;
@@ -158,7 +163,7 @@ class IngestKeys {
 		}
 		$latest_port = $pdo->prepare('SELECT local_port_id FROM topo_observations WHERE device_id = ? AND local_port_id IS NOT NULL ORDER BY last_seen DESC, id DESC LIMIT 1');
 		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND d.represented_by_node_id IS NULL".
-				" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")->fetchAll(PDO::FETCH_ASSOC) as $device) {
+				" AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind IN ('chassis', 'cdp'))")->fetchAll(PDO::FETCH_ASSOC) as $device) {
 			$attrs = json_decode($device['attrs'], true) ?: [];
 			if (($attrs['chassis_id'] ?? '') !== '' || CTopologyAddress::scopePorts($attrs)) {
 				continue;

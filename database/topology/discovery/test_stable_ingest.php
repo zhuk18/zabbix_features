@@ -324,7 +324,8 @@ reporter($pdo, [$lldp_local, nrow(1, 'lldp', ['rem_chassis' => 'c0:00:00:00:00:0
 $r = run_ingest($dsn, $user, $password);
 $cdp_outcome = scalar($pdo, "SELECT outcome FROM topo_observations WHERE remote_key = 'sysname:PC-7'");
 check($cdp_outcome === 'ambiguous' && $non_reporter_devices() === 3, 'two claims with a chassis on the port (chassis id PC-7, MAC with sysname PC-7) -> the CDP claim has a Device of its own, all three claims are ambiguous');
-check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device' AND JSON_EXTRACT(attrs,'\$.scope_ports') IS NOT NULL") === 1, 'only the Device without a chassis has scope_ports');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device' AND JSON_EXTRACT(attrs,'\$.scope_ports') IS NOT NULL") === 0
+	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind = 'cdp'") === 1, 'the Device of the CDP claim has the device id key (2.55) and no scope_ports');
 $r = run_ingest($dsn, $user, $password);
 check($non_reporter_devices() === 3 && $r['summary']['devices_created'] === 0, 'and a rerun creates nothing');
 
@@ -380,14 +381,14 @@ check(count($o) === 2 && $o[0]['outcome'] === 'applied' && (int) $o[0]['edge_id'
 	'the link has support: the LLDP claim stays applied, the CDP claim is `conflict` with edge_id = the link (not ambiguous)');
 
 // ============================================================================================================
-echo "\n=== 5: a Device without a chassis is found by its port, its name and its addresses (model §6.7.1, §6.7.0 upgrade, 2.47) ===\n";
+echo "\n=== 5: a Device without a chassis is found by its port, its name and its addresses (model §6.7.1, §6.7.0 upgrade, 2.47); the names are default names (normalization 4.10): another CDP device id is an identity key (2.55) ===\n";
 reporter($pdo, [nrow(1, 'lldp', ['rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_sysname' => 'X'])], []);
 run_ingest($dsn, $user, $password);
-snapshot($pdo, 1003, 101, 2, CLOCK + 20, [nrow(1, 'cdp', ['rem_sysname' => 'Ysys'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 20, [nrow(1, 'cdp', ['rem_sysname' => 'Switch'])]);
 run_ingest($dsn, $user, $password);
 $rdev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = 'a0:00:00:00:00:01'");
 $port1 = port_id($pdo, $rdev, 1);
-$ydev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Ysys'");
+$ydev = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Switch'");
 check(attrs($pdo, $ydev)['scope_ports'] === [$port1] && (int) scalar($pdo, 'SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ?', [$ydev]) === 0,
 	"a Device made for a claim without a chassis has scope_ports = [the reporter's port ({$port1})] and no key row");
 $before = counts($pdo);
@@ -396,13 +397,13 @@ $r = run_ingest($dsn, $user, $password);
 check($r['summary']['devices_created'] === 0 && counts($pdo) === $before, 'the observations of the port are deleted: the next run finds the Device by its port and name and creates nothing');
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE device_id = ?", [$ydev]) === 1, 'and the observation points at the same Device again');
 echo "  -- the name or an address stays: the same Device; both change at once: a new Device\n";
-snapshot($pdo, 1003, 101, 2, CLOCK + 30, [nrow(1, 'cdp', ['rem_sysname' => 'Ysys', 'rem_mgmt_ip' => '10.1.1.1'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 30, [nrow(1, 'cdp', ['rem_sysname' => 'Switch', 'rem_mgmt_ip' => '10.1.1.1'])]);
 run_ingest($dsn, $user, $password);
-snapshot($pdo, 1003, 101, 2, CLOCK + 40, [nrow(1, 'cdp', ['rem_sysname' => 'Ysys.lab', 'rem_mgmt_ip' => '10.1.1.2'])]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 40, [nrow(1, 'cdp', ['rem_sysname' => 'Switch.lab', 'rem_mgmt_ip' => '10.1.1.2'])]);
 $r = run_ingest($dsn, $user, $password);
 check($r['summary']['devices_created'] === 0 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE device_id = ?", [$ydev]) === 1,
-	'the name without its domain (Ysys.lab = Ysys) and a new address -> the same Device');
-snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nrow(1, 'cdp', ['rem_sysname' => 'Zsys', 'rem_mgmt_ip' => '10.1.1.3'])]);
+	'the name without its domain (Switch.lab = Switch) and a new address -> the same Device');
+snapshot($pdo, 1003, 101, 2, CLOCK + 50, [nrow(1, 'cdp', ['rem_sysname' => 'Router', 'rem_mgmt_ip' => '10.1.1.3'])]);
 $r = run_ingest($dsn, $user, $password);
 check($r['summary']['devices_created'] === 1, 'another name and an address nobody had -> a new Device; the old one stays ("not seen")');
 check(exists_device($pdo, $ydev), 'the Device of the old claim is not deleted by ingest');

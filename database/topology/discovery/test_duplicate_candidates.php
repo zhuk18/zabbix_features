@@ -842,7 +842,8 @@ $dm = device_id($pdo, $MK);
 $dl = device_id($pdo, 'MikroTik');
 $dt = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND id NOT IN (".(int) $dm.','.(int) $dl.") AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'MikroTik'");
 check($dm !== null && $dl !== null && $dt > 0 && dev_count($pdo) === 4, 'LLDP local, LLDP MAC M, CDP id M, CDP text id MikroTik -> three Devices (the local one, M, and the Device of the text claim) and the reporter');
-check(dev_attrs($pdo, $dt)['chassis_id'] === null && isset(dev_attrs($pdo, $dt)['scope_ports']), 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device of the port');
+check(dev_attrs($pdo, $dt)['chassis_id'] === null && !isset(dev_attrs($pdo, $dt)['scope_ports'])
+	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ? AND kind = 'cdp'", [$dt]) === 1, 'the text CDP claim matches two LLDP claims that are two Devices: no guess, a Device with the device id key (2.55)');
 $group = static fn (int $id): array => array_values(array_map(static fn (array $c): int => (int) $c['device_id'], array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'same_address')));
 $members = [$dm, $dl, $dt];
 sort($members);
@@ -890,15 +891,15 @@ $on = (int) scalar($pdo, 'SELECT device_id FROM topo_observations WHERE itemid =
 check($d1 !== null && $d2 !== null && dev_count($pdo) === 4 && $on > 0 && !in_array($on, [$d1, $d2], true),
 	'the CDP claim (address only) matches both LLDP claims, which are two Devices -> its own Device of the port');
 
-echo "\n=== 15: scope_ports (model 2.52, section 3.2, 6.7.1, 6.7.5; task 067): a neighbor without a chassis on two reporter ports ===\n";
+echo "\n=== 15: scope_ports (model 2.52, section 3.2, 6.7.1, 6.7.5; task 067): a neighbor without a chassis on two reporter ports; the name is a default name (2.55: another name is a key and one Device) ===\n";
 reset_all($pdo);
 add_host($pdo, 101, 'SwR', 'Switch R', '10.0.0.1');
 API::$visible[] = 101;
 snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'loc_chassis' => $R], ['if_index' => 2, 'name' => 'Gi0/2', 'loc_chassis' => $R]]);
-$ap = static fn (int $if): array => ['if_index' => $if, 'rem_sysname' => 'AP-7', 'rem_mgmt_ip' => '10.0.0.20', 'rem_port' => 'eth'.($if - 1), 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp'];
+$ap = static fn (int $if): array => ['if_index' => $if, 'rem_sysname' => 'Switch', 'rem_mgmt_ip' => '10.0.0.20', 'rem_port' => 'eth'.($if - 1), 'rem_port_type' => 'interfaceName', 'loc_chassis' => $R, 'source' => 'cdp'];
 snapshot($pdo, 1003, 101, 2, CLOCK + 50, [$ap(1), $ap(2)]);
 run_ingest($dsn, $user, $password);
-$aps = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'AP-7' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+$aps = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')) = 'Switch' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
 check(count($aps) === 2 && dev_count($pdo) === 3, 'a neighbor without a chassis on two reporter ports: two Devices (a Device is searched only on the port of its claim)');
 $ports_of = static function (int $id) use ($pdo): array {
 	$a = dev_attrs($pdo, $id);
@@ -919,7 +920,7 @@ for ($i = 0; $i < 5; $i++) {
 	}
 }
 check(dev_count($pdo) === 2 && (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE type IN ('physical_link', 'device_link')") === 2 && $state !== 'changed',
-	'the next five runs: one Device AP-7, two links, no new Device, the runs 2-5 change nothing (P1)', [dev_count($pdo), $state === 'changed']);
+	'the next five runs: one Device Switch, two links, no new Device, the runs 2-5 change nothing (P1)', [dev_count($pdo), $state === 'changed']);
 // the upgrade: scope_port P -> scope_ports [P], idempotent
 $pdo->exec("UPDATE topo_nodes SET attrs = JSON_REMOVE(JSON_SET(attrs, '\$.scope_port', 7), '\$.scope_ports') WHERE id = ".(int) $aps[0]);
 run_ingest($dsn, $user, $password);
@@ -928,5 +929,16 @@ check(isset($a['scope_ports']) && !isset($a['scope_port']) && in_array(7, $a['sc
 $f = fingerprint($pdo);
 run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $f, 'the upgrade is idempotent');
+
+echo "\n=== 16: a merge moves the device id keys (model 2.55 section 6.7.0; task 074) ===\n";
+reset_all($pdo);
+$k1 = device($pdo, null, null, 'Core-A');
+$k2 = device($pdo, null, null, 'Core-B');
+foreach ([[$k1, 'cdp:server:core-a'], [$k2, 'cdp:server:core-b']] as [$id, $key]) {
+	$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, ?, 'cdp', 1, 0)")->execute([$id, $key]);
+}
+CTopologyPrototype::mergeDevices((string) $k1, (string) $k2, 'Admin');
+check(!exists($pdo, $k2) && $pdo->query('SELECT `key` FROM topo_identity_keys WHERE device_id = '.(int) $k1." AND kind = 'cdp' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN) === ['cdp:server:core-a', 'cdp:server:core-b'],
+	'the kept Device has both device id keys');
 
 echo "\nAll duplicate candidate checks passed.\n";

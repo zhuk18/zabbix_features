@@ -214,15 +214,24 @@ class IngestObserve {
 				'source' => $source,
 			];
 			$claim_addrs = CTopologyAddress::claimAddresses($remote_attrs);
+			// model §6.7.0 (2.55), normalization §4.9: a CDP device id that is not a MAC and not a default name is an identity key of the claim, in the segment of the reporter
+			$cdp_key = null;
+			if ($row_chassis_key === null && $source === 'cdp' && ($row['rem_sysname'] ?? '') !== '' && ($cdp_id = TopologyNormalize::cdpDeviceId((string) $row['rem_sysname']))[0] === 'key') {
+				$cdp_key = substr('cdp:'.$segment.':'.$cdp_id[1], 0, 300);
+				$incoming['cdp_key'] = $cdp_key;
+			}
 			if ($row_chassis_key === null) {
 				// a claim without a chassis: the match of §6.7.1 (the reporter's SNMP address, the claim with a chassis on the same port, the Devices of this port)
-				$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? '')]);
+				$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? ''), 'cdp_key' => $cdp_key]);
 				if ($found[0] === 'ambiguous') {
 					$remote_device_id = null;          // several Devices of the port match: the observation is `ambiguous`, no Device, no link
 				}
 				else {
 					if ($found[0] === 'found') {
 						$incoming['found_device_id'] = $found[1];
+					}
+					elseif ($found[0] === 'new_key') {
+						// a new Device with the device id key: it has no scope port (the key finds it, from every port and every reporter of the segment)
 					}
 					else {
 						$incoming['scope_port'] = $local_port_id;

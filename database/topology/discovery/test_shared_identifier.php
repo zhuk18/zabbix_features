@@ -262,7 +262,8 @@ run_ingest($dsn, $user, $password);
 $r = run_ingest($dsn, $user, $password);
 $phone = (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'PHONE-Y'");
 $port1 = port_id($pdo, (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.chassis_id')) = ?", [$R]), 1);
-check(dev_count($pdo) === 3 && $phone > 0 && attrs($pdo, $phone)['scope_ports'] === [$port1], 'LLDP chassis C name SW-X, CDP no chassis name PHONE-Y, the same address -> no join: a Device with scope_port = the port for the CDP claim');
+check(dev_count($pdo) === 3 && $phone > 0 && !isset(attrs($pdo, $phone)['scope_ports'])
+	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = ? AND kind = 'cdp'", [$phone]) === 1, 'LLDP chassis C name SW-X, CDP no chassis name PHONE-Y, the same address -> no join: a Device with the device id key (2.55) for the CDP claim');
 check(array_unique($pdo->query('SELECT outcome FROM topo_observations')->fetchAll(PDO::FETCH_COLUMN)) === ['ambiguous'] && count(edges($pdo)) === 0, '§8.5: two neighbors on one port, no link -> both claims ambiguous');
 check($r['summary']['devices_created'] === 0, 'the second run creates nothing');
 
@@ -304,18 +305,18 @@ two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.21', 'rem_sy
 run_ingest($dsn, $user, $password);
 check($ap > 0 && dev_count($pdo) === 2 && (int) scalar($pdo, 'SELECT device_id FROM topo_observations') === $ap && dev_attr($pdo, $ap, 'mgmt_ip') === '10.0.0.21', 'D (name AP-7, 10.0.0.20); the next snapshot AP-7, 10.0.0.21 -> D, no new Device');
 
-echo "  -- the same neighbor without a chassis seen by two reporters: two Devices, marks, and the operator's answers --\n";
+echo "  -- the same neighbor without a chassis seen by two reporters: two Devices, marks, and the operator's answers (the name is a default name: another name would be a device id key and one Device, 2.55) --\n";
 reset_all($pdo);
 add_host($pdo, 101, 'SwR', 'SwR', '10.0.0.1');
 add_host($pdo, 102, 'SwS', 'SwS', '10.0.0.2');
 snapshot($pdo, 1001, 101, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => $R]]);
 snapshot($pdo, 2001, 102, 1, CLOCK, [['if_index' => 1, 'name' => 'Gi0/1', 'if_type' => '6', 'admin_status' => '1', 'oper_status' => '1', 'loc_chassis' => 'b0:00:00:00:00:02']]);
-$cdp_row = ['rem_mgmt_ip' => '10.0.0.30', 'rem_sysname' => 'PRINTER', 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName', 'source' => 'cdp'];
+$cdp_row = ['rem_mgmt_ip' => '10.0.0.30', 'rem_sysname' => 'Switch', 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName', 'source' => 'cdp'];
 snapshot($pdo, 1003, 101, 2, CLOCK + 10, [['if_index' => 1, 'loc_chassis' => $R] + $cdp_row]);
 snapshot($pdo, 2003, 102, 2, CLOCK + 10, [['if_index' => 1, 'loc_chassis' => 'b0:00:00:00:00:02'] + $cdp_row]);
 run_ingest($dsn, $user, $password);
-$printers = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'PRINTER' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
-check(count($printers) === 2, 'two Devices for the same printer (one per reporter and port)');
+$printers = array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Switch' ORDER BY id")->fetchAll(PDO::FETCH_COLUMN));
+check(count($printers) === 2, 'two Devices for the same printer with the default name (one per reporter and port)');
 $reasons = static fn (int $id): array => array_values(array_unique(array_column(attrs($pdo, $id)['duplicate_candidates'] ?? [], 'reason')));
 check($reasons($printers[0]) === ['same_address', 'same_name'] && $reasons($printers[1]) === ['same_address', 'same_name'], 'same_address and same_name on both');
 echo "  -- Not the same device: no candidate for the pair on the later runs --\n";

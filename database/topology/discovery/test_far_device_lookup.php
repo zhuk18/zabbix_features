@@ -264,7 +264,7 @@ $match_cases = [
 	'a loopback address and different names: no match' => [['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '127.0.17.5', 'rem_sysname' => 'PHONE-Y'], false],
 	'a CDP device id that is the chassis MAC (HP ProCurve, F-1) is that chassis, whatever its spelling' => [[], ['rem_sysname' => strtoupper(str_replace(':', '-', $C))], true],
 	'a CDP device id in MAC form that is another MAC is a hardware ID of its own (2.48): a Device with that chassis, whatever the address' => [['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'SW-X'], ['rem_mgmt_ip' => '10.0.0.5', 'rem_sysname' => 'aa:bb:cc:dd:ee:ff'], 'chassis'],
-	'a CDP device id of 12 hex digits is not a MAC form (normalization 4.1): a name' => [['rem_sysname' => 'SW-X'], ['rem_sysname' => strtolower(str_replace(':', '', $C))], false],
+	'a CDP device id of 12 hex digits is a MAC form (normalization 0.15 4.9, task 074): the hardware ID, here the chassis of the LLDP claim' => [['rem_sysname' => 'SW-X'], ['rem_sysname' => strtolower(str_replace(':', '', $C))], 'same_chassis'],
 	'a binary CDP device id with its last 00 byte, 6 octets, is the chassis (SW12, task 059)' => [['rem_sysname' => 'SW12', 'rem_mgmt_ip' => '10.0.0.2'], ['rem_sysname' => $C, 'rem_mgmt_ip' => '10.0.0.2'], 'same_chassis'],
 	'the same id with the last byte cut (5 octets) is not a MAC: a name that differs from the sysname' => [['rem_sysname' => 'SW12'], ['rem_sysname' => substr($C, 0, 14)], false],
 	'the NX-OS device id name(serial) and the LLDP sysname, no common address (task 058)' => [['rem_sysname' => 'N9K-1'], ['rem_sysname' => 'N9K-1(FDO2101X0AB)'], true],
@@ -280,18 +280,23 @@ foreach ($match_cases as $label => [$lldp_extra, $cdp_row, $joins]) {
 		check(count(array_filter($state['devices'], static fn (string $d): bool => str_starts_with($d, '/aa:bb:cc:dd:ee:ff'))) === 1, $label.': the Device has the MAC of the device id as its chassis and no name');
 	}
 	if ($joins === false) {
-		check(count(array_filter($state['devices'], static fn (string $d): bool => str_ends_with($d, ' scope_ports'))) === 1, $label.': only the Device without a chassis has a scope_port');
+		// 2.55: a CDP device id with a name that is not a MAC and not a default name is an identity key and its Device has no scope port; a claim with an address only has the scope port
+		$keyed = isset($cdp_row['rem_sysname']);
+		check(count(array_filter($state['devices'], static fn (string $d): bool => str_ends_with($d, ' scope_ports'))) === ($keyed ? 0 : 1)
+			&& (int) $pdo->query("SELECT COUNT(*) FROM topo_identity_keys WHERE kind = 'cdp'")->fetchColumn() === ($keyed ? 1 : 0),
+			$label.': '.($keyed ? 'the Device of the CDP claim has the device id key and no scope_port' : 'only the Device without a chassis has a scope_port'));
 	}
 }
 
 echo "\n=== the Devices of the port: one matches / several match / none (§6.7.1 rows 6-8) ===\n";
 fresh($pdo);
-two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.40', 'rem_sysname' => 'AP-1']]);
+two_rules($pdo, $R, [], [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.40']]);
 run_ingest($dsn, $user, $password);
-$port = (int) scalar($pdo, "SELECT JSON_EXTRACT(attrs, '\$.scope_ports[0]') FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'AP-1'");
+$port = (int) scalar($pdo, "SELECT JSON_EXTRACT(attrs, '\$.scope_ports[0]') FROM topo_nodes WHERE type='device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.mgmt_ip')) = '10.0.0.40'");
 check($port > 0, 'the claim without a chassis made a Device with scope_port = the local port');
+// 2.55: a CDP device id that is not a default name is a key; the rows of the port below are for claims without one, so the names here are default names (normalization 4.10)
 // two more Devices of the same port, made by hand (old data): one with the address 10.0.0.41, one with the name AP-2 and the same address
-foreach ([['AP-3', '10.0.0.41'], ['AP-2', '10.0.0.41']] as [$name, $ip]) {
+foreach ([['Router', '10.0.0.41'], ['Switch', '10.0.0.41']] as [$name, $ip]) {
 	$id = device($pdo, null, null, $name);
 	$a = attrs($pdo, $id);
 	$a['mgmt_ip'] = $ip;
@@ -302,11 +307,11 @@ $count = dev_count($pdo);
 snapshot($pdo, 1003, 101, 2, CLOCK + 50, [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.41', 'source' => 'cdp', 'loc_chassis' => $R, 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName']]);
 run_ingest($dsn, $user, $password);
 check((string) scalar($pdo, 'SELECT outcome FROM topo_observations') === 'ambiguous' && dev_count($pdo) === $count, 'two Devices of the port match the claim (the address) -> ambiguous, nothing is created');
-snapshot($pdo, 1003, 101, 2, CLOCK + 60, [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.41', 'rem_sysname' => 'AP-2', 'source' => 'cdp', 'loc_chassis' => $R, 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName']]);
+snapshot($pdo, 1003, 101, 2, CLOCK + 60, [['if_index' => 1, 'rem_mgmt_ip' => '10.0.0.41', 'rem_sysname' => 'Switch', 'source' => 'cdp', 'loc_chassis' => $R, 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName']]);
 run_ingest($dsn, $user, $password);
-check((string) scalar($pdo, 'SELECT outcome FROM topo_observations') !== 'ambiguous' && (string) scalar($pdo, 'SELECT device_id FROM topo_observations') === (string) scalar($pdo, "SELECT id FROM topo_nodes WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'AP-2'"),
-	'the name tells them apart: only AP-2 matches (the name AP-3 differs) -> that Device');
-snapshot($pdo, 1003, 101, 2, CLOCK + 70, [['if_index' => 2, 'rem_mgmt_ip' => '10.0.0.41', 'rem_sysname' => 'AP-2', 'source' => 'cdp', 'loc_chassis' => $R, 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName']]);
+check((string) scalar($pdo, 'SELECT outcome FROM topo_observations') !== 'ambiguous' && (string) scalar($pdo, 'SELECT device_id FROM topo_observations') === (string) scalar($pdo, "SELECT id FROM topo_nodes WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs,'\$.sysname')) = 'Switch'"),
+	'the name tells them apart: only Switch matches (the name Router differs; both are default names, so no device id key, 2.55) -> that Device');
+snapshot($pdo, 1003, 101, 2, CLOCK + 70, [['if_index' => 2, 'rem_mgmt_ip' => '10.0.0.41', 'rem_sysname' => 'Switch', 'source' => 'cdp', 'loc_chassis' => $R, 'rem_port' => 'e0', 'rem_port_type' => 'interfaceName']]);
 run_ingest($dsn, $user, $password);
 check(dev_count($pdo) === $count + 1, 'the same name and address on ANOTHER port of the same reporter -> a new Device (the search covers one port)');
 

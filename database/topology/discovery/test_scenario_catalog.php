@@ -2734,10 +2734,11 @@ c('S-04', 'Правило', function () {
 	h_nbrs('R1', [NR(1, null, 'PRINTER', 'Gi0/1', ['rem_mgmt_ip' => '10.0.0.1'])], 'cdp');
 	h_ingest('the same host, now behind proxy B, reports the same neighbor');
 	s_picture('S-04');
-	// 2.47: the match is by the port, the name and the addresses of one reporter; the segment is not part of it, so the move changes nothing
-	ex(h_dev_count() === 2, 'the neighbor is the same Device after the move: found by its port and name (actual: '.h_dev_count().')');
+	// 2.55 (task 074, model 6.7.0 "Segment change"): the device id key of a CDP-only neighbor belongs to the segment, there is no re-keying: after the move the rows resolve
+	// in the new segment, the neighbor gets a new Device and the old one is "not seen" (before 2.55: found by its port and name, the segment was not part of it)
 	global $pdo;
-	exv((int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind <> 'chassis'"), 0, 'there are no address keys to rewrite or to go stale');
+	ex(h_dev_count() === 3, 'the neighbor has a new Device in the new segment; the old one stays "not seen" (actual: '.h_dev_count().')');
+	exv($pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind = 'cdp' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN), ['cdp:proxy:1:printer', 'cdp:proxy:2:printer'], 'one device id key in each segment');
 	ex(count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')) === 1, 'the port has one active link (actual: '.count(h_links('R1:Gi0/1', 'PRINTER', null, 'active')).')');
 });
 
@@ -2789,7 +2790,7 @@ c('S-07', 'Правило', function () {
 	h_ingest('the group fails over to proxy 2');
 	s_picture('S-07');
 	$keys = $pdo->query("SELECT `key` FROM topo_identity_keys WHERE kind <> 'chassis' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN);
-	ex(h_dev_count() === 2 && $keys === [], 'a failover inside a proxy group changes nothing: one neighbor Device, no address keys (actual: '.json_encode($keys).')');
+	ex(h_dev_count() === 2 && $keys === ['cdp:pg:1:printer'], 'a failover inside a proxy group changes nothing: one neighbor Device, the device id key of the group segment (actual: '.json_encode($keys).')');
 });
 
 
@@ -2872,8 +2873,8 @@ c('A-03', 'Правило', function () {
 	h_tick();
 	h_nbrs('R', [NR(2, null, 'OTHER', 'Gi0/1', ['rem_mgmt_ip' => '10.2.2.3'])], 'cdp');
 	h_ingest('its row is gone');
-	exv(a_key_names('IPONLY'), [], 'a Device without a chassis has no key (2.47)');
-	exv(a_key_names('OTHER'), [], 'the new Device has none either');
+	exv(a_key_names('IPONLY'), ['cdp:server:iponly'], 'a Device without a chassis has no chassis key; the CDP device id is its key (2.55)');
+	exv(a_key_names('OTHER'), ['cdp:server:other'], 'the new Device has the key of its own device id');
 	ex(h_dev_count() === 3 && h_dev('IPONLY') !== null, 'ingest never deletes the Device whose row is gone ("not seen", §8.7): R, IPONLY, OTHER');
 });
 
