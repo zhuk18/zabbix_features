@@ -78,7 +78,7 @@ skip() {   # skip <name> <reason>
 for t in discovery/test_device_links.php discovery/test_device_link_validation.php discovery/test_identity_normalization.php \
 		discovery/test_link_replacement.php discovery/test_manual_contradiction.php \
 		discovery/test_topology_model.php test_contradiction_rule.php test_lazy_host_nodes.php \
-		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
+		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_run_summary.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
 	db=topo_t_$(basename "$t" .php | cut -c6-40)
 	fresh "$db"
 	php_test "$db" "$t"
@@ -168,6 +168,10 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	exec_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
 	exec_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
 	exec_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
+	# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
+	exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
+	exec_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
+	exec_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
 	# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
 	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
 		exec_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png

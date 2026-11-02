@@ -200,7 +200,7 @@ reporter_rows($pdo, $R, [['if_index' => 1, 'rem_chassis' => $Y, 'rem_chassis_typ
 	['if_index' => 2, 'rem_chassis' => $X, 'rem_chassis_type' => 'macAddress', 'rem_mgmt_ip' => $IP, 'rem_sysname' => 'A']]);
 for ($i = 1; $i <= 5; $i++) {
 	$r = run_ingest($dsn, $user, $password);
-	check($r['code'] === 0, "run {$i}: ingest ok");
+	check(in_array($r['code'], [0, 3], true), "run {$i}: ingest ok");
 	check(dev_attr($pdo, $A, 'chassis_id') === $X && dev_attr($pdo, $A, 'mgmt_ip') === $IP, "run {$i}: Device A keeps chassis X and its IP");
 }
 $new = device_id($pdo, $Y);

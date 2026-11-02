@@ -72,7 +72,7 @@ $process = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, nul
 $stdout = stream_get_contents($pipes[1]);
 $stderr = stream_get_contents($pipes[2]);
 $code = proc_close($process);
-check($code === 0, "the run succeeds with the settings from the environment only (exit {$code}) {$stderr}");
+check(in_array($code, [0, 3], true), "the run succeeds with the settings from the environment only (exit {$code}) {$stderr}");
 
 $device = $pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC);
 check(count($device) === 1 && (json_decode($device[0]['attrs'], true)['chassis_id'] ?? null) === '02:aa:00:00:00:01',

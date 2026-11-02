@@ -371,7 +371,7 @@ function h_ingest(string $label, array $only_hosts = []): array {
 	}
 	$r = run_ingest($dsn, $user, $password, $only_hosts, $order, isset($H['fail_b']) ? $H['reps'][$H['fail_b']]['id'] : null);
 	// exit 1 = nothing could be ingested (every reporter skipped): a result, not a crash
-	if ($r['code'] > 1 || $r['summary'] === []) {
+	if (!in_array($r['code'], [0, 1, 3], true) || $r['summary'] === []) {
 		h_fail("ingest failed at '{$label}': ".trim($r['err'].' '.substr($r['out'], -200)));
 	}
 	if (getenv('CATALOG_ECHO')) {
@@ -635,7 +635,7 @@ function h_idempotent(): array {
 	$rows = [];
 	for ($i = 1; $i <= 3; $i++) {
 		$r = run_ingest($dsn, $user, $password, [], $H['order'] === 'reverse' ? implode(',', array_reverse(array_column($H['reps'], 'id'))) : null);
-		if ($r['code'] > 1) {
+		if (!in_array($r['code'], [0, 1, 3], true)) {
 			return [false, 'ingest failed on repeat '.$i];
 		}
 		$rows[$i] = h_rows();

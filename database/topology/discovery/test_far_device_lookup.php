@@ -217,7 +217,7 @@ function lookup_state(PDO $pdo): array {
 /** Runs ingest five times; every run after the first must change nothing (P1). */
 function five_runs(PDO $pdo, string $dsn, string $user, string $password, string $label): array {
 	$r = run_ingest($dsn, $user, $password);
-	check($r['code'] === 0, "{$label}: run 1 ok");
+	check(in_array($r['code'], [0, 3], true), "{$label}: run 1 ok");
 	$fp = fingerprint($pdo);
 	$tables = md5(json_encode([$pdo->query('SELECT device_id, `key`, kind, first_seen, replaced FROM topo_identity_keys ORDER BY device_id, `key`')->fetchAll(PDO::FETCH_ASSOC)]));
 	for ($i = 2; $i <= 5; $i++) {

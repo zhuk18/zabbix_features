@@ -153,6 +153,30 @@ CHECKS = {
             && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
         return r;
     })()''',
+    # model §12.7 (task 076): the last run view (--action topology.lastrun): the run summary, the list "Needs attention", the filter and the observation list are there;
+    # the five outcome numbers are links; no horizontal scroll from the window width where the content area has the Zabbix minimum width (§12.1 "Width"; below it
+    # the page scrolls like every Zabbix page); nothing of the page is outside the window; the text of the neighbors is text (no element made from it)
+    'lastrun': '''(() => {
+        const d = document.documentElement, W = d.clientWidth, H = d.clientHeight;
+        const main = document.querySelector('main'), ms = getComputedStyle(main);
+        const main_min = (parseFloat(ms.minWidth) || 0) + (ms.boxSizing === 'border-box' ? 0 : parseFloat(ms.paddingLeft) + parseFloat(ms.paddingRight)
+            + parseFloat(ms.borderLeftWidth) + parseFloat(ms.borderRightWidth));
+        const wrapper = document.querySelector('.wrapper');
+        const content_w = Math.round(wrapper.clientWidth);
+        const r = {window: W + 'x' + H, doc_scroll: d.scrollWidth + 'x' + d.scrollHeight, content_w, zabbix_min_width: main_min,
+            summary_rows: document.querySelectorAll('#topology-lastrun-summary tr').length,
+            outcome_links: Array.from(document.querySelectorAll('a[id^="topology-lastrun-outcome-"]')).map(a => a.id.replace('topology-lastrun-outcome-', '')),
+            has_attention: !!document.getElementById('topology-lastrun-attention'), has_list: !!document.getElementById('topology-lastrun-list'),
+            list_rows: document.querySelectorAll('#topology-lastrun-list tbody tr').length,
+            outside_window: Array.from(main.querySelectorAll('*')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > W + 1; }).map(e => e.id || e.className || e.tagName).slice(0, 8),
+            unsafe_nodes: document.querySelectorAll('#topology-lastrun-list img, #topology-lastrun-list script, #topology-lastrun-list b, #topology-lastrun-list i, #topology-lastrun-list iframe, #topology-lastrun-attention img, #topology-lastrun-attention script').length,
+            scroll_x: wrapper.scrollWidth > wrapper.clientWidth + 1 || d.scrollWidth > W};
+        // main has 10 px of margin on each side: the content area needs 1220 px; a page taller than the window loses 15 px to the vertical scrollbar, so a window that is
+        // narrower than that scrolls like every Zabbix page (§12.1 "Width")
+        r.min_width_note = content_w < main_min + 20;
+        r.ok = r.summary_rows >= 5 && r.outcome_links.length === 5 && r.has_attention && r.has_list && !r.unsafe_nodes && (r.min_width_note || (!r.scroll_x && !r.outside_window.length));
+        return r;
+    })()''',
     # model §12.5 "Addresses" (task 051): with a Device without association selected, the labels of the section are the full text ("System name", "Hardware ID": not cut
     # to "S." / "H."), no text of the section is wider than the side panel, the section has an address list or "No address reported"
     'addresses': '''(() => {
@@ -253,13 +277,25 @@ def main():
         ws.call('Emulation.setDeviceMetricsOverride', width=a.width, height=a.height, deviceScaleFactor=1, mobile=False)
         ws.call('Page.enable')
         ws.call('Page.navigate', url=BASE + 'zabbix.php?action=' + a.action)
-        time.sleep(4)
 
         def js(expr):
             r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
             if r.get('exceptionDetails'):
                 raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
             return r.get('result', {}).get('value')
+
+        # wait for the page (the first request after a change of the code can take longer than a fixed sleep): the document is complete and the menu and, on the graph page, the
+        # filter bar are there
+        ready = "document.readyState === 'complete' && !!document.querySelector('.sidebar') && (%s)" % (
+            "!!document.getElementById('topology-filter-apply')" if a.action == 'topology.view' else 'true')
+        for _ in range(120):
+            try:
+                if js(ready):
+                    break
+            except RuntimeError:
+                pass
+            time.sleep(0.5)
+        time.sleep(1)
 
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids come from the page's API
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids are read from the database (read only)

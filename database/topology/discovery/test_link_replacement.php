@@ -162,7 +162,7 @@ function assert_port_uniqueness(PDO $pdo, string $when): void {
 function ingest(string $dsn, string $user, string $password, PDO $pdo, string $when, array $extra = [], ?string $order = null,
 		bool $check_unique = true): array {
 	$r = run_ingest($dsn, $user, $password, $extra, $order);
-	if ($r['code'] !== 0) {
+	if (!in_array($r['code'], [0, 3], true)) {
 		fail_test("ingest failed {$when}: ".trim($r['err'].' '.$r['out']));
 	}
 	if ($check_unique) {

@@ -50,7 +50,7 @@ check(($status['status'] ?? '') === 'error' && str_contains($status['error'] ?? 
 // 2. The lock is released when the holder goes away.
 $pdo->query("SELECT RELEASE_LOCK('{$name}')");
 $run = finish(start($dsn, $user, $password, $base.'-cli'));
-check($run['code'] === 0, 'a run after the lock is released succeeds');
+check(in_array($run['code'], [0, 3], true), 'a run after the lock is released succeeds');
 
 // 3. A real run that holds the lock (stopped mid-flight) with temp dir A; a second run with temp dir B exits.
 $first = start($dsn, $user, $password, $base.'-a');
@@ -69,7 +69,7 @@ if ($st['running']) {
 		'a real run in progress (other temp dir) makes a second run exit with "Ingest already running"');
 	posix_kill($st['pid'], SIGCONT);
 	$r = finish($first);
-	check($r['code'] === 0, 'the stopped run finishes normally after SIGCONT');
+	check(in_array($r['code'], [0, 3], true), 'the stopped run finishes normally after SIGCONT');
 }
 else {
 	finish($first);

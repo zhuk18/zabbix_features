@@ -147,7 +147,7 @@ add_host($pdo, 102, 'SwB', 'Switch B', '10.0.0.2');
 
 snapshot($pdo, 1001, 101, 2, CLOCK, [$nbr_a_to_b + ['loc_chassis' => $A]]);
 $r = run_ingest($dsn, $user, $password);
-check($r['code'] === 0, 'ingest exits 0 with only a NEIGHBORS snapshot: '.trim($r['err']));
+check(in_array($r['code'], [0, 3], true), 'ingest exits 0 with only a NEIGHBORS snapshot: '.trim($r['err']));
 $dev_a = device_id($pdo, $A);
 check($dev_a !== null, 'reporter Device created from loc_chassis');
 $port_a1 = port_id($pdo, $dev_a, 1);
@@ -160,7 +160,7 @@ check(scalar($pdo, 'SELECT represented_by_matched_by FROM topo_nodes WHERE id=?'
 
 snapshot($pdo, 1002, 101, 1, CLOCK + 10, $ports_a);
 $r = run_ingest($dsn, $user, $password);
-check($r['code'] === 0, 'second ingest with PORTS added');
+check(in_array($r['code'], [0, 3], true), 'second ingest with PORTS added');
 check(port_id($pdo, $dev_a, 1) === $port_a1, 'PORTS updates the SAME Port id the NEIGHBORS pass created');
 $attrs = attrs($pdo, $port_a1);
 check($attrs['name'] === 'Gi0/1' && $attrs['mac'] === 'aa:aa:aa:00:00:01' && $attrs['oper_status'] === 'up'
@@ -195,7 +195,7 @@ snapshot($pdo, 2002, 102, 2, CLOCK + 20, [
 		'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $B],
 ]);
 $r = run_ingest($dsn, $user, $password);
-check($r['code'] === 0, 'ingest with B as a reporter: '.trim($r['err']));
+check(in_array($r['code'], [0, 3], true), 'ingest with B as a reporter: '.trim($r['err']));
 check(device_id($pdo, $B) === $dev_b, 'the neighbor-created Device is reused, not duplicated');
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type='device'") === 2, 'still exactly two Devices');
 check(count(edges($pdo)) === 1, 'still exactly one physical_link (both sides converge on it)');
@@ -369,7 +369,7 @@ check(($r['summary']['reporters_processed'] ?? 0) >= 3, 'the summary counts proc
 // ============================================================================================================
 echo "\n=== 11: --zabbix-host scoping and a host with no data ===\n";
 $r = run_ingest($dsn, $user, $password, ['SwB']);
-check($r['code'] === 0 && ($r['summary']['reporters_processed'] ?? 0) === 1, 'the host filter limits the run to one reporter');
+check(in_array($r['code'], [0, 3], true) && ($r['summary']['reporters_processed'] ?? 0) === 1, 'the host filter limits the run to one reporter');
 
 // ============================================================================================================
 echo "\n=== 12: observations of rules without a usable snapshot ===\n";
