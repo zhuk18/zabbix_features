@@ -26,7 +26,7 @@ def run_ingest(settings):
     t0 = int(time.time())
     p = subprocess.run(['php', INGEST, '--pdo-dsn', dsn, '--pdo-user', settings.get('db_user', 'zabbix')],
                        capture_output=True, text=True, timeout=300)
-    if p.returncode:
+    if p.returncode not in (0, 3):          # 3 = done with warnings (the list "Needs attention" of the run summary is not empty, model 2.57 12.7)
         raise LabError('ingest failed (%d): %s' % (p.returncode, (p.stderr or p.stdout).strip()[:500]))
     with open(STATUS_FILE) as f:
         st = json.load(f)

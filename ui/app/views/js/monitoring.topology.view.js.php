@@ -59,6 +59,11 @@ const view = new class {
 		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47, 2.49; FR-C V-16, V-17): the server answers with the Devices that have a candidate (linked
 		// or not), their partners and one hop of context; render() dims the context and draws the pair lines.
 		this.only_duplicates = false;
+		// the run summary of the last run view links here with "Possible duplicates only" set (model §12.7)
+		if (new URLSearchParams(window.location.search).get('only_duplicates') === '1') {
+			this.only_duplicates = true;
+			document.getElementById('topology-filter-duplicates').checked = true;
+		}
 		document.getElementById('topology-filter-duplicates').addEventListener('change', event => {
 			this.only_duplicates = event.target.checked;
 			this.guard(() => this.loadDevices());
@@ -1286,7 +1291,7 @@ const view = new class {
 			</colgroup><thead><tr>${[<?= json_encode(_('Port')) ?>, <?= json_encode(_('Status')) ?>, <?= json_encode(_('Connected to')) ?>, <?= json_encode(_('Source')) ?>]
 				.map(header => `<th title="${this.escape(header)}">${this.escape(header)}</th>`).join('')}<th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
-				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
+				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}${port.connected_to || port.device_link_id ? `<a class="topology-port-reports" href="zabbix.php?action=topology.lastrun&port_id=${encodeURIComponent(port.id)}">${this.escape(<?= json_encode(_('Neighbor reports')) ?>)}</a>` : ''}</td>
 				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
@@ -1313,7 +1318,10 @@ const view = new class {
 			? `<div class="topology-promote"><button type="button" class="btn-alt topology-link-device-button">` +
 				`${this.escape(<?= json_encode(_('Link to this device (port unknown)')) ?>)}</button></div>`
 			: '';
-		return `${hidden_by}${this.duplicatesFragment(device)}${sections}${link_to_device}${promotion}`;
+		// §12.7: the last run view filtered to this Device (what the neighbors reported about it)
+		const neighbor_reports = `<div class="topology-device-reports"><a href="zabbix.php?action=topology.lastrun&device_id=${encodeURIComponent(device.id)}">` +
+			`${this.escape(<?= json_encode(_('Neighbor reports')) ?>)}</a></div>`;
+		return `${neighbor_reports}${hidden_by}${this.duplicatesFragment(device)}${sections}${link_to_device}${promotion}`;
 	}
 
 	// Search-as-you-type picker for the "Promote to host" panel (topology-1-model.md "API", "Side panels"): debounced, queries

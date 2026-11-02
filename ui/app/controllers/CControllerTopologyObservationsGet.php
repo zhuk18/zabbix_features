@@ -4,7 +4,8 @@
  * GET topology.observations.get (topology-1-model.md "API") — NEIGHBORS evidence recorded by ingest.
  *
  * Optional: outcome (one or more of applied|device_only|shadowed|conflict|ambiguous; default: everything except
- * applied), device_id (only observations resolved to that remote Device), precision (port|device: how precisely the far
+ * applied), device_id (only observations resolved to that remote Device), reporter_hostid (one reporter host), port_id (reported on that
+ * Port, or the claim of a link that ends at it; 2.57), precision (port|device: how precisely the far
  * end was identified, topology-1-model.md "API"), limit.
  *
  * JSON only. Strings in the response originate from LLDP/CDP (topology-1-model.md "Security: untrusted strings") and are data: whoever renders them
@@ -22,6 +23,8 @@ class CControllerTopologyObservationsGet extends CController {
 		$ret = $this->validateJsonInput([
 			'outcome' => 'array',
 			'device_id' => 'id',
+			'reporter_hostid' => 'id',
+			'port_id' => 'id',
 			'contradicted' => 'in 0,1',
 			'precision' => 'in port,device',
 			'limit' => 'int32|ge 1|le 5000'
@@ -50,7 +53,9 @@ class CControllerTopologyObservationsGet extends CController {
 			$this->hasInput('device_id') ? $this->getInput('device_id') : null,
 			(int) $this->getInput('limit', 500),
 			(int) $this->getInput('contradicted', 0) === 1,
-			$this->hasInput('precision') ? $this->getInput('precision') : null
+			$this->hasInput('precision') ? $this->getInput('precision') : null,
+			$this->hasInput('reporter_hostid') ? $this->getInput('reporter_hostid') : null,
+			$this->hasInput('port_id') ? $this->getInput('port_id') : null
 		);
 
 		$this->setResponse(new CControllerResponseData([

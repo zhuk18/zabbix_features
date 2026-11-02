@@ -87,7 +87,9 @@ class CTopologyIngest {
 		$full_command = $command.' > '.escapeshellarg($log_file).' 2>&1 &';
 
 		$process = proc_open($full_command, [], $pipes, null, array_merge(getenv(), [
-			'TOPOLOGY_PDO_DSN' => $pdo_dsn, 'TOPOLOGY_PDO_USER' => (string) $DB['USER'], 'TOPOLOGY_PDO_PASSWORD' => (string) $DB['PASSWORD']
+			'TOPOLOGY_PDO_DSN' => $pdo_dsn, 'TOPOLOGY_PDO_USER' => (string) $DB['USER'], 'TOPOLOGY_PDO_PASSWORD' => (string) $DB['PASSWORD'],
+			// who pressed the button: the run records it as `started_by` (model §12.7); the process itself is still a system process
+			'TOPOLOGY_STARTED_BY' => (string) (CWebUser::$data['username'] ?? '')
 		]));
 		if (!is_resource($process)) {
 			throw new Exception('The ingest process could not be started (proc_open failed; is it disabled for the web server?)');

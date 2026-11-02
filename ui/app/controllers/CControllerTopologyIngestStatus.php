@@ -14,17 +14,8 @@ class CControllerTopologyIngestStatus extends CController {
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 
 	protected function doAction() {
-		// Must match ingest.php's own INGEST_STATUS_FILE constant exactly (sys_get_temp_dir(), not the
-		// git-tracked discovery/ directory — see that constant's comment: a source directory is commonly
-		// not writable by the OS user running a web-spawned ingest, so the status file has to live
-		// somewhere any caller, whichever user runs it, can actually write).
-		$status_file = sys_get_temp_dir().'/topology-ingest-status.json';
-
-		$status = is_file($status_file) ? json_decode((string) file_get_contents($status_file), true) : null;
-		if (!is_array($status)) {
-			// Never run before (or the status file was removed) — the "idle" state of topology-1-model.md "Run summary".
-			$status = ['status' => 'idle', 'started_at' => null, 'finished_at' => null, 'summary' => null];
-		}
+		// the status file is the one of ingest.php (sys_get_temp_dir(), not the git-tracked discovery/ directory: see the constant INGEST_STATUS_FILE there)
+		$status = CTopologyRunSummary::read();
 
 		// The run summary (counts and lists of the whole installation) is for Super admin only (topology-5-access-control.md §3.10);
 		// everyone else gets the state of the run and nothing else.
@@ -32,6 +23,9 @@ class CControllerTopologyIngestStatus extends CController {
 			$status = ['status' => $status['status'] ?? 'idle'];
 		}
 
-		$this->setResponse(new CControllerResponseData(['main_block' => json_encode($status)]));
+		// done / done_with_warnings / failed (model §12.7): the list "Needs attention" of a finished run is in its summary
+		$status['result'] = CTopologyRunSummary::result($status['status'] ?? null, is_array($status['summary'] ?? null) ? $status['summary'] : null);
+
+		$this->setResponse(new CControllerResponseData(['main_block' => json_encode($status, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE)]));
 	}
 }

@@ -162,6 +162,7 @@ class IngestObserve {
 					if ($group <= 0) {
 						$summary['rows_local_port_unresolved']['count']++;
 						$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
+						$summary['rows_local_port_unresolved']['by_rule'][(int) $snapshot['itemid']][$reason] = ($summary['rows_local_port_unresolved']['by_rule'][(int) $snapshot['itemid']][$reason] ?? 0) + 1;
 						echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
 					}
 					continue;

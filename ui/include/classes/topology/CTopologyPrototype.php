@@ -2753,7 +2753,8 @@ class CTopologyPrototype {
 	 *                                far end was identified that precisely
 	 */
 	public static function getObservations(?array $outcomes = null, ?string $device_id = null,
-			int $limit = 500, bool $contradicted_only = false, ?string $precision = null): array {
+			int $limit = 500, bool $contradicted_only = false, ?string $precision = null, ?string $reporter_hostid = null,
+			?string $port_id = null): array {
 		$outcomes ??= array_values(array_diff(self::OBSERVATION_OUTCOMES, ['applied']));
 		if ($contradicted_only) {
 			// topology-1-model.md "API" (contradicted filter): shadowed and not acknowledged.
@@ -2783,6 +2784,15 @@ class CTopologyPrototype {
 		}
 		if ($precision !== null) {
 			$sql .= ' AND o.link_precision='.zbx_dbstr($precision);
+		}
+		// 2.57 (§11, §12.7): the observations of one reporter host, and the observations about one Port: reported on it, or
+		// the claim of a link that ends at it (the other end of a link reports it from its own side)
+		if ($reporter_hostid !== null) {
+			$sql .= ' AND h.hostid='.zbx_dbstr($reporter_hostid);
+		}
+		if ($port_id !== null) {
+			$sql .= ' AND (o.local_port_id='.zbx_dbstr($port_id).' OR o.edge_id IN (SELECT e.id FROM topo_edges e WHERE e.src_id='.
+				zbx_dbstr($port_id).' OR e.dst_id='.zbx_dbstr($port_id).'))';
 		}
 		$sql .= ' ORDER BY o.last_seen DESC,o.id DESC';
 
@@ -2880,8 +2890,112 @@ class CTopologyPrototype {
 				'acknowledged' => $row['outcome'] === 'shadowed' ? $acknowledged : null
 			];
 		}
+		$result = $contradicted_only ? array_slice($result, 0, $limit) : $result;
+		self::addObservationReasons($result);
 
-		return $contradicted_only ? array_slice($result, 0, $limit) : $result;
+		return $result;
+	}
+
+	/** The name of a Device for a filter chip of the last run view: its sysname, else its chassis id, else the id. */
+	public static function deviceLabel(string $device_id): string {
+		$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND id='.zbx_dbstr($device_id)), false);
+		$attrs = $row ? (json_decode((string) $row['attrs'], true) ?: []) : [];
+
+		return (string) (($attrs['sysname'] ?? '') !== '' ? $attrs['sysname'] : ($attrs['chassis_id'] ?? '#'.$device_id));
+	}
+
+	/** The name of a Port with its Device, for a filter chip of the last run view. */
+	public static function portLabel(string $port_id): string {
+		$row = DBfetch(DBselect('SELECT p.attrs,p.device_id FROM topo_nodes p WHERE p.type='.zbx_dbstr('port').' AND p.id='.zbx_dbstr($port_id)), false);
+		if (!$row) {
+			return '#'.$port_id;
+		}
+		$attrs = json_decode((string) $row['attrs'], true) ?: [];
+
+		return ($row['device_id'] !== null ? self::deviceLabel((string) $row['device_id']).' ' : '').(string) ($attrs['name'] ?? '#'.$port_id);
+	}
+
+	/**
+	 * The reason of an observation for the list of the last run (model §12.7), one more field `reason` of each row: for `conflict` and `shadowed` the blocking link
+	 * (its two ends as text), for `ambiguous` the other claims on the same local port (the Device name, else the claim key). Everything is text of the neighbor:
+	 * escaped by whoever renders it.
+	 */
+	private static function addObservationReasons(array &$rows): void {
+		$edge_ids = [];
+		$ports = [];
+		foreach ($rows as $row) {
+			if (in_array($row['outcome'], ['conflict', 'shadowed'], true) && $row['edge_id'] !== null) {
+				$edge_ids[] = $row['edge_id'];
+			}
+			if ($row['outcome'] === 'ambiguous' && $row['local_port']['id'] !== null) {
+				$ports[] = $row['local_port']['id'];
+			}
+		}
+		$ends = [];
+		if ($edge_ids) {
+			$edges = [];
+			$node_ids = [];
+			$cursor = DBselect('SELECT id,type,src_id,dst_id FROM topo_edges WHERE '.dbConditionId('id', array_values(array_unique($edge_ids))));
+			while ($edge = DBfetch($cursor, false)) {
+				$edges[$edge['id']] = $edge;
+				$node_ids[] = $edge['src_id'];
+				$node_ids[] = $edge['dst_id'];
+			}
+			$nodes = [];
+			if ($node_ids) {
+				$cursor = DBselect('SELECT id,type,device_id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values(array_unique($node_ids))));
+				while ($node = DBfetch($cursor, false)) {
+					$nodes[$node['id']] = $node;
+				}
+				$device_ids = array_filter(array_unique(array_column($nodes, 'device_id')));
+				if ($device_ids) {
+					$cursor = DBselect('SELECT id,type,device_id,attrs FROM topo_nodes WHERE '.dbConditionId('id', array_values($device_ids)));
+					while ($node = DBfetch($cursor, false)) {
+						$nodes[$node['id']] = $node;
+					}
+				}
+			}
+			$label = static function ($node_id) use ($nodes): string {
+				$node = $nodes[$node_id] ?? null;
+				if ($node === null) {
+					return '?';
+				}
+				$attrs = json_decode((string) $node['attrs'], true) ?: [];
+				if ($node['type'] === 'port') {
+					$device = $nodes[$node['device_id']] ?? null;
+					$device_attrs = $device !== null ? (json_decode((string) $device['attrs'], true) ?: []) : [];
+
+					return (string) ($device_attrs['sysname'] ?? $device_attrs['chassis_id'] ?? '?').' '.(string) ($attrs['name'] ?? '?');
+				}
+
+				return (string) ($attrs['sysname'] ?? $attrs['chassis_id'] ?? '?');
+			};
+			foreach ($edges as $edge_id => $edge) {
+				$ends[$edge_id] = [$label($edge['src_id']), $label($edge['dst_id'])];
+			}
+		}
+		$others = [];
+		if ($ports) {
+			$cursor = DBselect('SELECT o.id,o.local_port_id,o.remote_key,o.remote_attrs,remote.attrs AS device_attrs FROM topo_observations o'.
+				' LEFT JOIN topo_nodes remote ON remote.id=o.device_id WHERE '.dbConditionId('o.local_port_id', array_values(array_unique($ports))).
+					' AND o.outcome='.zbx_dbstr('ambiguous'));
+			while ($other = DBfetch($cursor, false)) {
+				$device_attrs = json_decode((string) $other['device_attrs'], true) ?: [];
+				$others[$other['local_port_id']][$other['id']] = (string) ($device_attrs['sysname'] ?? $other['remote_key']);
+			}
+		}
+		foreach ($rows as &$row) {
+			$row['reason'] = null;
+			if (in_array($row['outcome'], ['conflict', 'shadowed'], true) && $row['edge_id'] !== null && isset($ends[$row['edge_id']])) {
+				$row['reason'] = ['type' => 'blocking_link', 'edge_id' => $row['edge_id'], 'ends' => $ends[$row['edge_id']]];
+			}
+			elseif ($row['outcome'] === 'ambiguous') {
+				$row['reason'] = ['type' => 'other_neighbors',
+					'neighbors' => array_values(array_diff_key($others[$row['local_port']['id']] ?? [], [$row['id'] => true]))
+				];
+			}
+		}
+		unset($row);
 	}
 
 	// Resolves the highest-severity *active* trigger (value=TRIGGER_VALUE_TRUE, i.e. currently in problem

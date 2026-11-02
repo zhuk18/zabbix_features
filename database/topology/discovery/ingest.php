@@ -59,6 +59,7 @@ require_once __DIR__.'/ingest/IngestLinks.php';
 require_once __DIR__.'/ingest/IngestObserve.php';
 require_once __DIR__.'/ingest/IngestSelf.php';
 require_once __DIR__.'/ingest/IngestMarks.php';
+require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyRunSummary.php';   // the run summary: status label, "Needs attention", the CLI text (§12.7)
 require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyAddress.php';      // the decoder of the addresses of a neighbor (§4.3, §4.4), shared with the side panel
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
@@ -66,14 +67,47 @@ const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.
 // Identifies this run in the status file: a caller that has just started a run can tell "my run" from the previous
 // one (started_at has a resolution of one second, so two runs can share it).
 define('INGEST_RUN_ID', bin2hex(random_bytes(6)));
+// Who started the run (§12.7): the web user name that the page passes in the environment, else the CLI.
+define('INGEST_STARTED_BY', (string) (getenv('TOPOLOGY_STARTED_BY') ?: 'CLI'));
 
 function write_status(array $status): void {
 	$status['run_id'] = INGEST_RUN_ID;
+	$status['started_by'] = INGEST_STARTED_BY;
 	// Atomic-ish: write to a temp file then rename, so a concurrent GET /topo/ingest/status read never
 	// sees a half-written file.
 	$tmp = INGEST_STATUS_FILE.'.tmp';
 	file_put_contents($tmp, json_encode($status, JSON_THROW_ON_ERROR));
 	rename($tmp, INGEST_STATUS_FILE);
+}
+
+/**
+ * The end of a run (§12.7): the list "Needs attention" is added to the summary, the final status is written, the run summary is printed as text, and the exit code says
+ * the result: 0 done, 3 done with warnings (the list is not empty), 1 failed.
+ */
+function finish_run(string $status, array $summary, ?string $error): void {
+	global $pdo, $run_started_at;
+
+	$rules = [];
+	if ($ids = CTopologyRunSummary::itemIds($summary)) {
+		try {
+			foreach ($pdo->query('SELECT i.itemid, i.hostid, i.name AS rule, h.name AS host FROM items i JOIN hosts h ON h.hostid = i.hostid WHERE i.itemid IN ('.implode(',', $ids).')')
+					->fetchAll(PDO::FETCH_ASSOC) as $row) {
+				$rules[(int) $row['itemid']] = $row;
+			}
+		}
+		catch (PDOException $exception) {
+			// a database that is only a stand-in of the Zabbix tables (a test): no names, the ids still tell where to look
+			foreach ($pdo->query('SELECT itemid, hostid FROM items WHERE itemid IN ('.implode(',', $ids).')')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+				$rules[(int) $row['itemid']] = ['hostid' => $row['hostid'], 'host' => 'host '.$row['hostid'], 'rule' => 'rule '.$row['itemid']];
+			}
+		}
+	}
+	$summary['attention'] = CTopologyRunSummary::attention($summary, $rules);
+	$final = ['status' => $status, 'started_at' => $run_started_at, 'finished_at' => time(), 'summary' => $summary, 'error' => $error];
+	write_status($final);
+	$final['started_by'] = INGEST_STARTED_BY;
+	echo "\n".CTopologyRunSummary::text($final);
+	exit(CTopologyRunSummary::exitCode(CTopologyRunSummary::result($status, $summary)));
 }
 
 $pdo_dsn = $options['pdo-dsn'] ?? getenv('TOPOLOGY_PDO_DSN') ?: null;
@@ -282,6 +316,7 @@ $summary += [
 	// topology-1-model.md §6.7.1 "Join of a split identity": Devices merged (kept, removed, key, value) and joins refused because both had a represented_by
 	'reporters_processed' => 0,
 	'reporters_skipped' => [],
+	'reporters_skipped_list' => [],      // hostid, host, reason of each skipped reporter (the list "Needs attention", §12.7)
 	// identity keys built from the attributes of Devices that had none (data written before the key table; topology-1-model.md §6.7.0): the Devices
 	// done, the keys written, and the Devices whose scoped keys could not be built because no segment is known (no reporter, no observation)
 	'identity_keys_built' => ['devices' => 0, 'keys' => 0, 'skipped' => []],
@@ -311,7 +346,7 @@ $summary += [
 	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
 	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
 	'rows_duplicate_claim' => ['count' => 0, 'by_rule' => []],
-	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0]],
+	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0], 'by_rule' => []],
 	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
 	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
 	// (neighbor rows and reporters), and of the MACs found on several Devices or in the inventory of several Hosts.
@@ -532,6 +567,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 		else {
 			$pdo->rollBack();
 			$summary['reporters_skipped'][$result['reason']] = ($summary['reporters_skipped'][$result['reason']] ?? 0) + 1;
+			$summary['reporters_skipped_list'][] = ['hostid' => (int) $hostid, 'host' => (string) $reporter['host'], 'reason' => (string) $result['reason']];
 			$skipped++;
 		}
 	}
@@ -714,9 +750,7 @@ if (!$snapshot_reporters) {
 	if (!$zabbix_host_filter) {
 		$clean_stale_observations([]);
 	}
-	write_status(['status' => 'done', 'started_at' => $run_started_at, 'finished_at' => time(),
-		'summary' => $summary, 'error' => null]);
-	exit(0);
+	finish_run('done', $summary, null);
 }
 
 echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
@@ -747,7 +781,9 @@ foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JO
 	}
 }
 
-$summary['duplicate_candidates'] = ['count' => 0];
+$summary['duplicate_candidates'] = ['count' => 0, 'pairs' => 0, 'new' => 0];
+$candidate_pairs_before = [];
+$candidate_pairs_after = [];
 if (!$zabbix_host_filter) {
 	// `same_address` and `same_name` (§6.7.5, 2.47), from the current evidence: two Devices that have one address in one segment (the addresses of their current
 	// observations: `rem_mgmt_ip` and every entry of `rem_man_addrs`, and a reporter's SNMP interface address; unspecified, loopback, multicast and link-local addresses do not
@@ -853,6 +889,14 @@ if (!$zabbix_host_filter) {
 		}
 		usort($want, static fn (array $a, array $b): int => [$a['reason'], $a['device_id'] ?? 0, $a['value']] <=> [$b['reason'], $b['device_id'] ?? 0, $b['value']]);
 		$summary['duplicate_candidates']['count'] += count($want);
+		// pairs (a pair is listed on both Devices; an entry with no other Device stands alone) and the pairs that the Devices did not list before this run (§12.7)
+		$pair_of = static fn (array $entry): string => $entry['reason'].'|'.min($id, (int) ($entry['device_id'] ?? 0)).'|'.max($id, (int) ($entry['device_id'] ?? 0)).'|'.($entry['device_id'] === null ? $entry['value'] : '');
+		foreach ($attrs['duplicate_candidates'] ?? [] as $entry) {
+			$candidate_pairs_before[$pair_of($entry + ['device_id' => null])] = true;
+		}
+		foreach ($want as $entry) {
+			$candidate_pairs_after[$pair_of($entry)] = true;
+		}
 		if (($attrs['duplicate_candidates'] ?? []) === $want) {
 			continue;
 		}
@@ -866,13 +910,8 @@ if (!$zabbix_host_filter) {
 	}
 }
 
+$summary['duplicate_candidates']['pairs'] = count($candidate_pairs_after);
+$summary['duplicate_candidates']['new'] = count(array_diff_key($candidate_pairs_after, $candidate_pairs_before));
 $summary['manual_links_contradicted'] = $count_contradicted_manual_links();
 $ok = $processed > 0 || $skipped === 0;
-write_status([
-	'status' => $ok ? 'done' : 'error',
-	'started_at' => $run_started_at,
-	'finished_at' => time(),
-	'summary' => $summary,
-	'error' => $ok ? null : "{$skipped} reporter(s) failed and none succeeded — see stderr/run log for details.",
-]);
-exit($ok ? 0 : 1);
+finish_run($ok ? 'done' : 'error', $summary, $ok ? null : "{$skipped} reporter(s) failed and none succeeded — see stderr/run log for details.");

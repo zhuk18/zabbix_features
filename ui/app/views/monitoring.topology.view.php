@@ -82,6 +82,8 @@ $page_styles = '
 .topology-promote-selected{font-size:12px;color:#3d556a;margin-bottom:6px}
 .topology-severity-badge{display:inline-block;padding:2px 8px;border-radius:3px;color:#fff;font-size:11px;font-weight:bold}
 .topology-empty{color:#768d99;font-style:italic;padding:8px 0}
+.topology-port-reports{display:block;font-size:11px;line-height:1.15;white-space:normal;overflow:visible;text-overflow:clip;font-family:inherit}
+.topology-device-reports{margin-bottom:6px;font-size:12px}
 .topology-link-pick{font-size:12px;color:#3d556a;background:#eef6fc;border:1px solid #bcd9ee;border-radius:4px;padding:6px 10px}
 .topology-link-pick:empty{display:none}
 .topology-link-pick a{margin-left:8px;color:#2b7dbc;cursor:pointer}
@@ -118,6 +120,8 @@ $page_styles = '
 				]))->addClass('topology-header-field'),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
+				// §12.7: the view of the last run (the run summary and the observation list), next to the button that starts a run
+				(new CLink(_('Last run'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun'))),
 				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --
 				// destructive and irreversible, confirmed client-side before the request fires.
 				(new CButton('topology-clean-all', _('Clean All')))->addClass(ZBX_STYLE_BTN_ALT)
