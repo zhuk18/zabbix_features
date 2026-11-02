@@ -8,7 +8,8 @@ class CControllerTopologyView extends CController {
 		$this->disableCsrfValidation();
 	}	
     protected function checkInput(): bool { return true; }
-	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
+	// release 1 (model §12.7): the page is for Super admin; anyone else gets the standard "no permissions" page
+	protected function checkPermissions(): bool { return CWebUser::getType() == USER_TYPE_SUPER_ADMIN; }
 	protected function doAction() {
 		$response = new CControllerResponseData(['legend_collapsed' => (int) CProfile::get(self::PROFILE_LEGEND_COLLAPSED, 0)]);
 		$response->setTitle(_('Topology prototype'));

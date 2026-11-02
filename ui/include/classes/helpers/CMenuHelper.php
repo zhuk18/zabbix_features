@@ -65,6 +65,14 @@ class CMenuHelper {
 				? (new CMenuItem(_('Discovery')))->setAction('discovery.view')
 				: null
 		];
+		// topology-1-model.md §12.7: Monitoring → Topology, after Maps; Super admin only in release 1 (the page itself refuses everyone else)
+		if (CWebUser::getType() == USER_TYPE_SUPER_ADMIN) {
+			array_splice($submenu_monitoring, 4, 0, [
+				(new CMenuItem(_('Topology')))
+					->setAction('topology.view')
+					->setAliases(['topology.lastrun'])
+			]);
+		}
 		$submenu_monitoring = array_filter($submenu_monitoring);
 
 		if ($submenu_monitoring) {
