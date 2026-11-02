@@ -2,6 +2,7 @@
 # Needs lab spec 2.6 (replay devices, §4.1a). See README.md.
 settings:
   database: zabbix
+  db_socket: /run/mysqld/mysqld.sock   # mariadb binds only to the LAN address (99-heidisql-listen.cnf), not localhost
   network: 192.0.2.0/24          # last octet = last octet of the captured address (192.168.17.N -> 192.0.2.N); AnyIP route, lab spec 6.1
   snmp_port: 1611
   community: zbxlab

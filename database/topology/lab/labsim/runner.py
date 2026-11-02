@@ -21,7 +21,8 @@ def server_running():
 
 
 def run_ingest(settings):
-    dsn = 'mysql:host=%s;dbname=%s' % (settings.get('db_host', 'localhost'), settings['database'])
+    where = 'unix_socket=%s' % settings['db_socket'] if settings.get('db_socket') else 'host=%s' % settings.get('db_host', 'localhost')
+    dsn = 'mysql:%s;dbname=%s' % (where, settings['database'])
     t0 = int(time.time())
     p = subprocess.run(['php', INGEST, '--pdo-dsn', dsn, '--pdo-user', settings.get('db_user', 'zabbix')],
                        capture_output=True, text=True, timeout=300)

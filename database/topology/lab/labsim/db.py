@@ -21,8 +21,9 @@ def connect(settings):
     name = settings.get('database')
     if name != REQUIRED_DATABASE:
         raise DatabaseGuard('refusing to start: database is %r, only %r is allowed' % (name, REQUIRED_DATABASE))
+    where = {'unix_socket': settings['db_socket']} if settings.get('db_socket') else {'host': settings.get('db_host', 'localhost')}
     conn = mysql.connector.connect(user=settings.get('db_user', 'zabbix'), password=settings.get('db_password', ''),
-                                   host=settings.get('db_host', 'localhost'), database=name, autocommit=True)
+                                   database=name, autocommit=True, **where)
     cur = conn.cursor()
     cur.execute('SELECT DATABASE()')
     actual = cur.fetchone()[0]
