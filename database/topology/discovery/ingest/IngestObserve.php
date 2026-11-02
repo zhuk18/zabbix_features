@@ -93,8 +93,9 @@ class IngestObserve {
 		return substr('sysname:'.($row['rem_sysname'] ?? ''), 0, 300);
 	}
 
-	/** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). */
-	public function reporterNeighbors(array $reporter, int $device_id, string $segment): array {
+	/** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). $group (2.56): 0 = the claims with a chassis; 1 = the claims without a chassis that join a Device by the reporter's address or by the claim with a chassis on the same port (rows 4 and 5 of the
+	 * lookup; no Device is made); 2 = the other claims without a chassis; -1 = all in one walk. Reason: the key of a Device is given by the join of any reporter before any reporter makes a Device for a key. */
+	public function reporterNeighbors(array $reporter, int $device_id, string $segment, int $group = -1): array {
 		$pdo = $this->run->pdo;
 		$snap_device = [$this->run->identify, 'device'];
 		$note_chassis_change = [$this->run->identify, 'noteChassisChange'];
@@ -152,16 +153,24 @@ class IngestObserve {
 		}
 		$ports = array_values($ports);
 		foreach ($snapshots[TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
-			$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
+			if ($group <= 0) {
+				$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
+			}
 			foreach ($snapshot['rows'] as $row) {
 				[$resolved, $reason] = $resolve_local_port($row, $ports);
 				if ($resolved === null) {
-					$summary['rows_local_port_unresolved']['count']++;
-					$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
-					echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
+					if ($group <= 0) {
+						$summary['rows_local_port_unresolved']['count']++;
+						$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
+						echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
+					}
 					continue;
 				}
 				$row['if_index'] = $resolved;
+				// 2.56: part 0 = the claims with a chassis (a remote key `chassis:...`), parts 1 and 2 = the others
+				if ($group >= 0 && str_starts_with($snap_remote_key($row, $segment), 'chassis:') !== ($group === 0)) {
+					continue;
+				}
 				$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
 			}
 		}
@@ -176,6 +185,9 @@ class IngestObserve {
 			// Rows of one snapshot with the same claim key (rule, local port, remote key): the first row in the row order makes the observation, the others are
 			// counted per rule and give no Device, no observation (§7.1; the claim key of the table is (itemid, local_port_id, remote_key)).
 			$claim_key = $itemid.'|'.$local_port_id.'|'.$row_remote_key;
+			if (isset($this->run->pass_b_done[$claim_key]) && $this->run->pass_b_done[$claim_key] !== $group) {
+				continue;      // decided in an earlier part (a duplicate row of this part is counted below)
+			}
 			if (isset($claims_seen[$claim_key])) {
 				$summary['rows_duplicate_claim']['count']++;
 				$summary['rows_duplicate_claim']['by_rule'][$itemid] = ($summary['rows_duplicate_claim']['by_rule'][$itemid] ?? 0) + 1;
@@ -200,6 +212,7 @@ class IngestObserve {
 			if ($chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment) === null && CTopologyAddress::claimAddresses($remote_attrs) === [] && ($row['rem_sysname'] ?? '') === '') {
 				$summary['rows_no_identity']['count']++;
 				$summary['rows_no_identity']['by_rule'][$itemid] = ($summary['rows_no_identity']['by_rule'][$itemid] ?? 0) + 1;
+				$this->run->pass_b_done[$claim_key] = $group;
 				continue;
 			}
 			$row_chassis_key = $chassis_key($chassis_id, $row['rem_chassis_type'] ?? null, $segment);
@@ -222,7 +235,13 @@ class IngestObserve {
 			}
 			if ($row_chassis_key === null) {
 				// a claim without a chassis: the match of §6.7.1 (the reporter's SNMP address, the claim with a chassis on the same port, the Devices of this port)
-				$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? ''), 'cdp_key' => $cdp_key]);
+				$found = $find_chassisless_device((int) $reporter['hostid'], $segment, $local_port_id, ['addrs' => $claim_addrs, 'name' => (string) ($row['rem_sysname'] ?? ''), 'cdp_key' => $cdp_key],
+					$group === 1);
+				if ($found[0] === 'skip') {
+					unset($claims_seen[$claim_key]);      // part 2 decides it
+					continue;
+				}
+				$this->run->pass_b_done[$claim_key] = $group;
 				if ($found[0] === 'ambiguous') {
 					$remote_device_id = null;          // several Devices of the port match: the observation is `ambiguous`, no Device, no link
 				}
@@ -243,6 +262,7 @@ class IngestObserve {
 				}
 			}
 			else {
+				$this->run->pass_b_done[$claim_key] = $group;
 				$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
 				// a claim with a chassis: the claims without one on this port may join it (the claims of one port come in rank order, §6.5)
 				$port_chassis_claims[$reporter['hostid'].'|'.$local_port_id][] = ['device_id' => $remote_device_id, 'addrs' => $claim_addrs,

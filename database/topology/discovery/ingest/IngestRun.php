@@ -23,6 +23,7 @@ class IngestRun {
 	public ?array $port_scope = null;
 	/** "hostid|local port" => the claims with a chassis of this run (pass B resolves them first, §6.5) */
 	public array $port_chassis_claims = [];
+	public array $pass_b_done = [];       // claim key (rule, local port, remote key) => the part of pass B that decided it (2.56: the claims without a chassis are walked in two parts)
 	/** segment => address => [hostid => true]: the SNMP interface addresses of the reporters identified in this run; hostid => the Device of that reporter */
 	public array $reporter_by_address = [];
 	public array $reporter_device_of = [];

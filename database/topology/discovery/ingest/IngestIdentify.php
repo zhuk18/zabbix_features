@@ -249,7 +249,7 @@ class IngestIdentify {
 	 * The Device of a claim without a chassis, by the rows of §6.7.1 in order. $claim = ['addrs' => [...], 'name' => text]. Returns ['found', Device id], ['ambiguous'] or
 	 * ['new'] (the caller makes the Device with scope_port = the local port).
 	 */
-	public function findChassisless(int $hostid, string $segment, int $local_port_id, array $claim): array {
+	public function findChassisless(int $hostid, string $segment, int $local_port_id, array $claim, bool $joins_only = false): array {
 		$pdo = $this->run->pdo;
 		$load_port_scope = [$this, 'loadPortScope'];
 		$port_scope = &$this->run->port_scope;
@@ -278,6 +278,9 @@ class IngestIdentify {
 		}
 		if (count($matching) === 1) {
 			return ['found', reset($matching)];
+		}
+		if ($joins_only) {
+			return ['skip'];      // pass B part 1 (2.56): only rows 4 and 5; the rows that make a Device wait until every reporter has joined
 		}
 		// the device id key (2.55): one Device with the key is the Device; several: ambiguous; none: a new Device with the key (no scope port, so the rows below do not apply)
 		if (($claim['cdp_key'] ?? null) !== null) {

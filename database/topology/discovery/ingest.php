@@ -612,36 +612,47 @@ foreach ($identified as $hostid => $result) {
 		$note_failed_reporter($hostid, $reporter, 'tables', $exception->getMessage());
 	}
 }
-// ---- pass B: the NEIGHBORS rows of all reporters (reporters in hostid order, rows sorted) ----
-// §6.5: pass B walks the claims of all reporters in one sorted order, (reporter hostid, if_index, rank, remote_key, itemid), whatever order pass A used (the test hook
-// --reporter-order changes only pass A): the attributes that "the last row wins" (§6.7.1) do not depend on the order of the reporters.
+// ---- pass B: the NEIGHBORS rows of all reporters ----
+// §6.5, §6.7.1 "Order" (2.56, task 075): first the claims with a chassis of ALL reporters, then the claims without a chassis of all reporters, so that the same-port join and the
+// device id key do not depend on the order of the reporters (G-8). The claims without a chassis come in two parts: the ones that join a Device (rows 4 and 5 of the lookup) of every
+// reporter, then the rest (they find a Device by its key or make one): a reporter that makes the Device of a new key must not come before another reporter's join gave that key to a Device. Within a group the reporters come in hostid order, whatever order pass A used (the test hook --reporter-order
+// changes only pass A). Each part of a reporter is its own transaction (§6.8): a reporter whose part 1 failed does not run part 2; a failed part leaves the earlier parts written
+// and the reporter's candidates and snapshots are dropped from Phase 2.
 $pass_b_reporters = $identified;
 ksort($pass_b_reporters);
-foreach ($pass_b_reporters as $hostid => $result) {
-	$reporter = $snapshot_reporters[$hostid];
-	$mark = [count($link_candidates), $neighbor_snapshots];
-	try {
-		$pdo->beginTransaction();
-		$snap_reporter_neighbors($reporter, (int) $result['device_id'], (string) $result['segment']);
-		if (isset($options['fail-pass-b']) && (int) $options['fail-pass-b'] === (int) $hostid) {
-			throw new RuntimeException('forced failure in pass B (test hook --fail-pass-b)');
+$pass_b_failed = [];
+foreach ([0, 1, 2] as $group) {
+	foreach ($pass_b_reporters as $hostid => $result) {
+		if (isset($pass_b_failed[$hostid])) {
+			continue;
 		}
-		$pdo->commit();
-		$summary['reporters_processed']++;
-		$processed++;
-		echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, topology types: ".
-			implode(',', array_keys($reporter['snapshots']))."\n";
-	}
-	catch (Throwable $exception) {
-		if ($pdo->inTransaction()) {
-			$pdo->rollBack();
+		$reporter = $snapshot_reporters[$hostid];
+		try {
+			$pdo->beginTransaction();
+			$snap_reporter_neighbors($reporter, (int) $result['device_id'], (string) $result['segment'], $group);
+			if ($group === 0 && isset($options['fail-pass-b']) && (int) $options['fail-pass-b'] === (int) $hostid) {
+				throw new RuntimeException('forced failure in pass B (test hook --fail-pass-b)');
+			}
+			$pdo->commit();
+			if ($group === 2) {
+				$summary['reporters_processed']++;
+				$processed++;
+				echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, topology types: ".
+					implode(',', array_keys($reporter['snapshots']))."\n";
+			}
 		}
-		$link_candidates = array_slice($link_candidates, 0, $mark[0]);
-		$neighbor_snapshots = $mark[1];
-		fwrite(STDERR, "ERROR: failed to ingest the neighbors of '{$reporter['host']}': {$exception->getMessage()}\n");
-		$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
-		$skipped++;
-		$note_failed_reporter($hostid, $reporter, 'neighbors', $exception->getMessage());
+		catch (Throwable $exception) {
+			if ($pdo->inTransaction()) {
+				$pdo->rollBack();
+			}
+			$pass_b_failed[$hostid] = true;
+			$link_candidates = array_values(array_filter($link_candidates, static fn (array $c): bool => (string) $c['hostid'] !== (string) $hostid));
+			$neighbor_snapshots = array_filter($neighbor_snapshots, static fn (array $s): bool => (string) $s['hostid'] !== (string) $hostid);
+			fwrite(STDERR, "ERROR: failed to ingest the neighbors of '{$reporter['host']}': {$exception->getMessage()}\n");
+			$summary['reporters_skipped']['error'] = ($summary['reporters_skipped']['error'] ?? 0) + 1;
+			$skipped++;
+			$note_failed_reporter($hostid, $reporter, 'neighbors', $exception->getMessage());
+		}
 	}
 }
 

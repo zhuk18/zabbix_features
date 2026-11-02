@@ -70,8 +70,11 @@ function snapshot(PDO $pdo, int $itemid, int $hostid, int $topology_type, int $c
 		count($rows), count($rows)]);
 }
 
-function run_ingest(string $dsn, string $user, string $password, array $extra = []): array {
+function run_ingest(string $dsn, string $user, string $password, array $extra = [], array $options = []): array {
 	$cmd = [PHP_BINARY, __DIR__.'/ingest.php', '--pdo-dsn', $dsn, '--pdo-user', $user, '--pdo-password', $password];
+	foreach ($options as $name => $value) {
+		array_push($cmd, '--'.$name, $value);
+	}
 	foreach ($extra as $host) {
 		array_push($cmd, '--zabbix-host', $host);
 	}
@@ -209,14 +212,17 @@ reporters($pdo, [101 => ['10.0.0.1', $C1, [$lldp], [$cdp]], 102 => ['10.0.0.2', 
 run3($dsn, $user, $password);
 $o = others($pdo);
 check(count($o) === 1 && keys_of($pdo, (int) $o[0], 'cdp') === ['cdp:server:core-sw1'] && device_id($pdo, 'c0:00:00:00:00:77') === (int) $o[0], 'one Device: the chassis Device got the key on the port of R1, R2 found it');
-echo "  -- the same with R2 first in the run order\n";
+echo "  -- the same with the reporters swapped (task 074 Q1, 075 section 1: the claims with a chassis of all reporters first)\n";
 reporters($pdo, [101 => ['10.0.0.1', $C1, [], [nrow(2, 'cdp', ['rem_sysname' => 'Core-SW1', 'rem_port' => 'x'])]], 102 => ['10.0.0.2', $C2, [$lldp], [$cdp]]]);
 run3($dsn, $user, $password);
-// Known (report 074): the reporters are processed one after the other. When the reporter with the CDP-only claim comes first, it makes the Device that holds the key; the chassis
-// Device of the other reporter then gets no key (another Device holds it): two Devices, stable from run to run. The model does not say that the claims of all reporters
-// are sorted together.
-$again = run_ingest($dsn, $user, $password);
-check(count(others($pdo)) === 2 && $again['summary']['devices_created'] === 0, 'the reporter with the CDP-only claim first: two Devices, stable (order dependence of the same-port join, see the report)');
+$o = others($pdo);
+check(count($o) === 1 && keys_of($pdo, (int) $o[0], 'cdp') === ['cdp:server:core-sw1'] && device_id($pdo, 'c0:00:00:00:00:77') === (int) $o[0] && links($pdo) === 2,
+	'one Device with the key and the chassis, 2 links, in both orders of the reporters (the CDP-only reporter has the lower host id)');
+echo "  -- the same with the reporter-order hook of ingest (pass A: 102 first)\n";
+reporters($pdo, [101 => ['10.0.0.1', $C1, [$lldp], [$cdp]], 102 => ['10.0.0.2', $C2, [], [nrow(2, 'cdp', ['rem_sysname' => 'Core-SW1', 'rem_port' => 'x'])]]]);
+$r = run_ingest($dsn, $user, $password, [], ['reporter-order' => '102,101']);
+$o = others($pdo);
+check(count($o) === 1 && keys_of($pdo, (int) $o[0], 'cdp') === ['cdp:server:core-sw1'], 'one Device with the key when pass A runs in the reverse order');
 
 echo "\n=== L7: as L6, but the device is a reporter: no key on it; R2 finds it by its SNMP interface address ===\n";
 reporters($pdo, [
