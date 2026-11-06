@@ -523,17 +523,10 @@ const view = new class {
 	// Duplicate candidates of a Device (topology-1-model.md §6.7.5, "Side panels"): every value shown comes from the network or from
 	// the operator and is escaped (§13). Merge asks which Device to keep; the proposal is the one with a represented_by, else the older one.
 	duplicatesFragment(device, only_device_id = null) {
-		const post_label = {
-			same_address: <?= json_encode(_('Possible duplicate: same address')) ?>,
-			same_name: <?= json_encode(_('Possible duplicate: same name')) ?>,
-			reporters_share_key: <?= json_encode(_('Possible duplicate: two hosts report one chassis')) ?>,
-			reporter_key_shared: <?= json_encode(_('Possible duplicate: the chassis of the host is on several Devices')) ?>,
-			reporter_chassis_change: <?= json_encode(_('Possible duplicate: the host reports a new chassis')) ?>
-		};
 		const rows = [];
 		(device.duplicates ?? []).filter(candidate => only_device_id === null || String(candidate.device_id) === String(only_device_id)).forEach(candidate => {
 			const other = candidate.device_id === null ? null : this.nodes.get(String(candidate.device_id));
-			const title = `${this.escape(post_label[candidate.reason] ?? candidate.reason)} (${this.escape(candidate.key)} ${this.escape(candidate.value)})`;
+			const title = this.escape(this.markLabel(candidate));
 			if (candidate.device_id === null) {
 				rows.push(`<li>${title}<br><button type="button" class="btn-alt" data-topology-dup="accept" data-device="${this.escape(device.id)}">` +
 					`${this.escape(<?= json_encode(_('Accept new chassis')) ?>)}</button></li>`);
@@ -574,17 +567,26 @@ const view = new class {
 		return rows.length ? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Possible duplicates')) ?>)}</h3><ul>${rows.join('')}</ul></section>` : '';
 	}
 
-	// "same address 10.0.0.5", "same name AP-7", "new chassis": the label of a pair line (SVG text, not HTML; the value comes from the network)
-	pairReason(candidate) {
+	// The label of a mark (model §6.7.5, FR-A behavior R-28), one text for the side panel and the pair line of the graph: "same address 10.0.0.5", "same name AP-7",
+	// "same HW-ID aa:bb:…" (a chassis key shared by Devices or claimed by two hosts), "same device ID Core-SW1" (a shared `cdp` key), "possible hardware replacement".
+	// The value comes from the network: the caller escapes it (HTML) or sets it as text (SVG).
+	markLabel(candidate) {
+		const value = candidate.value ?? '';
 		const labels = {
-			same_address: <?= json_encode(_('same address')) ?>,
-			same_name: <?= json_encode(_('same name')) ?>,
-			reporters_share_key: <?= json_encode(_('two hosts report one chassis')) ?>,
-			reporter_key_shared: <?= json_encode(_('chassis of the host on several Devices')) ?>,
-			reporter_chassis_change: <?= json_encode(_('new chassis')) ?>
+			same_address: <?= json_encode(_('same address %1$s')) ?>,
+			same_name: <?= json_encode(_('same name %1$s')) ?>,
+			reporters_share_key: <?= json_encode(_('same HW-ID %1$s')) ?>,
+			reporter_key_shared: <?= json_encode(_('same HW-ID %1$s')) ?>,
+			reporter_chassis_change: <?= json_encode(_('possible hardware replacement')) ?>
 		};
-		const label = labels[candidate.reason] ?? candidate.reason;
-		return ['same_address', 'same_name'].includes(candidate.reason) ? `${label} ${candidate.value}` : label;
+		const label = candidate.reason === 'key_shared'
+			? (String(candidate.key ?? '').startsWith('cdp:') ? <?= json_encode(_('same device ID %1$s')) ?> : <?= json_encode(_('same HW-ID %1$s')) ?>)
+			: labels[candidate.reason] ?? candidate.reason;
+		return label.replace('%1$s', () => value);
+	}
+
+	pairReason(candidate) {
+		return this.markLabel(candidate);
 	}
 
 	// The pair of a pair line (V-17): the Merge and Not the same device actions of that one pair

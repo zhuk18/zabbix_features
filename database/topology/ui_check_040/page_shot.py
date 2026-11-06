@@ -200,7 +200,7 @@ CHECKS = {
     # Not the same device and Delete Device; the filter "possible duplicate" draws the Devices that have a candidate (also without a link) with a badge and a labelled pair line, the context dimmed
     'duplicates': '''(async () => {
         const panel = document.querySelector('.topology-panel');
-        const r = {reason_text: (panel.textContent.match(/Possible duplicate: (same address|same name)/) || [null])[0],
+        const r = {reason_text: (panel.textContent.match(/(same address|same name) \S+/) || [null])[0],
             actions: ['merge', 'dismiss', 'delete'].map(a => panel.querySelectorAll('[data-topology-dup="' + a + '"]').length)};
         const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
         r.nodes_before = nodes();
@@ -214,7 +214,7 @@ CHECKS = {
         r.pair_lines = document.querySelectorAll('#topology-canvas .topology-pair-line').length;
         r.pair_labels = Array.from(document.querySelectorAll('#topology-canvas .topology-pair-line text')).map(t => t.textContent);
         r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.duplicate_nodes > 0 && r.badges_filtered === r.duplicate_nodes
-            && r.pair_lines > 0 && r.pair_labels.every(t => /^(same address|same name|two hosts|chassis of|new chassis)/.test(t));
+            && r.pair_lines > 0 && r.pair_labels.every(t => /^(same address|same name|same HW-ID|same device ID|possible hardware replacement)/.test(t));
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
