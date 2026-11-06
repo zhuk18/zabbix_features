@@ -373,7 +373,7 @@ $pdo->prepare("INSERT INTO topo_edges (type, src_id, dst_id, attrs, created_at) 
 	->execute([min($r_p2, $z_p), max($r_p2, $z_p), json_encode(['discovered_via' => 'manual', 'last_seen' => 1, 'shadow_ack' => $ack])]);
 $manual = (int) $pdo->lastInsertId();
 snapshot($pdo, 1002, 101, 2, CLOCK + 5, []);
-$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (1002, ?, 'ip:10.5.5.5', '{}', 'applied', ?, 1, 1)")
+$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (1002, 'ifindex:1', ?, 'ip:10.5.5.5', '{}', 'applied', ?, 1, 1)")
 	->execute([$rp, $B]);
 $pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode(['sysname' => 'N', 'chassis_id' => $X, 'mgmt_ip' => null, 'mac' => null, 'vendor' => 'unknown', 'last_seen' => 1,
 	'duplicate_candidates' => [['device_id' => $B, 'reason' => 'split_identity', 'key' => 'mgmt_ip', 'value' => $IP]]]), $A]);

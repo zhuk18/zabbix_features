@@ -119,7 +119,7 @@ class IngestStore {
 
 	// Observation upsert keyed by (rule, local port, remote identity). first_seen survives while the observation
 	// stays continuously present; last_seen is the snapshot clock. Nothing is written when nothing changed.
-	public function observation(int $itemid, ?int $local_port_id, string $remote_key, array $remote_attrs,
+	public function observation(int $itemid, string $local_port_ref, ?int $local_port_id, string $remote_key, array $remote_attrs,
 		string $outcome, ?int $edge_id, ?int $device_id, int $seen_at, ?string $precision = null,
 		?string $far_port_reason = null, bool $precision_lower = false): int {
 		$pdo = $this->run->pdo;
@@ -128,28 +128,30 @@ class IngestStore {
 		// precision_lower (the observation confirms a port-level link only at device level).
 		$attrs_json = json_encode($remote_attrs, JSON_THROW_ON_ERROR);
 		$lower = $precision_lower ? 1 : 0;
-		$stmt = $pdo->prepare('SELECT id, remote_attrs, outcome, edge_id, device_id, link_precision, far_port_reason,'.
-			' precision_lower, last_seen FROM topo_observations WHERE itemid = ? AND '.($local_port_id === null ? 'local_port_id IS NULL' : 'local_port_id = ?').' AND remote_key = ?');
-		$stmt->execute($local_port_id === null ? [$itemid, $remote_key] : [$itemid, $local_port_id, $remote_key]);      // an observation of an old snapshot may have no Port (2.60)
+		// the identity of an observation is the claim (itemid, local_port_ref, remote_key), model §7.1: a change of the resolution of the Port keeps the row and its first_seen
+		$stmt = $pdo->prepare('SELECT id, local_port_id, remote_attrs, outcome, edge_id, device_id, link_precision, far_port_reason,'.
+			' precision_lower, last_seen FROM topo_observations WHERE itemid = ? AND local_port_ref = ? AND remote_key = ?');
+		$stmt->execute([$itemid, $local_port_ref, $remote_key]);
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 			$same = json_decode($row['remote_attrs'], true) === $remote_attrs && $row['outcome'] === $outcome
+				&& ($row['local_port_id'] === null ? null : (int) $row['local_port_id']) === $local_port_id
 				&& ($row['edge_id'] === null ? null : (int) $row['edge_id']) === $edge_id
 				&& ($row['device_id'] === null ? null : (int) $row['device_id']) === $device_id
 				&& $row['link_precision'] === $precision && $row['far_port_reason'] === $far_port_reason
 				&& (int) $row['precision_lower'] === $lower
 				&& (int) $row['last_seen'] === $seen_at;
 			if (!$same) {
-				$pdo->prepare('UPDATE topo_observations SET remote_attrs = ?, outcome = ?, edge_id = ?, device_id = ?,'.
+				$pdo->prepare('UPDATE topo_observations SET local_port_id = ?, remote_attrs = ?, outcome = ?, edge_id = ?, device_id = ?,'.
 					' link_precision = ?, far_port_reason = ?, precision_lower = ?, last_seen = ? WHERE id = ?')
-					->execute([$attrs_json, $outcome, $edge_id, $device_id, $precision, $far_port_reason, $lower, $seen_at,
+					->execute([$local_port_id, $attrs_json, $outcome, $edge_id, $device_id, $precision, $far_port_reason, $lower, $seen_at,
 						$row['id']]);
 			}
 			return (int) $row['id'];
 		}
-		$pdo->prepare('INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id,'.
+		$pdo->prepare('INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, edge_id,'.
 			' device_id, link_precision, far_port_reason, precision_lower, first_seen, last_seen)'.
-			' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-			->execute([$itemid, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $precision,
+			' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+			->execute([$itemid, $local_port_ref, $local_port_id, $remote_key, $attrs_json, $outcome, $edge_id, $device_id, $precision,
 				$far_port_reason, $lower, $seen_at, $seen_at]);
 		return (int) $pdo->lastInsertId();
 	}

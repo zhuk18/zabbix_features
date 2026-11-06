@@ -79,7 +79,7 @@ $port = $node('port', ['if_index' => 1, 'name' => 'Gi0/1']);
 $pdo->prepare('UPDATE topo_nodes SET device_id = ? WHERE id = ?')->execute([$d1, $port]);
 $pdo->exec('INSERT INTO items (itemid, hostid) VALUES (7001, 701), (7002, 703)');
 foreach ([[7002, 5], [7001, 9]] as [$item, $seen]) {          // the older observation by the server host, the later one by host A
-	$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (?, ?, ?, '{}', 'applied', ?, 1, ?)")
+	$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (?, 'ifindex:1', ?, ?, '{}', 'applied', ?, 1, ?)")
 		->execute([$item, $port, 'k'.$item, $d3, $seen]);
 }
 

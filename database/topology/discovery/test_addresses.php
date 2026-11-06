@@ -324,7 +324,7 @@ function reporter(PDO $pdo, int $hostid, string $name, string $port_name): array
 }
 
 function observe(PDO $pdo, int $itemid, int $port, int $device, array $remote_attrs, string $key = null): void {
-	$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (?, ?, ?, ?, 'applied', ?, 1, 1)")
+	$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (?, 'ifindex:1', ?, ?, ?, 'applied', ?, 1, 1)")
 		->execute([$itemid, $port, $key ?? 'chassis:mac:'.md5(json_encode($remote_attrs)), json_encode($remote_attrs), $device]);
 }
 

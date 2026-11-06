@@ -70,11 +70,13 @@ CREATE TABLE IF NOT EXISTS topo_edges (
 CREATE TABLE IF NOT EXISTS topo_observations (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	itemid BIGINT UNSIGNED NOT NULL,
-	-- NULL only for an observation `old_snapshot` whose local port is not resolved (topology-1-model.md §7.2, 2.60)
+	-- the claim: the row's reference to the reporter's port (`ifindex:<n>` or `num:<n>`), as the row gives it, normalized (topology-1-model.md §6.7.6, §7.1)
+	local_port_ref VARCHAR(64) NOT NULL,
+	-- the reporter's Port as §6.7.6 resolves it; NULL only for a row that is not resolved (an `old_snapshot` row; `local_port_unresolved` is not an observation yet)
 	local_port_id BIGINT UNSIGNED NULL,
 	remote_key VARCHAR(300) NOT NULL,
 	remote_attrs JSON NOT NULL,
-	outcome VARCHAR(16) NOT NULL,
+	outcome VARCHAR(32) NOT NULL,
 	edge_id BIGINT UNSIGNED NULL,
 	device_id BIGINT UNSIGNED NULL,
 	-- topology-1-model.md "Observations": how precisely the far end was identified ('port' / 'device'; NULL when
@@ -86,7 +88,7 @@ CREATE TABLE IF NOT EXISTS topo_observations (
 	first_seen INT UNSIGNED NOT NULL,
 	last_seen INT UNSIGNED NOT NULL,
 	PRIMARY KEY (id),
-	UNIQUE KEY topo_observations_uq (itemid, local_port_id, remote_key),
+	UNIQUE KEY topo_observations_uq (itemid, local_port_ref, remote_key),
 	KEY topo_observations_1 (outcome),
 	KEY topo_observations_2 (local_port_id),
 	KEY topo_observations_3 (edge_id),

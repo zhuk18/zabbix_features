@@ -428,8 +428,8 @@ $port3 = port_id($pdo, $rdev, 3);
 $port4 = port_id($pdo, $rdev, 4);
 $d_sys = $put('OldSys', '10.3.3.3', ['sysname:'.$port3.':OldSys' => 'sysname', 'ip:server:10.3.3.3' => 'ip']);          // scope_port from the sysname key
 $d_obs = $put('OldObs', '10.4.4.4', ['ip:server:10.4.4.4' => 'ip']);                                                     // scope_port from the latest observation
-$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen)"
-	." VALUES (1003, ?, 'ip:server:10.4.4.4', '{}', 'applied', ?, 1, 1)")->execute([$port4, $d_obs]);
+$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen)"
+	." VALUES (1003, 'ifindex:1', ?, 'ip:server:10.4.4.4', '{}', 'applied', ?, 1, 1)")->execute([$port4, $d_obs]);
 $d_none = $put('OldNone', null, ['ip:server:10.5.5.5' => 'ip']);                                                         // neither: no scope_port
 $deleted_before = (int) scalar($pdo, "SELECT COUNT(*) FROM topo_identity_keys WHERE kind IN ('ip','sysname')");
 run_ingest($dsn, $user, $password);

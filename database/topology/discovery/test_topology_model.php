@@ -484,8 +484,8 @@ API::$visible = [101, 103];
 $M = edge($pdo, 'physical_link', min($Rp, $Up), max($Rp, $Up), ['discovered_via' => 'manual', 'last_seen' => time()]);
 $e_rp = edge($pdo, 'physical_link', min($Rp, $Pp), max($Rp, $Pp), ['discovered_via' => 'lldp', 'last_seen' => time() - 100, 'superseded_at' => time() - 50]);
 $e_su = edge($pdo, 'physical_link', min($Sp, $Up), max($Sp, $Up), ['discovered_via' => 'lldp', 'last_seen' => time() - 100, 'superseded_at' => time() - 50]);
-$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen)".
-	" VALUES (?, ?, ?, ?, 'shadowed', ?, ?, 1, 1)");
+$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen)".
+	" VALUES (?, 'ifindex:1', ?, ?, ?, 'shadowed', ?, ?, 1, 1)");
 $observe->execute([1002, $Rp, 'chassis:-:Printer1', '{"rem_port":"Gi0/1"}', $M, $Pd]);
 $observe->execute([3002, $Sp, 'chassis:-:UPS1', '{"rem_port":"eth0"}', $M, $Ud]);
 
@@ -581,8 +581,8 @@ $L = edge($pdo, 'physical_link', min($Rp2, $Pp), max($Rp2, $Pp), ['discovered_vi
 	'last_seen_port' => $now - 500]);
 $D = edge($pdo, 'device_link', $Rp3, $Ad, ['discovered_via' => 'lldp', 'far_port_reason' => 'port_unmatched',
 	'far_port_hint' => ['kind' => 'port_id', 'value' => 'eth0'], 'last_seen' => $now - 20]);
-$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen, precision_lower)".
-	" VALUES (1002, ?, ?, '{}', ?, ?, ?, 1, 1, ?)");
+$observe = $pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, edge_id, device_id, first_seen, last_seen, precision_lower)".
+	" VALUES (1002, 'ifindex:1', ?, ?, '{}', ?, ?, ?, 1, 1, ?)");
 $observe->execute([$Rp1, 'chassis:-:Printer1', 'shadowed', $M, $Pd, 0]);
 $observe->execute([$Rp2, 'chassis:-:Printer1b', 'applied', $L, $Pd, 1]);
 

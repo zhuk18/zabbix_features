@@ -872,7 +872,7 @@ class IngestLinks {
 		foreach ($candidates as $i => $candidate) {
 			$outcome = $result[$i]['outcome'];
 			$precision = $candidate['pre_outcome'] !== null ? null : $candidate['level'];
-			$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_id'],
+			$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_ref'], $candidate['local_port_id'],
 				$candidate['remote_key'], $candidate['remote_attrs'], $outcome, $result[$i]['edge_id'],
 				$candidate['remote_device_id'], $candidate['clock'], $precision,
 				$candidate['level'] === 'device' ? $candidate['far_port_reason'] : null, !empty($result[$i]['lower']));
