@@ -168,4 +168,31 @@ reporter($pdo, 102, 'eth0', 'interfaceName', []);
 run_ingest($dsn, $user, $password);
 check((int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'device'")->fetchColumn() === 2 && (int) $pdo->query('SELECT COUNT(*) FROM topo_identity_keys')->fetchColumn() === 0, 'two Devices, no key, no shared identifier');
 
+echo "\n=== task 079: an undefined subtype (0, above 7: the row has no subtype name) or an empty value is no hardware ID ===\n";
+reset_all($pdo);
+reporter($pdo, 101, 'a0:00:00:00:00:01', 'macAddress', [['if_index' => 1, 'rem_chassis' => '00:00:00:00', 'rem_sysname' => 'Sw-X', 'rem_port' => 'p1', 'rem_port_type' => 'interfaceName']]);
+reporter($pdo, 102, 'a0:00:00:00:00:02', 'macAddress', [['if_index' => 1, 'rem_chassis' => '00:00:00:00', 'rem_sysname' => 'Sw-Y', 'rem_port' => 'p1', 'rem_port_type' => 'interfaceName']]);
+run_ingest($dsn, $user, $password);
+$r = run_ingest($dsn, $user, $password);
+$devices = others($pdo);
+check(count($devices) === 2 && array_filter(keys($pdo), static fn (string $k): bool => str_contains($k, '00:00:00:00') && !str_contains($k, 'a0:00:00:00:00')) === [],
+	'chassis 00 00 00 00 without a subtype name on two reporters of one segment: two Devices, no key (before 2.62 one Device by chassis:local:server:00:00:00:00)', [count($devices), keys($pdo)]);
+check(count(array_filter($devices, static fn (array $d): bool => (json_decode($d['attrs'], true)['chassis_text'] ?? null) === '00:00:00:00')) === 2 && $r['summary']['devices_created'] === 0, 'the value is chassis_text; the next run makes no Device');
+reset_all($pdo);
+reporter($pdo, 101, 'a0:00:00:00:00:01', 'macAddress', [['if_index' => 1, 'rem_chassis' => '', 'rem_chassis_type' => 'local', 'rem_sysname' => 'Sw-E', 'rem_port' => 'p1', 'rem_port_type' => 'interfaceName'],
+	['if_index' => 2, 'rem_chassis' => '', 'rem_sysname' => 'Sw-F', 'rem_port' => 'p1', 'rem_port_type' => 'interfaceName']]);
+run_ingest($dsn, $user, $password);
+check(count(others($pdo)) === 2 && array_filter(keys($pdo), static fn (string $k): bool => !str_contains($k, 'a0:00:00:00:00:01')) === [], 'an empty chassis value: no key, the claims go by their names (two Devices)');
+echo "\n  -- a reporter whose own chassis has an undefined subtype: no hardware ID, its Device by the SNMP interface\n";
+reset_all($pdo);
+reporter($pdo, 101, '00:00:00:00', null, []);
+$r = run_ingest($dsn, $user, $password);
+$reporters = $pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND represented_by_node_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC);
+check(count($reporters) === 1 && (json_decode($reporters[0]['attrs'], true)['chassis_id'] ?? null) === null && keys($pdo) === [] && in_array($r['code'], [0, 3], true), 'the reporter has a Device with no chassis and no key, the run is not skipped', $r['err']);
+reset_all($pdo);
+reporter($pdo, 101, '00:00:00:00', null, []);
+reporter($pdo, 102, '00:00:00:00', null, []);
+run_ingest($dsn, $user, $password);
+check((int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'device'")->fetchColumn() === 2, 'two reporters with the same undefined own chassis: two Devices (no shared key)');
+
 echo "\nAll chassis subtype checks passed.\n";

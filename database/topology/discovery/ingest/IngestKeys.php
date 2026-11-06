@@ -40,19 +40,27 @@ class IngestKeys {
 		return $run_segments[$hostid];
 	}
 
-	/** The chassis id subtypes that are not a hardware ID (model §6.7.0, 2.59; normalization §4.2; FR-B D-50): no chassis key, the value is an attribute. */
-	public const NOT_HARDWARE_ID_TYPES = ['interfaceAlias', 'portComponent', 'interfaceName'];
+	/**
+	 * The chassis id subtypes that give a chassis key (model §6.7.0): macAddress (global), networkAddress, local, chassisComponent (scoped to the segment). Every other chassis id is
+	 * no hardware ID and gives no key: the subtypes interfaceAlias, portComponent, interfaceName (2.59, FR-B D-50), a subtype that LLDP-MIB does not define (0, above 7: the row has no
+	 * subtype name; 2.62) and an empty value. A value with no subtype name is a MAC when it has the form of one (rows of other rules); else it is no hardware ID. The ONE place that
+	 * decides: the claims of neighbors, the reporter's own chassis and the upgrade of old data call this function.
+	 */
+	public const CHASSIS_KEY_TYPES = ['macAddress', 'networkAddress', 'local', 'chassisComponent'];
 
 	public function chassisKey(?string $value, ?string $type, string $segment): ?string {
 		$mac_like = ['TopologyNormalize', 'macLike'];
 		$is_placeholder_mac = ['TopologyNormalize', 'isPlaceholderMac'];
-		if ($value === null || $value === '' || in_array($type, self::NOT_HARDWARE_ID_TYPES, true)) {
+		if ($value === null || $value === '') {
 			return null;
 		}
 		if (in_array($type, [null, '', 'macAddress'], true) && $mac_like($value)) {
 			return $is_placeholder_mac($value) ? null : 'chassis:mac:'.strtolower($value);      // a placeholder MAC gives no chassis key (normalization §4.2)
 		}
-		return substr('chassis:'.($type === null || $type === '' ? 'local' : $type).':'.$segment.':'.$value, 0, 300);
+		if (!in_array($type, self::CHASSIS_KEY_TYPES, true)) {
+			return null;
+		}
+		return substr('chassis:'.$type.':'.$segment.':'.$value, 0, 300);
 	}
 
 	// The scoped sysname key (§6.7.0, 2.31): the reporter's local Port (its topo_nodes id, so it names the reporter too) and the sysname as received.
@@ -215,7 +223,8 @@ class IngestKeys {
 			$built = 0;
 			$skipped = false;
 			foreach ($wanted as [$value, $replaced]) {
-				$key = $chassis_key($value, null, $segment ?? '');
+				// old data: the chassis attribute has no subtype; a value that is not a MAC was a `local` chassis (the upgrade of 2.47)
+				$key = $chassis_key($value, ['TopologyNormalize', 'macLike']($value) ? null : 'local', $segment ?? '');
 				if ($key === null || ($segment === null && !str_starts_with($key, 'chassis:mac:'))) {
 					$skipped = true;
 					continue;

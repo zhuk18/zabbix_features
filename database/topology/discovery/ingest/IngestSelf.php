@@ -109,11 +109,12 @@ class IngestSelf {
 			foreach ($list as $snapshot) {
 				foreach ($snapshot['rows'] as $row) {
 					if (($row['loc_chassis'] ?? '') !== '') {
-						// 2.60 (FR-A RC-3): a chassis id of the subtype interfaceAlias, portComponent or interfaceName is not the reporter's hardware ID: it is no loc_chassis
-						if (in_array($row['loc_chassis_type'] ?? null, IngestKeys::NOT_HARDWARE_ID_TYPES, true)) {
+						// 2.60, 2.62 (FR-A RC-3): a chassis id that is no hardware ID (the subtypes interfaceAlias, portComponent, interfaceName, an undefined subtype) is no loc_chassis: the
+						// reporter's Device is found by its SNMP interface address
+						if ($chassis_key($row['loc_chassis'], $row['loc_chassis_type'] ?? null, $segment_of($reporter['hostid'])) === null) {
 							continue;
 						}
-						$chassis_values[$row['loc_chassis']] = true;
+						$chassis_values[$row['loc_chassis']] = $row['loc_chassis_type'] ?? null;
 					}
 				}
 			}
@@ -130,7 +131,7 @@ class IngestSelf {
 			'SELECT ip FROM interface WHERE hostid = ? AND type = 2 AND useip = 1 AND ip <> \'\' ORDER BY main DESC, interfaceid LIMIT 1');
 		$interface->execute([$reporter['hostid']]);
 		$own['mgmt_ip'] = $interface->fetchColumn() ?: null;
-		$own['loc_key'] = $chassis_key($own['loc_chassis'], null, $own['segment']);
+		$own['loc_key'] = $chassis_key($own['loc_chassis'], $own['loc_chassis'] === null ? null : $chassis_values[$own['loc_chassis']], $own['segment']);
 		if ($own['loc_chassis'] === null && $own['mgmt_ip'] === null) {
 			$own['skip'] = 'identity_missing';
 		}
