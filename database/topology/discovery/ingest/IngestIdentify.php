@@ -39,7 +39,7 @@ class IngestIdentify {
 			}));
 		}
 		if (count($ids) > 1) {
-			return ['shared', 'chassis_id', $raw, $ids];
+			return ['shared', 'chassis_id', $raw, $ids, $value];
 		}
 		if ($ids) {
 			return [$ids[0], 'chassis_id'];
@@ -99,6 +99,10 @@ class IngestIdentify {
 		}
 		if ($match !== null && $match[0] === 'shared') {
 			$note_shared($match[1], $match[2], $match[3]);
+			if (!$for_reporter) {
+				// 2.58 (§6.7.5 `key_shared`): the Devices that hold the key of a neighbor's claim are candidates of each other, so the filter "Possible duplicates only" shows them
+				$this->noteKeyShared($match[3], (string) $match[4], (string) $match[2]);
+			}
 			return null;            // topology-1-model.md "Shared identifier": nothing is created or changed
 		}
 		if ($match !== null) {
@@ -186,6 +190,17 @@ class IngestIdentify {
 	public function noteDuplicate(int $on, ?int $other, string $reason, string $key, string $value): void {
 		$duplicate_candidates = &$this->run->duplicate_candidates;
 		$duplicate_candidates[$on][$reason.'|'.($other ?? 0).'|'.$key.'|'.$value] = ['device_id' => $other, 'reason' => $reason, 'key' => $key, 'value' => $value];
+	}
+
+	/** `key_shared` (model §6.7.5, 2.58): an entry on each of the Devices for each other one; `key` = the identity key, `value` = the value as the neighbor sent it. */
+	public function noteKeyShared(array $device_ids, string $key, string $value): void {
+		foreach ($device_ids as $one) {
+			foreach ($device_ids as $other) {
+				if ($one !== $other) {
+					$this->noteDuplicate((int) $one, (int) $other, 'key_shared', $key, $value);
+				}
+			}
+		}
 	}
 
 	public function noteChassisChange(int $device_id, string $chassis, string $key): void {
@@ -285,6 +300,9 @@ class IngestIdentify {
 		// the device id key (2.55): one Device with the key is the Device; several: ambiguous; none: a new Device with the key (no scope port, so the rows below do not apply)
 		if (($claim['cdp_key'] ?? null) !== null) {
 			$holders = $this->run->keys->keyHolders($claim['cdp_key']);
+			if (count($holders) > 1) {
+				$this->noteKeyShared($holders, $claim['cdp_key'], (string) $claim['name']);      // 2.58 `key_shared`
+			}
 			return count($holders) === 1 ? ['found', $holders[0]] : ($holders ? ['ambiguous'] : ['new_key']);
 		}
 		// exactly one Device without a chassis with this scope_port that matches

@@ -940,4 +940,61 @@ CTopologyPrototype::mergeDevices((string) $k1, (string) $k2, 'Admin');
 check(!exists($pdo, $k2) && $pdo->query('SELECT `key` FROM topo_identity_keys WHERE device_id = '.(int) $k1." AND kind = 'cdp' ORDER BY `key`")->fetchAll(PDO::FETCH_COLUMN) === ['cdp:server:core-a', 'cdp:server:core-b'],
 	'the kept Device has both device id keys');
 
+echo "\n=== 17: key_shared — a neighbor's chassis key or cdp key on several Devices (model 2.58 section 6.7.5; task 077) ===\n";
+$key_shared = static function (int $id): array {
+	global $pdo;
+	return array_values(array_filter(candidates($pdo, $id), static fn (array $c): bool => $c['reason'] === 'key_shared'));
+};
+$chassis_key = 'chassis:mac:'.$X;
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, $X, null, 'N');          // old data: the chassis X on two Devices
+$B = device($pdo, $X, null, 'N-old');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, null)]);
+run_ingest($dsn, $user, $password);
+check(scalar($pdo, 'SELECT outcome FROM topo_observations WHERE itemid = 1002') === 'ambiguous', 'the claim of the shared chassis key stays ambiguous (as before)');
+check($key_shared($A) === [['device_id' => $B, 'reason' => 'key_shared', 'key' => $chassis_key, 'value' => $X]]
+	&& $key_shared($B) === [['device_id' => $A, 'reason' => 'key_shared', 'key' => $chassis_key, 'value' => $X]], 'both Devices have the candidate key_shared, key = the chassis key, value = the chassis as sent');
+$fp = fingerprint($pdo);
+for ($i = 0; $i < 3; $i++) {
+	run_ingest($dsn, $user, $password);
+}
+check(fingerprint($pdo) === $fp, 'the next runs keep the candidates (nothing changes)');
+$scope = array_map('intval', CTopologyPrototype::duplicatesScope(null));
+check(in_array($A, $scope, true) && in_array($B, $scope, true), 'the filter "Possible duplicates only" has both Devices');
+CTopologyPrototype::mergeDevices((string) $A, (string) $B, 'Admin');
+run_ingest($dsn, $user, $password);
+check(!exists($pdo, $B) && $key_shared($A) === [] && scalar($pdo, 'SELECT outcome FROM topo_observations WHERE itemid = 1002') !== 'ambiguous', 'after a merge: one Device, no candidate, the claim is resolved');
+// "Not the same device"
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, $X, null, 'N');
+$B = device($pdo, $X, null, 'N-old');
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'N', $X, null)]);
+run_ingest($dsn, $user, $password);
+CTopologyPrototype::dismissDuplicate((string) $A, (string) $B, 'Admin');
+run_ingest($dsn, $user, $password);
+check($key_shared($A) === [] && $key_shared($B) === [] && CTopologyPrototype::duplicatesScope(null) === [], 'after "Not the same device": no candidate, the pair is not drawn');
+CTopologyPrototype::revokeDismissal((string) $A, (string) $B);
+run_ingest($dsn, $user, $password);
+check(count($key_shared($A)) === 1 && count($key_shared($B)) === 1, 'the revocation brings the candidate back');
+// a shared cdp key
+reset_all($pdo);
+setup_r($pdo, $R);
+run_ingest($dsn, $user, $password);
+$A = device($pdo, null, null, 'Core');
+$B = device($pdo, null, null, 'Core');
+foreach ([$A, $B] as $id) {
+	$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, 'cdp:server:core', 'cdp', 1, 0)")->execute([$id]);
+}
+snapshot($pdo, 1002, 101, 2, CLOCK + 50, [nbr_row($R, 'Core', null, null, 'Gi0/1', 'cdp')]);
+run_ingest($dsn, $user, $password);
+check($key_shared($A) === [['device_id' => $B, 'reason' => 'key_shared', 'key' => 'cdp:server:core', 'value' => 'Core']]
+	&& $key_shared($B) === [['device_id' => $A, 'reason' => 'key_shared', 'key' => 'cdp:server:core', 'value' => 'Core']], 'a shared cdp key: the candidate on both Devices, key = the cdp key, value = the device id');
+CTopologyPrototype::mergeDevices((string) $A, (string) $B, 'Admin');
+run_ingest($dsn, $user, $password);
+check($key_shared($A) === [], 'after a merge the candidate is gone');
+
 echo "\nAll duplicate candidate checks passed.\n";
