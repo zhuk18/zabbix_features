@@ -122,9 +122,13 @@ check($keys($d5) === ['chassis:mac:02:00:00:00:07:05' => 0], 'no reporter, no ob
 check($keys($d6) === [], 'a text chassis (no stored subtype): no key (task 080: only a MAC-shaped value is a hardware ID); it was "needs a segment"');
 check($keys($d7) === [] && $keys($d8) === [], 'a placeholder MAC: no key; a text chassis `eth0` of a Device whose segment is known: no key either');
 $built = $summary['identity_keys_built'] ?? [];
-check(($built['devices'] ?? null) === 6 && ($built['keys'] ?? null) === 4 && ($built['skipped'] ?? null) === [$d6, $d7, $d8],
-	'the summary counts the Devices with a chassis (6), the keys (4) and lists the Devices that got none: '.json_encode($built));
+check(($built['devices'] ?? null) === 6 && ($built['keys'] ?? null) === 4 && ($built['skipped'] ?? null) === [['device_id' => $d6, 'reason' => 'not_hardware_id'], ['device_id' => $d7, 'reason' => 'not_hardware_id'], ['device_id' => $d8, 'reason' => 'not_hardware_id']],
+	'the summary counts the Devices with a chassis (6), the keys (4) and lists the Devices that got none, each with its reason: '.json_encode($built));
 
+require_once __DIR__.'/ingest/IngestKeys.php';
+check(IngestKeys::skipReason(null, 'server') === 'not_hardware_id' && IngestKeys::skipReason(null, null) === 'not_hardware_id' && IngestKeys::skipReason('chassis:local:server:x', null) === 'no_segment'
+	&& IngestKeys::skipReason('chassis:mac:aa:bb:cc:dd:ee:ff', null) === null && IngestKeys::skipReason('chassis:local:server:x', 'server') === null,
+	'the reasons: no key by the rule = not_hardware_id; a scoped key without a segment = no_segment (not reachable by a run since 080: a value with no subtype name gives only a global key); a MAC key needs no segment');
 echo "\n=== a second run builds nothing and changes nothing ===\n";
 $before = [$keys($d1), $keys($d2), $keys($d3), $keys($d5)];
 $attrs_before = $pdo->query('SELECT id, attrs FROM topo_nodes ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);

@@ -144,6 +144,18 @@ class IngestKeys {
 	//  3. Devices that hold no chassis key (data written before the key table) get it from their attributes, in the segment of their reporter, else of the reporter of
 	//     their latest observation. A MAC chassis is global and needs no segment; a Device whose scoped key cannot be built (no reporter, no observation) is listed in the
 	//     run summary and left without it.
+	/**
+	 * Why the upgrade of old data (step 3 of buildIdentityKeys) built no key for a value (model §6.7.0, §6.11): `not_hardware_id` when the value gives no key by the rule of
+	 * chassisKey() ($key is null), `no_segment` when the key is scoped and the Device has no segment (a MAC key is global and needs none); null when the key can be built.
+	 */
+	public static function skipReason(?string $key, ?string $segment): ?string {
+		if ($key === null) {
+			return 'not_hardware_id';
+		}
+
+		return $segment === null && !str_starts_with($key, 'chassis:mac:') ? 'no_segment' : null;
+	}
+
 	public function buildIdentityKeys(): void {
 		$pdo = $this->run->pdo;
 		$q_key = $this->run->q_key;
@@ -221,13 +233,13 @@ class IngestKeys {
 				}
 			}
 			$built = 0;
-			$skipped = false;
+			$skipped = null;      // the reason of the first value that gave no key (§6.11)
 			foreach ($wanted as [$value, $replaced]) {
 				// old data: a Device does not store the subtype of its chassis_id, so the value has no subtype name: the one rule of chassisKey() (model §6.7.0, 2.63) gives a key
 				// only to a MAC-shaped value that is no placeholder; a text value is no hardware ID
 				$key = $chassis_key($value, null, $segment ?? '');
-				if ($key === null || ($segment === null && !str_starts_with($key, 'chassis:mac:'))) {
-					$skipped = true;
+				if (($reason = self::skipReason($key, $segment)) !== null) {
+					$skipped ??= $reason;
 					continue;
 				}
 				$exists = $pdo->prepare("SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND {$q_key} = ?");
@@ -239,8 +251,8 @@ class IngestKeys {
 			}
 			$summary['identity_keys_built']['devices']++;
 			$summary['identity_keys_built']['keys'] += $built;
-			if ($skipped && count($summary['identity_keys_built']['skipped']) < 200) {
-				$summary['identity_keys_built']['skipped'][] = (int) $device['id'];
+			if ($skipped !== null && count($summary['identity_keys_built']['skipped']) < 200) {
+				$summary['identity_keys_built']['skipped'][] = ['device_id' => (int) $device['id'], 'reason' => $skipped];
 			}
 		}
 	}
