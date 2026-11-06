@@ -996,10 +996,12 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		for (const char *p = suffix; '\0' != *p; p++)
 			parts += ('.' == *p);
 
-		if (3 != parts)
-			continue;	/* not exactly TimeMark.LocalPortNum.RemIndex: dropped, the missing or extra parts are not guessed (LLD spec 2.11 §4.5, F14) */
+		/* TimeMark.LocalPortNum.RemIndex (3 parts), or LocalPortNum.RemIndex (2 parts: a device that leaves the TimeMark out, read as TimeMark 0; LLD spec 2.17, F14). Any other
+		 * number of parts is dropped, the missing or extra parts are not guessed (2.11 §4.5) */
+		if (2 != parts && 3 != parts)
+			continue;
 
-		second = strchr(suffix, '.') + 1;
+		second = 3 == parts ? strchr(suffix, '.') + 1 : suffix;
 		port_num = zbx_strdup(NULL, second);
 
 		if (NULL != (dot = strchr(port_num, '.')))
@@ -1042,7 +1044,9 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 				topo_row_add(row, "{#REM_CHASSIS_TYPE}", lldp_chassis_subtype_name(chassis_type_n));
 		}
 
-		addrs = lldp_man_addrs(&man_addr, suffix);
+		/* a 2-part row gets no management address (LLD spec 2.17 §4.4): whether such a device leaves the TimeMark out of lldpRemManAddrTable is not known, and a guess would give
+		 * another neighbor's address */
+		addrs = 3 == parts ? lldp_man_addrs(&man_addr, suffix) : zbx_strdup(NULL, "");
 		topo_row_add_owned(row, "{#REM_MAN_ADDRS}", addrs);
 
 		topo_row_add_owned(row, "{#REM_SYSNAME}", topo_table_name(&rem_sysname, suffix));

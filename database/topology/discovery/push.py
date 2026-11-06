@@ -466,10 +466,13 @@ def rows_lldp(rows: dict) -> list[dict]:
         return " ".join("lldp:" + h[2] for h in sorted(hits))
 
     out = []
-    for sfx in sorted(suffixes, key=lambda x: (_suffix_key(x)[1:2], _suffix_key(x))):
+    for sfx in sorted(suffixes, key=lambda x: (_suffix_key(x if x.count('.') != 1 else '0.' + x)[1:2], _suffix_key(x))):
         parts = sfx.split(".")
-        if len(parts) != 3:
-            continue                                               # not exactly TimeMark.LocalPortNum.RemIndex: dropped, not guessed (LLD spec 2.11 §4.5, F14)
+        if len(parts) not in (2, 3):
+            continue                                               # not TimeMark.LocalPortNum.RemIndex or LocalPortNum.RemIndex: dropped, not guessed (LLD spec 2.11, 2.17 §4.5, F14)
+        two_part = len(parts) == 2
+        if two_part:
+            parts = ["0"] + parts                                  # the TimeMark is left out (TP-Link JetStream): read as TimeMark 0, LocalPortNum is the first part (2.17)
         chassis_type = _parse_int(_decode(rem_chassis_type[sfx])) if sfx in rem_chassis_type else 0
         port_type = _parse_int(_decode(rem_port_type[sfx])) if sfx in rem_port_type else 0
         num = parts[1]
@@ -485,7 +488,7 @@ def rows_lldp(rows: dict) -> list[dict]:
         if sfx in rem_chassis:
             _put(row, "{#REM_CHASSIS}", _id(rem_chassis[sfx], chassis_type, True))
             _put(row, "{#REM_CHASSIS_TYPE}", LLDP_CHASSIS_ID_SUBTYPES.get(chassis_type, ""))
-        _put(row, "{#REM_MAN_ADDRS}", man_addrs(sfx))
+        _put(row, "{#REM_MAN_ADDRS}", "" if two_part else man_addrs(sfx))      # a 2-part row gets none (LLD spec 2.17 §4.4)
         _put(row, "{#REM_SYSNAME}", _text(rem_sysname[sfx]) if sfx in rem_sysname else "")
         if sfx in rem_port:
             _put(row, "{#REM_PORT}", _id(rem_port[sfx], port_type, False))
