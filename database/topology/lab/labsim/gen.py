@@ -297,23 +297,26 @@ def device_records(lab, name):
                 fport = next((q for q in far['ports'] if q['name'] == fp), None)
                 if fport is None:
                     raise LabError('unknown port %s:%s' % (fd, fp))
-                ix = (0, n, k)
-                if with_sub or far.get('lldp_local_port_subtype') or s.get('emit_subtypes'):
-                    r.put(LLDP_REM + (4,) + ix, '2', 4)
-                    fsub, fpid = _port_id(far, fport)
-                    r.put(LLDP_REM + (6,) + ix, '2', fsub)
-                else:
-                    fpid = fport['name']
-                r.put_hex(LLDP_REM + (5,) + ix, mac_bytes(far['chassis']['value']))
-                (r.put_hex if isinstance(fpid, bytes) else r.put_str)(LLDP_REM + (7,) + ix, fpid)
-                r.put_str(LLDP_REM + (8,) + ix, fport.get('desc') or long_name(fport['name']))
-                r.put_str(LLDP_REM + (9,) + ix, far['sysname'])
-                if far.get('lldp_capabilities'):
-                    # lldpRemSysCapEnabled (LLD spec 2.14): LldpSystemCapabilitiesMap, bit 0 = the most significant bit of the first octet
-                    r.put_hex(LLDP_REM + (12,) + ix, bytes([sum(0x80 >> LLDP_CAPS.index(c) for c in far['lldp_capabilities']), 0]))
-                if s.get('emit_mgmt_addr') and far.get('ip'):
-                    ip = bytes(int(x) for x in far['ip'].split('.'))
-                    r.put((1, 0, 8802, 1, 1, 2, 1, 4, 2, 1, 3) + ix + (1, 4) + tuple(ip), '2', 2)
+                # `lldp_index` of the near device (task 082, LLD spec 2.17): `three_part` (default) TimeMark.LocalPortNum.RemIndex; `two_part` LocalPortNum.RemIndex, the TimeMark left out
+                # (TP-Link JetStream T2600G HW v4); `both` the neighbor in both forms (a device that lists it twice)
+                lldp_index = dev.get('lldp_index', 'three_part')
+                for ix in {'three_part': [(0, n, k)], 'two_part': [(n, k)], 'both': [(n, k), (0, n, k)]}[lldp_index]:
+                    if with_sub or far.get('lldp_local_port_subtype') or s.get('emit_subtypes'):
+                        r.put(LLDP_REM + (4,) + ix, '2', 4)
+                        fsub, fpid = _port_id(far, fport)
+                        r.put(LLDP_REM + (6,) + ix, '2', fsub)
+                    else:
+                        fpid = fport['name']
+                    r.put_hex(LLDP_REM + (5,) + ix, mac_bytes(far['chassis']['value']))
+                    (r.put_hex if isinstance(fpid, bytes) else r.put_str)(LLDP_REM + (7,) + ix, fpid)
+                    r.put_str(LLDP_REM + (8,) + ix, fport.get('desc') or long_name(fport['name']))
+                    r.put_str(LLDP_REM + (9,) + ix, far['sysname'])
+                    if far.get('lldp_capabilities'):
+                        # lldpRemSysCapEnabled (LLD spec 2.14): LldpSystemCapabilitiesMap, bit 0 = the most significant bit of the first octet
+                        r.put_hex(LLDP_REM + (12,) + ix, bytes([sum(0x80 >> LLDP_CAPS.index(c) for c in far['lldp_capabilities']), 0]))
+                    if s.get('emit_mgmt_addr') and far.get('ip'):
+                        ip = bytes(int(x) for x in far['ip'].split('.'))
+                        r.put((1, 0, 8802, 1, 1, 2, 1, 4, 2, 1, 3) + ix + (1, 4) + tuple(ip), '2', 2)
 
     # CDP
     if dev['cdp'] and 'cdp' not in omit:

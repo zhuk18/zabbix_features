@@ -61,6 +61,8 @@ class Lab:
         d.setdefault('cdp_address', False)
         check_cdp_keys(name, d)
         check_capabilities(name, d)
+        if d.get('lldp_index', 'three_part') not in ('three_part', 'two_part', 'both'):
+            raise LabError('device %s: lldp_index is three_part, two_part or both, got %r' % (name, d['lldp_index']))
         d.setdefault('fdb', 'none')
         d.setdefault('lldp_local_port_subtype', None)
         d.setdefault('lldp_loc_port_num', 'ifindex')

@@ -1,0 +1,107 @@
+id: S11
+title: lldpRemTable index without the TimeMark
+base: lab.yaml
+# LLD spec 2.17 (task 082): a device that leaves the TimeMark out of lldpRemTable (TP-Link JetStream T2600G HW v4) has the index LocalPortNum.RemIndex. Three reporters, each with two
+# neighbors: T3 the usual index (the control), T2 the 2-part index, TB the 2-part and the 3-part row of every neighbor (a device that lists a neighbor twice). Addresses 192.0.2.170-.172.
+#   - T2 gives the same Devices and links as T3 (same ports, same kind of links).
+#   - TB: one Device for a neighbor listed twice and one link; the second row has the same claim key and is counted in rows_duplicate_claim (model §7.1), no `ambiguous` outcome (vendor-quirks F18 q.2).
+patch:
+  settings: {emit_subtypes: true, emit_loc_port_table: true}
+  devices:
+    T3:
+      ip: 192.0.2.170
+      chassis: {subtype: mac, value: "00:11:22:33:44:d0"}
+      port_mac_prefix: "02:00:00:0d"
+      lldp_index: three_part
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    T2:
+      ip: 192.0.2.171
+      chassis: {subtype: mac, value: "00:11:22:33:44:d1"}
+      port_mac_prefix: "02:00:00:0e"
+      lldp_index: two_part
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    TB:
+      ip: 192.0.2.172
+      chassis: {subtype: mac, value: "00:11:22:33:44:d2"}
+      port_mac_prefix: "02:00:00:0f"
+      lldp_index: both
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    N3a:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e1"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    N3b:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e2"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    N2a:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e3"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    N2b:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e4"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    NBa:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e5"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+    NBb:
+      chassis: {subtype: mac, value: "00:11:22:33:44:e6"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+  cables:
+    add:
+      - [T3:Gi0/1, N3a:eth0]
+      - [T3:Gi0/2, N3b:eth0]
+      - [T2:Gi0/1, N2a:eth0]
+      - [T2:Gi0/2, N2b:eth0]
+      - [TB:Gi0/1, NBa:eth0]
+      - [TB:Gi0/2, NBb:eth0]
+steps:
+  - id: 0
+    note: baseline
+    assert:
+      - link: [T3:Gi0/1, N3a:eth0]
+        state: active
+      - link: [T3:Gi0/2, N3b:eth0]
+        state: active
+      - link: [T2:Gi0/1, N2a:eth0]
+        state: active
+      - link: [T2:Gi0/2, N2b:eth0]
+        state: active
+      - link: [TB:Gi0/1, NBa:eth0]
+        state: active
+      - link: [TB:Gi0/2, NBb:eth0]
+        state: active
+      - device_count: {key: N2a, equals: 1}
+      - device_count: {key: N2b, equals: 1}
+      - device_count: {key: NBa, equals: 1}
+      - device_count: {key: NBb, equals: 1}
+      - observation: {reporter: T2, port: Gi0/1}
+        outcome: applied
+      - observation: {reporter: TB, port: Gi0/1}
+        outcome: applied
+      - status: {field: rows_duplicate_claim.count, equals: 2}
+  - id: 1
+    note: no change
+    poll_all: true
+    assert:
+      - status: {field: devices_created, equals: 0}
+      - edge_id_same_as: {step: 0, link: [T2:Gi0/1, N2a:eth0]}
+      - edge_id_same_as: {step: 0, link: [TB:Gi0/1, NBa:eth0]}
