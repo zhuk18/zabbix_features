@@ -162,7 +162,7 @@ $r = step($lldp_walk('nolldp'), 'lldp', 'error');
 check(!$r['ok'] && str_contains($r['text'], 'lldpLocPortTable or lldpRemTable'), 'lldp: neither lldpLocPortTable nor lldpRemTable: missing MIB (error)', $r['text']);
 $r = step($lldp_walk('nolldp'), 'lldp', 'empty');
 check($r['ok'] && $r['rows'] === [], 'lldp: neither table, missing_mib=empty: []', $r['text']);
-foreach (['badindex' => '1- and 2-part index', 'fourpart' => '4-part index'] as $name => $what) {
+foreach (['badindex' => '1-part index', 'fourpart' => '4-part index'] as $name => $what) {
 	$r = step($lldp_walk($name), 'lldp', 'error');
 	check($r['ok'] && array_column($r['rows'], '{#LOC_PORT_NUM}') === (['badindex' => ['7', '8'], 'fourpart' => ['7']][$name])
 		&& !str_contains($r['text'], 'one-part') && !str_contains($r['text'], 'two-part') && !str_contains($r['text'], 'four-part'),
@@ -175,6 +175,34 @@ check($r['ok'] && array_column($r['rows'], '{#LOC_PORT_NUM}') === ['0', '1'] && 
 echo "\n=== decoding (decoding_cases.json, also run through push.py; the step extracts, ingest decides) ===\n";
 foreach (json_decode((string) file_get_contents(__DIR__.'/decoding_cases.json'), true, 512, JSON_THROW_ON_ERROR) as $case) {
 	$r = step($case['walk'], $case['source'], 'error');
+
+	if (isset($case['expect_rows'])) {
+		// several rows (LLD spec 2.17): exactly that many, each expectation matches one row (rows are compared as a set)
+		$left = $r['rows'] ?? [];
+		$bad = [];
+
+		foreach ($case['expect_rows'] as $expect) {
+			$found = null;
+
+			foreach ($left as $i => $candidate) {
+				if (!array_filter($expect, static fn ($value, $macro): bool => ($candidate[$macro] ?? null) !== $value, ARRAY_FILTER_USE_BOTH)) {
+					$found = $i;
+					break;
+				}
+			}
+
+			if ($found === null) {
+				$bad[] = 'no row for '.json_encode($expect, JSON_UNESCAPED_UNICODE);
+			}
+			else {
+				unset($left[$found]);
+			}
+		}
+
+		check($r['ok'] && count($r['rows'] ?? []) === count($case['expect_rows']) && !$bad, "[{$case['source']}] {$case['name']}", implode('; ', $bad).' | '.$r['text']);
+		continue;
+	}
+
 	$row = $r['rows'][0] ?? null;
 	$bad = [];
 

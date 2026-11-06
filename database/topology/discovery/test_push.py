@@ -272,6 +272,18 @@ for case in json.load(open(os.path.join(HERE, "step_golden", "decoding_cases.jso
     if case["source"] == "cdp":
         continue
     builder = push.rows_ports if case["source"] == "ports" else push.rows_lldp
+    if "expect_rows" in case:
+        # several rows (LLD spec 2.17): exactly that many, each expectation matches one row (a set)
+        got = builder(push.parse_walk(case["walk"]))
+        left, missing = list(got), []
+        for expect in case["expect_rows"]:
+            hit = next((r for r in left if all(r.get(k) == v for k, v in expect.items())), None)
+            if hit is None:
+                missing.append(expect)
+            else:
+                left.remove(hit)
+        check(len(got) == len(case["expect_rows"]) and not missing, f"[{case['source']}] {case['name']}", f"missing {missing} | {got}")
+        continue
     try:
         got = builder(push.parse_walk(case["walk"]))
     except push.WalkUnusable as exc:

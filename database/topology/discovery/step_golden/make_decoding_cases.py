@@ -51,6 +51,25 @@ def case(name, source, walk, expect):
     cases.append({"name": name, "source": source, "walk": walk, "expect": expect})
 
 
+def cases_rows(name, source, walk, expect_rows):
+    """A case with several rows (LLD spec 2.17): `expect_rows` is a list of {macro: value | null}; the walk must give exactly that many rows and every expectation must
+    match one row (rows are compared as a set: the step orders by local port, push.py by index; `null` = the macro is absent)."""
+    cases.append({"name": name, "source": source, "walk": walk, "expect_rows": expect_rows})
+
+
+def lldp_raw(loc=(), rem=(), man=()):
+    """loc: [(column, local port, type, value)] of lldpLocPortTable; rem: [(column, index text, type, value)] of lldpRemTable with the index as written (2 or 3 parts);
+    man: [(index tail after .3., type, value)] of lldpRemManAddrTable."""
+    w = ""
+    for col, port, typ, value in loc:
+        w += line("1.0.8802.1.1.2.1.3.7.1.%d.%d" % (col, port), typ, value)
+    for col, index, typ, value in rem:
+        w += line("1.0.8802.1.1.2.1.4.1.1.%d.%s" % (col, index), typ, value)
+    for tail, typ, value in man:
+        w += line("1.0.8802.1.1.2.1.4.2.1.3.%s" % tail, typ, value)
+    return w
+
+
 # ---- text columns: a STRING is passed as it is, a Hex-STRING is text or the hex form ----
 S = "STRING"
 H = "Hex-STRING"
@@ -157,6 +176,34 @@ case("cdp sys cap: three octets as text (RSI, the corpus), no macro", "cdp", ci 
 case("cdp sys cap: five octets, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 00 29 "), {"{#REM_SYS_CAP}": None})
 case("cdp sys cap: no bit set, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 00 "), {"{#REM_SYS_CAP}": None})
 case("cdp sys cap: no column, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"'), {"{#REM_SYS_CAP}": None})
+
+# ---- a 2-part lldpRemTable index: LocalPortNum.RemIndex, the TimeMark left out (TP-Link JetStream; LLD spec 2.17, F14); the values are invented ----
+loc2 = [(2, 25, "INTEGER", "interfaceName(5)"), (3, 25, S, '"Gi1/0/25"'), (4, 25, S, '"uplink"'), (2, 26, "INTEGER", "interfaceName(5)"), (3, 26, S, '"Gi1/0/26"')]
+
+
+def rem2(index, chassis, sysname, port):
+    return [(4, index, "INTEGER", "macAddress(4)"), (5, index, H, chassis), (6, index, "INTEGER", "interfaceName(5)"), (7, index, S, '"%s"' % port), (9, index, S, '"%s"' % sysname)]
+
+
+cases_rows("lldp 2-part index: read as TimeMark 0, LocalPortNum is the first part, local port id, subtype and description from lldpLocPortTable, no management address", "lldp",
+           lldp_raw(loc2, rem2("25.1", "AA BB CC 00 00 25 ", "peer-a", "Te1/0/1"), [("0.25.1.1.4.10.0.0.9", "INTEGER", 2), ("25.1.1.4.10.0.0.9", "INTEGER", 2)]),
+           [{"{#LOC_PORT_NUM}": "25", "{#LOC_PORT_ID}": "Gi1/0/25", "{#LOC_PORT_ID_TYPE}": "interfaceName", "{#LOC_PORT_DESC}": "uplink", "{#REM_CHASSIS}": "aa:bb:cc:00:00:25",
+             "{#REM_SYSNAME}": "peer-a", "{#REM_PORT}": "Te1/0/1", "{#REM_MAN_ADDRS}": None, "{#SOURCE}": "lldp"}])
+cases_rows("lldp 2-part index: two ports, each with its own values", "lldp",
+           lldp_raw(loc2, rem2("25.1", "AA BB CC 00 00 25 ", "peer-a", "Te1/0/1") + rem2("26.1", "AA BB CC 00 00 26 ", "peer-b", "Te1/0/2")),
+           [{"{#LOC_PORT_NUM}": "25", "{#REM_SYSNAME}": "peer-a", "{#REM_CHASSIS}": "aa:bb:cc:00:00:25", "{#LOC_PORT_ID}": "Gi1/0/25"},
+            {"{#LOC_PORT_NUM}": "26", "{#REM_SYSNAME}": "peer-b", "{#REM_CHASSIS}": "aa:bb:cc:00:00:26", "{#LOC_PORT_ID}": "Gi1/0/26"}])
+cases_rows("lldp 2-part and 3-part rows of the same LocalPortNum.RemIndex (25.1 and 0.25.1): both emitted, each with its own values, the management address only on the 3-part row", "lldp",
+           lldp_raw(loc2, rem2("25.1", "AA BB CC 00 00 25 ", "peer-two-part", "Te1/0/1") + rem2("0.25.1", "AA BB CC 00 00 99 ", "peer-three-part", "Te1/0/9"),
+                    [("0.25.1.1.4.10.0.0.9", "INTEGER", 2)]),
+           [{"{#LOC_PORT_NUM}": "25", "{#REM_SYSNAME}": "peer-two-part", "{#REM_CHASSIS}": "aa:bb:cc:00:00:25", "{#REM_PORT}": "Te1/0/1", "{#REM_MAN_ADDRS}": None},
+            {"{#LOC_PORT_NUM}": "25", "{#REM_SYSNAME}": "peer-three-part", "{#REM_CHASSIS}": "aa:bb:cc:00:00:99", "{#REM_PORT}": "Te1/0/9", "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.9"}])
+cases_rows("lldp 2-part index without lldpLocPortTable: {#LOC_PORT_NUM} only", "lldp", lldp_raw([], rem2("25.1", "AA BB CC 00 00 25 ", "peer-a", "Te1/0/1")),
+           [{"{#LOC_PORT_NUM}": "25", "{#LOC_PORT_ID}": None, "{#REM_SYSNAME}": "peer-a", "{#REM_MAN_ADDRS}": None}])
+cases_rows("lldp 1-part and 4-part indexes are still dropped, a 2-part and a 3-part row beside them are emitted", "lldp",
+           lldp_raw(loc2, rem2("25.1", "AA BB CC 00 00 25 ", "peer-a", "Te1/0/1") + rem2("0.26.1", "AA BB CC 00 00 26 ", "peer-b", "Te1/0/2") + rem2("5", "AA BB CC 00 00 05 ", "one", "x")
+                    + rem2("0.1.2.3", "AA BB CC 00 00 04 ", "four", "y")),
+           [{"{#LOC_PORT_NUM}": "25", "{#REM_SYSNAME}": "peer-a"}, {"{#LOC_PORT_NUM}": "26", "{#REM_SYSNAME}": "peer-b"}])
 
 with open(os.path.join(HERE, "decoding_cases.json"), "w", encoding="utf-8") as fh:
     json.dump(cases, fh, indent=1, ensure_ascii=False)

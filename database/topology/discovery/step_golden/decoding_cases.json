@@ -681,5 +681,91 @@
   "expect": {
    "{#REM_SYS_CAP}": null
   }
+ },
+ {
+  "name": "lldp 2-part index: read as TimeMark 0, LocalPortNum is the first part, local port id, subtype and description from lldpLocPortTable, no management address",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.25 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.25 = STRING: \"Gi1/0/25\"\n.1.0.8802.1.1.2.1.3.7.1.4.25 = STRING: \"uplink\"\n.1.0.8802.1.1.2.1.3.7.1.2.26 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.26 = STRING: \"Gi1/0/26\"\n.1.0.8802.1.1.2.1.4.1.1.4.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.25.1 = Hex-STRING: AA BB CC 00 00 25 \n.1.0.8802.1.1.2.1.4.1.1.6.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.25.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.25.1 = STRING: \"peer-a\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.25.1.1.4.10.0.0.9 = INTEGER: 2\n.1.0.8802.1.1.2.1.4.2.1.3.25.1.1.4.10.0.0.9 = INTEGER: 2\n",
+  "expect_rows": [
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#LOC_PORT_ID}": "Gi1/0/25",
+    "{#LOC_PORT_ID_TYPE}": "interfaceName",
+    "{#LOC_PORT_DESC}": "uplink",
+    "{#REM_CHASSIS}": "aa:bb:cc:00:00:25",
+    "{#REM_SYSNAME}": "peer-a",
+    "{#REM_PORT}": "Te1/0/1",
+    "{#REM_MAN_ADDRS}": null,
+    "{#SOURCE}": "lldp"
+   }
+  ]
+ },
+ {
+  "name": "lldp 2-part index: two ports, each with its own values",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.25 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.25 = STRING: \"Gi1/0/25\"\n.1.0.8802.1.1.2.1.3.7.1.4.25 = STRING: \"uplink\"\n.1.0.8802.1.1.2.1.3.7.1.2.26 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.26 = STRING: \"Gi1/0/26\"\n.1.0.8802.1.1.2.1.4.1.1.4.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.25.1 = Hex-STRING: AA BB CC 00 00 25 \n.1.0.8802.1.1.2.1.4.1.1.6.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.25.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.25.1 = STRING: \"peer-a\"\n.1.0.8802.1.1.2.1.4.1.1.4.26.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.26.1 = Hex-STRING: AA BB CC 00 00 26 \n.1.0.8802.1.1.2.1.4.1.1.6.26.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.26.1 = STRING: \"Te1/0/2\"\n.1.0.8802.1.1.2.1.4.1.1.9.26.1 = STRING: \"peer-b\"\n",
+  "expect_rows": [
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#REM_SYSNAME}": "peer-a",
+    "{#REM_CHASSIS}": "aa:bb:cc:00:00:25",
+    "{#LOC_PORT_ID}": "Gi1/0/25"
+   },
+   {
+    "{#LOC_PORT_NUM}": "26",
+    "{#REM_SYSNAME}": "peer-b",
+    "{#REM_CHASSIS}": "aa:bb:cc:00:00:26",
+    "{#LOC_PORT_ID}": "Gi1/0/26"
+   }
+  ]
+ },
+ {
+  "name": "lldp 2-part and 3-part rows of the same LocalPortNum.RemIndex (25.1 and 0.25.1): both emitted, each with its own values, the management address only on the 3-part row",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.25 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.25 = STRING: \"Gi1/0/25\"\n.1.0.8802.1.1.2.1.3.7.1.4.25 = STRING: \"uplink\"\n.1.0.8802.1.1.2.1.3.7.1.2.26 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.26 = STRING: \"Gi1/0/26\"\n.1.0.8802.1.1.2.1.4.1.1.4.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.25.1 = Hex-STRING: AA BB CC 00 00 25 \n.1.0.8802.1.1.2.1.4.1.1.6.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.25.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.25.1 = STRING: \"peer-two-part\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.25.1 = Hex-STRING: AA BB CC 00 00 99 \n.1.0.8802.1.1.2.1.4.1.1.6.0.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.25.1 = STRING: \"Te1/0/9\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.25.1 = STRING: \"peer-three-part\"\n.1.0.8802.1.1.2.1.4.2.1.3.0.25.1.1.4.10.0.0.9 = INTEGER: 2\n",
+  "expect_rows": [
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#REM_SYSNAME}": "peer-two-part",
+    "{#REM_CHASSIS}": "aa:bb:cc:00:00:25",
+    "{#REM_PORT}": "Te1/0/1",
+    "{#REM_MAN_ADDRS}": null
+   },
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#REM_SYSNAME}": "peer-three-part",
+    "{#REM_CHASSIS}": "aa:bb:cc:00:00:99",
+    "{#REM_PORT}": "Te1/0/9",
+    "{#REM_MAN_ADDRS}": "lldp:1.4.10.0.0.9"
+   }
+  ]
+ },
+ {
+  "name": "lldp 2-part index without lldpLocPortTable: {#LOC_PORT_NUM} only",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.4.1.1.4.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.25.1 = Hex-STRING: AA BB CC 00 00 25 \n.1.0.8802.1.1.2.1.4.1.1.6.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.25.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.25.1 = STRING: \"peer-a\"\n",
+  "expect_rows": [
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#LOC_PORT_ID}": null,
+    "{#REM_SYSNAME}": "peer-a",
+    "{#REM_MAN_ADDRS}": null
+   }
+  ]
+ },
+ {
+  "name": "lldp 1-part and 4-part indexes are still dropped, a 2-part and a 3-part row beside them are emitted",
+  "source": "lldp",
+  "walk": ".1.0.8802.1.1.2.1.3.7.1.2.25 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.25 = STRING: \"Gi1/0/25\"\n.1.0.8802.1.1.2.1.3.7.1.4.25 = STRING: \"uplink\"\n.1.0.8802.1.1.2.1.3.7.1.2.26 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.3.7.1.3.26 = STRING: \"Gi1/0/26\"\n.1.0.8802.1.1.2.1.4.1.1.4.25.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.25.1 = Hex-STRING: AA BB CC 00 00 25 \n.1.0.8802.1.1.2.1.4.1.1.6.25.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.25.1 = STRING: \"Te1/0/1\"\n.1.0.8802.1.1.2.1.4.1.1.9.25.1 = STRING: \"peer-a\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.26.1 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.26.1 = Hex-STRING: AA BB CC 00 00 26 \n.1.0.8802.1.1.2.1.4.1.1.6.0.26.1 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.26.1 = STRING: \"Te1/0/2\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.26.1 = STRING: \"peer-b\"\n.1.0.8802.1.1.2.1.4.1.1.4.5 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.5 = Hex-STRING: AA BB CC 00 00 05 \n.1.0.8802.1.1.2.1.4.1.1.6.5 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.5 = STRING: \"x\"\n.1.0.8802.1.1.2.1.4.1.1.9.5 = STRING: \"one\"\n.1.0.8802.1.1.2.1.4.1.1.4.0.1.2.3 = INTEGER: macAddress(4)\n.1.0.8802.1.1.2.1.4.1.1.5.0.1.2.3 = Hex-STRING: AA BB CC 00 00 04 \n.1.0.8802.1.1.2.1.4.1.1.6.0.1.2.3 = INTEGER: interfaceName(5)\n.1.0.8802.1.1.2.1.4.1.1.7.0.1.2.3 = STRING: \"y\"\n.1.0.8802.1.1.2.1.4.1.1.9.0.1.2.3 = STRING: \"four\"\n",
+  "expect_rows": [
+   {
+    "{#LOC_PORT_NUM}": "25",
+    "{#REM_SYSNAME}": "peer-a"
+   },
+   {
+    "{#LOC_PORT_NUM}": "26",
+    "{#REM_SYSNAME}": "peer-b"
+   }
+  ]
  }
 ]
