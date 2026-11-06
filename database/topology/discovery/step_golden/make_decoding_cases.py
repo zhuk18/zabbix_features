@@ -151,7 +151,10 @@ case("cdp sys cap: router, switch and igmp (00 00 00 29)", "cdp", ci + line(cdp 
 case("cdp sys cap: host and repeater (00 00 00 50)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 50 "), {"{#REM_SYS_CAP}": "host repeater"})
 case("cdp sys cap: the bits above 0x40 (00 00 07 80)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 07 80 "),
      {"{#REM_SYS_CAP}": "voip remotelyManaged cvtaStpDispute twoPortMacRelay"})
-case("cdp sys cap: two octets are the low octets of the number (00 29)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 29 "), {"{#REM_SYS_CAP}": "router switch igmp"})
+case("cdp sys cap: two octets, no macro (LLD spec 2.15: only 4 octets are read)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 29 "), {"{#REM_SYS_CAP}": None})
+case("cdp sys cap: one octet as text (R, the corpus), no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", S, '"R"'), {"{#REM_SYS_CAP}": None})
+case("cdp sys cap: three octets as text (RSI, the corpus), no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", S, '"RSI"'), {"{#REM_SYS_CAP}": None})
+case("cdp sys cap: five octets, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 00 29 "), {"{#REM_SYS_CAP}": None})
 case("cdp sys cap: no bit set, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 00 "), {"{#REM_SYS_CAP}": None})
 case("cdp sys cap: no column, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"'), {"{#REM_SYS_CAP}": None})
 

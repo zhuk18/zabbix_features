@@ -60,6 +60,7 @@ class Lab:
         d.setdefault('cdp_device_id', 'name')
         d.setdefault('cdp_address', False)
         check_cdp_keys(name, d)
+        check_capabilities(name, d)
         d.setdefault('fdb', 'none')
         d.setdefault('lldp_local_port_subtype', None)
         d.setdefault('lldp_loc_port_num', 'ifindex')
@@ -255,6 +256,18 @@ class Lab:
 
 
 WAIT_KEYS = {'unsupported', 'timeout', 'seconds', 'until'}
+
+
+def check_capabilities(name, d):
+    """`lldp_capabilities` and `cdp_capabilities` (task 078, LLD spec 2.14): a list of the names of the bits the device advertises as enabled (`lldpRemSysCapEnabled`,
+    `cdpCacheCapabilities`); the names are those of the native step."""
+    from .gen import LLDP_CAPS, CDP_CAPS
+    for key, names in (('lldp_capabilities', LLDP_CAPS), ('cdp_capabilities', CDP_CAPS)):
+        value = d.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list) or any(not isinstance(x, str) or x not in names for x in value):
+            raise LabError('device %s: %s is a list of names from %s, got %r' % (name, key, list(names), value))
 
 
 def check_cdp_keys(name, d):

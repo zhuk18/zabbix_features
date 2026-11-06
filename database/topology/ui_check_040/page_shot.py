@@ -205,7 +205,11 @@ CHECKS = {
         const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
         r.nodes_before = nodes();
         document.getElementById('topology-filter-duplicates').click();
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // wait for the server's answer (the number of nodes changes), at most 30 s: a fixed pause of 3 s was too short on a busy VM
+        for (let i = 0; i < 60 && nodes() === r.nodes_before; i++) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
         // V-17: the server answers with the Devices that have a candidate, their partners and one hop of context (dimmed), and each pair has a labelled line
         r.nodes_filtered = nodes();
         r.duplicate_nodes = document.querySelectorAll('#topology-canvas .topology-node:not(.topology-context)').length;

@@ -641,7 +641,7 @@ static char	*topo_caps_lldp(const zbx_snmp_value_pair_t *pair)
 	return NULL != out ? out : zbx_strdup(NULL, "");
 }
 
-/* cdpCacheCapabilities (CISCO-CDP-MIB): up to 4 octets, a big-endian number; the value 0x01 is router, 0x02 transBridge, 0x04 srcRouteBridge, 0x08 switch, 0x10 host,
+/* cdpCacheCapabilities (CISCO-CDP-MIB): exactly 4 octets (LLD spec 2.15), a big-endian number; the value 0x01 is router, 0x02 transBridge, 0x04 srcRouteBridge, 0x08 switch, 0x10 host,
  * 0x20 igmp, 0x40 repeater, then the bits that Cisco documents for the capabilities field of CDP: 0x80 voip, 0x100 remotelyManaged, 0x200 cvtaStpDispute,
  * 0x400 twoPortMacRelay. The names follow the order of the values. */
 static char	*topo_caps_cdp(const zbx_snmp_value_pair_t *pair)
@@ -654,10 +654,14 @@ static char	*topo_caps_cdp(const zbx_snmp_value_pair_t *pair)
 	char			*out = NULL;
 	size_t			alloc = 0, offset = 0;
 
-	if (NULL == bytes)
+	/* LLD spec 2.15: the value is read only when it has exactly 4 octets; any other length gives no macro */
+	if (NULL == bytes || 4 != len)
+	{
+		zbx_free(bytes);
 		return zbx_strdup(NULL, "");
+	}
 
-	for (size_t i = 0; i < len && i < 4; i++)
+	for (size_t i = 0; i < len; i++)
 		value = (value << 8) | bytes[i];
 
 	zbx_free(bytes);
