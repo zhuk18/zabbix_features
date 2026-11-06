@@ -195,4 +195,23 @@ reporter($pdo, 102, '00:00:00:00', null, []);
 run_ingest($dsn, $user, $password);
 check((int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'device'")->fetchColumn() === 2, 'two reporters with the same undefined own chassis: two Devices (no shared key)');
 
+echo "\n=== task 081: the last key of a Device goes while the Device stays (the upgrade of 2.47, step 2 of buildIdentityKeys): what the next runs do ===\n";
+reset_all($pdo);
+reporter($pdo, 101, 'a0:00:00:00:00:01', 'macAddress', [['if_index' => 1, 'rem_chassis' => 'sw-x', 'rem_chassis_type' => 'local', 'rem_sysname' => 'SW-X', 'rem_port' => 'p1', 'rem_port_type' => 'interfaceName']]);
+// old data of 2.46: a Device with a text chassis_id `sw-x`; its only key row is an address key (kind ip), which the first run of 2.47 deletes
+$pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', ?, 1, 1)")
+	->execute([json_encode(['mac' => null, 'chassis_id' => 'sw-x', 'mgmt_ip' => null, 'sysname' => 'SW-X', 'vendor' => 'unknown', 'last_seen' => 1])]);
+$old = (int) $pdo->lastInsertId();
+$pdo->prepare("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (?, 'ip:server:10.0.0.9', 'ip', 1, 0)")->execute([$old]);
+run_ingest($dsn, $user, $password);
+$of_old = static fn (): array => $pdo->query('SELECT `key` FROM topo_identity_keys WHERE device_id = '.$old)->fetchAll(PDO::FETCH_COLUMN);
+$new = array_values(array_filter(array_column(others($pdo), 'id'), static fn ($id): bool => (int) $id !== $old));
+check($of_old() === [] && (int) $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE id = {$old}")->fetchColumn() === 1, 'the address key is deleted, the Device stays with its text chassis_id and no key');
+check(count($new) === 1 && (int) $pdo->query("SELECT COUNT(*) FROM topo_identity_keys WHERE device_id = {$new[0]} AND `key` = 'chassis:local:server:sw-x'")->fetchColumn() === 1,
+	'the claim with the same chassis (subtype local) finds no Device by its key: it makes a NEW Device with the key');
+run_ingest($dsn, $user, $password);
+run_ingest($dsn, $user, $password);
+check($of_old() === [], 'the next runs: the old Device does not get its key back (no claim path gives a key to a Device that a claim did not find)');
+echo "  -- state: old Device #{$old} (text chassis_id, no key), new Device #{$new[0]} (the key), candidates of the old one: ".json_encode(json_decode((string) $pdo->query("SELECT attrs FROM topo_nodes WHERE id = {$old}")->fetchColumn(), true)['duplicate_candidates'] ?? [])."\n";
+
 echo "\nAll chassis subtype checks passed.\n";
