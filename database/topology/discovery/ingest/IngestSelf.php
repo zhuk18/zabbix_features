@@ -41,6 +41,9 @@ class IngestSelf {
 				continue;
 			}
 			$decoded = json_decode($row['rows_json'], true);
+			$summary['snapshots_total']['snapshots']++;
+			$summary['snapshots_total']['snapshot_bytes'] += strlen($row['rows_json']);
+			$summary['snapshots_total']['snapshot_rows'] += is_array($decoded) ? count($decoded) : 0;
 			if (!is_array($decoded)) {
 				echo "SKIP: snapshot of rule #{$row['itemid']} holds invalid JSON\n";
 				continue;
@@ -59,8 +62,13 @@ class IngestSelf {
 			$hostid = (int) $row['hostid'];
 			$reporters[$hostid] ??= ['hostid' => $hostid, 'host' => $row['host'], 'name' => $row['host_name'],
 				'snapshots' => []];
+			// §6.2 (2.59): a NEIGHBORS snapshot whose clock is older than the run time minus the freshness threshold is old; each clock is compared with the run time only
+			$old = (int) $row['topology_type'] === TOPO_TYPE_NEIGHBORS && (int) $row['clock'] < $this->run->now - $this->run->fresh_seconds;
+			if ($old) {
+				$summary['snapshots_old'][] = ['hostid' => $hostid, 'itemid' => (int) $row['itemid'], 'clock' => (int) $row['clock']];
+			}
 			$reporters[$hostid]['snapshots'][(int) $row['topology_type']][] = ['itemid' => (int) $row['itemid'],
-				'clock' => (int) $row['clock'], 'rows' => $normalized];
+				'clock' => (int) $row['clock'], 'rows' => $normalized, 'old' => $old];
 			// ITEM_TYPE_TRAPPER = 2; every other rule type (SNMP agent, dependent on an SNMP walk, ...) is the LLD transport.
 			// The same data from two transports is what is reported: the same topology type and, for NEIGHBORS, the same protocol
 			// (the row's source, 'lldp' when absent). LLDP by SNMP and CDP by push is not a duplicate. An empty snapshot
@@ -101,6 +109,10 @@ class IngestSelf {
 			foreach ($list as $snapshot) {
 				foreach ($snapshot['rows'] as $row) {
 					if (($row['loc_chassis'] ?? '') !== '') {
+						// 2.60 (FR-A RC-3): a chassis id of the subtype interfaceAlias, portComponent or interfaceName is not the reporter's hardware ID: it is no loc_chassis
+						if (in_array($row['loc_chassis_type'] ?? null, IngestKeys::NOT_HARDWARE_ID_TYPES, true)) {
+							continue;
+						}
 						$chassis_values[$row['loc_chassis']] = true;
 					}
 				}

@@ -40,10 +40,13 @@ class IngestKeys {
 		return $run_segments[$hostid];
 	}
 
+	/** The chassis id subtypes that are not a hardware ID (model §6.7.0, 2.59; normalization §4.2; FR-B D-50): no chassis key, the value is an attribute. */
+	public const NOT_HARDWARE_ID_TYPES = ['interfaceAlias', 'portComponent', 'interfaceName'];
+
 	public function chassisKey(?string $value, ?string $type, string $segment): ?string {
 		$mac_like = ['TopologyNormalize', 'macLike'];
 		$is_placeholder_mac = ['TopologyNormalize', 'isPlaceholderMac'];
-		if ($value === null || $value === '') {
+		if ($value === null || $value === '' || in_array($type, self::NOT_HARDWARE_ID_TYPES, true)) {
 			return null;
 		}
 		if (in_array($type, [null, '', 'macAddress'], true) && $mac_like($value)) {

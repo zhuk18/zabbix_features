@@ -2737,7 +2737,7 @@ class CTopologyPrototype {
 		}
 	}
 
-	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];
+	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot'];
 
 	/**
 	 * NEIGHBORS evidence recorded by ingest (topology-1-model.md "Observations", "API"): one row per neighbor a
@@ -2775,7 +2775,8 @@ class CTopologyPrototype {
 			' JOIN items i ON i.itemid=o.itemid AND i.status='.ITEM_STATUS_ACTIVE.
 			' JOIN topo_lld_snapshot snapshot ON snapshot.itemid=o.itemid AND snapshot.topology_type=i.topology_type'.
 			' JOIN hosts h ON h.hostid=i.hostid AND h.status='.HOST_STATUS_MONITORED.
-			' JOIN topo_nodes port ON port.id=o.local_port_id'.
+			// an observation `old_snapshot` has no Port when its local port is not resolved (model §7.2, 2.60)
+			' LEFT JOIN topo_nodes port ON port.id=o.local_port_id'.
 			' LEFT JOIN topo_nodes remote ON remote.id=o.device_id'.
 			' WHERE '.dbConditionString('o.outcome', $outcomes).
 				' AND '.dbConditionId('h.hostid', $visible_hostids);

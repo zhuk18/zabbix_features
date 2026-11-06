@@ -33,6 +33,8 @@ class IngestRun {
 	/** a reporter with a failed step is failed for the rest of the run (§6.8): hostid => true; the itemids of its NEIGHBORS snapshots whose links are held */
 	public array $failed_hosts = [];
 	public array $frozen_itemids = [];
+	/** the freshness threshold in seconds, read once per run through topology_freshness.inc.php (§8.8); a snapshot older than that is old (§6.2) */
+	public int $fresh_seconds = 604800;
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 

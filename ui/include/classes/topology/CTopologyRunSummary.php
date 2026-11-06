@@ -18,13 +18,14 @@ class CTopologyRunSummary {
 	public const EXIT_FAILED = 1;
 	public const EXIT_WARNINGS = 3;
 
-	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'];
+	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot'];
 
 	public const ATTENTION_REPORTER_SKIPPED = 'reporter_skipped';
 	public const ATTENTION_REPORTER_FAILED = 'reporter_failed';
 	public const ATTENTION_LOCAL_PORT_UNRESOLVED = 'local_port_unresolved';
 	public const ATTENTION_ROWS_NO_IDENTITY = 'rows_no_identity';
 	public const ATTENTION_PORTS_WITHOUT_ITEMS = 'hosts_ports_without_items';
+	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 
 	/**
 	 * The status file of the last run (the one ingest.php writes in the temporary directory); the "idle" state when no run has been made.
@@ -71,7 +72,7 @@ class CTopologyRunSummary {
 	 */
 	public static function itemIds(array $summary): array {
 		$ids = array_keys($summary['rows_no_identity']['by_rule'] ?? []);
-		$ids = array_merge($ids, array_keys($summary['rows_local_port_unresolved']['by_rule'] ?? []));
+		$ids = array_merge($ids, array_keys($summary['rows_local_port_unresolved']['by_rule'] ?? []), array_column($summary['snapshots_old'] ?? [], 'itemid'));
 
 		return array_values(array_unique(array_map('intval', $ids)));
 	}
@@ -81,8 +82,8 @@ class CTopologyRunSummary {
 	 * Entry: kind, reason, count, hostid, host, itemid, rule (null where the problem is the host's and not a rule's).
 	 */
 	public static function attention(array $summary, array $rules): array {
-		$entry = static function (string $kind, string $reason, int $count, ?int $hostid, ?string $host, ?int $itemid = null, ?string $rule = null): array {
-			return ['kind' => $kind, 'reason' => $reason, 'count' => $count, 'hostid' => $hostid, 'host' => $host, 'itemid' => $itemid, 'rule' => $rule];
+		$entry = static function (string $kind, string $reason, int $count, ?int $hostid, ?string $host, ?int $itemid = null, ?string $rule = null, ?int $clock = null): array {
+			return ['kind' => $kind, 'reason' => $reason, 'count' => $count, 'hostid' => $hostid, 'host' => $host, 'itemid' => $itemid, 'rule' => $rule, 'clock' => $clock];
 		};
 		$of_rule = static function (int $itemid) use ($rules): array {
 			$rule = $rules[$itemid] ?? null;
@@ -107,6 +108,11 @@ class CTopologyRunSummary {
 			if ($count > 0) {
 				$list[] = $entry(self::ATTENTION_ROWS_NO_IDENTITY, 'rows_no_identity', (int) $count, ...$of_rule((int) $itemid));
 			}
+		}
+		// 2.60 (model §6.2): each old NEIGHBORS snapshot, with the time of the snapshot
+		foreach ($summary['snapshots_old'] ?? [] as $old) {
+			[$hostid, $host, $itemid, $rule] = $of_rule((int) $old['itemid']);
+			$list[] = $entry(self::ATTENTION_SNAPSHOT_OLD, 'old snapshot of '.date('Y-m-d H:i:s T', (int) $old['clock']), 1, $hostid ?? (int) $old['hostid'], $host, $itemid, $rule, (int) $old['clock']);
 		}
 		foreach ($summary['hosts_ports_without_items']['list'] ?? [] as $host) {
 			$list[] = $entry(self::ATTENTION_PORTS_WITHOUT_ITEMS, 'hosts_ports_without_items', 1, (int) $host['hostid'], (string) $host['host']);

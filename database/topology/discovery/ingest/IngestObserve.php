@@ -158,6 +158,15 @@ class IngestObserve {
 			}
 			foreach ($snapshot['rows'] as $row) {
 				[$resolved, $reason] = $resolve_local_port($row, $ports);
+				if ($resolved === null && ($snapshot['old'] ?? false)) {
+					// 2.60 (§7.2): a row of an old snapshot whose local port §6.7.6 does not resolve is still an observation `old_snapshot`, with no Port (not counted as unresolved: the row
+					// is not used anyway)
+					if ($group <= 0) {
+						$row['if_index'] = null;
+						$sorted_rows[] = [0, $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, true];
+					}
+					continue;
+				}
 				if ($resolved === null) {
 					if ($group <= 0) {
 						$summary['rows_local_port_unresolved']['count']++;
@@ -168,11 +177,13 @@ class IngestObserve {
 					continue;
 				}
 				$row['if_index'] = $resolved;
-				// 2.56: part 0 = the claims with a chassis (a remote key `chassis:...`), parts 1 and 2 = the others
-				if ($group >= 0 && str_starts_with($snap_remote_key($row, $segment), 'chassis:') !== ($group === 0)) {
+				// 2.56: part 0 = the claims with a chassis (a remote key `chassis:...`), parts 1 and 2 = the others. 2.60: the rows of an old snapshot (§6.2) are all in part 0:
+				// they make no Device and no link, so there is no order among them
+				$is_old = (bool) ($snapshot['old'] ?? false);
+				if ($group >= 0 && ($is_old ? $group !== 0 : str_starts_with($snap_remote_key($row, $segment), 'chassis:') !== ($group === 0))) {
 					continue;
 				}
-				$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row];
+				$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, $is_old];
 			}
 		}
 		// Within one local port the claims with a chassis come before the claims without (rank 0, 1, §6.5), so the same-port rule of §6.7.1 finds the claim with a
@@ -180,12 +191,14 @@ class IngestObserve {
 		$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'chassis:') ? 0 : 1, $r[1], $r[2]];
 		usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
 		$claims_seen = [];
-		foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row]) {
-			$local_port_id = $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'],
-				'pseudo' => false], ['name' => $row['if_name'] ?? null]);
+		foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row, $is_old]) {
+			// a row of an old snapshot only looks for its Port (§6.2: as §6.7.6 resolves it, else none); it creates nothing
+			$local_port_id = $is_old
+				? (($row['if_index'] ?? null) === null ? null : $this->run->store->findPort($device_id, (int) $row['if_index']))
+				: $snap_port($device_id, (int) $row['if_index'], ['if_index' => (int) $row['if_index'], 'pseudo' => false], ['name' => $row['if_name'] ?? null]);
 			// Rows of one snapshot with the same claim key (rule, local port, remote key): the first row in the row order makes the observation, the others are
 			// counted per rule and give no Device, no observation (§7.1; the claim key of the table is (itemid, local_port_id, remote_key)).
-			$claim_key = $itemid.'|'.$local_port_id.'|'.$row_remote_key;
+			$claim_key = $itemid.'|'.($local_port_id ?? '-').'|'.$row_remote_key;
 			if (isset($this->run->pass_b_done[$claim_key]) && $this->run->pass_b_done[$claim_key] !== $group) {
 				continue;      // decided in an earlier part (a duplicate row of this part is counted below)
 			}
@@ -196,9 +209,29 @@ class IngestObserve {
 			}
 			$claims_seen[$claim_key] = true;
 
+			if ($is_old) {
+				// 2.60 (§6.2, §7.2): every row of an old snapshot is an observation `old_snapshot`, checked before any other outcome: no support, no confirmation, no
+				// revive, no link, no Device, no ambiguity. The reporter's own data of the snapshot is used elsewhere as before.
+				$this->run->pass_b_done[$claim_key] = $group;
+				$old_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type', 'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port',
+					'rem_port_type', 'rem_port_desc', 'source'])), static fn ($value): bool => $value !== '' && $value !== null);
+				$link_candidates[] = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => (string) ($row['source'] ?? 'lldp') ?: 'lldp',
+					'local_port_id' => $local_port_id, 'remote_device_id' => null, 'remote_key' => $row_remote_key, 'remote_attrs' => $old_attrs,
+					'pre_outcome' => 'old_snapshot', 'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null, 'port_label' => null, 'rem_port_desc' => '',
+					'pseudo_index' => null, 'pseudo_key' => null, 'rem_port' => '', 'rem_port_type' => '', 'far_port_hint' => [], 'pseudo_mac' => null];
+				continue;
+			}
+
 			$chassis_id = ($row['rem_chassis'] ?? '') !== '' ? $row['rem_chassis'] : null;
 			if ($chassis_id !== null && in_array($row['rem_chassis_type'] ?? null, [null, '', 'macAddress'], true) && $is_placeholder_mac($chassis_id)) {
 				$chassis_id = null;     // a placeholder MAC is no identity (normalization §4.1): no chassis key, no chassis_id/mac attribute; $remote_attrs keeps the value as received
+			}
+			// 2.60 (model §6.7.0, normalization §4.2): a chassis id of the subtype interfaceAlias, portComponent or interfaceName is not a hardware ID: the claim has no chassis
+			// (it goes by the rows of a claim without a chassis, §6.7.1), the value stays as an attribute of the Device
+			$chassis_text = null;
+			if ($chassis_id !== null && in_array($row['rem_chassis_type'] ?? null, IngestKeys::NOT_HARDWARE_ID_TYPES, true)) {
+				$chassis_text = $chassis_id;
+				$chassis_id = null;
 			}
 			$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
 			$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
@@ -223,6 +256,7 @@ class IngestObserve {
 				'mgmt_ip' => $row_ip,
 				'chassis_key' => $row_chassis_key,
 				'chassis_raw' => $chassis_id,
+				'chassis_text' => $chassis_text,
 				'sysname' => $row['rem_sysname'] ?? null,
 				'vendor' => 'unknown',
 				'source' => $source,

@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS topo_edges (
 CREATE TABLE IF NOT EXISTS topo_observations (
 	id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 	itemid BIGINT UNSIGNED NOT NULL,
-	local_port_id BIGINT UNSIGNED NOT NULL,
+	-- NULL only for an observation `old_snapshot` whose local port is not resolved (topology-1-model.md §7.2, 2.60)
+	local_port_id BIGINT UNSIGNED NULL,
 	remote_key VARCHAR(300) NOT NULL,
 	remote_attrs JSON NOT NULL,
 	outcome VARCHAR(16) NOT NULL,

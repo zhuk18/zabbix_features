@@ -51,7 +51,7 @@ if ($summary !== null) {
 
 	$outcome_labels = [
 		'applied' => _('applied'), 'device_only' => _('device only'), 'shadowed' => _('shadowed'),
-		'conflict' => _('conflict'), 'ambiguous' => _('ambiguous')
+		'conflict' => _('conflict'), 'ambiguous' => _('ambiguous'), 'old_snapshot' => _('Old data')
 	];
 	$outcomes = [];
 	foreach (CTopologyRunSummary::OUTCOMES as $outcome) {
@@ -87,7 +87,8 @@ if ($summary !== null) {
 		CTopologyRunSummary::ATTENTION_REPORTER_FAILED => _('Reporter failed'),
 		CTopologyRunSummary::ATTENTION_LOCAL_PORT_UNRESOLVED => _('Local port not found'),
 		CTopologyRunSummary::ATTENTION_ROWS_NO_IDENTITY => _('Rows without identity'),
-		CTopologyRunSummary::ATTENTION_PORTS_WITHOUT_ITEMS => _('Ports without items')
+		CTopologyRunSummary::ATTENTION_PORTS_WITHOUT_ITEMS => _('Ports without items'),
+		CTopologyRunSummary::ATTENTION_SNAPSHOT_OLD => _('Old data')
 	];
 	foreach ($summary['attention'] ?? [] as $line) {
 		$host = $line['host'] === null ? '' : (new CLink($line['host'], (new CUrl('zabbix.php'))
@@ -95,7 +96,11 @@ if ($summary !== null) {
 		$rule = $line['itemid'] === null ? '' : (new CLink($line['rule'] ?? '#'.$line['itemid'], (new CUrl('zabbix.php'))
 			->setArgument('action', 'popup')->setArgument('popup', 'lldrule.edit')->setArgument('itemid', $line['itemid'])
 			->setArgument('context', 'host')));
-		$attention_table->addRow([$host, $rule, ($problem_labels[$line['kind']] ?? $line['kind']).': '.$line['reason'], $line['count']]);
+		// an old snapshot: the time of the snapshot in the time zone of the user (the text of the run has the time zone of the process)
+		$problem = $line['kind'] === CTopologyRunSummary::ATTENTION_SNAPSHOT_OLD && ($line['clock'] ?? null) !== null
+			? _s('Old data: snapshot of %1$s', zbx_date2str(DATE_TIME_FORMAT_SECONDS, (int) $line['clock']))
+			: ($problem_labels[$line['kind']] ?? $line['kind']).': '.$line['reason'];
+		$attention_table->addRow([$host, $rule, $problem, $line['count']]);
 	}
 	$html_page->addItem((new CDiv([
 		new CTag('h4', true, _('Needs attention')),
@@ -107,7 +112,7 @@ if ($summary !== null) {
 $filter = $data['filter'];
 $outcome_checkboxes = (new CCheckBoxList('filter_outcomes'))
 	->setOptions(array_map(static fn (string $outcome): array => [
-		'label' => $outcome, 'value' => $outcome, 'checked' => in_array($outcome, $filter['outcomes'], true)
+		'label' => $outcome === 'old_snapshot' ? _('Old data') : $outcome, 'value' => $outcome, 'checked' => in_array($outcome, $filter['outcomes'], true)
 	], CTopologyPrototype::OBSERVATION_OUTCOMES))
 	->setVertical(false);
 
@@ -181,6 +186,9 @@ foreach ($data['rows'] as $row) {
 			? _s('Other neighbors on the port: %1$s', implode(', ', $row['reason']['neighbors']))
 			: _('Several claims on the port');
 	}
+	elseif ($row['outcome'] === 'old_snapshot') {
+		$reason = _('The snapshot is older than the freshness threshold: the row is used for no link and no Device');
+	}
 	elseif ($row['outcome'] === 'device_only') {
 		$reason = _('No far port in the claim: no link');
 	}
@@ -191,7 +199,7 @@ foreach ($data['rows'] as $row) {
 		(string) ($row['local_port']['name'] ?? '–'),
 		(string) ($attrs['source'] ?? '–'),
 		(string) $neighbor,
-		$row['outcome'],
+		$row['outcome'] === 'old_snapshot' ? _('Old data') : $row['outcome'],
 		$reason,
 		$time($row['last_seen'])
 	]);

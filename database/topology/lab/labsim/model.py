@@ -395,6 +395,10 @@ class Scenario:
                            % (self.id, self.freshness_seconds))
         for i, step in enumerate(self.steps):
             validate_wait(self.id, i, step.get('wait'))
+            if 'delay' in step and (isinstance(step['delay'], bool) or not isinstance(step['delay'], (int, float)) or step['delay'] < 0):
+                raise LabError('scenario %s step %d: delay must be a number of seconds >= 0, got %r' % (self.id, i, step['delay']))
+            if 'poll_all' in step and not isinstance(step['poll_all'], bool):
+                raise LabError('scenario %s step %d: poll_all is true or false, got %r' % (self.id, i, step['poll_all']))
             operator_actions(self.id, i, step.get('operator'))
             for a in step.get('assert') or []:
                 validate_assertion(self.id, i, a)

@@ -138,7 +138,7 @@ def natural_state(conn):
     obs = []
     for o in rows(conn, 'SELECT o.*, h.host AS reporter FROM topo_observations o JOIN items i ON i.itemid=o.itemid '
                         'JOIN hosts h ON h.hostid=i.hostid ORDER BY o.id'):
-        obs.append({'id': o['id'], 'reporter': o['reporter'], 'port': port_label(o['local_port_id']).split(':', 1)[1],
+        obs.append({'id': o['id'], 'reporter': o['reporter'], 'port': port_label(o['local_port_id']).split(':', 1)[1] if o['local_port_id'] is not None else None,      # None: an `old_snapshot` row whose port is not resolved (2.60)
                     'remote_key': o['remote_key'], 'outcome': o['outcome'], 'edge_id': o['edge_id'],
                     'link_precision': o['link_precision'], 'precision_lower': bool(o['precision_lower']),
                     'device': dev_name(nodes[o['device_id']]) if o['device_id'] in nodes else None, 'device_id': o['device_id']})

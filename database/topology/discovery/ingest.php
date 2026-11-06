@@ -49,6 +49,7 @@ if (isset($options['help'])) {
 // directory only (a web-started run to the web page; a CLI run is reported on the CLI) — see the loser's branch. ----
 
 require_once __DIR__.'/../topology_contradiction.inc.php';
+require_once __DIR__.'/../topology_freshness.inc.php';        // the one definition of the freshness threshold (§8.8)
 require_once __DIR__.'/ingest/TopologyNormalize.php';          // the step Normalize (model §6.0)
 require_once __DIR__.'/ingest/IngestRun.php';                  // the state of a run, the step modules
 require_once __DIR__.'/ingest/IngestKeys.php';
@@ -67,6 +68,7 @@ const INGEST_STATUS_FILE = TOPOLOGY_INGEST_RUNTIME_DIR.'/topology-ingest-status.
 // Identifies this run in the status file: a caller that has just started a run can tell "my run" from the previous
 // one (started_at has a resolution of one second, so two runs can share it).
 define('INGEST_RUN_ID', bin2hex(random_bytes(6)));
+define('INGEST_STARTED_FLOAT', microtime(true));
 // Who started the run (§12.7): the web user name that the page passes in the environment, else the CLI.
 define('INGEST_STARTED_BY', (string) (getenv('TOPOLOGY_STARTED_BY') ?: 'CLI'));
 
@@ -103,6 +105,8 @@ function finish_run(string $status, array $summary, ?string $error): void {
 		}
 	}
 	$summary['attention'] = CTopologyRunSummary::attention($summary, $rules);
+	$summary['stats'] = ['seconds' => round(microtime(true) - INGEST_STARTED_FLOAT, 2), 'peak_memory_bytes' => memory_get_peak_usage(true), 'sql_queries' => IngestPDO::$queries,
+		'reporters' => $summary['reporters_processed'] ?? 0] + ($summary['snapshots_total'] ?? []);
 	$final = ['status' => $status, 'started_at' => $run_started_at, 'finished_at' => time(), 'summary' => $summary, 'error' => $error];
 	write_status($final);
 	$final['started_by'] = INGEST_STARTED_BY;
@@ -128,10 +132,38 @@ $zabbix_host_filter = isset($options['zabbix-host']) ? (array) $options['zabbix-
 // ---- Connect, then take the run lock (the very first thing a run does with the database) ----
 
 try {
-	$pdo = new PDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+	$pdo = new IngestPDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_STATEMENT_CLASS => [IngestStatement::class]]);
 }
 catch (Throwable $exception) {
 	fail('Cannot connect to the database: '.$exception->getMessage());
+}
+
+// The measures of a run (task 078 §5): the number of SQL statements the run sent (a statement counts when it is executed), the time, the peak memory. Written into the run summary.
+class IngestStatement extends PDOStatement {
+	protected function __construct() {
+	}
+
+	public function execute(?array $params = null): bool {
+		IngestPDO::$queries++;
+
+		return parent::execute($params);
+	}
+}
+
+class IngestPDO extends PDO {
+	public static int $queries = 0;
+
+	public function exec(string $statement): int|false {
+		self::$queries++;
+
+		return parent::exec($statement);
+	}
+
+	public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): PDOStatement|false {
+		self::$queries++;
+
+		return $fetchMode === null ? parent::query($query) : parent::query($query, $fetchMode, ...$fetchModeArgs);
+	}
 }
 
 /** True when this connection now holds the topology ingest lock. Non-blocking; released when the connection ends. */
@@ -195,6 +227,19 @@ $now = time();
 $q_key = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql' ? '"key"' : '`key`';
 // the state of the run and the step modules (ingest/): what the closures shared is a property of $run
 $run = new IngestRun($pdo, $now, $q_key);
+// The freshness threshold (§8.8), read once per run from the global macro through the one definition; a rejected value gives the default and a warning (escaped by the definition).
+try {
+	$fresh_stmt = $pdo->prepare('SELECT value FROM globalmacro WHERE macro = ?');
+	$fresh_stmt->execute([TOPOLOGY_FRESH_MACRO]);
+	$fresh_raw = $fresh_stmt->fetchColumn();
+}
+catch (PDOException $exception) {
+	$fresh_raw = false;      // a database that is only a stand-in of the Zabbix tables (a test): no macro, the default
+}
+[$run->fresh_seconds, $fresh_warning] = topology_fresh_seconds($fresh_raw === false ? null : (string) $fresh_raw);
+if ($fresh_warning !== null) {
+	fwrite(STDERR, 'WARNING: '.$fresh_warning."\n");
+}
 $run->keys = new IngestKeys($run);
 $run->store = new IngestStore($run);
 $run->identify = new IngestIdentify($run);
@@ -327,7 +372,12 @@ $summary += [
 	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the topology type PORTS): their links cannot be coloured (model §3.2)
 	'hosts_ports_without_items' => ['count' => 0, 'list' => []],
 	'snapshots_ignored_type_mismatch' => 0,
-	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0],
+	// model §6.2 (2.59): the NEIGHBORS snapshots older than the freshness threshold (hostid, itemid, clock); their rows are observations `old_snapshot`; the threshold of the run
+	'snapshots_old' => [],
+	'snapshots_total' => ['snapshots' => 0, 'snapshot_rows' => 0, 'snapshot_bytes' => 0],      // what the run read from topo_lld_snapshot (task 078 §5)
+	'fresh_seconds' => $run->fresh_seconds,
+	'freshness_warning' => $fresh_warning,
+	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0, 'old_snapshot' => 0],
 	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
 	'links_superseded' => 0,
 	'links_revived' => 0,

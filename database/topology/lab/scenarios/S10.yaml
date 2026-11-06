@@ -1,0 +1,63 @@
+id: S10
+title: Old snapshot
+base: lab.yaml
+# topology-1-model.md §6.2, §7.2, §8.8 (2.59, 2.60), task 078 §1. The freshness threshold is 60 s (the macro {$TOPOLOGY.LINK.FRESH.SECONDS}, set for the run and put back at its
+# end). `poll_all` polls every monitored device in a step, so that only the faulted device (Switch2, not polled again: its snapshot keeps the clock of step 0) is older than the
+# threshold; `delay` waits before the polls of the step, so that the snapshot of Switch2 is surely older than 60 s when the others are polled.
+#   step 1: Switch2 is unreachable, no other neighbor on its ports: the link Switch2:Gi0/4 - AP1, which only Switch2 reports, stays active (not superseded, not deleted);
+#           the rows of the old snapshot are observations `old_snapshot`.
+#   step 2: the same again: the ingest over the same old snapshot changes nothing (G-8).
+#   step 3: the cable of AP1 moves to Switch1:Gi0/4 while Switch2 is still old: Switch2's evidence is no support, the old link is superseded and Switch1:Gi0/4 - AP1 is made.
+settings: {freshness_seconds: 60}
+patch:
+  devices:
+    Switch1:
+      add_ports:
+        - {ifindex: 4, name: Gi0/4}
+steps:
+  - id: 0
+    note: baseline, every reporter polled
+    poll_all: true
+    assert:
+      - link: [Switch2:Gi0/4, AP1:wlan0]
+        state: active
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: active
+      - observation: {reporter: Switch2, port: Gi0/4}
+        outcome: applied
+      - status: {field: observations.old_snapshot, equals: 0}
+  - id: 1
+    note: Switch2 unreachable; the others polled after 75 s; its snapshot is older than the threshold
+    faults: {Switch2: unreachable}
+    delay: 75
+    poll_all: true
+    assert:
+      - observation: {reporter: Switch2, port: Gi0/4}
+        outcome: old_snapshot
+      - link: [Switch2:Gi0/4, AP1:wlan0]
+        state: active
+      - link: [Switch1:Gi0/2, Switch2:Gi0/24]
+        state: active
+      - status: {field: devices_created, equals: 0}
+  - id: 2
+    note: the same again
+    poll_all: true
+    assert:
+      - observation: {reporter: Switch2, port: Gi0/4}
+        outcome: old_snapshot
+      - edge_id_same_as: {step: 1, link: [Switch2:Gi0/4, AP1:wlan0]}
+      - edge_id_same_as: {step: 1, link: [Switch1:Gi0/2, Switch2:Gi0/24]}
+      - status: {field: devices_created, equals: 0}
+  - id: 3
+    note: the cable of AP1 moves to Switch1:Gi0/4 while Switch2 is old
+    cables:
+      remove: [[Switch2:Gi0/4, AP1:wlan0]]
+      add: [[Switch1:Gi0/4, AP1:wlan0]]
+    poll_all: true
+    assert:
+      - link: [Switch1:Gi0/4, AP1:wlan0]
+        state: active
+      - link: [Switch2:Gi0/4, AP1:wlan0]
+        state: superseded
+      - observation: {reporter: Switch1, port: Gi0/4}
+        outcome: applied

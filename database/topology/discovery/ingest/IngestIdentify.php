@@ -121,7 +121,7 @@ class IngestIdentify {
 			// the attributes whose stored value came from a non-lldp row.
 			$row_source = (string) ($incoming['source'] ?? 'lldp');
 			$value_source = (array) ($before['value_source'] ?? []);
-			foreach (['mac', 'chassis_id', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
+			foreach (['mac', 'chassis_id', 'chassis_text', 'mgmt_ip', 'sysname', 'vendor'] as $key) {
 				if (($incoming[$key] ?? null) === null || $incoming[$key] === '') {
 					continue;
 				}
@@ -164,6 +164,9 @@ class IngestIdentify {
 			'mgmt_ip' => $incoming['mgmt_ip'] ?? null, 'sysname' => $incoming['sysname'] ?? '',
 			'vendor' => $incoming['vendor'] ?? 'unknown', 'last_seen' => $seen_at,
 		];
+		if (($incoming['chassis_text'] ?? null) !== null) {
+			$attrs['chassis_text'] = $incoming['chassis_text'];      // a chassis id that is not a hardware ID (2.60): an attribute, no key
+		}
 		if (isset($incoming['scope_port'])) {
 			$attrs['scope_ports'] = [(int) $incoming['scope_port']];      // §6.7.1, 2.52: the reporter's Ports of a Device without a chassis (one when it is made); the match searches only the Devices whose set holds the claim's port
 		}

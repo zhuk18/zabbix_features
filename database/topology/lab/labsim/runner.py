@@ -620,12 +620,22 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                 if f not in (None, 'none'):
                     ctl.fault(dev, f, settings, log)
 
-            # what to poll: devices whose data changed (all of them at step 0), and faulted devices (to see the failure)
+            # `delay: N` (task 078, old snapshots): N seconds before the polls of the step, so that the snapshot of a faulted device, which is not polled again, is older than
+            # the freshness threshold when the others are polled just now
+            if step.get('delay'):
+                log('  waiting %s s before the polls' % step['delay'])
+                time.sleep(float(step['delay']))
+            # what to poll: devices whose data changed (all of them at step 0), and faulted devices (to see the failure); `poll_all: true` polls every monitored device
+            # (the core rules), whether its data changed or not, so that a scenario with a short freshness threshold has no old snapshot but the one it wants
             polled = {}
             for dev in mon:
                 masters = ['core', 'fdb'] if i == 0 else manifest['devices'][dev]['step_masters'][i]
+                if step.get('poll_all') and not masters and dev not in scenario.states[i].faults:      # a device that stays faulted from an earlier step is not polled
+                    masters = ['core']
                 if faults.get(dev) not in (None, 'none'):
                     masters = ['core']
+                if step.get('poll_all') and dev in scenario.states[i].faults and faults.get(dev) in (None, 'none') and dev not in faults:
+                    masters = []      # `poll_all`: a device that stays faulted from an earlier step is not polled (its snapshot stays old, and a poll would only wait for the timeout)
                 if masters:
                     polled[dev] = masters
             want_unsupported = (step.get('wait') or {}).get('unsupported') or [d for d, f in faults.items() if f not in (None, 'none')]

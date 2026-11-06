@@ -110,7 +110,7 @@ check($ambiguous === [] || ($ambiguous[0]['reason']['type'] ?? null) === 'other_
 
 echo "\n=== the view: the links of the outcome numbers and the filters ===\n";
 $summary_page = $admin->request('zabbix.php?action=topology.lastrun');
-foreach (['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous'] as $outcome) {
+foreach (['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot'] as $outcome) {
 	check(str_contains($summary_page, 'topology-lastrun-outcome-'.$outcome) && str_contains($summary_page, 'filter_outcomes%5B0%5D='.$outcome), 'the number of '.$outcome.' is a link that sets the filter');
 }
 check(str_contains($summary_page, 'only_duplicates=1') && str_contains($summary_page, 'action=topology.view'), 'the number of duplicate candidates opens the graph with "Possible duplicates only"');
