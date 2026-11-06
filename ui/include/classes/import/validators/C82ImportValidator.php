@@ -68,7 +68,8 @@ class C82ImportValidator extends CImportValidatorGeneral {
 		CXmlConstantValue::XML_TO_JSON => CXmlConstantName::XML_TO_JSON,
 		CXmlConstantValue::SNMP_WALK_VALUE => CXmlConstantName::SNMP_WALK_VALUE,
 		CXmlConstantValue::SNMP_WALK_TO_JSON => CXmlConstantName::SNMP_WALK_TO_JSON,
-		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE
+		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE,
+		CXmlConstantValue::SNMP_WALK_TO_TOPOLOGY => CXmlConstantName::SNMP_WALK_TO_TOPOLOGY
 	];
 
 	private $PREPROCESSING_STEP_TYPE_PARAMS = [
@@ -94,7 +95,8 @@ class C82ImportValidator extends CImportValidatorGeneral {
 		CXmlConstantValue::CHECK_NOT_SUPPORTED => CXmlConstantName::CHECK_NOT_SUPPORTED,
 		CXmlConstantValue::SNMP_WALK_VALUE => CXmlConstantName::SNMP_WALK_VALUE,
 		CXmlConstantValue::SNMP_WALK_TO_JSON => CXmlConstantName::SNMP_WALK_TO_JSON,
-		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE
+		CXmlConstantValue::SNMP_GET_VALUE => CXmlConstantName::SNMP_GET_VALUE,
+		CXmlConstantValue::SNMP_WALK_TO_TOPOLOGY => CXmlConstantName::SNMP_WALK_TO_TOPOLOGY
 	];
 
 	private $PREPROCESSING_STEP_TYPE_ERROR_HANDLING_SUBSET = [
@@ -1073,6 +1075,7 @@ class C82ImportValidator extends CImportValidatorGeneral {
 															]],
 															['else' => true, 'type' => XML_IGNORE_TAG]
 							]],
+							'topology_type' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_TYPE_NONE, 'in' => CTopologyType::getExportStrings()],
 							'description' =>			['type' => XML_STRING, 'default' => ''],
 							'interface_ref' =>			['type' => XML_MULTIPLE, 'rules' => [
 															['if' => ['tag' => 'type', 'in' => $this->ITEM_TYPE_INTERFACE], 'type' => XML_STRING],
@@ -2358,6 +2361,7 @@ class C82ImportValidator extends CImportValidatorGeneral {
 															]],
 															['else' => true, 'type' => XML_IGNORE_TAG]
 							]],
+							'topology_type' =>			['type' => XML_STRING, 'default' => (string) ZBX_TOPOLOGY_TYPE_NONE, 'in' => CTopologyType::getExportStrings()],
 							'description' =>			['type' => XML_STRING, 'default' => ''],
 							'item_prototypes' =>		['type' => XML_INDEXED_ARRAY, 'prefix' => 'item_prototype', 'rules' => [
 								'item_prototype' =>			['type' => XML_ARRAY, 'rules' => [
