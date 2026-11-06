@@ -412,6 +412,33 @@ def _suffix_key(text: str):
     return tuple(int(x) if x.isdigit() else -1 for x in text.split("."))
 
 
+LLDP_SYSTEM_CAPABILITIES = ("other", "repeater", "bridge", "wlanAccessPoint", "router", "telephone", "docsisCableDevice", "stationOnly")
+
+
+def _octets(row: tuple[str, str]) -> bytes | None:
+    """The octets of an OCTET STRING cell: a Hex-STRING or BITS (the octets in hex, then the names of the bits), or a STRING (printable bytes); None for another type
+    (an INTEGER is not a bit string). The same as the native step (topo_pair_octets)."""
+    if row[0] in ("Hex-STRING", "BITS"):
+        out = bytearray()
+        for token in re.split(r"[ \t\r\n:]+", row[1].strip()):
+            if not token or len(token) > 2 or not all(c in "0123456789abcdefABCDEF" for c in token):
+                break
+            out.append(int(token, 16))
+        return bytes(out)
+    if row[0] == "STRING":
+        return _unquote(row[1]).encode("latin-1", "replace")
+    return None
+
+
+def _caps_lldp(row: tuple[str, str]) -> str:
+    """{#REM_SYS_CAP} (LLD spec 2.14): the names of the set bits of lldpRemSysCapEnabled, space-separated, in bit order (bit 0 is the most significant bit of the
+    first octet); "" when no bit is set or the cell is not a bit string."""
+    octets = _octets(row)
+    if not octets:
+        return ""
+    return " ".join(name for bit, name in enumerate(LLDP_SYSTEM_CAPABILITIES) if octets[0] & (0x80 >> bit))
+
+
 def rows_lldp(rows: dict) -> list[dict]:
     """NEIGHBORS from LLDP: one row per lldpRemTable entry; [] when the table is empty or absent. The local port is NOT resolved here (model §6.7.6): the row
     carries the LocalPortNum and the local port id, subtype and description; every lldpRemManAddrTable entry of the neighbor is emitted raw. Nothing is dropped."""
@@ -420,6 +447,7 @@ def rows_lldp(rows: dict) -> list[dict]:
     rem_chassis_type, rem_chassis = _table(rows, rem + ".4"), _table(rows, rem + ".5")
     rem_port_type, rem_port = _table(rows, rem + ".6"), _table(rows, rem + ".7")
     rem_port_desc, rem_sysname = _table(rows, rem + ".8"), _table(rows, rem + ".9")
+    rem_sys_cap = _table(rows, rem + ".12")
     loc_port_type, loc_port_id, loc_port_desc = _table(rows, loc + ".2"), _table(rows, loc + ".3"), _table(rows, loc + ".4")
     man_addr = _table(rows, "1.0.8802.1.1.2.1.4.2.1.3")
 
@@ -463,6 +491,7 @@ def rows_lldp(rows: dict) -> list[dict]:
             _put(row, "{#REM_PORT}", _id(rem_port[sfx], port_type, False))
             _put(row, "{#REM_PORT_TYPE}", LLDP_PORT_ID_SUBTYPES.get(port_type, ""))
         _put(row, "{#REM_PORT_DESC}", _text(rem_port_desc[sfx]) if sfx in rem_port_desc else "")
+        _put(row, "{#REM_SYS_CAP}", _caps_lldp(rem_sys_cap[sfx]) if sfx in rem_sys_cap else "")
         out.append(_with_chassis(row, chassis))
     return out
 

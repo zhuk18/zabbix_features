@@ -30,6 +30,9 @@ CORE_ROOTS = [(1, 3, 6, 1, 2, 1, 1, 5), (1, 3, 6, 1, 2, 1, 2, 2, 1), (1, 3, 6, 1
               (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 2, 1, 1), (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 1)]
 FDB_ROOTS = [(1, 3, 6, 1, 2, 1, 17, 1, 4, 1, 2), (1, 3, 6, 1, 2, 1, 17, 7, 1, 2, 2, 1), (1, 3, 6, 1, 2, 1, 17, 4, 3, 1)]
 
+LLDP_CAPS = ('other', 'repeater', 'bridge', 'wlanAccessPoint', 'router', 'telephone', 'docsisCableDevice', 'stationOnly')
+CDP_CAPS = ('router', 'transBridge', 'srcRouteBridge', 'switch', 'host', 'igmp', 'repeater', 'voip', 'remotelyManaged', 'cvtaStpDispute', 'twoPortMacRelay')
+
 LLDP_REM = (1, 0, 8802, 1, 1, 2, 1, 4, 1, 1)
 SYMBOLIC = {   # oid names accepted by override_oid
     'lldpRemChassisIdSubtype': LLDP_REM + (4,), 'lldpRemChassisId': LLDP_REM + (5,),
@@ -305,6 +308,9 @@ def device_records(lab, name):
                 (r.put_hex if isinstance(fpid, bytes) else r.put_str)(LLDP_REM + (7,) + ix, fpid)
                 r.put_str(LLDP_REM + (8,) + ix, fport.get('desc') or long_name(fport['name']))
                 r.put_str(LLDP_REM + (9,) + ix, far['sysname'])
+                if far.get('lldp_capabilities'):
+                    # lldpRemSysCapEnabled (LLD spec 2.14): LldpSystemCapabilitiesMap, bit 0 = the most significant bit of the first octet
+                    r.put_hex(LLDP_REM + (12,) + ix, bytes([sum(0x80 >> LLDP_CAPS.index(c) for c in far['lldp_capabilities']), 0]))
                 if s.get('emit_mgmt_addr') and far.get('ip'):
                     ip = bytes(int(x) for x in far['ip'].split('.'))
                     r.put((1, 0, 8802, 1, 1, 2, 1, 4, 2, 1, 3) + ix + (1, 4) + tuple(ip), '2', 2)
@@ -328,6 +334,9 @@ def device_records(lab, name):
                 else:
                     r.put_str(cb + (6,) + ix, device_id)
                 r.put_str(cb + (7,) + ix, fp)
+                if far.get('cdp_capabilities'):
+                    # cdpCacheCapabilities (LLD spec 2.14): a 32-bit number, the names by the value of the bit (router 0x01, transBridge 0x02, ...)
+                    r.put_hex(cb + (9,) + ix, sum(1 << CDP_CAPS.index(c) for c in far['cdp_capabilities']).to_bytes(4, 'big'))
                 # cdpCacheAddress: `true` the device ip, `false` none (default), or an IPv4 address (another device's: the VRRP case of S8)
                 address = far.get('cdp_address', False)
                 address = far.get('ip') if address is True else (address or None)

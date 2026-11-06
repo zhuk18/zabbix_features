@@ -56,6 +56,7 @@ patch:
       zabbix: {monitored: true, transport: lld, proxy: null}
     COREX:
       chassis: {subtype: mac, value: "00:11:22:33:44:c1"}
+      cdp_capabilities: [router, switch, igmp]          # {#REM_SYS_CAP} (task 078 section 3): kept in the snapshot, not used by ingest
       lldp: false
       cdp: true
       cdp_address: false
@@ -103,6 +104,7 @@ patch:
       zabbix: {monitored: false}
     EDGEX:
       chassis: {subtype: mac, value: "00:11:22:33:44:c6"}
+      lldp_capabilities: [bridge, router]
       lldp: true
       cdp: true
       cdp_address: false

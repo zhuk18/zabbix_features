@@ -91,6 +91,7 @@ static const zbx_lld_topo_field_t	topo_neighbors[] = {
 	{"{#REM_PORT}",		"rem_port",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_PORT_TYPE}",	"rem_port_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#REM_PORT_DESC}",	"rem_port_desc",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#REM_SYS_CAP}",	"rem_sys_cap",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_CHASSIS}",	"loc_chassis",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_CHASSIS_TYPE}",	"loc_chassis_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#SOURCE}",		"source",		ZBX_LLD_TOPO_STR,	0, 0, "lldp"},

@@ -137,6 +137,24 @@ case("cdp: a text device id with a trailing NUL still loses it", "cdp", ci + lin
 case("text: a binary ifName (invalid UTF-8) keeps its trailing 00 byte in the hex form", "ports", ports_walk((H, hexs(bytes.fromhex("fffe00")))), {"{#IFNAME}": "ff:fe:00"})
 case("cdp: a device id that is a bare MAC is text", "cdp", ci + line(cdp + ".6.5.1", S, '"204c9e6e08fe"'), {"{#REM_SYSNAME}": "204c9e6e08fe", "{#REM_MAN_ADDRS}": None})
 
+# {#REM_SYS_CAP} (LLD spec 2.14, FR-B D-52): the names of the set bits, space-separated, in bit order; no bit or no column or not an OCTET STRING: no macro
+sc = [(9, S, '"sw-cap"')]
+case("lldp sys cap: bridge and router (28 00): bit 0 is the most significant bit of the first octet", "lldp", lldp_walk(7, [], sc + [(12, H, "28 00 ")]), {"{#REM_SYS_CAP}": "bridge router"})
+case("lldp sys cap: other and wlanAccessPoint (90 00)", "lldp", lldp_walk(7, [], sc + [(12, H, "90 00 ")]), {"{#REM_SYS_CAP}": "other wlanAccessPoint"})
+case("lldp sys cap: every bit of the first octet", "lldp", lldp_walk(7, [], sc + [(12, H, "FF 00 ")]),
+     {"{#REM_SYS_CAP}": "other repeater bridge wlanAccessPoint router telephone docsisCableDevice stationOnly"})
+case("lldp sys cap: telephone and stationOnly (05 00)", "lldp", lldp_walk(7, [], sc + [(12, H, "05 00 ")]), {"{#REM_SYS_CAP}": "telephone stationOnly"})
+case("lldp sys cap: no bit set, no macro", "lldp", lldp_walk(7, [], sc + [(12, H, "00 00 ")]), {"{#REM_SYS_CAP}": None})
+case("lldp sys cap: no column, no macro", "lldp", lldp_walk(7, [], sc), {"{#REM_SYS_CAP}": None})
+case("lldp sys cap: an INTEGER is not a bit string (the old lab fixtures), no macro", "lldp", lldp_walk(7, [], sc + [(12, "INTEGER", "16")]), {"{#REM_SYS_CAP}": None})
+case("cdp sys cap: router, switch and igmp (00 00 00 29)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 29 "), {"{#REM_SYS_CAP}": "router switch igmp"})
+case("cdp sys cap: host and repeater (00 00 00 50)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 50 "), {"{#REM_SYS_CAP}": "host repeater"})
+case("cdp sys cap: the bits above 0x40 (00 00 07 80)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 07 80 "),
+     {"{#REM_SYS_CAP}": "voip remotelyManaged cvtaStpDispute twoPortMacRelay"})
+case("cdp sys cap: two octets are the low octets of the number (00 29)", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 29 "), {"{#REM_SYS_CAP}": "router switch igmp"})
+case("cdp sys cap: no bit set, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"') + line(cdp + ".9.5.1", H, "00 00 00 00 "), {"{#REM_SYS_CAP}": None})
+case("cdp sys cap: no column, no macro", "cdp", ci + line(cdp + ".6.5.1", S, '"sw-cap"'), {"{#REM_SYS_CAP}": None})
+
 with open(os.path.join(HERE, "decoding_cases.json"), "w", encoding="utf-8") as fh:
     json.dump(cases, fh, indent=1, ensure_ascii=False)
     fh.write("\n")

@@ -65,6 +65,7 @@
 #define OID_LLDP_REM_PORT_SUBTYPE	OID_LLDP_REM_TABLE ".6"
 #define OID_LLDP_REM_PORT_ID		OID_LLDP_REM_TABLE ".7"
 #define OID_LLDP_REM_PORT_DESC		OID_LLDP_REM_TABLE ".8"
+#define OID_LLDP_REM_SYS_CAP_ENABLED	OID_LLDP_REM_TABLE ".12"
 #define OID_LLDP_REM_SYSNAME		OID_LLDP_REM_TABLE ".9"
 #define OID_LLDP_REM_MAN_ADDR		"1.0.8802.1.1.2.1.4.2.1.3"
 
@@ -73,6 +74,7 @@
 #define OID_CDP_CACHE_ADDRESS		OID_CDP_CACHE_TABLE ".4"
 #define OID_CDP_CACHE_DEVICE_ID		OID_CDP_CACHE_TABLE ".6"
 #define OID_CDP_CACHE_DEVICE_PORT	OID_CDP_CACHE_TABLE ".7"
+#define OID_CDP_CACHE_CAPABILITIES	OID_CDP_CACHE_TABLE ".9"
 #define OID_CDP_GLOBAL_RUN		"1.3.6.1.4.1.9.9.23.1.3.1.0"
 
 #define OID_BRIDGE_BASE_PORT_IF_INDEX	"1.3.6.1.2.1.17.1.4.1.2"
@@ -575,6 +577,102 @@ static char	*topo_decode_id(const zbx_snmp_value_pair_t *pair, long long subtype
 	return 0 != binary ? topo_decode_binary(pair) : topo_decode_text(pair);
 }
 
+/* the octets of an OCTET STRING cell: a Hex-STRING, a BITS value (net-snmp prints the octets in hex, then the names of the set bits) or a STRING (a bit string whose bytes
+ * are printable arrives as text); NULL for any other type (an INTEGER is not a bit string: no macro) */
+static unsigned char	*topo_pair_octets(const zbx_snmp_value_pair_t *pair, size_t *len)
+{
+	unsigned char	*bytes;
+
+	*len = 0;
+
+	if (ZBX_SNMP_TYPE_HEX == pair->type || ZBX_SNMP_TYPE_BITS == pair->type)
+	{
+		char	*copy = zbx_strdup(NULL, pair->value), *p, *save = NULL;
+
+		bytes = (unsigned char *)zbx_malloc(NULL, strlen(pair->value) / 2 + 1);
+
+		for (p = strtok_r(copy, " \t\r\n:", &save); NULL != p; p = strtok_r(NULL, " \t\r\n:", &save))
+		{
+			if (2 < strlen(p) || strlen(p) != strspn(p, "0123456789abcdefABCDEF"))
+				break;	/* BITS: the names of the bits follow the octets */
+
+			bytes[(*len)++] = (unsigned char)strtoul(p, NULL, 16);
+		}
+
+		zbx_free(copy);
+
+		return bytes;
+	}
+
+	if (ZBX_SNMP_TYPE_STRING != pair->type)
+		return NULL;
+
+	*len = strlen(pair->value);
+	bytes = (unsigned char *)zbx_malloc(NULL, *len + 1);
+	memcpy(bytes, pair->value, *len);
+
+	return bytes;
+}
+
+/* {#REM_SYS_CAP} (LLD spec 2.14, FR-B D-52): the names of the set bits, space-separated, in bit order; no bit set: an empty string (no macro, topo_row_add_owned omits it).
+ * lldpRemSysCapEnabled is LldpSystemCapabilitiesMap (BITS: bit 0 is the most significant bit of the first octet). */
+static char	*topo_caps_lldp(const zbx_snmp_value_pair_t *pair)
+{
+	static const char	*names[] = {"other", "repeater", "bridge", "wlanAccessPoint", "router", "telephone", "docsisCableDevice",
+					"stationOnly"};
+	size_t			len;
+	unsigned char		*bytes = topo_pair_octets(pair, &len);
+	char			*out = NULL;
+	size_t			alloc = 0, offset = 0;
+
+	if (NULL == bytes)
+		return zbx_strdup(NULL, "");
+
+	for (size_t bit = 0; bit < 8 && bit / 8 < len; bit++)
+	{
+		if (0 == (bytes[bit / 8] & (0x80 >> (bit % 8))))
+			continue;
+
+		zbx_snprintf_alloc(&out, &alloc, &offset, "%s%s", 0 == offset ? "" : " ", names[bit]);
+	}
+
+	zbx_free(bytes);
+
+	return NULL != out ? out : zbx_strdup(NULL, "");
+}
+
+/* cdpCacheCapabilities (CISCO-CDP-MIB): up to 4 octets, a big-endian number; the value 0x01 is router, 0x02 transBridge, 0x04 srcRouteBridge, 0x08 switch, 0x10 host,
+ * 0x20 igmp, 0x40 repeater, then the bits that Cisco documents for the capabilities field of CDP: 0x80 voip, 0x100 remotelyManaged, 0x200 cvtaStpDispute,
+ * 0x400 twoPortMacRelay. The names follow the order of the values. */
+static char	*topo_caps_cdp(const zbx_snmp_value_pair_t *pair)
+{
+	static const char	*names[] = {"router", "transBridge", "srcRouteBridge", "switch", "host", "igmp", "repeater", "voip",
+					"remotelyManaged", "cvtaStpDispute", "twoPortMacRelay"};
+	size_t			len;
+	unsigned char		*bytes = topo_pair_octets(pair, &len);
+	zbx_uint64_t		value = 0;
+	char			*out = NULL;
+	size_t			alloc = 0, offset = 0;
+
+	if (NULL == bytes)
+		return zbx_strdup(NULL, "");
+
+	for (size_t i = 0; i < len && i < 4; i++)
+		value = (value << 8) | bytes[i];
+
+	zbx_free(bytes);
+
+	for (size_t bit = 0; bit < ARRSIZE(names); bit++)
+	{
+		if (0 == (value & ((zbx_uint64_t)1 << bit)))
+			continue;
+
+		zbx_snprintf_alloc(&out, &alloc, &offset, "%s%s", 0 == offset ? "" : " ", names[bit]);
+	}
+
+	return NULL != out ? out : zbx_strdup(NULL, "");
+}
+
 /* the device's own chassis id (lldpLocChassisId.0 with lldpLocChassisIdSubtype.0): never guessed (no fallback to a port MAC); *type is the name of the
  * subtype or NULL */
 static char	*topo_local_chassis(const zbx_snmp_value_cache_t *cache, const char **type)
@@ -846,7 +944,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 		zbx_vector_topo_row_ptr_t *rows)
 {
 	topo_table_t		rem_chassis_type, rem_chassis, rem_port_type, rem_port, rem_port_desc, rem_sysname,
-				loc_type, loc_id, loc_desc, man_addr;
+				loc_type, loc_id, loc_desc, man_addr, sys_cap;
 	topo_table_t		*columns[6] = {&rem_chassis, &rem_port, &rem_port_desc, &rem_sysname, &rem_chassis_type,
 					&rem_port_type};
 	zbx_vector_ptr_t	suffixes;
@@ -862,6 +960,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 	topo_table_load(cache, OID_LLDP_LOC_PORT_ID, &loc_id);
 	topo_table_load(cache, OID_LLDP_LOC_PORT_DESC, &loc_desc);
 	topo_table_load(cache, OID_LLDP_REM_MAN_ADDR, &man_addr);
+	topo_table_load(cache, OID_LLDP_REM_SYS_CAP_ENABLED, &sys_cap);
 
 	zbx_vector_ptr_create(&suffixes);
 
@@ -954,12 +1053,16 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 
 		topo_row_add_owned(row, "{#REM_PORT_DESC}", topo_table_name(&rem_port_desc, suffix));
 
+		if (NULL != (pair = topo_table_get(&sys_cap, suffix)))
+			topo_row_add_owned(row, "{#REM_SYS_CAP}", topo_caps_lldp(pair));
+
 		topo_row_add_chassis(row, chassis, chassis_type);
 		zbx_vector_topo_row_ptr_append(rows, row);
 	}
 
 	zbx_vector_ptr_destroy(&suffixes);
 
+	topo_table_clear(&sys_cap);
 	topo_table_clear(&rem_chassis_type);
 	topo_table_clear(&rem_chassis);
 	topo_table_clear(&rem_port_type);
@@ -984,7 +1087,7 @@ static void	topo_source_lldp(const zbx_snmp_value_cache_t *cache, const char *ch
 static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *chassis, const char *chassis_type,
 		zbx_vector_topo_row_ptr_t *rows)
 {
-	topo_table_t		device_id, device_port, address, address_type, names;
+	topo_table_t		device_id, device_port, address, address_type, names, capabilities;
 	topo_table_t		*columns[4] = {&device_id, &device_port, &address, &address_type};
 	zbx_vector_ptr_t	suffixes;
 	const char		*last = NULL;
@@ -993,6 +1096,7 @@ static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *cha
 	topo_table_load(cache, OID_CDP_CACHE_DEVICE_PORT, &device_port);
 	topo_table_load(cache, OID_CDP_CACHE_ADDRESS, &address);
 	topo_table_load(cache, OID_CDP_CACHE_ADDRESS_TYPE, &address_type);
+	topo_table_load(cache, OID_CDP_CACHE_CAPABILITIES, &capabilities);
 	topo_table_load(cache, OID_IF_NAME, &names);
 
 	zbx_vector_ptr_create(&suffixes);
@@ -1053,6 +1157,9 @@ static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *cha
 			topo_row_add(row, "{#REM_PORT_TYPE}", "interfaceName");
 		}
 
+		if (NULL != (pair = topo_table_get(&capabilities, suffix)))
+			topo_row_add_owned(row, "{#REM_SYS_CAP}", topo_caps_cdp(pair));
+
 		topo_row_add(row, "{#SOURCE}", "cdp");
 		topo_row_add_chassis(row, chassis, chassis_type);
 		zbx_vector_topo_row_ptr_append(rows, row);
@@ -1060,6 +1167,7 @@ static void	topo_source_cdp(const zbx_snmp_value_cache_t *cache, const char *cha
 
 	zbx_vector_ptr_destroy(&suffixes);
 
+	topo_table_clear(&capabilities);
 	topo_table_clear(&device_id);
 	topo_table_clear(&device_port);
 	topo_table_clear(&address);
