@@ -75,6 +75,8 @@ $d3 = $node('device', ['chassis_id' => null, 'mgmt_ip' => '10.7.0.3', 'sysname' 
 $d4 = $node('device', ['chassis_id' => null, 'mgmt_ip' => '10.7.0.4', 'sysname' => 'orphan-ip', 'last_seen' => 5]);
 $d5 = $node('device', ['chassis_id' => '02:00:00:00:07:05', 'mgmt_ip' => null, 'sysname' => 'orphan-mac', 'last_seen' => 5]);
 $d6 = $node('device', ['chassis_id' => 'text-chassis', 'mgmt_ip' => null, 'sysname' => 'orphan-text', 'last_seen' => 5]);
+$d7 = $node('device', ['chassis_id' => '00:00:00:00:00:00', 'mgmt_ip' => null, 'sysname' => 'orphan-placeholder', 'last_seen' => 5]);
+$d8 = $node('device', ['chassis_id' => 'eth0', 'mgmt_ip' => null, 'sysname' => 'seen-text', 'last_seen' => 5]);
 $port = $node('port', ['if_index' => 1, 'name' => 'Gi0/1']);
 $pdo->prepare('UPDATE topo_nodes SET device_id = ? WHERE id = ?')->execute([$d1, $port]);
 $pdo->exec('INSERT INTO items (itemid, hostid) VALUES (7001, 701), (7002, 703)');
@@ -82,6 +84,8 @@ foreach ([[7002, 5], [7001, 9]] as [$item, $seen]) {          // the older obser
 	$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (?, 'ifindex:1', ?, ?, '{}', 'applied', ?, 1, ?)")
 		->execute([$item, $port, 'k'.$item, $d3, $seen]);
 }
+$pdo->prepare("INSERT INTO topo_observations (itemid, local_port_ref, local_port_id, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) VALUES (7001, 'ifindex:2', ?, 'k8', '{}', 'applied', ?, 1, 9)")
+	->execute([$port, $d8]);      // d8 is seen by host A: its segment is known
 
 $tmp = sys_get_temp_dir().'/topology-identity-keys-test';
 @mkdir($tmp);
@@ -115,10 +119,11 @@ check($keys($d3) === [] && (json_decode((string) $attrs_of($d3), true)['scope_po
 	'a Device without a chassis: no key; scope_ports = [the local port of its latest observation]');
 check($keys($d4) === [] && !isset(json_decode((string) $attrs_of($d4), true)['scope_ports']), 'no chassis, no observation: no key, no scope_port');
 check($keys($d5) === ['chassis:mac:02:00:00:00:07:05' => 0], 'no reporter, no observation, MAC chassis only: the global key does not need a segment');
-check($keys($d6) === [], 'a text chassis needs a segment: skipped');
+check($keys($d6) === [], 'a text chassis (no stored subtype): no key (task 080: only a MAC-shaped value is a hardware ID); it was "needs a segment"');
+check($keys($d7) === [] && $keys($d8) === [], 'a placeholder MAC: no key; a text chassis `eth0` of a Device whose segment is known: no key either');
 $built = $summary['identity_keys_built'] ?? [];
-check(($built['devices'] ?? null) === 4 && ($built['keys'] ?? null) === 4 && ($built['skipped'] ?? null) === [$d6],
-	'the summary counts the Devices with a chassis (4), the keys (4) and lists the skipped Devices: '.json_encode($built));
+check(($built['devices'] ?? null) === 6 && ($built['keys'] ?? null) === 4 && ($built['skipped'] ?? null) === [$d6, $d7, $d8],
+	'the summary counts the Devices with a chassis (6), the keys (4) and lists the Devices that got none: '.json_encode($built));
 
 echo "\n=== a second run builds nothing and changes nothing ===\n";
 $before = [$keys($d1), $keys($d2), $keys($d3), $keys($d5)];

@@ -223,8 +223,9 @@ class IngestKeys {
 			$built = 0;
 			$skipped = false;
 			foreach ($wanted as [$value, $replaced]) {
-				// old data: the chassis attribute has no subtype; a value that is not a MAC was a `local` chassis (the upgrade of 2.47)
-				$key = $chassis_key($value, ['TopologyNormalize', 'macLike']($value) ? null : 'local', $segment ?? '');
+				// old data: a Device does not store the subtype of its chassis_id, so the value has no subtype name: the one rule of chassisKey() (model §6.7.0, 2.63) gives a key
+				// only to a MAC-shaped value that is no placeholder; a text value is no hardware ID
+				$key = $chassis_key($value, null, $segment ?? '');
 				if ($key === null || ($segment === null && !str_starts_with($key, 'chassis:mac:'))) {
 					$skipped = true;
 					continue;
