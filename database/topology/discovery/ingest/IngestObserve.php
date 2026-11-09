@@ -215,7 +215,7 @@ class IngestObserve {
 				// revive, no link, no Device, no ambiguity. The reporter's own data of the snapshot is used elsewhere as before.
 				$this->run->pass_b_done[$claim_key] = $group;
 				$old_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type', 'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port',
-					'rem_port_type', 'rem_port_desc', 'source'])), static fn ($value): bool => $value !== '' && $value !== null);
+					'rem_port_type', 'rem_port_desc', 'rem_sys_cap', 'source'])), static fn ($value): bool => $value !== '' && $value !== null);
 				$link_candidates[] = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => (string) ($row['source'] ?? 'lldp') ?: 'lldp',
 					'local_port_ref' => $port_ref, 'local_port_id' => $local_port_id, 'remote_device_id' => null, 'remote_key' => $row_remote_key, 'remote_attrs' => $old_attrs,
 					'pre_outcome' => 'old_snapshot', 'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null, 'port_label' => null, 'rem_port_desc' => '',
@@ -236,7 +236,7 @@ class IngestObserve {
 			}
 			$looks_like_mac = $chassis_id !== null && preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $chassis_id);
 			$remote_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type',
-				'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'source'])),
+				'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port', 'rem_port_type', 'rem_port_desc', 'rem_sys_cap', 'source'])),
 				static fn ($value): bool => $value !== '' && $value !== null);
 			$source = ($row['source'] ?? 'lldp') !== '' ? (string) ($row['source'] ?? 'lldp') : 'lldp';
 
