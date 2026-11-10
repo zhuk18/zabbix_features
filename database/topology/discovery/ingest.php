@@ -389,6 +389,9 @@ $summary += [
 	'snapshots_old' => [],
 	// model §6.7.7 (2.65): the reporter ports with more neighbors than the limit: [{hostid, local_port_ref, neighbors}]
 	'ports_neighbor_limit' => [],
+	// model §6.6 (2.65): the Ports that took the ifIndex of their row by name, and the Ports that lost an index another Port took
+	'ports_index_followed' => 0,
+	'ports_index_dropped' => 0,
 	'snapshots_total' => ['snapshots' => 0, 'snapshot_rows' => 0, 'snapshot_bytes' => 0],      // what the run read from topo_lld_snapshot (task 078 §5)
 	'fresh_seconds' => $run->fresh_seconds,
 	'freshness_warning' => $fresh_warning,

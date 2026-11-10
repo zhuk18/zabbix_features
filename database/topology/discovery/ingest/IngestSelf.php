@@ -299,6 +299,7 @@ class IngestSelf {
 				$summary['hosts_ports_without_items']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
 			}
 		}
+		$this->followNames((int) $device_id, $snapshots[TOPO_TYPE_PORTS] ?? []);
 		foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$if_index = (int) $row['if_index'];
@@ -427,6 +428,88 @@ class IngestSelf {
 		$summary['reporters_failed']['count']++;
 		if (count($summary['reporters_failed']['list']) < 200) {
 			$summary['reporters_failed']['list'][] = ['hostid' => (int) $hostid, 'host' => (string) $reporter['host'], 'step' => $step, 'error' => substr($error, 0, 300)];
+		}
+	}
+	/**
+	 * A port follows its name (topology-1-model.md §6.6, 2.65): before the PORTS upsert, a row whose name is on one row of the snapshot and on exactly one stored real Port of the Device gives that
+	 * Port its `if_index`. All changes of one snapshot are computed first and written together, so two ports that exchange their indexes do not collide. A stored Port whose index another Port takes
+	 * and that gets no row itself keeps its id, name, links and decisions but loses `attrs.if_index` (the key is absent: no row resolves to it by ifIndex; a later row with its name gives it an index
+	 * again) and its `zabbix_itemids` (the items follow the rows). A row with an empty name, or a name on several rows or on several stored Ports, is upserted by `if_index` as before. Pseudo ports
+	 * never take a row; a row whose index a pseudo port holds goes by `if_index` as before (the upsert makes that pseudo port the real one).
+	 */
+	public function followNames(int $device_id, array $snapshots): void {
+		$store = $this->run->store;
+		$row_name = [];      // if_index => the port name of the row (ifName, else ifDescr); rows of several rules join by if_index, the first value wins
+		foreach ($snapshots as $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				$index = (int) $row['if_index'];
+				$name = ($row['name'] ?? '') !== '' ? (string) $row['name'] : (string) ($row['descr'] ?? '');
+				if (!isset($row_name[$index]) || $row_name[$index] === '') {
+					$row_name[$index] = $name;
+				}
+			}
+		}
+		if (!$row_name) {
+			return;
+		}
+		$rows_with_name = [];
+		foreach ($row_name as $index => $name) {
+			if ($name !== '') {
+				$rows_with_name[$name][] = $index;
+			}
+		}
+		$stored = $this->run->pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port' ORDER BY id");
+		$stored->execute([$device_id]);
+		$ports = [];      // id => attrs of the stored Ports of the Device
+		foreach ($stored->fetchAll(PDO::FETCH_COLUMN) as $id) {
+			$ports[(int) $id] = $store->nodeAttrs((int) $id);
+		}
+		$real_by_name = [];
+		$index_holder = [];      // if_index => [id] of the Ports (real or pseudo) that hold it
+		foreach ($ports as $id => $attrs) {
+			if (isset($attrs['if_index'])) {
+				$index_holder[(int) $attrs['if_index']][] = $id;
+			}
+			if (empty($attrs['pseudo']) && ($attrs['name'] ?? '') !== '') {
+				$real_by_name[(string) $attrs['name']][] = $id;
+			}
+		}
+		$moves = [];      // port id => the new if_index
+		foreach ($rows_with_name as $name => $indexes) {
+			if (count($indexes) !== 1 || count($real_by_name[$name] ?? []) !== 1) {
+				continue;      // the name is on several rows or on several stored Ports (or on none): by if_index, as before
+			}
+			$id = $real_by_name[$name][0];
+			$index = $indexes[0];
+			if (isset($ports[$id]['if_index']) && (int) $ports[$id]['if_index'] === $index) {
+				continue;
+			}
+			foreach ($index_holder[$index] ?? [] as $holder) {
+				if (!empty($ports[$holder]['pseudo'])) {
+					continue 2;      // a pseudo port holds the index: the row goes by if_index as before
+				}
+			}
+			$moves[$id] = $index;
+		}
+		if (!$moves) {
+			return;
+		}
+		$taken = array_flip($moves);      // new if_index => port id
+		foreach ($moves as $id => $index) {
+			$attrs = $ports[$id];
+			$attrs['if_index'] = $index;
+			$store->writeAttrs($id, $attrs, $ports[$id]);
+			$this->run->summary['ports_index_followed']++;
+		}
+		foreach ($ports as $id => $attrs) {
+			if (isset($moves[$id]) || !isset($attrs['if_index']) || !isset($taken[(int) $attrs['if_index']]) || !empty($attrs['pseudo'])) {
+				continue;
+			}
+			// the Port is gone (its name is not in the snapshot, or the name is not unique): it stays, without an index and without items
+			unset($attrs['if_index']);
+			$attrs['zabbix_itemids'] = [];
+			$store->writeAttrs($id, $attrs, $ports[$id]);
+			$this->run->summary['ports_index_dropped']++;
 		}
 	}
 }
