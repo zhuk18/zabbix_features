@@ -178,6 +178,9 @@ class IngestIdentify {
 				}
 			}
 		}
+		if ($incoming['no_create'] ?? false) {
+			return 0;      // 2.65 (§6.7.7): the row of a limited port finds no Device and makes none; 0 tells the caller (a Device id is never 0)
+		}
 		$insert_node->execute(['device', json_encode($attrs, JSON_THROW_ON_ERROR), $now, $now]);
 		$summary['devices_created']++;
 		$created_id = $last_insert_id();

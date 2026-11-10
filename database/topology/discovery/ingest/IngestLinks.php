@@ -257,7 +257,15 @@ class IngestLinks {
 		$groups = [];          // local port => token set: the neighbors on the port from ALL the rules (topology-1-model.md "Several neighbors or claims on one port")
 		$rule_tokens = [];     // local port => itemid => token set
 		$device_cands = [];    // local port => [candidate index] of the device-level candidates
+		$limit_on = [];        // local port => [candidate index] of the rows `port_limit` (2.66, §6.7.7)
 		foreach ($candidates as $i => $candidate) {
+			if ($candidate['pre_outcome'] === 'port_limit' && $candidate['local_port_id'] !== null) {
+				// 2.66 (§8.5): a row `port_limit` counts as a Device of its own, as an `ambiguous` row: with it the port has several neighbors
+				$limit_on[$candidate['local_port_id']][] = $i;
+				$rule_tokens[$candidate['local_port_id']][$candidate['itemid']]['limit:'.$i] = true;
+				$groups[$candidate['local_port_id']]['limit:'.$i] = true;
+				continue;
+			}
 			[$key] = $candidate_entity($candidate);
 			if ($key === null) {
 				continue;
@@ -535,6 +543,10 @@ class IngestLinks {
 				$port_candidates[$candidate['local_port_id']][] = $i;
 			}
 		}
+		// 2.66: a port with rows `port_limit` is in this step even when no other claim is on it
+		foreach (array_keys($limit_on) as $port) {
+			$port_candidates[$port] ??= [];
+		}
 		ksort($port_candidates);
 		foreach ($port_candidates as $port => $indexes) {
 			$active = [];
@@ -559,7 +571,8 @@ class IngestLinks {
 					$shows_link = true;
 				}
 			}
-			if ($shows_link || count($devices) < 2) {
+			$limit_rows = $limit_on[$port] ?? [];
+			if ($shows_link || count($devices) + count($limit_rows) < 2) {
 				continue;
 			}
 			if (!isset($counted_groups[$port]) && !isset($claimants_counted[$port])) {
@@ -567,6 +580,9 @@ class IngestLinks {
 				$summary['ports_ambiguous']++;
 			}
 			$newest = 0;
+			foreach ($limit_rows as $i) {
+				$newest = max($newest, $candidates[$i]['clock']);      // the rows `port_limit` contradict the link like any other claim on the port
+			}
 			foreach ($indexes as $i) {
 				$result[$i] = ['outcome' => 'ambiguous', 'edge_id' => null, 'key' => null];
 				$newest = max($newest, $candidates[$i]['clock']);

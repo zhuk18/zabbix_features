@@ -18,7 +18,7 @@ class CTopologyRunSummary {
 	public const EXIT_FAILED = 1;
 	public const EXIT_WARNINGS = 3;
 
-	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot'];
+	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'];
 
 	public const ATTENTION_REPORTER_SKIPPED = 'reporter_skipped';
 	public const ATTENTION_REPORTER_FAILED = 'reporter_failed';
@@ -26,6 +26,7 @@ class CTopologyRunSummary {
 	public const ATTENTION_ROWS_NO_IDENTITY = 'rows_no_identity';
 	public const ATTENTION_PORTS_WITHOUT_ITEMS = 'hosts_ports_without_items';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
+	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
 
 	/**
 	 * The status file of the last run (the one ingest.php writes in the temporary directory); the "idle" state when no run has been made.
@@ -113,6 +114,10 @@ class CTopologyRunSummary {
 		foreach ($summary['snapshots_old'] ?? [] as $old) {
 			[$hostid, $host, $itemid, $rule] = $of_rule((int) $old['itemid']);
 			$list[] = $entry(self::ATTENTION_SNAPSHOT_OLD, 'old snapshot of '.date('Y-m-d H:i:s T', (int) $old['clock']), 1, $hostid ?? (int) $old['hostid'], $host, $itemid, $rule, (int) $old['clock']);
+		}
+		// 2.65 (model §6.7.7): a reporter port with more neighbors than the limit
+		foreach ($summary['ports_neighbor_limit'] ?? [] as $limited) {
+			$list[] = $entry(self::ATTENTION_PORT_LIMIT, 'port '.$limited['local_port_ref'].': '.$limited['neighbors'].' neighbors', 1, (int) $limited['hostid'], (string) ($limited['host'] ?? ''));
 		}
 		foreach ($summary['hosts_ports_without_items']['list'] ?? [] as $host) {
 			$list[] = $entry(self::ATTENTION_PORTS_WITHOUT_ITEMS, 'hosts_ports_without_items', 1, (int) $host['hostid'], (string) $host['host']);

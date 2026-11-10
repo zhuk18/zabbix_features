@@ -93,6 +93,68 @@ class IngestObserve {
 		return substr('sysname:'.($row['rem_sysname'] ?? ''), 0, 300);
 	}
 
+	/**
+	 * The identity of a neighbor for the limit of §6.7.7 (2.65): the hardware ID key; else the device ID key (CDP); else the address and the name of the claim. null: the claim has
+	 * no identity at all (no chassis key, no address, no name): it is no neighbor, §6.7.1 counts it as a row without identity.
+	 */
+	public function neighborIdentity(array $row, string $segment): ?string {
+		$chassis = ($row['rem_chassis'] ?? '') !== '' ? (string) $row['rem_chassis'] : null;
+		if ($chassis !== null && in_array($row['rem_chassis_type'] ?? null, [null, '', 'macAddress'], true) && TopologyNormalize::isPlaceholderMac($chassis)) {
+			$chassis = null;
+		}
+		$key = $this->run->keys->chassisKey($chassis, $row['rem_chassis_type'] ?? null, $segment);
+		if ($key !== null) {
+			return $key;
+		}
+		$name = (string) ($row['rem_sysname'] ?? '');
+		if (($row['source'] ?? 'lldp') === 'cdp' && $name !== '' && ($cdp_id = TopologyNormalize::cdpDeviceId($name))[0] === 'key') {
+			return 'cdp:'.$segment.':'.$cdp_id[1];
+		}
+		$addrs = CTopologyAddress::claimAddresses(array_filter(array_intersect_key($row, array_flip(['rem_mgmt_ip', 'rem_man_addrs'])), static fn ($v): bool => $v !== '' && $v !== null));
+		if ($addrs === [] && $name === '') {
+			return null;
+		}
+		sort($addrs);
+
+		return 'addr:'.implode(',', $addrs).'|name:'.$name;
+	}
+
+	/**
+	 * The limited ports of one reporter (§6.7.7, 2.65): local if_index => the number of distinct neighbor identities, for the ports with more than the limit. Counted once per reporter and
+	 * run from the NEIGHBORS rows of the snapshots that are not old, all rules together; it reads nothing of the stored model. The run summary names each limited port once.
+	 */
+	public function limitedPorts(array $reporter, array $ports, string $segment): array {
+		$hostid = (int) $reporter['hostid'];
+		if (isset($this->run->limited_ports[$hostid])) {
+			return $this->run->limited_ports[$hostid];
+		}
+		$identities = [];
+		$refs = [];
+		foreach ($reporter['snapshots'][TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
+			if ($snapshot['old'] ?? false) {
+				continue;
+			}
+			foreach ($snapshot['rows'] as $row) {
+				[$if_index] = $this->resolveLocalPort($row, $ports);
+				$identity = $if_index === null ? null : $this->neighborIdentity($row, $segment);
+				if ($identity !== null) {
+					$identities[$if_index][$identity] = true;
+					$refs[$if_index] ??= TopologyNormalize::localPortRef($row);
+				}
+			}
+		}
+		$limited = [];
+		ksort($identities);
+		foreach ($identities as $if_index => $set) {
+			if (count($set) > $this->run->port_neighbors_max) {
+				$limited[(int) $if_index] = count($set);
+				$this->run->summary['ports_neighbor_limit'][] = ['hostid' => $hostid, 'host' => (string) ($reporter['host'] ?? ''), 'local_port_ref' => $refs[$if_index], 'neighbors' => count($set)];
+			}
+		}
+
+		return $this->run->limited_ports[$hostid] = $limited;
+	}
+
 	/** Pass B: the NEIGHBORS rows of one reporter, sorted (§6.5, §6.8). $group (2.56): 0 = the claims with a chassis; 1 = the claims without a chassis that join a Device by the reporter's address or by the claim with a chassis on the same port (rows 4 and 5 of the
 	 * lookup; no Device is made); 2 = the other claims without a chassis; -1 = all in one walk. Reason: the key of a Device is given by the join of any reporter before any reporter makes a Device for a key. */
 	public function reporterNeighbors(array $reporter, int $device_id, string $segment, int $group = -1): array {
@@ -152,6 +214,7 @@ class IngestObserve {
 			}
 		}
 		$ports = array_values($ports);
+		$limited = $this->limitedPorts($reporter, $ports, $segment);      // §6.7.7: the rows of a limited port are walked in part 3, after every reporter's Devices exist
 		foreach ($snapshots[TOPO_TYPE_NEIGHBORS] ?? [] as $snapshot) {
 			if ($group <= 0) {
 				$neighbor_snapshots[$snapshot['itemid']] = ['itemid' => $snapshot['itemid'], 'clock' => $snapshot['clock'], 'hostid' => $reporter['hostid']];
@@ -164,7 +227,7 @@ class IngestObserve {
 					// is not used anyway)
 					if ($group <= 0) {
 						$row['if_index'] = null;
-						$sorted_rows[] = [0, $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, true, $port_ref];
+						$sorted_rows[] = [0, $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, true, $port_ref, false];
 					}
 					continue;
 				}
@@ -181,10 +244,12 @@ class IngestObserve {
 				// 2.56: part 0 = the claims with a chassis (a remote key `chassis:...`), parts 1 and 2 = the others. 2.60: the rows of an old snapshot (§6.2) are all in part 0:
 				// they make no Device and no link, so there is no order among them
 				$is_old = (bool) ($snapshot['old'] ?? false);
-				if ($group >= 0 && ($is_old ? $group !== 0 : str_starts_with($snap_remote_key($row, $segment), 'chassis:') !== ($group === 0))) {
+				// 2.65 (§6.7.7): a row of a limited port creates no Device; it looks for one in part 3, when the Devices of all the other ports exist, so the result does not depend on the order
+				$is_limited = !$is_old && isset($limited[(int) $row['if_index']]);
+				if ($group >= 0 && ($is_limited ? $group !== 3 : ($group === 3 || ($is_old ? $group !== 0 : str_starts_with($snap_remote_key($row, $segment), 'chassis:') !== ($group === 0))))) {
 					continue;
 				}
-				$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, $is_old, $port_ref];
+				$sorted_rows[] = [(int) $row['if_index'], $snap_remote_key($row, $segment), (int) $snapshot['itemid'], (int) $snapshot['clock'], $row, $is_old, $port_ref, $is_limited];
 			}
 		}
 		// Within one local port the claims with a chassis come before the claims without (rank 0, 1, §6.5), so the same-port rule of §6.7.1 finds the claim with a
@@ -192,7 +257,7 @@ class IngestObserve {
 		$sort_key = static fn (array $r): array => [$r[0], str_starts_with($r[1], 'chassis:') ? 0 : 1, $r[1], $r[2]];
 		usort($sorted_rows, static fn (array $a, array $b): int => $sort_key($a) <=> $sort_key($b));
 		$claims_seen = [];
-		foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row, $is_old, $port_ref]) {
+		foreach ($sorted_rows as [, $row_remote_key, $itemid, $clock, $row, $is_old, $port_ref, $is_limited]) {
 			// a row of an old snapshot only looks for its Port (§6.2: as §6.7.6 resolves it, else none); it creates nothing
 			$local_port_id = $is_old
 				? (($row['if_index'] ?? null) === null ? null : $this->run->store->findPort($device_id, (int) $row['if_index']))
@@ -209,6 +274,7 @@ class IngestObserve {
 				continue;
 			}
 			$claims_seen[$claim_key] = true;
+			$port_limit_row = false;
 
 			if ($is_old) {
 				// 2.60 (§6.2, §7.2): every row of an old snapshot is an observation `old_snapshot`, checked before any other outcome: no support, no confirmation, no
@@ -281,6 +347,10 @@ class IngestObserve {
 				if ($found[0] === 'ambiguous') {
 					$remote_device_id = null;          // several Devices of the port match: the observation is `ambiguous`, no Device, no link
 				}
+				elseif ($is_limited && $found[0] !== 'found') {
+					$remote_device_id = null;          // 2.65 (§6.7.7): a limited port makes no Device: the row finds none, the observation is `port_limit`
+					$port_limit_row = true;
+				}
 				else {
 					if ($found[0] === 'found') {
 						$incoming['found_device_id'] = $found[1];
@@ -299,10 +369,17 @@ class IngestObserve {
 			}
 			else {
 				$this->run->pass_b_done[$claim_key] = $group;
-				$remote_device_id = $snap_device($incoming, $local_port_id, $clock);
-				// a claim with a chassis: the claims without one on this port may join it (the claims of one port come in rank order, §6.5)
-				$port_chassis_claims[$reporter['hostid'].'|'.$local_port_id][] = ['device_id' => $remote_device_id, 'addrs' => $claim_addrs,
-					'name' => (string) ($row['rem_sysname'] ?? ''), 'chassis' => (string) $chassis_id];
+				// 2.65 (§6.7.7): on a limited port the call only looks for a Device (0: it would make one, so the row is `port_limit`)
+				$remote_device_id = $snap_device($incoming + ($is_limited ? ['no_create' => true] : []), $local_port_id, $clock);
+				if ($remote_device_id === 0) {
+					$remote_device_id = null;
+					$port_limit_row = true;
+				}
+				else {
+					// a claim with a chassis: the claims without one on this port may join it (the claims of one port come in rank order, §6.5)
+					$port_chassis_claims[$reporter['hostid'].'|'.$local_port_id][] = ['device_id' => $remote_device_id, 'addrs' => $claim_addrs,
+						'name' => (string) ($row['rem_sysname'] ?? ''), 'chassis' => (string) $chassis_id];
+				}
 			}
 			// a shared identifier (null): the observation is `ambiguous`, no Device, no link, nothing else touched
 
@@ -312,7 +389,7 @@ class IngestObserve {
 			$candidate = ['hostid' => $reporter['hostid'], 'itemid' => $itemid, 'clock' => $clock, 'source' => $source,
 				'local_port_ref' => $port_ref, 'local_port_id' => $local_port_id, 'remote_device_id' => $remote_device_id,
 				'remote_key' => $snap_remote_key($row, $segment), 'remote_attrs' => $remote_attrs,
-				'pre_outcome' => $remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only'), // topology-1-model.md "Observations": device_only, no port advertised, no link
+				'pre_outcome' => $port_limit_row ? 'port_limit' : ($remote_device_id === null ? 'ambiguous' : ($has_remote_port ? null : 'device_only')), // topology-1-model.md "Observations": device_only, no port advertised, no link
 				'level' => 'port', 'far_port_reason' => null, 'remote_port_id' => null,
 				'port_label' => $has_remote_port ? $far_pseudo_name($row + ['source' => $source]) : null,
 				'rem_port_desc' => (string) ($row['rem_port_desc'] ?? ''),

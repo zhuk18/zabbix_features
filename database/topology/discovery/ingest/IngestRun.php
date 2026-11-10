@@ -35,6 +35,9 @@ class IngestRun {
 	public array $frozen_itemids = [];
 	/** the freshness threshold in seconds, read once per run through topology_freshness.inc.php (§8.8); a snapshot older than that is old (§6.2) */
 	public int $fresh_seconds = 604800;
+	/** the limit of neighbors on one reporter port (§6.7.7), read once per run through topology_freshness.inc.php; hostid => [if_index => the number of neighbors] of the limited ports */
+	public int $port_neighbors_max = 32;
+	public array $limited_ports = [];
 	/** hostid => segment, read once per host per run (IngestKeys::segmentOf) */
 	public array $run_segments = [];
 

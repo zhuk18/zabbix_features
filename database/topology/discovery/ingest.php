@@ -240,6 +240,19 @@ catch (PDOException $exception) {
 if ($fresh_warning !== null) {
 	fwrite(STDERR, 'WARNING: '.$fresh_warning."\n");
 }
+// The limit of neighbors on one reporter port (§6.7.7), read the same way, once per run.
+try {
+	$limit_stmt = $pdo->prepare('SELECT value FROM globalmacro WHERE macro = ?');
+	$limit_stmt->execute([TOPOLOGY_PORT_NEIGHBORS_MACRO]);
+	$limit_raw = $limit_stmt->fetchColumn();
+}
+catch (PDOException $exception) {
+	$limit_raw = false;
+}
+[$run->port_neighbors_max, $limit_warning] = topology_port_neighbors_max($limit_raw === false ? null : (string) $limit_raw);
+if ($limit_warning !== null) {
+	fwrite(STDERR, 'WARNING: '.$limit_warning."\n");
+}
 $run->keys = new IngestKeys($run);
 $run->store = new IngestStore($run);
 $run->identify = new IngestIdentify($run);
@@ -374,10 +387,12 @@ $summary += [
 	'snapshots_ignored_type_mismatch' => 0,
 	// model §6.2 (2.59): the NEIGHBORS snapshots older than the freshness threshold (hostid, itemid, clock); their rows are observations `old_snapshot`; the threshold of the run
 	'snapshots_old' => [],
+	// model §6.7.7 (2.65): the reporter ports with more neighbors than the limit: [{hostid, local_port_ref, neighbors}]
+	'ports_neighbor_limit' => [],
 	'snapshots_total' => ['snapshots' => 0, 'snapshot_rows' => 0, 'snapshot_bytes' => 0],      // what the run read from topo_lld_snapshot (task 078 §5)
 	'fresh_seconds' => $run->fresh_seconds,
 	'freshness_warning' => $fresh_warning,
-	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0, 'old_snapshot' => 0],
+	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0, 'old_snapshot' => 0, 'port_limit' => 0],
 	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
 	'links_superseded' => 0,
 	'links_revived' => 0,
@@ -707,7 +722,7 @@ foreach ($identified as $hostid => $result) {
 $pass_b_reporters = $identified;
 ksort($pass_b_reporters);
 $pass_b_failed = [];
-foreach ([0, 1, 2] as $group) {
+foreach ([0, 1, 2, 3] as $group) {
 	foreach ($pass_b_reporters as $hostid => $result) {
 		if (isset($pass_b_failed[$hostid])) {
 			continue;
@@ -720,7 +735,7 @@ foreach ([0, 1, 2] as $group) {
 				throw new RuntimeException('forced failure in pass B (test hook --fail-pass-b)');
 			}
 			$pdo->commit();
-			if ($group === 2) {
+			if ($group === 3) {
 				$summary['reporters_processed']++;
 				$processed++;
 				echo "OK: ingested LLD snapshots for '{$reporter['host']}' — device #{$result['device_id']}, topology types: ".

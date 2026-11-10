@@ -2737,7 +2737,7 @@ class CTopologyPrototype {
 		}
 	}
 
-	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot'];
+	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'];
 
 	/**
 	 * NEIGHBORS evidence recorded by ingest (topology-1-model.md "Observations", "API"): one row per neighbor a

@@ -28,3 +28,30 @@ function topology_fresh_seconds(?string $raw): array {
 		htmlspecialchars($raw, ENT_QUOTES, 'UTF-8').'", which is not a number of seconds of at least '.TOPOLOGY_FRESH_MIN.
 		'; the default '.TOPOLOGY_FRESH_DEFAULT.' is used.'];
 }
+
+/**
+ * The limit of neighbors on one reporter port (topology-1-model.md §6.7.7, 2.65): global macro, read as the freshness threshold (§8.8): digits only, at least 1; any other text gives the
+ * default and a warning that names the macro and the rejected text (escaped); a missing macro gives the default, no warning.
+ */
+const TOPOLOGY_PORT_NEIGHBORS_MACRO = '{$TOPOLOGY.PORT.NEIGHBORS.MAX}';
+const TOPOLOGY_PORT_NEIGHBORS_DEFAULT = 32;
+const TOPOLOGY_PORT_NEIGHBORS_MIN = 1;
+
+/**
+ * @param string|null $raw  the macro value as stored, or null when the macro does not exist
+ *
+ * @return array  [limit, warning]
+ */
+function topology_port_neighbors_max(?string $raw): array {
+	if ($raw === null) {
+		return [TOPOLOGY_PORT_NEIGHBORS_DEFAULT, null];
+	}
+
+	if (preg_match('/^[0-9]{1,9}$/D', $raw) === 1 && (int) $raw >= TOPOLOGY_PORT_NEIGHBORS_MIN) {
+		return [(int) $raw, null];
+	}
+
+	return [TOPOLOGY_PORT_NEIGHBORS_DEFAULT, 'Macro '.TOPOLOGY_PORT_NEIGHBORS_MACRO.' has the value "'.
+		htmlspecialchars($raw, ENT_QUOTES, 'UTF-8').'", which is not a number of at least '.TOPOLOGY_PORT_NEIGHBORS_MIN.
+		'; the default '.TOPOLOGY_PORT_NEIGHBORS_DEFAULT.' is used.'];
+}
