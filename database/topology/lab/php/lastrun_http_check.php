@@ -72,19 +72,18 @@ check(str_contains($page, 'topology-canvas') && str_contains($page, 'action=topo
 $lastrun = $admin->request('zabbix.php?action=topology.lastrun');
 check(str_contains($lastrun, 'topology-lastrun-summary') && str_contains($lastrun, 'topology-lastrun-list'), 'the last run view opens');
 
-echo "\n=== a run started from the page: started_by ===\n";
+echo "\n=== a run requested from the page: started_by ===\n";
 check(preg_match('/"_csrf_token"\]?:\s*"([0-9a-f]+)"/', $page, $m) === 1, 'the page carries the CSRF token');
 $before = $admin->json('topology.ingest.status')['run_id'] ?? null;
 $started = json_decode($admin->request('zabbix.php?action=topology.ingest.run', null, json_encode(['_csrf_token' => $m[1] ?? ''])), true);
-check(($started['status'] ?? null) === 'started', 'POST topology.ingest.run starts a run', $started);
-$status = [];
-for ($i = 0; $i < 90; $i++) {
-	sleep(2);
-	$status = $admin->json('topology.ingest.status');
-	if (($status['run_id'] ?? $before) !== $before && ($status['status'] ?? '') !== 'running') {
-		break;
-	}
-}
+check(($started['status'] ?? null) === 'requested', 'POST topology.ingest.run records a request (task 087: the CLI executes the run)', $started);
+// the scheduled job: `ingest.php --if-requested` (the CLI starts the run; the web server does not)
+$cli = proc_open([PHP_BINARY, dirname(__DIR__, 2).'/discovery/ingest.php', '--pdo-dsn', (string) (getenv('TOPOLOGY_PDO_DSN') ?: 'mysql:unix_socket=/run/mysqld/mysqld.sock;dbname=zabbix'),
+	'--pdo-user', (string) (getenv('TOPOLOGY_PDO_USER') ?: 'zabbix'), '--if-requested'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $cli_pipes);
+stream_get_contents($cli_pipes[1]);
+stream_get_contents($cli_pipes[2]);
+proc_close($cli);
+$status = $admin->json('topology.ingest.status');
 check(($status['started_by'] ?? null) === $user, 'started_by is the user name of the page ('.$user.')', $status['started_by'] ?? null);
 check(in_array($status['result'] ?? null, ['done', 'done_with_warnings'], true) && is_array($status['summary']['attention'] ?? null), 'the status has the result and the list "Needs attention"', $status['result'] ?? null);
 
