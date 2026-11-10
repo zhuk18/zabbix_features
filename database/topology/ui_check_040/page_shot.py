@@ -174,7 +174,7 @@ CHECKS = {
         // main has 10 px of margin on each side: the content area needs 1220 px; a page taller than the window loses 15 px to the vertical scrollbar, so a window that is
         // narrower than that scrolls like every Zabbix page (§12.1 "Width")
         r.min_width_note = content_w < main_min + 20;
-        r.ok = r.summary_rows >= 5 && r.outcome_links.length === 6 && r.has_attention && r.has_list && !r.unsafe_nodes && (r.min_width_note || (!r.scroll_x && !r.outside_window.length));
+        r.ok = r.summary_rows >= 5 && r.outcome_links.length === 7 && r.has_attention && r.has_list && !r.unsafe_nodes && (r.min_width_note || (!r.scroll_x && !r.outside_window.length));
         return r;
     })()''',
     # model §12.5 "Addresses" (task 051): with a Device without association selected, the labels of the section are the full text ("System name", "Hardware ID": not cut
