@@ -70,7 +70,7 @@ class CControllerTopologyLastRun extends CController {
 		}
 		$hostid = CProfile::getArray(self::PROFILE_HOSTID, [])[0] ?? null;
 
-		$status = CTopologyRunSummary::read();
+		$status = CTopologyRun::status();
 		$summary = is_array($status['summary'] ?? null) ? $status['summary'] : null;
 
 		$rows = $outcomes

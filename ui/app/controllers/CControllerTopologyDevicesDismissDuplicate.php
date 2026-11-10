@@ -21,10 +21,10 @@ class CControllerTopologyDevicesDismissDuplicate extends CController {
 	protected function doAction() {
 		try {
 			if ($this->getInput('revoke', 0) == 1) {
-				CTopologyPrototype::revokeDismissal($this->getInput('a'), $this->getInput('b'));
+				CTopologyRun::guard(fn () => CTopologyPrototype::revokeDismissal($this->getInput('a'), $this->getInput('b')));
 			}
 			else {
-				CTopologyPrototype::dismissDuplicate($this->getInput('a'), $this->getInput('b'), (string) CWebUser::$data['username']);
+				CTopologyRun::guard(fn () => CTopologyPrototype::dismissDuplicate($this->getInput('a'), $this->getInput('b'), (string) CWebUser::$data['username']));
 			}
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));

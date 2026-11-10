@@ -23,7 +23,8 @@ declare(strict_types=1);
  * --zabbix-host is an optional operator filter to scope a run to specific host(s) (e.g. ad-hoc testing); omitting it runs everything.
  *
  * Usage:
- *   ingest.php --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] [--zabbix-host <host> ...]
+ *   ingest.php --pdo-dsn <dsn> --pdo-user <user> [--pdo-password <password>] [--zabbix-host <host> ...] [--if-requested]
+ *   --if-requested: run only when a run is requested (the UI button, "accept discovery"); else exit 0 at once. The scheduled CLI job calls it each minute (model §6.1).
  *   (the same settings may come from TOPOLOGY_PDO_DSN / _USER / _PASSWORD: a run started by the web server passes them that way, so nothing
  *   secret is on the command line.)
  */
@@ -34,22 +35,20 @@ function fail(string $message): void {
 }
 
 $options = getopt('', ['pdo-dsn:', 'pdo-user:', 'pdo-password:',
-	'zabbix-host:', 'reporter-order:', 'fail-pass-b:', 'help']);
+	'zabbix-host:', 'reporter-order:', 'fail-pass-b:', 'if-requested', 'help']);
 
 if (isset($options['help'])) {
 	fwrite(STDOUT, "See the file header for usage.\n");
 	exit(0);
 }
 
-// ---- Run exclusion + status file (topology-1-model.md "Runs", "Run summary"). The run lock is a DATABASE advisory lock (MySQL GET_LOCK /
-// PostgreSQL pg_try_advisory_lock), taken below once the connection exists: a file lock cannot do this job because
-// the CLI and the web server's PHP-FPM do not share a temporary directory (FPM runs with a private /tmp), so they
-// took different lock files and never excluded each other. The database is the one thing every caller shares. The
-// STATUS file still lives in sys_get_temp_dir(): a run's status is visible to callers of the same temporary
-// directory only (a web-started run to the web page; a CLI run is reported on the CLI) — see the loser's branch. ----
+// ---- Run exclusion + status (topology-1-model.md "Runs", "Run summary"). The run lock is the row of the table topo_run (task 087, §6.1): one conditional UPDATE takes it, the heartbeat
+// keeps it, and a lock whose heartbeat is older than the timeout is free. The database is the one thing every caller shares (the CLI and the web server's PHP-FPM have different
+// temporary directories). The status of the run is in the same row (the page reads it there); the status FILE in sys_get_temp_dir() is kept for the CLI's own caller (the lab, the tests). ----
 
 require_once __DIR__.'/../topology_contradiction.inc.php';
 require_once __DIR__.'/../topology_freshness.inc.php';        // the one definition of the freshness threshold (§8.8)
+require_once __DIR__.'/../topology_run.inc.php';               // the run row: the run lock, the request, the heartbeat (§6.1)
 require_once __DIR__.'/ingest/TopologyNormalize.php';          // the step Normalize (model §6.0)
 require_once __DIR__.'/ingest/IngestRun.php';                  // the state of a run, the step modules
 require_once __DIR__.'/ingest/IngestKeys.php';
@@ -72,9 +71,44 @@ define('INGEST_STARTED_FLOAT', microtime(true));
 // Who started the run (§12.7): the web user name that the page passes in the environment, else the CLI.
 define('INGEST_STARTED_BY', (string) (getenv('TOPOLOGY_STARTED_BY') ?: 'CLI'));
 
+/** The lock connection (a second connection of the run: its UPDATEs are never part of a transaction of the run) and the owner token of the lock this run holds; null: not held. */
+$lock_pdo = null;
+$run_owner = null;
+$last_heartbeat = 0;
+
+/** The heartbeat of the run (§6.1), at most every TOPOLOGY_RUN_HEARTBEAT_EVERY seconds; a run whose lock was taken by another (the timeout passed) stops. */
+function ingest_tick(): void {
+	global $lock_pdo, $run_owner, $last_heartbeat;
+
+	if ($run_owner === null || time() - $last_heartbeat < TOPOLOGY_RUN_HEARTBEAT_EVERY) {
+		return;
+	}
+	$last_heartbeat = time();
+	if (!TopologyRunRow::heartbeat($lock_pdo, $run_owner, $last_heartbeat)) {
+		$run_owner = null;
+		fail('The run lock was taken by another run (the heartbeat timed out); this run stops.');
+	}
+}
+
 function write_status(array $status): void {
+	global $lock_pdo, $run_owner;
+
 	$status['run_id'] = INGEST_RUN_ID;
 	$status['started_by'] = INGEST_STARTED_BY;
+	// the run row, for the run that holds the lock: the final status also frees the lock
+	if ($run_owner !== null && $lock_pdo !== null) {
+		try {
+			TopologyRunRow::write($lock_pdo, $run_owner, (string) $status['status'], (int) ($status['finished_at'] ?? 0), $status['error'] ?? null,
+				$status['summary'] === null ? null : json_encode($status['summary'], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR));
+			if ($status['status'] !== 'running') {
+				TopologyRunRow::release($lock_pdo, $run_owner);
+				$run_owner = null;
+			}
+		}
+		catch (Throwable $exception) {
+			fwrite(STDERR, 'WARNING: the run row was not written: '.$exception->getMessage()."\n");
+		}
+	}
 	// Atomic-ish: write to a temp file then rename, so a concurrent GET /topo/ingest/status read never
 	// sees a half-written file.
 	$tmp = INGEST_STATUS_FILE.'.tmp';
@@ -166,26 +200,30 @@ class IngestPDO extends PDO {
 	}
 }
 
-/** True when this connection now holds the topology ingest lock. Non-blocking; released when the connection ends. */
-function acquire_ingest_lock(PDO $pdo): bool {
-	if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql') {
-		// advisory locks are per database already; the key only has to be the same for every caller
-		return (bool) $pdo->query('SELECT pg_try_advisory_lock('.crc32('topology_ingest').')')->fetchColumn();
-	}
-	// MySQL lock names are server-wide: the database name keeps two databases on one server apart
-	$name = 'topology_ingest:'.substr(md5((string) $pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 16);
-	$stmt = $pdo->prepare('SELECT GET_LOCK(?, 0)');
-	$stmt->execute([$name]);
-	return (int) $stmt->fetchColumn() === 1;
+try {
+	$lock_pdo = new PDO($pdo_dsn, $pdo_user, $pdo_password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+	TopologyRunRow::ensure($lock_pdo);
 }
-
-if (!acquire_ingest_lock($pdo)) {
-	$message = 'Ingest already running (database advisory lock held) — exiting rather than running concurrently or '.
+catch (Throwable $exception) {
+	fail('Cannot use the run row (is the table topo_run there? mysql_migrate_run_row.sql): '.$exception->getMessage());
+}
+// --if-requested (the scheduled job, each minute): run only when a run is requested
+if (isset($options['if-requested']) && !TopologyRunRow::requested($lock_pdo)) {
+	echo "No run is requested.\n";
+	exit(0);
+}
+$owner_token = (gethostname() ?: 'host').':'.getmypid().':'.INGEST_RUN_ID;
+// A run takes the request it was started for (--if-requested), and a full run takes a waiting request too: it does what the request asks. A partial run does not (it is not the full run).
+// who started the run: the user whose request this run takes, else the caller (the CLI)
+$run_started_by = (!$zabbix_host_filter && ($requester = TopologyRunRow::requestedBy($lock_pdo)) !== '') ? $requester : INGEST_STARTED_BY;
+if (!TopologyRunRow::lock($lock_pdo, $owner_token, time(), [$run_started_by, INGEST_RUN_ID], !$zabbix_host_filter)) {
+	$message = 'Ingest already running (the run lock is held) — exiting rather than running concurrently or '.
 		'blocking. Try again once the in-progress run finishes.';
-	// If the status file of THIS temporary directory says "running", that run is the holder and the file is its
-	// truth: leave it alone. Otherwise the holder is a process with another temporary directory (the CLI next to a
-	// web-started run, or the reverse): record the refusal, so a caller that follows the status (the page after
-	// "Run discovery ingest") is told instead of waiting.
+	if (isset($options['if-requested'])) {
+		echo $message."\n";      // the request stays; the next start of the job takes it after the run
+		exit(0);
+	}
+	// the temporary directory of this process has its own status file: record the refusal there (the run row belongs to the run that holds the lock)
 	$current = is_file(INGEST_STATUS_FILE) ? json_decode((string) @file_get_contents(INGEST_STATUS_FILE), true) : null;
 	if (($current['status'] ?? null) !== 'running') {
 		write_status(['status' => 'error', 'started_at' => time(), 'finished_at' => time(), 'summary' => null,
@@ -193,8 +231,9 @@ if (!acquire_ingest_lock($pdo)) {
 	}
 	fail($message);
 }
-// The lock belongs to the connection: it is released when this process ends, however it ends (a fatal error, kill -9
-// included), and is never released earlier — $pdo must stay the one connection of the run.
+$run_owner = $owner_token;
+$last_heartbeat = time();
+// The lock is the row: it is freed by the final status of the run (write_status), or by the timeout when the process dies.
 
 $run_started_at = time();
 write_status(['status' => 'running', 'started_at' => $run_started_at, 'finished_at' => null, 'summary' => null]);
@@ -583,6 +622,7 @@ $note_failed_reporter = [$run->own, 'noteFailedReporter'];
 $reporter_own_of = [];
 $claimants = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
+	ingest_tick();
 	$reporter_own_of[$hostid] = $reporter_own($reporter);
 	if ($reporter_own_of[$hostid]['skip'] !== null) {
 		continue;
@@ -601,6 +641,7 @@ foreach ($claimants as $claimed_key => $hosts) {
 // result does not depend on the order of the reporters.
 $key_shared_hosts = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
+	ingest_tick();
 	$own = $reporter_own_of[$hostid];
 	if ($own['skip'] !== null || $own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
 		continue;
@@ -620,6 +661,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 $identified = [];
 $reporter_seen = [];          // hostid of a reporter => newest clock of its usable snapshots (§8.7)
 foreach ($snapshot_reporters as $hostid => $reporter) {
+	ingest_tick();
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
 	try {
 		$pdo->beginTransaction();
@@ -651,6 +693,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 }
 // the SNMP interface addresses of the reporters (§6.7.1: a claim without a chassis finds the Device of the one reporter that has its address in the segment)
 foreach ($identified as $hostid => $result) {
+	ingest_tick();
 	$own = $reporter_own_of[$hostid];
 	$reporter_device_of[(int) $hostid] = (int) $result['device_id'];
 	if ($own['mgmt_ip'] !== null && ($text = CTopologyAddress::ipText((string) $own['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
@@ -684,6 +727,7 @@ foreach ($claimed_keys as $claimed_key => $hosts) {
 // reporter's own Device. A chassis that two reporters claim is `reporters_share_key`. Computed here for every reporter, so the next runs (which find the Device by
 // step 1) keep the candidate.
 foreach ($identified as $hostid => $result) {
+	ingest_tick();
 	$own = $reporter_own_of[$hostid];
 	$device = (int) $result['device_id'];
 	if ($own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
@@ -699,6 +743,7 @@ foreach ($identified as $hostid => $result) {
 }
 // ---- pass A, step 2: PORTS, LAG, LEARNED_MACS of every identified reporter ----
 foreach ($identified as $hostid => $result) {
+	ingest_tick();
 	$reporter = $snapshot_reporters[$hostid];
 	try {
 		$pdo->beginTransaction();
@@ -727,6 +772,7 @@ ksort($pass_b_reporters);
 $pass_b_failed = [];
 foreach ([0, 1, 2, 3] as $group) {
 	foreach ($pass_b_reporters as $hostid => $result) {
+		ingest_tick();
 		if (isset($pass_b_failed[$hostid])) {
 			continue;
 		}

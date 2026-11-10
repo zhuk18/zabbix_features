@@ -3,7 +3,7 @@
 /**
  * The run summary of the topology ingest (topology-1-model.md §6.11, §12.7): what a run says about itself, read from the status file.
  * One class for the three readers: ingest.php (the CLI text and the exit code, the "Needs attention" list written into the summary),
- * GET topology.ingest.status and the last run view. No framework calls here: ingest.php loads this file without the frontend.
+ * GET topology.ingest.status and the last run view. No framework calls here: ingest.php loads this file without the frontend. The status of the last run is read from the run row (CTopologyRun::status()).
  */
 class CTopologyRunSummary {
 
@@ -27,17 +27,6 @@ class CTopologyRunSummary {
 	public const ATTENTION_PORTS_WITHOUT_ITEMS = 'hosts_ports_without_items';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
-
-	/**
-	 * The status file of the last run (the one ingest.php writes in the temporary directory); the "idle" state when no run has been made.
-	 */
-	public static function read(): array {
-		$file = sys_get_temp_dir().'/topology-ingest-status.json';
-		$status = is_file($file) ? json_decode((string) @file_get_contents($file), true) : null;
-
-		return is_array($status) ? $status
-			: ['status' => 'idle', 'started_at' => null, 'finished_at' => null, 'summary' => null];
-	}
 
 	/**
 	 * done / done with warnings / failed of a finished run (the list "Needs attention" is not empty: warnings); idle and running as the status file says.

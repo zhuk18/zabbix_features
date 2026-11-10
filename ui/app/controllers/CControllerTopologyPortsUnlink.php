@@ -9,7 +9,12 @@ class CControllerTopologyPortsUnlink extends CController {
 	protected function checkInput(): bool { return $this->validateJsonInput(['id' => 'required|id', 'dst_id' => 'required|id']); }
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 	protected function doAction() {
-		CTopologyPrototype::unlinkPorts($this->getInput('id'), $this->getInput('dst_id'));
-		$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
+		try {
+			CTopologyRun::guard(fn () => CTopologyPrototype::unlinkPorts($this->getInput('id'), $this->getInput('dst_id')));
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
+		}
+		catch (Exception $exception) {
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['error' => ['messages' => [$exception->getMessage()]]])]));
+		}
 	}
 }

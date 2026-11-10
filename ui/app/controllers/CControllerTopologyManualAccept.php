@@ -23,12 +23,13 @@ class CControllerTopologyManualAccept extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::acceptDiscovery($this->getInput('edge_id'));
-			// The discovered link is decided by a full ingest. It is the system process, started here, not by the user's own permission: the action
-			// works for a user who may not start a run himself (ingest.run is Super admin only). The lock still applies.
-			$ingest = CTopologyIngest::startWhenIdle();
+			CTopologyRun::guard(fn () => CTopologyPrototype::acceptDiscovery($this->getInput('edge_id')));
+			// The discovered link is decided by a full run. The UI does not execute it (model §6.1): it records a request, for a user who may not request a run himself (ingest.run is
+			// Super admin only) too, and the change applies at the next run of the scheduled CLI job.
+			CTopologyRun::request();
 
-			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true, 'ingest' => $ingest])]));
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true, 'ingest' => 'requested',
+				'message' => _('The change applies at the next run of the reconciliation.')])]));
 		}
 		catch (Exception $exception) {
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode([

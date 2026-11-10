@@ -12,5 +12,13 @@ class CControllerTopologyDepromote extends CController {
 		return !CWebUser::isGuest()
 			&& (CWebUser::getType() == USER_TYPE_SUPER_ADMIN || !CTopologyPrototype::isRepresentedByProxy($this->getInput('id')));
 	}
-	protected function doAction() { CTopologyPrototype::depromote($this->getInput('id')); $this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])])); }
+	protected function doAction() {
+		try {
+			CTopologyRun::guard(fn () => CTopologyPrototype::depromote($this->getInput('id')));
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
+		}
+		catch (Exception $exception) {
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['error' => ['messages' => [$exception->getMessage()]]])]));
+		}
+	}
 }

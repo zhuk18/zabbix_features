@@ -20,7 +20,7 @@ class CControllerTopologyDevicesAcceptChassis extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::acceptChassis($this->getInput('id'), (string) CWebUser::$data['username']);
+			CTopologyRun::guard(fn () => CTopologyPrototype::acceptChassis($this->getInput('id'), (string) CWebUser::$data['username']));
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}

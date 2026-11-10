@@ -382,6 +382,7 @@ class IngestLinks {
 		$confirming = [];  // key => [indexes] of several-neighbors candidates that confirm an existing active link
 		$counted_groups = [];
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick();
 			if ($candidate['pre_outcome'] !== null) {
 				$result[$i] = ['outcome' => $candidate['pre_outcome'], 'edge_id' => null, 'key' => null];
 				continue;
@@ -886,6 +887,7 @@ class IngestLinks {
 		// 8. Observations mirror the latest snapshot of each rule.
 		$touched = [];
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick();
 			$outcome = $result[$i]['outcome'];
 			$precision = $candidate['pre_outcome'] !== null ? null : $candidate['level'];
 			$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_ref'], $candidate['local_port_id'],

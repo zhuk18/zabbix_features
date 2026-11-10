@@ -21,9 +21,9 @@ class CControllerTopologyLinkConvert extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::convertManualLink($this->getInput('id'),
+			CTopologyRun::guard(fn () => CTopologyPrototype::convertManualLink($this->getInput('id'),
 				$this->hasInput('far_port_id') ? $this->getInput('far_port_id') : null,
-				$this->hasInput('keep_port_id') ? $this->getInput('keep_port_id') : null);
+				$this->hasInput('keep_port_id') ? $this->getInput('keep_port_id') : null));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}
 		catch (Exception $exception) {

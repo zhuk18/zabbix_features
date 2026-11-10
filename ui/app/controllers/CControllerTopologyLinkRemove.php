@@ -21,7 +21,7 @@ class CControllerTopologyLinkRemove extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::removeLink($this->getInput('id'));
+			CTopologyRun::guard(fn () => CTopologyPrototype::removeLink($this->getInput('id')));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}
 		catch (Exception $exception) {

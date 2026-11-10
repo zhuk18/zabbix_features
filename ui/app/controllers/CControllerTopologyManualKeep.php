@@ -22,9 +22,9 @@ class CControllerTopologyManualKeep extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::keepManual($this->getInput('edge_id'), $this->getInput('device_id'),
+			CTopologyRun::guard(fn () => CTopologyPrototype::keepManual($this->getInput('edge_id'), $this->getInput('device_id'),
 				(string) CWebUser::$data['username']
-			);
+			));
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}

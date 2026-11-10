@@ -19,8 +19,8 @@ class CControllerTopologyPromote extends CController {
 	}
 	protected function doAction() {
 		try {
-			CTopologyPrototype::promote($this->getInput('id'), $this->getInput('target_type'),
-				$this->getInput('target_id'));
+			CTopologyRun::guard(fn () => CTopologyPrototype::promote($this->getInput('id'), $this->getInput('target_type'),
+				$this->getInput('target_id')));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}
 		catch (Exception $exception) {

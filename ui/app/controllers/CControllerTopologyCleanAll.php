@@ -26,12 +26,22 @@ class CControllerTopologyCleanAll extends CController {
 		// DBexecute() returns bool, not an affected-row count (ui/include/db.inc.php) -- counted
 		// explicitly beforehand so the response can tell the caller something real happened,
 		// not just "the query didn't error".
-		$edges_before = (int) DBfetch(DBselect('SELECT COUNT(*) AS cnt FROM topo_edges'))['cnt'];
-		$nodes_before = (int) DBfetch(DBselect('SELECT COUNT(*) AS cnt FROM topo_nodes'))['cnt'];
+		try {
+			[$edges_before, $nodes_before] = CTopologyRun::guard(static function (): array {
+				$edges_before = (int) DBfetch(DBselect('SELECT COUNT(*) AS cnt FROM topo_edges'))['cnt'];
+				$nodes_before = (int) DBfetch(DBselect('SELECT COUNT(*) AS cnt FROM topo_nodes'))['cnt'];
 
-		DBexecute('DELETE FROM topo_edges');
-		DBexecute('DELETE FROM topo_identity_keys');
-		DBexecute('DELETE FROM topo_nodes');
+				DBexecute('DELETE FROM topo_edges');
+				DBexecute('DELETE FROM topo_identity_keys');
+				DBexecute('DELETE FROM topo_nodes');
+
+				return [$edges_before, $nodes_before];
+			});
+		}
+		catch (Exception $exception) {
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['error' => ['messages' => [$exception->getMessage()]]])]));
+			return;
+		}
 
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode([
 			'status' => 'ok', 'edges_deleted' => $edges_before, 'nodes_deleted' => $nodes_before

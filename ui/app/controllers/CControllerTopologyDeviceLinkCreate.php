@@ -21,8 +21,8 @@ class CControllerTopologyDeviceLinkCreate extends CController {
 
 	protected function doAction() {
 		try {
-			$edge_id = CTopologyPrototype::linkPortToDevice($this->getInput('port_id'), $this->getInput('device_id'),
-				(string) CWebUser::$data['userid']);
+			$edge_id = CTopologyRun::guard(fn () => CTopologyPrototype::linkPortToDevice($this->getInput('port_id'), $this->getInput('device_id'),
+				(string) CWebUser::$data['userid']));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true, 'edge_id' => $edge_id])]));
 		}
 		catch (Exception $exception) {

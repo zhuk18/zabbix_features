@@ -27,8 +27,9 @@ class CControllerTopologyIngestRun extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyIngest::start();
-			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['status' => 'started'])]));
+			// the UI only requests a run (model §6.1, FR-0 decision 7): the scheduled CLI job executes it (`ingest.php --if-requested`)
+			$requested_at = CTopologyRun::request();
+			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['status' => 'requested', 'requested_at' => $requested_at])]));
 		}
 		catch (Exception $exception) {
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode([

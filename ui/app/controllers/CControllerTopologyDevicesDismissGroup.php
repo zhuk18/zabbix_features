@@ -20,7 +20,7 @@ class CControllerTopologyDevicesDismissGroup extends CController {
 	protected function doAction() {
 		try {
 			$ids = array_filter((array) $this->getInput('ids'), static fn ($id): bool => (is_string($id) && ctype_digit($id)) || is_int($id));
-			$result = CTopologyPrototype::dismissGroup(array_map('strval', $ids), (string) CWebUser::$data['username']);
+			$result = CTopologyRun::guard(fn () => CTopologyPrototype::dismissGroup(array_map('strval', $ids), (string) CWebUser::$data['username']));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true] + $result)]));
 		}
 		catch (Exception $exception) {

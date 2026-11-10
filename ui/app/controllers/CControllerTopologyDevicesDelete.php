@@ -21,7 +21,7 @@ class CControllerTopologyDevicesDelete extends CController {
 
 	protected function doAction() {
 		try {
-			$result = CTopologyPrototype::deleteDevice($this->getInput('id'), (string) CWebUser::$data['username']);
+			$result = CTopologyRun::guard(fn () => CTopologyPrototype::deleteDevice($this->getInput('id'), (string) CWebUser::$data['username']));
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true] + $result)]));
 		}

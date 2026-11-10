@@ -147,78 +147,25 @@ const view = new class {
 		await this.loadDevices();
 	}
 
-	// "Run discovery ingest" (topology-1-model.md "UI", graph controls): starts POST topology.ingest.run, then polls
-	// topology.ingest.status until it's no longer "running". Deliberately not blocking anything else —
-	// no await on the poll loop from the caller, and every other control/handler stays untouched while
-	// this runs. this.ingest_polling guards against a second poll loop starting (e.g. a second click,
-	// or the on-load check below racing a user click) since the backend's own lock already means a
-	// second *run* would just be rejected/reflected as "running" — but two independent poll loops for
-	// the one run would still double up the eventual toast, which this avoids.
+	// "Run discovery ingest" (topology-1-model.md §6.1, FR-C O-7, V-21): the page only REQUESTS a run (POST topology.ingest.run); the scheduled CLI job executes it. The status shows
+	// the state: "Run requested" until a run takes the request, "Reconciliation in progress" while a run works, and "The reconciliation does not run. Check the scheduled CLI job."
+	// when the request waits for more than 5 minutes (`executor_missing`). this.ingest_polling guards against a second poll loop.
 	async runIngest() {
 		if (this.ingest_polling) {
 			return;
 		}
-		await this.startIngest();
-	}
-
-	// Starts a full ingest and follows it. Three things can go wrong, and each is reported instead of waited on:
-	//  - a run is already in progress: a second one would lose the run lock and exit, and the running one may have
-	//    read the data before the change that made the caller ask (a deleted manual link), so this waits for it to
-	//    finish and then starts its own;
-	//  - the run cannot be spawned (the backend says so);
-	//  - the spawn "succeeds" but no run ever shows up in topology.ingest.status (a failed launch leaves no trace
-	//    but an unchanged status): after a timeout the caller gets an error instead of a wait that never ends.
-	async startIngest() {
-		const timeout_error = <?= json_encode(_('The discovery ingest did not start (nothing new in the ingest status after 10 seconds). Check that the web server can run php and write to the temporary directory.')) ?>;
-		let status = await this.request('topology.ingest.status');
-		if (status.status === 'running') {
-			this.ingest_status_element.textContent = <?= json_encode(_('Waiting for the running ingest…')) ?>;
-			const deadline = Date.now() + 120000;
-			while (status.status === 'running') {
-				if (Date.now() > deadline) {
-					this.ingest_status_element.textContent = '';
-					throw new Error(<?= json_encode(_('An ingest has been running for more than two minutes; try again when it is finished.')) ?>);
-				}
-				await new Promise(resolve => setTimeout(resolve, 1000));
-				status = await this.request('topology.ingest.status');
-			}
-			this.ingest_status_element.textContent = '';
-		}
-		const previous_run = status.run_id ?? status.started_at;
 		await this.request('topology.ingest.run', {
 			method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
 		});
-		let started = false;
-		for (let attempt = 0; attempt < 34 && !started; attempt++) {
-			await new Promise(resolve => setTimeout(resolve, 300));
-			status = await this.request('topology.ingest.status');
-			started = status.status === 'running' || (status.run_id ?? status.started_at) !== previous_run;
-		}
-		if (!started) {
-			throw new Error(timeout_error);
-		}
-		// Polling topology.ingest.status reflects ground truth from here on.
+		this.requested_here = true;
 		this.pollIngestStatus();
 	}
 
-	// Waits for the run the server started after "Accept discovery" and reloads the picture. The status of an ordinary user has no run id, only the
-	// state: a short pause lets the run appear, then the page waits while it runs.
-	async waitSystemIngest(started) {
-		if (started === 'failed') {
-			throw new Error(<?= json_encode(_('The manual link was deleted, but the ingest could not be started. A Super admin can run it.')) ?>);
-		}
-		if (started === 'busy') {
-			throw new Error(<?= json_encode(_('The manual link was deleted, but another ingest was still running: run the ingest again later.')) ?>);
-		}
-		this.ingest_status_element.textContent = <?= json_encode(_('Ingest running…')) ?>;
-		await new Promise(resolve => setTimeout(resolve, 1500));
-		const deadline = Date.now() + 120000;
-		let status = await this.request('topology.ingest.status');
-		while (status.status === 'running' && Date.now() < deadline) {
-			await new Promise(resolve => setTimeout(resolve, 1000));
-			status = await this.request('topology.ingest.status');
-		}
-		this.ingest_status_element.textContent = '';
+	// "Accept discovery" records a request too (no run in the web request): the change applies at the next run, and the page says so.
+	async waitSystemIngest(answer) {
+		this.requested_here = true;
+		alert(answer?.message ?? <?= json_encode(_('The change applies at the next run of the reconciliation.')) ?>);
+		this.pollIngestStatus();
 		await this.loadDevices();
 	}
 
@@ -239,10 +186,20 @@ const view = new class {
 				return;
 			}
 
-			if (status.status === 'running') {
+			if (status.running || status.status === 'running') {
 				this.ingest_polling = true;
-				this.ingest_status_element.textContent = <?= json_encode(_('Ingest running…')) ?>;
+				this.requested_here = true;
+				this.ingest_status_element.textContent = <?= json_encode(_('Reconciliation in progress')) ?>;
 				setTimeout(poll, 2000);
+				return;
+			}
+
+			if (status.requested) {
+				this.ingest_polling = true;
+				this.ingest_status_element.textContent = status.executor_missing
+					? <?= json_encode(_('The reconciliation does not run. Check the scheduled CLI job.')) ?>
+					: <?= json_encode(_('Run requested')) ?>;
+				setTimeout(poll, status.executor_missing ? 15000 : 3000);
 				return;
 			}
 
@@ -261,6 +218,7 @@ const view = new class {
 			if (!was_polling && ignore_idle) {
 				return;
 			}
+			this.requested_here = false;
 
 			if (status.status === 'done') {
 				const summary = status.summary ?? {};
@@ -516,7 +474,7 @@ const view = new class {
 			const answer = await post('topology.manual.accept', {edge_id});
 			// The discovered link is decided by a full ingest from the stored snapshots (a superseded one is revived): the server starts it as the
 			// system process after the delete (and after any run already in progress); this page only waits for it and reloads.
-			await this.waitSystemIngest(answer.ingest);
+			await this.waitSystemIngest(answer);
 		}
 	}
 

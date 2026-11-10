@@ -20,7 +20,7 @@ class CControllerTopologyDevicesMerge extends CController {
 
 	protected function doAction() {
 		try {
-			$result = CTopologyPrototype::mergeDevices($this->getInput('keep_id'), $this->getInput('remove_id'), (string) CWebUser::$data['username']);
+			$result = CTopologyRun::guard(fn () => CTopologyPrototype::mergeDevices($this->getInput('keep_id'), $this->getInput('remove_id'), (string) CWebUser::$data['username']));
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true] + $result)]));
 		}

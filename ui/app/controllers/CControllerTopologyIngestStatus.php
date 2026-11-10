@@ -14,14 +14,20 @@ class CControllerTopologyIngestStatus extends CController {
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
 
 	protected function doAction() {
-		// the status file is the one of ingest.php (sys_get_temp_dir(), not the git-tracked discovery/ directory: see the constant INGEST_STATUS_FILE there)
-		$status = CTopologyRunSummary::read();
+		// the run row (model §6.1): written by the run, whatever its temporary directory
+		$status = CTopologyRun::status();
+		$state = CTopologyRun::state();
 
 		// The run summary (counts and lists of the whole installation) is for Super admin only (topology-5-access-control.md §3.10);
 		// everyone else gets the state of the run and nothing else.
 		if (CWebUser::getType() != USER_TYPE_SUPER_ADMIN) {
 			$status = ['status' => $status['status'] ?? 'idle'];
 		}
+		// the request and the lock (FR-C V-21): a request waits, a run works, a requested run does not start within 5 minutes
+		$status['requested_at'] = $state['requested_at'] ?: null;
+		$status['requested'] = $state['requested'];
+		$status['running'] = $state['locked'] && ($status['status'] ?? '') === 'running';
+		$status['executor_missing'] = $state['executor_missing'];
 
 		// done / done_with_warnings / failed (model §12.7): the list "Needs attention" of a finished run is in its summary
 		$status['result'] = CTopologyRunSummary::result($status['status'] ?? null, is_array($status['summary'] ?? null) ? $status['summary'] : null);

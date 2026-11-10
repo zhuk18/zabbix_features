@@ -113,3 +113,23 @@ CREATE TABLE IF NOT EXISTS topo_identity_keys (
 	KEY topo_identity_keys_1 (`key`),
 	CONSTRAINT topo_identity_keys_1 FOREIGN KEY (device_id) REFERENCES topo_nodes (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+-- topo_run: the run row (topology-1-model.md §6.1, 2.65, task 087). One row (id 1). The run lock: a run or an operator write action takes it with one conditional UPDATE
+-- (`owner` = '' or `heartbeat` older than the timeout) and updates `heartbeat` while it works. `requested_at` > 0: a run is requested and no run has taken the request.
+-- `status`, `started_at`, `finished_at`, `started_by`, `run_id`, `error`, `summary` are the last run (the source of GET /topo/ingest/status); `summary` is the run summary of §6.11 as JSON.
+CREATE TABLE IF NOT EXISTS topo_run (
+	id TINYINT UNSIGNED NOT NULL,
+	status VARCHAR(16) NOT NULL DEFAULT 'idle',
+	owner VARCHAR(190) NOT NULL DEFAULT '',
+	heartbeat INT UNSIGNED NOT NULL DEFAULT 0,
+	requested_at INT UNSIGNED NOT NULL DEFAULT 0,
+	requested_by VARCHAR(100) NOT NULL DEFAULT '',
+	started_at INT UNSIGNED NOT NULL DEFAULT 0,
+	finished_at INT UNSIGNED NOT NULL DEFAULT 0,
+	started_by VARCHAR(100) NOT NULL DEFAULT '',
+	run_id VARCHAR(32) NOT NULL DEFAULT '',
+	error TEXT NULL,
+	summary LONGTEXT NULL,
+	PRIMARY KEY (id)
+) ENGINE=InnoDB;
+INSERT IGNORE INTO topo_run (id) VALUES (1);

@@ -19,7 +19,7 @@ class CControllerTopologyDevicesMergeGroup extends CController {
 	protected function doAction() {
 		try {
 			$ids = array_filter((array) $this->getInput('remove_ids'), static fn ($id): bool => is_string($id) || is_int($id));
-			$result = CTopologyPrototype::mergeGroup((string) $this->getInput('keep_id'), array_map('strval', $ids), (string) CWebUser::$data['username']);
+			$result = CTopologyRun::guard(fn () => CTopologyPrototype::mergeGroup((string) $this->getInput('keep_id'), array_map('strval', $ids), (string) CWebUser::$data['username']));
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true] + $result)]));
 		}
 		catch (Exception $exception) {

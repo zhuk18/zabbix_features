@@ -21,7 +21,7 @@ class CControllerTopologyManualRevoke extends CController {
 
 	protected function doAction() {
 		try {
-			CTopologyPrototype::revokeAcknowledgment($this->getInput('edge_id'), $this->getInput('device_id'));
+			CTopologyRun::guard(fn () => CTopologyPrototype::revokeAcknowledgment($this->getInput('edge_id'), $this->getInput('device_id')));
 
 			$this->setResponse(new CControllerResponseData(['main_block' => json_encode(['success' => true])]));
 		}
