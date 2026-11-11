@@ -487,6 +487,7 @@ class IngestFarPort {
 			return $authoritative[$device_id];
 		};
 		foreach ($candidates as &$candidate) {
+			ingest_tick('far port');
 			$candidate['level'] = 'port';
 			$candidate['far_port_reason'] = null;
 			$candidate['remote_port_id'] = null;
@@ -513,6 +514,7 @@ class IngestFarPort {
 		// topology-1-model.md "Port-level or device-level" (port_shared_id): the same far port id advertised on two or more local ports of one reporter names the device, not a port.
 		$by_id = [];
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick('far port');
 			if (!in_array($candidate['level'], ['device', 'pending'], true)
 					|| $candidate['far_port_reason'] === 'port_shared_id' || $candidate['rem_port'] === '') {
 				continue;
@@ -555,6 +557,7 @@ class IngestFarPort {
 
 		// The remaining far Devices have no authoritative ports: the advertisement is the only description of their port.
 		foreach ($candidates as &$candidate) {
+			ingest_tick('far port');
 			if ($candidate['level'] !== 'pending') {
 				continue;
 			}

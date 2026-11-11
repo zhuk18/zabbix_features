@@ -27,6 +27,7 @@ class CTopologyRunSummary {
 	public const ATTENTION_PORTS_WITHOUT_ITEMS = 'hosts_ports_without_items';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
+	public const ATTENTION_PORTS_DISAGREE = 'hosts_ports_disagree';
 
 	/**
 	 * done / done with warnings / failed of a finished run (the list "Needs attention" is not empty: warnings); idle and running as the status file says.
@@ -107,6 +108,10 @@ class CTopologyRunSummary {
 		// 2.65 (model §6.7.7): a reporter port with more neighbors than the limit
 		foreach ($summary['ports_neighbor_limit'] ?? [] as $limited) {
 			$list[] = $entry(self::ATTENTION_PORT_LIMIT, 'port '.$limited['local_port_ref'].': '.$limited['neighbors'].' neighbors', 1, (int) $limited['hostid'], (string) ($limited['host'] ?? ''));
+		}
+		// 2.69 (model §6.6): the two PORTS snapshots of a host disagree and none is newer
+		foreach ($summary['hosts_ports_disagree']['list'] ?? [] as $host) {
+			$list[] = $entry(self::ATTENTION_PORTS_DISAGREE, 'hosts_ports_disagree', 1, (int) $host['hostid'], (string) $host['host']);
 		}
 		foreach ($summary['hosts_ports_without_items']['list'] ?? [] as $host) {
 			$list[] = $entry(self::ATTENTION_PORTS_WITHOUT_ITEMS, 'hosts_ports_without_items', 1, (int) $host['hostid'], (string) $host['host']);

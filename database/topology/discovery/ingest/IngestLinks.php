@@ -222,6 +222,7 @@ class IngestLinks {
 			$link_by_key[$key] = $id;
 		};
 		foreach ($rows as $edge) {
+			ingest_tick('resolve: links');
 			$register_link($edge);
 		}
 		$is_active_discovered = static fn (array $link): bool => !$link['manual'] && $link['superseded_at'] === null;
@@ -259,6 +260,7 @@ class IngestLinks {
 		$device_cands = [];    // local port => [candidate index] of the device-level candidates
 		$limit_on = [];        // local port => [candidate index] of the rows `port_limit` (2.66, §6.7.7)
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick('resolve: links');
 			if ($candidate['pre_outcome'] === 'port_limit' && $candidate['local_port_id'] !== null) {
 				// 2.66 (§8.5): a row `port_limit` counts as a Device of its own, as an `ambiguous` row: with it the port has several neighbors
 				$limit_on[$candidate['local_port_id']][] = $i;
@@ -281,6 +283,7 @@ class IngestLinks {
 			}
 		}
 		foreach ($links as $link) {
+			ingest_tick('resolve: links');
 			if ($link['type'] !== 'physical_link') {
 				continue;
 			}
@@ -337,6 +340,7 @@ class IngestLinks {
 			sort($ports);
 			// topology-1-model.md "Legacy cleanup": an active discovered link that shares a port with a manual link: manual wins.
 			foreach ($ports as $port) {
+				ingest_tick('resolve: legacy');
 				$has_manual = false;
 				foreach ($by_port[$port] as $lid) {
 					$has_manual = $has_manual || $links[$lid]['manual'];
@@ -349,6 +353,7 @@ class IngestLinks {
 				}
 			}
 			foreach ($ports as $port) {
+				ingest_tick('resolve: legacy');
 				$active = $active_on($port);
 				if (count($active) < 2) {
 					continue;

@@ -68,7 +68,7 @@ class IngestSelf {
 				$summary['snapshots_old'][] = ['hostid' => $hostid, 'itemid' => (int) $row['itemid'], 'clock' => (int) $row['clock']];
 			}
 			$reporters[$hostid]['snapshots'][(int) $row['topology_type']][] = ['itemid' => (int) $row['itemid'],
-				'clock' => (int) $row['clock'], 'rows' => $normalized, 'old' => $old, 'rows_hash' => (string) $row['rows_hash']];
+				'clock' => (int) $row['clock'], 'rows' => $normalized, 'old' => $old, 'rows_hash' => (string) $row['rows_hash'], 'trapper' => (int) $row['rule_type'] === 2];
 			// ITEM_TYPE_TRAPPER = 2; every other rule type (SNMP agent, dependent on an SNMP walk, ...) is the LLD transport.
 			// The same data from two transports is what is reported: the same topology type and, for NEIGHBORS, the same protocol
 			// (the row's source, 'lldp' when absent). LLDP by SNMP and CDP by push is not a duplicate. An empty snapshot
@@ -299,8 +299,18 @@ class IngestSelf {
 				$summary['hosts_ports_without_items']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
 			}
 		}
-		$this->followNames((int) $device_id, $snapshots[TOPO_TYPE_PORTS] ?? []);
-		foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
+		// model §6.6 "Two PORTS rules of one host" (2.69): one list of port rows from the PORTS snapshots of the host; when two snapshots disagree and none is newer, the Ports do not change
+		$port_decision = $this->portSnapshots($snapshots[TOPO_TYPE_PORTS] ?? []);
+		if ($port_decision['unchanged']) {
+			$summary['hosts_ports_disagree']['count']++;
+			if (count($summary['hosts_ports_disagree']['list']) < 200) {
+				$summary['hosts_ports_disagree']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
+			}
+		}
+		else {
+			$this->followNames((int) $device_id, $port_decision['snapshots']);
+		}
+		foreach ($port_decision['unchanged'] ? [] : $port_decision['snapshots'] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$if_index = (int) $row['if_index'];
 				$overlay = ['if_index' => $if_index, 'pseudo' => false, 'zabbix_itemids' => $port_items[$if_index] ?? []];
@@ -339,7 +349,7 @@ class IngestSelf {
 		}
 
 		// A Device with real ports keeps no pseudo-Port made from an advertisement (see $convert_leftover_pseudo_ports).
-		if (!empty($snapshots[TOPO_TYPE_PORTS])) {
+		if (!empty($snapshots[TOPO_TYPE_PORTS]) && !$port_decision['unchanged']) {
 			$convert_leftover_pseudo_ports($device_id);
 		}
 
@@ -511,5 +521,91 @@ class IngestSelf {
 			$store->writeAttrs($id, $attrs, $ports[$id]);
 			$this->run->summary['ports_index_dropped']++;
 		}
+	}
+	/**
+	 * Model §6.6 "Two PORTS rules of one host" (2.69): the PORTS snapshots of one host as one list of port rows. The snapshots agree when each port name that both have has the same
+	 * `if_index` in both and each `if_index` that both have has the same name: then they are returned as they are (the rows join by if_index, as before). When they disagree, the newer
+	 * snapshot (its `clock`) gives the name, the `if_index` and the attrs of each of its rows; an attr that only an older snapshot has comes from its row with the same name and the same
+	 * `if_index`; a row of an older snapshot is used only when neither its name nor its `if_index` is in the newer one. With equal clocks, or when one of the rules is a trapper rule (its
+	 * clock is not from the same poller), there is no newer snapshot: `unchanged`, the Ports of the host do not change in this run.
+	 *
+	 * @return array  ['snapshots' => the snapshots to use, 'unchanged' => bool]
+	 */
+	public function portSnapshots(array $snapshots): array {
+		if (count($snapshots) < 2) {
+			return ['snapshots' => $snapshots, 'unchanged' => false];
+		}
+		$name_of = static fn (array $row): string => ($row['name'] ?? '') !== '' ? (string) $row['name'] : (string) ($row['descr'] ?? '');
+		$maps = [];      // per snapshot: name => if_index, if_index => name
+		foreach ($snapshots as $k => $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				$name = $name_of($row);
+				if ($name !== '') {
+					$maps[$k]['by_name'][$name] = (int) $row['if_index'];
+				}
+				$maps[$k]['by_index'][(int) $row['if_index']] = $name;
+			}
+		}
+		$agree = true;
+		foreach (array_keys($snapshots) as $a) {
+			foreach (array_keys($snapshots) as $b) {
+				if ($a >= $b) {
+					continue;
+				}
+				foreach ($maps[$a]['by_name'] ?? [] as $name => $index) {
+					if (isset($maps[$b]['by_name'][$name]) && $maps[$b]['by_name'][$name] !== $index) {
+						$agree = false;
+					}
+				}
+				foreach ($maps[$a]['by_index'] ?? [] as $index => $name) {
+					if (isset($maps[$b]['by_index'][$index]) && $name !== '' && $maps[$b]['by_index'][$index] !== '' && $maps[$b]['by_index'][$index] !== $name) {
+						$agree = false;
+					}
+				}
+			}
+		}
+		if ($agree) {
+			return ['snapshots' => $snapshots, 'unchanged' => false];
+		}
+		$ordered = array_values($snapshots);
+		usort($ordered, static fn (array $x, array $y): int => $y['clock'] <=> $x['clock']);
+		foreach ($ordered as $snapshot) {
+			if (!empty($snapshot['trapper'])) {
+				return ['snapshots' => $snapshots, 'unchanged' => true];
+			}
+		}
+		if ($ordered[0]['clock'] === $ordered[1]['clock']) {
+			return ['snapshots' => $snapshots, 'unchanged' => true];
+		}
+		$rows = $ordered[0]['rows'];
+		$names = [];
+		$indexes = [];
+		foreach ($rows as $row) {
+			$names[$name_of($row)] = true;
+			$indexes[(int) $row['if_index']] = true;
+		}
+		foreach (array_slice($ordered, 1) as $older) {
+			foreach ($older['rows'] as $row) {
+				$name = $name_of($row);
+				$index = (int) $row['if_index'];
+				if (!isset($names[$name]) && !isset($indexes[$index])) {
+					$rows[] = $row;      // neither its name nor its index is in the newer snapshot: kept from the older row
+					$names[$name] = true;
+					$indexes[$index] = true;
+					continue;
+				}
+				foreach ($rows as $n => $newer_row) {
+					if ((int) $newer_row['if_index'] === $index && $name_of($newer_row) === $name) {
+						foreach ($row as $key => $value) {
+							if ($key !== 'itemids' && (!array_key_exists($key, $newer_row) || $newer_row[$key] === '' || $newer_row[$key] === null)) {
+								$rows[$n][$key] = $value;      // an attr that only the older rule has
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return ['snapshots' => [['itemid' => $ordered[0]['itemid'], 'clock' => $ordered[0]['clock'], 'rows' => $rows, 'old' => false]], 'unchanged' => false];
 	}
 }

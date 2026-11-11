@@ -89,7 +89,8 @@ if ($summary !== null) {
 		CTopologyRunSummary::ATTENTION_ROWS_NO_IDENTITY => _('Rows without identity'),
 		CTopologyRunSummary::ATTENTION_PORTS_WITHOUT_ITEMS => _('Ports without items'),
 		CTopologyRunSummary::ATTENTION_SNAPSHOT_OLD => _('Old data'),
-		CTopologyRunSummary::ATTENTION_PORT_LIMIT => _('Too many neighbors')
+		CTopologyRunSummary::ATTENTION_PORT_LIMIT => _('Too many neighbors'),
+		CTopologyRunSummary::ATTENTION_PORTS_DISAGREE => _('PORTS rules disagree')
 	];
 	foreach ($summary['attention'] ?? [] as $line) {
 		$host = $line['host'] === null ? '' : (new CLink($line['host'], (new CUrl('zabbix.php'))

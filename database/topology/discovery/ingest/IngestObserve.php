@@ -201,7 +201,8 @@ class IngestObserve {
 		$sorted_rows = [];
 		// the reporter's ports from its PORTS snapshots (pass A): rows of several rules join by if_index, the first value of a field wins
 		$ports = [];
-		foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
+		$port_decision = $this->run->own->portSnapshots($snapshots[TOPO_TYPE_PORTS] ?? []);      // §6.6 (2.69): the same list of rows as the Ports of the host are made from
+		foreach ($port_decision['snapshots'] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$port = &$ports[(int) $row['if_index']];
 				$port ??= ['if_index' => (int) $row['if_index']];
