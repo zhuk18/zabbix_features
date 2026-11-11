@@ -160,5 +160,18 @@ $active = (int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$link['
 check(in_array($run['code'], [0, 3], true) && $active === 1, 'after the CLI run the discovered link is active again', [$run['code'], $active]);
 check((int) row($pdo)['requested_at'] === 0, 'the request is cleared');
 
+echo "\n=== 5. reporters with new data (task 088) ===\n";
+cli();
+$status = $admin->json('topology.ingest.status');
+check(($status['reporters_new_data'] ?? null) === 0, 'after a run and no change: reporters_new_data = 0', $status['reporters_new_data'] ?? null);
+check(is_int($status['summary']['stats']['heartbeat_gap_max_seconds'] ?? null), 'the summary of the run has stats.heartbeat_gap_max_seconds', $status['summary']['stats'] ?? null);
+$item = $pdo->query("SELECT s.itemid, s.rows_hash FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid AND i.status = 0 AND i.topology_type = s.topology_type ORDER BY s.itemid LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$pdo->prepare("UPDATE topo_lld_snapshot SET rows_hash = 'zz-changed' WHERE itemid = ?")->execute([$item['itemid']]);
+check(($admin->json('topology.ingest.status')['reporters_new_data'] ?? null) === 1, 'one rule\'s rows change: reporters_new_data = 1');
+check(str_contains($admin->request('zabbix.php?action=topology.view'), 'topology-run-info'), 'the page has the place of the note');
+$pdo->prepare('UPDATE topo_lld_snapshot SET rows_hash = ? WHERE itemid = ?')->execute([$item['rows_hash'], $item['itemid']]);
+cli();
+check(($admin->json('topology.ingest.status')['reporters_new_data'] ?? null) === 0, 'the data restored and a run: 0 again');
+
 echo $failed ? "\n{$failed} check(s) FAILED\n" : "\nAll run row checks passed.\n";
 exit($failed ? 1 : 0);
