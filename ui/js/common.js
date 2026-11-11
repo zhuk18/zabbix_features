@@ -340,6 +340,9 @@ function PopUp(action, parameters, {
 						}
 					]
 				});
+
+				// Display the close button after the screen reader announces the dialog title.
+				overlay.$dialogue.$close_btn.show();
 			}
 			else {
 				var buttons = resp.buttons !== null ? resp.buttons : [];
@@ -431,6 +434,9 @@ function PopUp(action, parameters, {
 						}
 					]
 				});
+
+				// Display the close button after the screen reader announces the dialog title.
+				overlay.$dialogue.$close_btn.show();
 
 				overlay.recoverFocus();
 				overlay.containFocus();
