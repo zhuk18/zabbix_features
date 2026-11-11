@@ -1,0 +1,113 @@
+id: S12
+title: ifIndex changes of a reporter (model §6.6, task 086)
+base: lab.yaml
+# A reporter R that has monitored neighbors on two ports (A on Gi0/1, B on Gi0/2: they report R's ports by name, and R reports theirs) and one unmonitored neighbor (N on Gi0/3).
+# Step 1: R:Gi0/1 gets an ifIndex that was not used before (11); step 2: R:Gi0/1 and R:Gi0/2 exchange their ifIndex values (2 and 1). Names stay (deviation ifindex_renumber with `map`).
+# Expected (§6.6 "A port follows its name"): the Ports of R keep their ids, the links of R and of its neighbors stay port-level (type physical_link, same edge id), no `port_shared_id`,
+# no `precision_lower`, the port items follow the rows. The assertions of the runner cover the links, the edge ids and `precision_lower`; the Port ids, `zabbix_itemids` and
+# `far_port_reason` have no assertion in the spec (lab spec §8.3) and are `pending`; the report of the task checks them in the database after each step.
+patch:
+  settings: {emit_subtypes: true, emit_loc_port_table: true}
+  devices:
+    R:
+      ip: 192.0.2.173
+      chassis: {subtype: mac, value: "00:11:22:33:44:f0"}
+      port_mac_prefix: "02:00:00:10"
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    A:
+      ip: 192.0.2.174
+      chassis: {subtype: mac, value: "00:11:22:33:44:f1"}
+      port_mac_prefix: "02:00:00:11"
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    B:
+      ip: 192.0.2.175
+      chassis: {subtype: mac, value: "00:11:22:33:44:f2"}
+      port_mac_prefix: "02:00:00:12"
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    N:
+      chassis: {subtype: mac, value: "00:11:22:33:44:f3"}
+      ports: [{ifindex: 1, name: eth0}]
+      zabbix: {monitored: false}
+  cables:
+    add:
+      - [R:Gi0/1, A:Gi0/1]
+      - [R:Gi0/2, B:Gi0/1]
+      - [R:Gi0/3, N:eth0]
+  deviations:
+    - id: r-gi01-new-index
+      reason: "model §6.6 A port follows its name: Gi0/1 gets an ifIndex that was not used before"
+      type: ifindex_renumber
+      device: R
+      map: {Gi0/1: 11}
+    - id: r-gi01-gi02-exchange
+      reason: "model §6.6 A port follows its name: two ports exchange their ifIndex values"
+      type: ifindex_renumber
+      device: R
+      map: {Gi0/1: 2, Gi0/2: 1}
+steps:
+  - id: 0
+    note: baseline
+    assert:
+      - link: [R:Gi0/1, A:Gi0/1]
+        state: active
+        type: physical_link
+      - link: [R:Gi0/2, B:Gi0/1]
+        state: active
+        type: physical_link
+      - link: [R:Gi0/3, N:eth0]
+        state: active
+        type: physical_link
+      - observation: {reporter: A, port: Gi0/1, remote: R}
+        outcome: applied
+        precision_lower: false
+  - id: 1
+    note: R:Gi0/1 has the ifIndex 11 (not used before); names stay
+    poll_all: true
+    deviations: {enable: [r-gi01-new-index]}
+    assert:
+      - link: [R:Gi0/1, A:Gi0/1]
+        state: active
+        type: physical_link
+      - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/2, B:Gi0/1]}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/3, N:eth0]}
+      - observation: {reporter: A, port: Gi0/1, remote: R}
+        outcome: applied
+        precision_lower: false
+      - observation: {reporter: R, port: Gi0/1, remote: A}
+        outcome: applied
+        precision_lower: false
+      - status: {field: observations.ambiguous, equals: 0}
+      - pending: "Port ids unchanged, zabbix_itemids follow the rows, no port_shared_id (far_port_reason empty): no assertion in lab spec §8.3; checked in the database by the report of task 088"
+  - id: 2
+    note: R:Gi0/1 and R:Gi0/2 exchange their ifIndex values (2 and 1); names stay
+    poll_all: true
+    deviations: {disable: [r-gi01-new-index], enable: [r-gi01-gi02-exchange]}
+    assert:
+      - link: [R:Gi0/1, A:Gi0/1]
+        state: active
+        type: physical_link
+      - link: [R:Gi0/2, B:Gi0/1]
+        state: active
+        type: physical_link
+      - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/2, B:Gi0/1]}
+      - observation: {reporter: A, port: Gi0/1, remote: R}
+        outcome: applied
+        precision_lower: false
+      - observation: {reporter: B, port: Gi0/1, remote: R}
+        outcome: applied
+        precision_lower: false
+      - status: {field: observations.ambiguous, equals: 0}
+      - pending: "Port ids unchanged, zabbix_itemids follow the rows, no port_shared_id: as in step 1"

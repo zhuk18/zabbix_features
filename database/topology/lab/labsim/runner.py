@@ -646,8 +646,13 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             # The standard interface discovery rule (topology type PORTS, model §3.2): the item ids of the ports. Once, at step 0 (a --reset clears the snapshots),
             # all rules at the same time with a wait of their own: a rule that is slow must not eat the time of the step. A rule that does not answer is
             # only reported; the scenarios do not assert item ids.
-            if i == 0:
-                ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc')}
+            # Task 088 (model §6.6): a step that turns an `ifindex_renumber` deviation on or off changes the ifIndex values of that device, and the standard interface discovery rule
+            # (it carries the item ids of the ports) is polled too, as a real one would rediscover them; else its old snapshot keeps the old indexes next to the new ones.
+            before_active = scenario.states[i - 1].active if i else set()
+            renumbered = {scenario.states[i].deviations[dev_id]['device'] for dev_id in (scenario.states[i].active ^ before_active)
+                          if scenario.states[i].deviations[dev_id]['type'] == 'ifindex_renumber'}
+            if i == 0 or renumbered:
+                ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc') and (i == 0 or dev in renumbered)}
                 if ifdisc:
                     # The rule keeps "Discard unchanged with heartbeat" (FR-B D-23): an unchanged value is not stored again, so a rule that has a snapshot (--reset
                     # keeps those of the standard interface discovery) usually gives no new clock; it gets a short wait for a changed value (ports a scenario adds),
