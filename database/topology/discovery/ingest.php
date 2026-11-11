@@ -76,14 +76,23 @@ $lock_pdo = null;
 $run_owner = null;
 $last_heartbeat = 0;
 
-/** The heartbeat of the run (§6.1), at most every TOPOLOGY_RUN_HEARTBEAT_EVERY seconds; a run whose lock was taken by another (the timeout passed) stops. */
-function ingest_tick(): void {
-	global $lock_pdo, $run_owner, $last_heartbeat;
+/** The longest time between two heartbeat updates of this run (the take of the lock and the final status count as updates), and the step whose tick closed it (§6.1 "Heartbeat gap"). */
+$heartbeat_gap_max = 0;
+$heartbeat_gap_step = '';
+
+/** The heartbeat of the run (§6.1), at most every TOPOLOGY_RUN_HEARTBEAT_EVERY seconds; a run whose lock was taken by another (the timeout passed) stops. $step names the place of the tick. */
+function ingest_tick(string $step = ''): void {
+	global $lock_pdo, $run_owner, $last_heartbeat, $heartbeat_gap_max, $heartbeat_gap_step;
 
 	if ($run_owner === null || time() - $last_heartbeat < TOPOLOGY_RUN_HEARTBEAT_EVERY) {
 		return;
 	}
-	$last_heartbeat = time();
+	$now = time();
+	if ($now - $last_heartbeat > $heartbeat_gap_max) {
+		$heartbeat_gap_max = $now - $last_heartbeat;
+		$heartbeat_gap_step = $step;
+	}
+	$last_heartbeat = $now;
 	if (!TopologyRunRow::heartbeat($lock_pdo, $run_owner, $last_heartbeat)) {
 		$run_owner = null;
 		fail('The run lock was taken by another run (the heartbeat timed out); this run stops.');
@@ -139,8 +148,14 @@ function finish_run(string $status, array $summary, ?string $error): void {
 		}
 	}
 	$summary['attention'] = CTopologyRunSummary::attention($summary, $rules);
+	// the final status is the last heartbeat update (§6.1 "Heartbeat gap")
+	global $last_heartbeat, $heartbeat_gap_max, $heartbeat_gap_step;
+	if (time() - $last_heartbeat > $heartbeat_gap_max) {
+		$heartbeat_gap_max = time() - $last_heartbeat;
+		$heartbeat_gap_step = 'final';
+	}
 	$summary['stats'] = ['seconds' => round(microtime(true) - INGEST_STARTED_FLOAT, 2), 'peak_memory_bytes' => memory_get_peak_usage(true), 'sql_queries' => IngestPDO::$queries,
-		'reporters' => $summary['reporters_processed'] ?? 0] + ($summary['snapshots_total'] ?? []);
+		'reporters' => $summary['reporters_processed'] ?? 0, 'heartbeat_gap_max_seconds' => $heartbeat_gap_max, 'heartbeat_gap_step' => $heartbeat_gap_step] + ($summary['snapshots_total'] ?? []);
 	$final = ['status' => $status, 'started_at' => $run_started_at, 'finished_at' => time(), 'summary' => $summary, 'error' => $error];
 	write_status($final);
 	$final['started_by'] = INGEST_STARTED_BY;
@@ -622,7 +637,7 @@ $note_failed_reporter = [$run->own, 'noteFailedReporter'];
 $reporter_own_of = [];
 $claimants = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
-	ingest_tick();
+	ingest_tick('reporters');
 	$reporter_own_of[$hostid] = $reporter_own($reporter);
 	if ($reporter_own_of[$hostid]['skip'] !== null) {
 		continue;
@@ -641,7 +656,7 @@ foreach ($claimants as $claimed_key => $hosts) {
 // result does not depend on the order of the reporters.
 $key_shared_hosts = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
-	ingest_tick();
+	ingest_tick('reporters');
 	$own = $reporter_own_of[$hostid];
 	if ($own['skip'] !== null || $own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
 		continue;
@@ -661,7 +676,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 $identified = [];
 $reporter_seen = [];          // hostid of a reporter => newest clock of its usable snapshots (§8.7)
 foreach ($snapshot_reporters as $hostid => $reporter) {
-	ingest_tick();
+	ingest_tick('reporters');
 	echo "--- {$reporter['host']} (LLD snapshots) ---\n";
 	try {
 		$pdo->beginTransaction();
@@ -693,7 +708,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 }
 // the SNMP interface addresses of the reporters (§6.7.1: a claim without a chassis finds the Device of the one reporter that has its address in the segment)
 foreach ($identified as $hostid => $result) {
-	ingest_tick();
+	ingest_tick('pass A');
 	$own = $reporter_own_of[$hostid];
 	$reporter_device_of[(int) $hostid] = (int) $result['device_id'];
 	if ($own['mgmt_ip'] !== null && ($text = CTopologyAddress::ipText((string) $own['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
@@ -727,7 +742,7 @@ foreach ($claimed_keys as $claimed_key => $hosts) {
 // reporter's own Device. A chassis that two reporters claim is `reporters_share_key`. Computed here for every reporter, so the next runs (which find the Device by
 // step 1) keep the candidate.
 foreach ($identified as $hostid => $result) {
-	ingest_tick();
+	ingest_tick('pass A');
 	$own = $reporter_own_of[$hostid];
 	$device = (int) $result['device_id'];
 	if ($own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
@@ -743,7 +758,7 @@ foreach ($identified as $hostid => $result) {
 }
 // ---- pass A, step 2: PORTS, LAG, LEARNED_MACS of every identified reporter ----
 foreach ($identified as $hostid => $result) {
-	ingest_tick();
+	ingest_tick('pass A');
 	$reporter = $snapshot_reporters[$hostid];
 	try {
 		$pdo->beginTransaction();
@@ -772,7 +787,7 @@ ksort($pass_b_reporters);
 $pass_b_failed = [];
 foreach ([0, 1, 2, 3] as $group) {
 	foreach ($pass_b_reporters as $hostid => $result) {
-		ingest_tick();
+		ingest_tick('pass B part '.$group);
 		if (isset($pass_b_failed[$hostid])) {
 			continue;
 		}
@@ -1028,4 +1043,37 @@ $summary['duplicate_candidates']['pairs'] = count($candidate_pairs_after);
 $summary['duplicate_candidates']['new'] = count(array_diff_key($candidate_pairs_after, $candidate_pairs_before));
 $summary['manual_links_contradicted'] = $count_contradicted_manual_links();
 $ok = $processed > 0 || $skipped === 0;
+// model §12.7 (2.67, task 088): the hashes of the snapshots this run read, for "reporters with new data". A run that fails writes nothing; a reporter with a failed step gets no rows; a full run
+// replaces all rows, a partial run the rows of its reporters.
+if ($ok && $phase_2_done) {
+	try {
+		$pdo->beginTransaction();
+		if ($zabbix_host_filter) {
+			if ($snapshot_reporters) {
+				$pdo->exec('DELETE FROM topo_run_input WHERE itemid IN (SELECT itemid FROM items WHERE hostid IN ('.implode(',', array_map('intval', array_keys($snapshot_reporters))).'))');
+			}
+		}
+		else {
+			$pdo->exec('DELETE FROM topo_run_input');
+		}
+		$insert_input = $pdo->prepare('INSERT INTO topo_run_input (itemid, rows_hash) VALUES (?, ?)');
+		foreach ($snapshot_reporters as $hostid => $reporter) {
+			if (isset($run->failed_hosts[(int) $hostid]) || isset($pass_b_failed[$hostid])) {
+				continue;
+			}
+			foreach ($reporter['snapshots'] as $by_type) {
+				foreach ($by_type as $snapshot) {
+					$insert_input->execute([(int) $snapshot['itemid'], $snapshot['rows_hash']]);
+				}
+			}
+		}
+		$pdo->commit();
+	}
+	catch (Throwable $exception) {
+		if ($pdo->inTransaction()) {
+			$pdo->rollBack();
+		}
+		fwrite(STDERR, 'WARNING: the hashes of the snapshots were not written (is the table topo_run_input there? mysql_migrate_run_input.sql): '.$exception->getMessage()."\n");
+	}
+}
 finish_run($ok ? 'done' : 'error', $summary, $ok ? null : "{$skipped} reporter(s) failed and none succeeded — see stderr/run log for details.");

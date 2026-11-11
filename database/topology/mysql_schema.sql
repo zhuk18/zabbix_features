@@ -133,3 +133,12 @@ CREATE TABLE IF NOT EXISTS topo_run (
 	PRIMARY KEY (id)
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO topo_run (id) VALUES (1);
+
+-- topo_run_input: the rows_hash of each snapshot that the last runs read (topology-1-model.md §12.7 "Behind the data", 2.67, task 088). A full run replaces all rows, a partial run the rows of
+-- its reporters, a failed run writes nothing, a reporter with a failed step gets no rows. GET /topo/ingest/status counts the hosts whose usable snapshot has another hash or no row.
+CREATE TABLE IF NOT EXISTS topo_run_input (
+	itemid BIGINT UNSIGNED NOT NULL,
+	rows_hash VARCHAR(64) NOT NULL DEFAULT '',
+	PRIMARY KEY (itemid),
+	CONSTRAINT topo_run_input_1 FOREIGN KEY (itemid) REFERENCES items (itemid) ON DELETE CASCADE
+) ENGINE=InnoDB;

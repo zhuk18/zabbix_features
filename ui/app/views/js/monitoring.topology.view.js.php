@@ -114,6 +114,7 @@ const view = new class {
 		new ResizeObserver(update_hint).observe(this.details);
 		hint.addEventListener('click', () => panel.scrollBy({top: panel.clientHeight * 0.8, behavior: 'smooth'}));
 		this.ingest_status_element = document.getElementById('topology-ingest-status');
+		this.run_info_element = document.getElementById('topology-run-info');
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
 		}));
@@ -132,6 +133,7 @@ const view = new class {
 		// A run may already be in progress from a previous page load (button click before a reload) or
 		// from the CLI — reflect that on load instead of only ever noticing it after this tab's own click.
 		this.pollIngestStatus({ignore_idle: true});
+		this.refreshRunInfo();
 		// Hostgroup / host+hops scope: read on "Apply", not on every multiselect change — a
 		// group multiselect can see several add/remove events in a row while the user is still
 		// picking, and firing a request per keystroke there would be wasteful.
@@ -169,6 +171,37 @@ const view = new class {
 		await this.loadDevices();
 	}
 
+	// FR-C V-21: the time of the last run, and "<N> reporters have new data since the last run" (only the time when N is 0). Read with the status, so it is polled with the three states of
+	// the run (every 2 or 3 seconds while a run works or waits) and every 30 seconds otherwise.
+	renderRunInfo(status) {
+		if (!this.run_info_element) {
+			return;
+		}
+		const parts = [];
+		const n = Number(status.reporters_new_data ?? 0);
+		if (n > 0) {
+			parts.push(<?= json_encode(_('%1$s reporters have new data since the last run')) ?>.replace('%1$s', String(n)));
+		}
+		if (status.finished_at) {
+			parts.push(<?= json_encode(_('Last run: %1$s')) ?>.replace('%1$s', new Date(status.finished_at * 1000).toLocaleString()));
+		}
+		this.run_info_element.textContent = parts.join(' — ');
+	}
+
+	async refreshRunInfo() {
+		try {
+			const status = await this.request('topology.ingest.status');
+			this.renderRunInfo(status);
+			if ((status.running || status.requested || status.status === 'running') && !this.ingest_polling) {
+				this.pollIngestStatus();
+			}
+		}
+		catch (error) {
+			// the next round tries again; a failed read of the note is not an error of the page
+		}
+		setTimeout(() => this.refreshRunInfo(), 30000);
+	}
+
 	async pollIngestStatus({ignore_idle = false} = {}) {
 		if (this.ingest_polling) {
 			return;
@@ -178,6 +211,7 @@ const view = new class {
 			let status;
 			try {
 				status = await this.request('topology.ingest.status');
+				this.renderRunInfo(status);
 			}
 			catch (error) {
 				this.ingest_polling = false;

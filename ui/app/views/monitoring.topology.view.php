@@ -120,6 +120,8 @@ $page_styles = '
 				]))->addClass('topology-header-field'),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
 				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
+				// FR-C V-21 / model §12.7: the time of the last run and "<N> reporters have new data since the last run"
+				(new CSpan(''))->setId('topology-run-info')->addClass('topology-ingest-status'),
 				// §12.7: the view of the last run (the run summary and the observation list), next to the button that starts a run
 				(new CLink(_('Last run'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun'))),
 				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --

@@ -19,7 +19,7 @@ class IngestSelf {
 		$snap_normalize_row = ['TopologyNormalize', 'row'];
 		$summary = &$this->run->summary;
 		$rows = $pdo->query(
-			'SELECT s.itemid, s.hostid, s.topology_type, s.clock, s.rows_json, i.topology_type AS rule_topology_type, i.type AS rule_type,'.
+			'SELECT s.itemid, s.hostid, s.topology_type, s.clock, s.rows_hash, s.rows_json, i.topology_type AS rule_topology_type, i.type AS rule_type,'.
 			' i.status AS rule_status, h.status AS host_status, h.host, h.name AS host_name'.
 			' FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid JOIN hosts h ON h.hostid = s.hostid'.
 			' ORDER BY s.hostid, s.topology_type, s.itemid')->fetchAll(PDO::FETCH_ASSOC);
@@ -68,7 +68,7 @@ class IngestSelf {
 				$summary['snapshots_old'][] = ['hostid' => $hostid, 'itemid' => (int) $row['itemid'], 'clock' => (int) $row['clock']];
 			}
 			$reporters[$hostid]['snapshots'][(int) $row['topology_type']][] = ['itemid' => (int) $row['itemid'],
-				'clock' => (int) $row['clock'], 'rows' => $normalized, 'old' => $old];
+				'clock' => (int) $row['clock'], 'rows' => $normalized, 'old' => $old, 'rows_hash' => (string) $row['rows_hash']];
 			// ITEM_TYPE_TRAPPER = 2; every other rule type (SNMP agent, dependent on an SNMP walk, ...) is the LLD transport.
 			// The same data from two transports is what is reported: the same topology type and, for NEIGHBORS, the same protocol
 			// (the row's source, 'lldp' when absent). LLDP by SNMP and CDP by push is not a duplicate. An empty snapshot

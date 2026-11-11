@@ -137,6 +137,9 @@ class CTopologyRunSummary {
 				$outcomes[] = $outcome.' '.($summary['observations'][$outcome] ?? 0);
 			}
 			$lines[] = '  observations: '.implode(', ', $outcomes);
+			if (isset($summary['stats']['heartbeat_gap_max_seconds'])) {
+				$lines[] = '  heartbeat gap: '.$summary['stats']['heartbeat_gap_max_seconds'].' s'.(($summary['stats']['heartbeat_gap_step'] ?? '') !== '' ? ' (closed in: '.$summary['stats']['heartbeat_gap_step'].')' : '');
+			}
 			$attention = $summary['attention'] ?? [];
 			$lines[] = '  needs attention: '.($attention ? count($attention) : 'nothing');
 			foreach ($attention as $line) {

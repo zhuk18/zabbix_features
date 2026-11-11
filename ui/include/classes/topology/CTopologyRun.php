@@ -71,6 +71,22 @@ class CTopologyRun {
 	}
 
 	/**
+	 * The number of reporters with new data (model §12.7 "Behind the data", 2.67): the hosts with at least one usable snapshot (§6.2: an enabled rule of the current topology type on a
+	 * monitored host) whose `rows_hash` is not the hash that the last runs read (table topo_run_input), or that no run read. The hash, not `clock`: the clock changes at every poll.
+	 */
+	public static function reportersNewData(): int {
+		$row = DBfetch(DBselect(
+			'SELECT COUNT(DISTINCT s.hostid) AS cnt FROM topo_lld_snapshot s'.
+			' JOIN items i ON i.itemid=s.itemid AND i.status='.ITEM_STATUS_ACTIVE.' AND i.topology_type=s.topology_type'.
+			' JOIN hosts h ON h.hostid=s.hostid AND h.status='.HOST_STATUS_MONITORED.
+			' LEFT JOIN topo_run_input r ON r.itemid=s.itemid'.
+			' WHERE r.itemid IS NULL OR r.rows_hash<>s.rows_hash'
+		), false);
+
+		return (int) ($row['cnt'] ?? 0);
+	}
+
+	/**
 	 * Takes the run lock for a write action: waits up to TOPOLOGY_ACTION_WAIT seconds, then gives up. The lock is released by release() and, whatever happens to the request, at its end.
 	 */
 	public static function lock(): bool {

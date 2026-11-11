@@ -24,6 +24,10 @@ class CControllerTopologyIngestStatus extends CController {
 			$status = ['status' => $status['status'] ?? 'idle'];
 		}
 		// the request and the lock (FR-C V-21): a request waits, a run works, a requested run does not start within 5 minutes
+		// "<N> reporters have new data since the last run" (FR-C V-21): a count of the whole installation, for Super admin only like the run summary
+		if (CWebUser::getType() == USER_TYPE_SUPER_ADMIN) {
+			$status['reporters_new_data'] = CTopologyRun::reportersNewData();
+		}
 		$status['requested_at'] = $state['requested_at'] ?: null;
 		$status['requested'] = $state['requested'];
 		$status['running'] = $state['locked'] && ($status['status'] ?? '') === 'running';
