@@ -341,6 +341,34 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         ok = {l['id'] for l in was} & {l['id'] for l in now}
         return Result('edge_id_same_as', a, 'pass' if ok else 'fail',
                       '' if ok else 'edge ids differ: step %s %s, now %s' % (r['step'], sorted(l['id'] for l in was), sorted(l['id'] for l in now)))
+    if 'port' in a:
+        # lab spec 2.25 (8.3): a Port of a reporter: the Port id of an earlier step, the if_index, the item ids
+        device, name = a['port'].split(':', 1)
+
+        def one(st):
+            found = [p for p in st.get('port_nodes') or [] if p['device'] == device and p['name'] == name and not p['pseudo']]
+            return found[0] if len(found) == 1 else None
+
+        now = one(state)
+        if now is None:
+            return Result('port', a, 'fail', 'no single Port %s' % a['port'])
+        problems = []
+        if 'same_id_as_step' in a:
+            prev = one(history.get(a['same_id_as_step']) or {})
+            if prev is None or prev['id'] != now['id']:
+                problems.append('Port id %s, step %s had %s' % (now['id'], a['same_id_as_step'], prev and prev['id']))
+        if 'if_index' in a and now['if_index'] != a['if_index']:
+            problems.append('if_index %s, expected %s' % (now['if_index'], a['if_index']))
+        if 'itemids' in a and now['itemids'] != a['itemids']:
+            problems.append('itemids %s, expected %s' % (now['itemids'], a['itemids']))
+        if 'itemids_same_as' in a:
+            r = a['itemids_same_as']
+            other_device, other_name = r['port'].split(':', 1)
+            prev_state = history.get(r['step']) or {}
+            prev = [p for p in prev_state.get('port_nodes') or [] if p['device'] == other_device and p['name'] == other_name and not p['pseudo']]
+            if len(prev) != 1 or sorted(prev[0]['itemids']) != sorted(now['itemids']) or not now['itemids']:
+                problems.append('itemids %s, step %s had %s for %s' % (now['itemids'], r['step'], prev and prev[0]['itemids'], r['port']))
+        return Result('port', a, 'fail' if problems else 'pass', '; '.join(problems))
     if 'device_count' in a:
         r = a['device_count']
         n = len(device_ids(state, r['key']))
@@ -646,13 +674,8 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             # The standard interface discovery rule (topology type PORTS, model §3.2): the item ids of the ports. Once, at step 0 (a --reset clears the snapshots),
             # all rules at the same time with a wait of their own: a rule that is slow must not eat the time of the step. A rule that does not answer is
             # only reported; the scenarios do not assert item ids.
-            # Task 088 (model §6.6): a step that turns an `ifindex_renumber` deviation on or off changes the ifIndex values of that device, and the standard interface discovery rule
-            # (it carries the item ids of the ports) is polled too, as a real one would rediscover them; else its old snapshot keeps the old indexes next to the new ones.
-            before_active = scenario.states[i - 1].active if i else set()
-            renumbered = {scenario.states[i].deviations[dev_id]['device'] for dev_id in (scenario.states[i].active ^ before_active)
-                          if scenario.states[i].deviations[dev_id]['type'] == 'ifindex_renumber'}
-            if i == 0 or renumbered:
-                ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc') and (i == 0 or dev in renumbered)}
+            if i == 0:
+                ifdisc = {ms[dev]['ifdisc']['itemid']: dev for dev in sorted(polled) if ms[dev].get('ifdisc')}
                 if ifdisc:
                     # The rule keeps "Discard unchanged with heartbeat" (FR-B D-23): an unchanged value is not stored again, so a rule that has a snapshot (--reset
                     # keeps those of the standard interface discovery) usually gives no new clock; it gets a short wait for a changed value (ports a scenario adds),
@@ -737,6 +760,23 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                         sr.setdefault('failure_seen', {})[dev] = it['error'] or iface['error'] or \
                             ('interface errors_from=%s available=%s' % (iface['errors_from'], iface['available']))
                 time.sleep(1)
+            # Lab spec 2.25 (task 089): `poll_interface_discovery: [<device>, ...]` polls the standard interface discovery rule (the one with the port items) of these devices, after the master
+            # items of the step. Without the key the rule is polled only at step 0: after an ifIndex change the two PORTS rules show the time between their polls.
+            wanted_ifdisc = {ms[d]['ifdisc']['itemid']: d for d in step.get('poll_interface_discovery') or [] if (ms.get(d) or {}).get('ifdisc')}
+            for d in step.get('poll_interface_discovery') or []:
+                if not (ms.get(d) or {}).get('ifdisc'):
+                    sr['errors'].append('poll_interface_discovery: %s has no interface discovery rule' % d)
+            if wanted_ifdisc:
+                time.sleep(max(0.0, last_clock + 1.05 - time.time()))
+                before = db.snapshot_clocks(conn)
+                zbx.check_now(api, list(wanted_ifdisc))
+                waited_for += ['%s interface discovery rule %s' % (d, r) for r, d in sorted(wanted_ifdisc.items())]
+                end = time.time() + wait_timeout
+                while time.time() < end and any(db.snapshot_clocks(conn).get(int(r), 0) <= before.get(int(r), 0) for r in wanted_ifdisc):
+                    time.sleep(1)
+                for r, d in sorted(wanted_ifdisc.items()):
+                    if db.snapshot_clocks(conn).get(int(r), 0) <= before.get(int(r), 0):
+                        pending['ifdisc %s' % r] = '%s interface discovery rule %s' % (d, r)
             if pending:
                 sr['errors'].append('timeout (%ss per master item) waiting for snapshots of: %s' % (int(wait_timeout), sorted(pending.values())))
             for dev in want_unsupported:

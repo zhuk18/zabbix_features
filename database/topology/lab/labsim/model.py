@@ -349,6 +349,7 @@ ASSERTION_FORMS = {
     'link_items': (set(), {'link'}),
     'link_load': (set(), {'link', 'percent', 'tolerance'}),
     'link_severity': (set(), {'link', 'present'}),
+    'port': ({'same_id_as_step', 'if_index', 'itemids_same_as', 'itemids'}, None),
     'device_count': (set(), {'key', 'equals'}),
     'candidate': (set(), {'key', 'reason', 'pairs'}),
     'matches_reference': (set(), None),
@@ -414,6 +415,9 @@ class Scenario:
                 raise LabError('scenario %s step %d: delay must be a number of seconds >= 0, got %r' % (self.id, i, step['delay']))
             if 'poll_all' in step and not isinstance(step['poll_all'], bool):
                 raise LabError('scenario %s step %d: poll_all is true or false, got %r' % (self.id, i, step['poll_all']))
+            pid = step.get('poll_interface_discovery')
+            if pid is not None and (not isinstance(pid, list) or not pid or not all(isinstance(x, str) for x in pid)):
+                raise LabError('scenario %s step %d: poll_interface_discovery is a non-empty list of device names, got %r' % (self.id, i, pid))
             operator_actions(self.id, i, step.get('operator'))
             for a in step.get('assert') or []:
                 validate_assertion(self.id, i, a)

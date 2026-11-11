@@ -142,10 +142,13 @@ def natural_state(conn):
                     'remote_key': o['remote_key'], 'outcome': o['outcome'], 'edge_id': o['edge_id'],
                     'link_precision': o['link_precision'], 'precision_lower': bool(o['precision_lower']),
                     'device': dev_name(nodes[o['device_id']]) if o['device_id'] in nodes else None, 'device_id': o['device_id']})
+    port_nodes = [{'device': dev_name(nodes[n['device_id']]), 'name': n['a'].get('name'), 'id': n['id'], 'if_index': n['a'].get('if_index'),
+                   'itemids': sorted(n['a'].get('zabbix_itemids') or []), 'pseudo': bool(n['a'].get('pseudo'))}
+                  for n in nodes.values() if n['type'] == 'port' and n['device_id'] in nodes]
     device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac'),
                      'candidates': [{'device_id': c.get('device_id'), 'reason': c.get('reason')} for c in n['a'].get('duplicate_candidates') or []]}
                     for n in nodes.values() if n['type'] == 'device']
-    return {'device_nodes': device_nodes, 'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}
+    return {'device_nodes': device_nodes, 'port_nodes': port_nodes, 'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}
 
 
 def comparable(state):

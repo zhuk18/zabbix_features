@@ -2,10 +2,10 @@ id: S12
 title: ifIndex changes of a reporter (model §6.6, task 086)
 base: lab.yaml
 # A reporter R that has monitored neighbors on two ports (A on Gi0/1, B on Gi0/2: they report R's ports by name, and R reports theirs) and one unmonitored neighbor (N on Gi0/3).
-# Step 1: R:Gi0/1 gets an ifIndex that was not used before (11); step 2: R:Gi0/1 and R:Gi0/2 exchange their ifIndex values (2 and 1). Names stay (deviation ifindex_renumber with `map`).
-# Expected (§6.6 "A port follows its name"): the Ports of R keep their ids, the links of R and of its neighbors stay port-level (type physical_link, same edge id), no `port_shared_id`,
-# no `precision_lower`, the port items follow the rows. The assertions of the runner cover the links, the edge ids and `precision_lower`; the Port ids, `zabbix_itemids` and
-# `far_port_reason` have no assertion in the spec (lab spec §8.3) and are `pending`; the report of the task checks them in the database after each step.
+# Lab spec §9 S12 (model 2.65, 2.69 §6.6, task 089). R has both PORTS rules (the topology template and the interface discovery with the port items). The interface discovery rule is polled
+# only at step 0 and in the steps with `poll_interface_discovery`: the time between the polls of the two rules is what the scenario shows.
+# Step 1: R:Gi0/1 gets 11 (an index not used before), the interface discovery rule is not polled. Step 2: the rule is polled. Step 3: Gi0/1 and Gi0/2 exchange their indexes (Gi0/1: 2, Gi0/2: 11),
+# not polled. Step 4: polled. Names stay (deviation ifindex_renumber with `map`). `poll_all: true` polls the core master items of every device in each step.
 patch:
   settings: {emit_subtypes: true, emit_loc_port_table: true}
   devices:
@@ -54,10 +54,11 @@ patch:
       reason: "model §6.6 A port follows its name: two ports exchange their ifIndex values"
       type: ifindex_renumber
       device: R
-      map: {Gi0/1: 2, Gi0/2: 1}
+      map: {Gi0/1: 2, Gi0/2: 11}
 steps:
   - id: 0
     note: baseline
+    poll_all: true
     assert:
       - link: [R:Gi0/1, A:Gi0/1]
         state: active
@@ -68,14 +69,23 @@ steps:
       - link: [R:Gi0/3, N:eth0]
         state: active
         type: physical_link
-      - observation: {reporter: A, port: Gi0/1, remote: R}
-        outcome: applied
-        precision_lower: false
+      - port: R:Gi0/1
+        if_index: 1
+      - port: R:Gi0/2
+        if_index: 2
   - id: 1
-    note: R:Gi0/1 has the ifIndex 11 (not used before); names stay
+    note: R:Gi0/1 has the ifIndex 11 (not used before); the interface discovery rule is not polled
     poll_all: true
     deviations: {enable: [r-gi01-new-index]}
     assert:
+      - port: R:Gi0/1
+        same_id_as_step: 0
+        if_index: 11
+        itemids: []
+      - port: R:Gi0/2
+        same_id_as_step: 0
+        if_index: 2
+        itemids_same_as: {step: 0, port: "R:Gi0/2"}
       - link: [R:Gi0/1, A:Gi0/1]
         state: active
         type: physical_link
@@ -88,17 +98,38 @@ steps:
       - observation: {reporter: R, port: Gi0/1, remote: A}
         outcome: applied
         precision_lower: false
+      - status: {field: ports_ambiguous, equals: 0}
       - status: {field: observations.ambiguous, equals: 0}
-      - pending: "Port ids unchanged, zabbix_itemids follow the rows, no port_shared_id (far_port_reason empty): no assertion in lab spec §8.3; checked in the database by the report of task 088"
   - id: 2
-    note: R:Gi0/1 and R:Gi0/2 exchange their ifIndex values (2 and 1); names stay
+    note: the interface discovery rule is polled
+    poll_all: true
+    poll_interface_discovery: [R]
+    assert:
+      - port: R:Gi0/1
+        same_id_as_step: 0
+        if_index: 11
+      - port: R:Gi0/2
+        same_id_as_step: 0
+      - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/2, B:Gi0/1]}
+      - observation: {reporter: A, port: Gi0/1, remote: R}
+        outcome: applied
+        precision_lower: false
+      - status: {field: ports_ambiguous, equals: 0}
+  - id: 3
+    note: R:Gi0/1 and R:Gi0/2 exchange their indexes (Gi0/1 2, Gi0/2 11); the interface discovery rule is not polled
     poll_all: true
     deviations: {disable: [r-gi01-new-index], enable: [r-gi01-gi02-exchange]}
     assert:
+      - port: R:Gi0/1
+        same_id_as_step: 0
+        if_index: 2
+        itemids_same_as: {step: 2, port: "R:Gi0/2"}
+      - port: R:Gi0/2
+        same_id_as_step: 0
+        if_index: 11
+        itemids_same_as: {step: 2, port: "R:Gi0/1"}
       - link: [R:Gi0/1, A:Gi0/1]
-        state: active
-        type: physical_link
-      - link: [R:Gi0/2, B:Gi0/1]
         state: active
         type: physical_link
       - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}
@@ -109,5 +140,20 @@ steps:
       - observation: {reporter: B, port: Gi0/1, remote: R}
         outcome: applied
         precision_lower: false
-      - status: {field: observations.ambiguous, equals: 0}
-      - pending: "Port ids unchanged, zabbix_itemids follow the rows, no port_shared_id: as in step 1"
+      - status: {field: ports_ambiguous, equals: 0}
+  - id: 4
+    note: the interface discovery rule is polled
+    poll_all: true
+    poll_interface_discovery: [R]
+    assert:
+      - port: R:Gi0/1
+        same_id_as_step: 0
+        if_index: 2
+        itemids_same_as: {step: 3, port: "R:Gi0/1"}
+      - port: R:Gi0/2
+        same_id_as_step: 0
+        if_index: 11
+        itemids_same_as: {step: 3, port: "R:Gi0/2"}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}
+      - edge_id_same_as: {step: 0, link: [R:Gi0/2, B:Gi0/1]}
+      - status: {field: ports_ambiguous, equals: 0}
