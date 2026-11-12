@@ -20,6 +20,8 @@
 	};
 	// the box of a node (shape and label) never gets closer than this to another box
 	const BOX_GAP = 8;
+	// the largest angle (radians) that a node of an outer ring may be from the mean angle of its inner neighbors (§12.1, 2.74): 60 degrees, about the half of the arc that five siblings fill
+	const DEVIATION = 60 * Math.PI / 180;
 
 	/** A rough width of a text in px when the page has no canvas (node tests): 0.6 of the font size per character. */
 	const approxMeasure = (text, font) => String(text).length * font * 0.6;
@@ -242,6 +244,69 @@
 		// false when the label of a LAG link of the node to an inner node has no free place on the line between the two boxes (the inner node is placed already)
 		const lag_room = node => lag_widths.get(node.id).every(({other, width}) => placeLabel(u => ({x: node.x + (other.x - node.x) * u, y: node.y + (other.y - node.y) * u}), width, [box_of(node), box_of(other)]).free);
 		const width_of = node => Math.max(node.box.w, node.box.h) + BOX_GAP;
+		/**
+		 * The angles of the ring `ring` (in its order along the circle) at radius `R`: as near as the boxes allow to the mean angle of the inner neighbors (the final angles of ring d - 1), so that
+		 * the sum of the squares of the differences is the least (the nodes keep their order, and two neighbors on the circle are the width of their boxes apart). The circle is cut at each place in
+		 * turn; the cut with the least sum is used. Returns the largest difference (radians) of a node from its wish, or null (nothing changed) when the nodes do not fit in the circle at that radius.
+		 */
+		const pullToInner = (ring, R, d, apply = true) => {
+			const TWO = 2 * Math.PI;
+			const n = ring.length;
+			const wishes = ring.map(node => desired(node, [d - 1]));
+			if (n < 2 || wishes.every(wish => wish === undefined)) {
+				return null;
+			}
+			const widths = ring.map(width_of);
+			const gap = (i, j) => ((widths[i] + widths[j]) / 2) / R;
+			const base = ring.map(node => node.angle);
+			let best = null;
+			for (let cut = 0; cut < n; cut++) {
+				const idx = Array.from({length: n}, (_, j) => (cut + j) % n);
+				const B = idx.map(i => base[i] + (i < cut ? TWO : 0));
+				const W = idx.map((i, j) => (wishes[i] === undefined ? B[j] : B[j] + Math.atan2(Math.sin(wishes[i] - B[j]), Math.cos(wishes[i] - B[j]))));
+				const weight = idx.map(i => (wishes[i] === undefined ? 0.001 : 1));
+				const c = [0];
+				for (let j = 1; j < n; j++) {
+					c.push(c[j - 1] + gap(idx[j - 1], idx[j]));
+				}
+				// the least squares with y nondecreasing: pool the adjacent blocks that are in the wrong order
+				const blocks = [];
+				W.forEach((w, j) => {
+					blocks.push({sum: (w - c[j]) * weight[j], weight: weight[j], count: 1});
+					while (blocks.length > 1) {
+						const last = blocks[blocks.length - 1];
+						const before = blocks[blocks.length - 2];
+						if (before.sum / before.weight <= last.sum / last.weight) {
+							break;
+						}
+						blocks.splice(blocks.length - 2, 2, {sum: before.sum + last.sum, weight: before.weight + last.weight, count: before.count + last.count});
+					}
+				});
+				const x = [];
+				blocks.forEach(block => {
+					for (let k = 0; k < block.count; k++) {
+						x.push(block.sum / block.weight + c[x.length]);
+					}
+				});
+				if (x[n - 1] - x[0] + gap(idx[n - 1], idx[0]) > TWO + 1e-9) {
+					continue;
+				}
+				const cost = x.reduce((sum, value, j) => sum + weight[j] * (value - W[j]) ** 2, 0);
+				if (best === null || cost < best.cost) {
+					best = {cost, idx, x, deviation: Math.max(...x.map((value, j) => (wishes[idx[j]] === undefined ? 0 : Math.abs(value - W[j]))))};
+				}
+			}
+			if (best === null) {
+				return null;
+			}
+			if (apply) {
+				best.idx.forEach((i, j) => {
+					ring[i].angle = best.x[j];
+				});
+			}
+
+			return best.deviation;
+		};
 		// the angle that a node wants: the circular mean of the angles of its neighbors on the given rings (undefined when none is placed yet)
 		const desired = (node, wanted_rings) => {
 			const near = adjacent.get(node.id).map(id => by_id.get(id)).filter(other => other.angle !== undefined && wanted_rings.includes(other.ring));
@@ -311,6 +376,26 @@
 			const need = ring.reduce((sum, node) => sum + width_of(node), 0);
 			const tallest = Math.max(...ring.map(node => node.box.h));
 			radius = Math.max(radius + tallest + 2 * BOX_GAP + 24, need / (2 * Math.PI));
+			// 2.74 §12.1: a node of this ring is placed in the angle of its inner neighbors (one neighbor: its angle; a cluster of siblings is centred on it), the others of the ring move
+			// away as little as they must. The ring grows (up to 2 times the smallest) until no node is more than DEVIATION from the angle of its inner neighbors; with no radius that
+			// does it, the one with the least deviation is used; and when the nodes do not fit in the circle at any radius, the even spread of the barycentre order stays.
+			if (d >= 2) {
+				const base_radius = radius;
+				let best = null;
+				for (let factor = 1; factor <= 2.0001; factor += 0.05) {
+					const deviation = pullToInner(ring, base_radius * factor, d, false);
+					if (deviation !== null && (best === null || deviation < best.deviation - 1e-9)) {
+						best = {factor, deviation};
+					}
+					if (deviation !== null && deviation <= DEVIATION) {
+						break;
+					}
+				}
+				if (best !== null) {
+					radius = base_radius * best.factor;
+					pullToInner(ring, radius, d, true);
+				}
+			}
 			const put = () => ring.forEach(node => {
 				node.x = center.x + radius * Math.cos(node.angle);
 				node.y = center.y + radius * Math.sin(node.angle);

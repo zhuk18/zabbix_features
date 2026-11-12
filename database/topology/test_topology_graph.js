@@ -301,4 +301,45 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 		{type: 'physical_link', edge_id: 2, source: 'A', target: 'B', source_lag_id: '5', source_lag: 'lag16', target_lag_id: '9', target_lag: 'Trk1', stale: false, superseded_at: null}]);
 	ok(named[0].lag_name === 'lag16 ↔ Trk1', 'the bundle carries the LAG name for the tooltip', named[0].lag_name);
 }
+// ---- a node with one inner neighbor is in the angle of that neighbor (2.74, task 093) ----
+{
+	// the case of the stand: SW12 in the centre, 7 nodes on ring 1, one of them with 5 neighbors on ring 2, others with 1 to 4 (before 2.74 a node was up to 80° from its neighbor here)
+	const counts = {A: 1, B: 1, C: 2, D: 4, E: 5, F: 1, G: 1};
+	const nodes = [G.layoutNode({id: 'FOCUS', label: 'SW12-10-CORE-6000-48G'}, 'large')];
+	const links = [];
+	Object.keys(counts).forEach(id => {
+		nodes.push(G.layoutNode({id, label: 'SW1' + id + '-09-ACC-2530-48G'}, 'large'));
+		links.push({type: 'physical_link', source: 'FOCUS', target: id});
+	});
+	Object.entries(counts).forEach(([id, count]) => {
+		for (let i = 0; i < count; i++) {
+			nodes.push(G.layoutNode({id: id + i, label: 'ZBX-5CD4' + id + i + '3FG'}, 'large'));
+			links.push({type: 'physical_link', source: id, target: id + i});
+		}
+	});
+	G.placeRadial(nodes, links, 'FOCUS', {x: 0, y: 0});
+	const by = new Map(nodes.map(node => [node.id, node]));
+	const angle = node => Math.atan2(node.y, node.x);
+	const diff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+	const worst = Math.max(...links.filter(l => l.source !== 'FOCUS').map(l => diff(angle(by.get(l.source)), angle(by.get(l.target)))));
+	ok(worst <= 60 * Math.PI / 180 + 0.02, 'a node of ring 2 with one inner neighbor is at most 60° from it (the siblings of five fill about 120°)', Math.round(worst * 180 / Math.PI));
+	const rings = new Map();
+	nodes.forEach(node => rings.set(node.ring, [...(rings.get(node.ring) ?? []), node]));
+	const ring2 = rings.get(2).map(node => node.angle).sort((a, b) => a - b);
+	ok(ring2.every((a, i) => i === 0 || a - ring2[i - 1] > 0), 'the nodes of the ring have different angles');
+	const crossing_count = (() => {
+		const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+		let count = 0;
+		for (let i = 0; i < links.length; i++) {
+			for (let j = i + 1; j < links.length; j++) {
+				const [a, b, c, d] = [by.get(links[i].source), by.get(links[i].target), by.get(links[j].source), by.get(links[j].target)];
+				if (![a, b].some(x => x === c || x === d) && o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)) {
+					count++;
+				}
+			}
+		}
+		return count;
+	})();
+	ok(crossing_count === 0, 'no two lines cross', crossing_count);
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');
