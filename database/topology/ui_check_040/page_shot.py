@@ -301,27 +301,37 @@ CHECKS = {
         r.ok = r.inside && Math.abs(r.centre_offset[0]) <= 3 && Math.abs(r.centre_offset[1]) <= 3 && r.k_after > 0;
         return r;
     })()''',
-    # model §12.8 (2.72, task 092): the leaves of an unfolded group are on an arc around the parent (one radius), ordered by the parent's local port, no leaf box overlaps another node, and the line of a leaf does
-    # not cross a node that is not a leaf of the group; the radius and the crossings are reported
+    # model §12.8 (2.72, 2.74; tasks 092, 093): for every leaf group of the view, unfolded alone (a new layout each time): the leaves are on one or two staggered arcs around the parent, the radius is
+    # at most 250 px (200 + 50), no leaf box overlaps another box, the angles of the leaves follow the order of the parent's local port; the lines of the leaves through other nodes are reported
     'arc': '''(async () => {
-        const h = Array.from(view.nodes.values()).find(n => n.type === 'host' && n.label.startsWith('SW18'));
-        view.unfoldGroup(h.id);
-        const parent = view.drawn_nodes.find(n => String(n.id) === String(h.id));
-        const g = view.leaf_groups.find(x => String(x.parent) === String(h.id));
-        const leaves = view.drawn_nodes.filter(n => g.devices.map(String).includes(String(n.id)));
-        const radius = n => Math.hypot(n.x - parent.x, n.y - parent.y);
+        const groups = view.leaf_groups.map(g => ({parent: String(g.parent), devices: g.devices.map(String)}));
         const rect = n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom});
         const overlap = (a, b) => { const x = rect(a), y = rect(b); return x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom; };
-        const through = [];
-        leaves.forEach(leaf => view.drawn_nodes.forEach(n => { if (n !== parent && n !== leaf && !leaves.includes(n)) { const r = rect(n);
-            for (let t = 0.05; t < 0.96; t += 0.05) { const x = parent.x + (leaf.x - parent.x) * t, y = parent.y + (leaf.y - parent.y) * t; if (x > r.left && x < r.right && y > r.top && y < r.bottom) { through.push([leaf.label, n.label]); break; } } } }));
-        const port = leaf => { const l = view.links.find(c => ['physical_link'].includes(c.type) && (String(c.source) === String(leaf.id) || String(c.target) === String(leaf.id))); return String(String(l.source) === String(leaf.id) ? l.target_port : l.source_port); };
-        const mean = Math.atan2(leaves.reduce((s, n) => s + Math.sin(Math.atan2(n.y - parent.y, n.x - parent.x)), 0), leaves.reduce((s, n) => s + Math.cos(Math.atan2(n.y - parent.y, n.x - parent.x)), 0));
-        const angles = leaves.map(n => Math.atan2(Math.sin(Math.atan2(n.y - parent.y, n.x - parent.x) - mean), Math.cos(Math.atan2(n.y - parent.y, n.x - parent.x) - mean)));
-        const by_port = leaves.map((n, i) => [port(n), angles[i]]).sort((a, b) => a[0].localeCompare(b[0], undefined, {numeric: true})).map(x => x[1]);
-        const r = {leaves: leaves.length, radii: leaves.map(n => Math.round(radius(n))), leaf_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
-            lines_through_other_nodes: through, ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)};
-        r.ok = r.leaves === 6 && Math.max(...r.radii) - Math.min(...r.radii) <= 60 && !r.leaf_overlaps && r.lines_through_other_nodes.length === 0 && r.ordered_by_port;
+        const rows = [];
+        for (const g of groups) {
+            Array.from(view.unfolded).forEach(id => view.unfolded.delete(id));
+            view.relayout = true;
+            view.render();
+            view.unfoldGroup(g.parent);
+            const parent = view.drawn_nodes.find(n => String(n.id) === g.parent);
+            const leaves = view.drawn_nodes.filter(n => g.devices.includes(String(n.id)));
+            const radius = n => Math.hypot(n.x - parent.x, n.y - parent.y);
+            const through = [];
+            leaves.forEach(leaf => view.drawn_nodes.forEach(n => { if (n !== parent && n !== leaf && !leaves.includes(n)) { const r = rect(n);
+                for (let t = 0.03; t < 0.98; t += 0.02) { const x = parent.x + (leaf.x - parent.x) * t, y = parent.y + (leaf.y - parent.y) * t; if (x > r.left && x < r.right && y > r.top && y < r.bottom) { through.push([leaf.label, n.label]); break; } } } }));
+            const port = leaf => { const l = view.links.find(c => ['physical_link'].includes(c.type) && (String(c.source) === String(leaf.id) || String(c.target) === String(leaf.id))); return String(String(l.source) === String(leaf.id) ? l.target_port : l.source_port); };
+            const angle = n => Math.atan2(n.y - parent.y, n.x - parent.x);
+            const mean = Math.atan2(leaves.reduce((s, n) => s + Math.sin(angle(n)), 0), leaves.reduce((s, n) => s + Math.cos(angle(n)), 0));
+            const rel = leaves.map(n => Math.atan2(Math.sin(angle(n) - mean), Math.cos(angle(n) - mean)));
+            const by_port = leaves.map((n, i) => [port(n), rel[i]]).sort((a, b) => a[0].localeCompare(b[0], undefined, {numeric: true})).map(x => x[1]);
+            const info = view.arc_info.get(g.parent) || {};
+            rows.push({parent: parent.label.slice(0, 8), leaves: leaves.length, expected: g.devices.length, free_deg: Math.round(info.free_angle * 180 / Math.PI), rows: info.rows,
+                final_deg: Math.round((Math.max(...rel) - Math.min(...rel)) * 180 / Math.PI), radius_max: Math.round(Math.max(...leaves.map(radius))), box_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
+                lines_through_other_nodes: through.length,
+                ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)});
+        }
+        const r = {groups: rows.length, rows};
+        r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port);
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table

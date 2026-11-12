@@ -342,4 +342,54 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	})();
 	ok(crossing_count === 0, 'no two lines cross', crossing_count);
 }
+// ---- the size of the arc (2.74, task 093) ----
+{
+	const make = count => ({
+		parent: G.layoutNode({id: 'P', x: 0, y: 0, label: 'SW15-10-POE-6000-24G'}, 'large'),
+		leaves: Array.from({length: count}, (_, i) => G.layoutNode({id: 'L' + i, label: 'NA1250200' + String(i).padStart(4, '0')}, 'small'))
+	});
+	const place = (count, others) => {
+		const {parent, leaves} = make(count);
+		const placed = G.arcPlace(parent, leaves, others);
+		placed.forEach(({node, x, y}) => {
+			node.x = x;
+			node.y = y;
+		});
+		const radii = leaves.map(n => Math.hypot(n.x, n.y));
+		const free = G.overlappingPairs(leaves, 0).length === 0 && !leaves.some(n => G.overlappingPairs([parent, n], 0).length);
+		return {info: placed.info, max: Math.max(...radii), min: Math.min(...radii), free, leaves, parent};
+	};
+	// a free angle of about 60° (the other lines at 0° and 60°... on the circle: the rest is blocked by lines every 60°)
+	const lines = [0, 1, 2, 3, 4].map(k => k * Math.PI / 3);
+	let r = place(3, []);
+	ok(r.info.rows === 1 && r.max <= 200, 'a few leaves in a free circle: one row, radius at most 200', r.info);
+	r = place(12, lines);
+	ok(r.max <= 250 + 1e-6 && r.free, '12 leaves in a free angle of 60°: the radius is at most 250 (200 + 50) and no box overlaps', [r.info, r.max]);
+	ok(r.info.rows === 2, '12 leaves in 60°: two staggered rows', r.info);
+	ok(r.info.widened === true, 'they do not fit in 60° at 200 px: the angle widens', r.info);
+	ok(r.max - r.min <= 50 + 1e-6, 'two rows: the two radii differ by 50 px', [r.min, r.max]);
+	const second_row = r.leaves.filter((_, i) => i % 2 === 1).every(n => Math.hypot(n.x, n.y) > r.leaves.filter((__, i) => i % 2 === 0).reduce((m, n) => Math.min(m, Math.hypot(n.x, n.y)), Infinity) + 49);
+	ok(second_row, 'the leaves alternate between the two rows');
+	r = place(6, lines);
+	ok(r.max <= 250 + 1e-6 && r.free, '6 leaves in 60°: radius at most 250');
+	r = place(15, [0]);
+	ok(r.max <= 250 + 1e-6 && r.free, '15 leaves with one other line: radius at most 250 and no overlap', [r.info, r.max]);
+	const angles = place(12, lines).leaves.map(n => Math.atan2(n.y, n.x));
+	const unwrapped = angles.map(a => (a - angles[0] + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
+	ok(unwrapped.every((a, i) => i === 0 || a > unwrapped[i - 1] - 1e-9), 'the order along the arc is the given order', unwrapped);
+}
+// ---- a node on the line to a leaf is turned out (2.74) ----
+{
+	const parent = G.layoutNode({id: 'P', x: 0, y: 0, label: 'SW18'}, 'large');
+	const leaf = G.layoutNode({id: 'L', x: 300, y: 0, label: 'leaf'}, 'small');
+	const crosses = n => { for (let t = 0.03; t < 0.98; t += 0.02) { const x = 300 * t; if (x > n.x - n.box.w / 2 && x < n.x + n.box.w / 2 && 0 > n.y + n.box.top && 0 < n.y + n.box.bottom) { return true; } } return false; };
+	const on_line = G.layoutNode({id: 'N', x: 150, y: 0, label: 'in the way'}, 'large');
+	const aside = G.layoutNode({id: 'A', x: 150, y: 200, label: 'aside'}, 'large');
+	const pinned = G.layoutNode({id: 'D', x: 220, y: 5, fx: 220, fy: 5, label: 'dragged'}, 'large');
+	const moved = G.clearLines(parent, [leaf], [parent, leaf, on_line, aside, pinned]);
+	ok(moved.length === 1 && moved[0] === on_line && !crosses(on_line), 'a node on the line is turned out of it', [on_line.x, on_line.y]);
+	ok(aside.x === 150 && aside.y === 200, 'a node that the line does not cross stays');
+	ok(pinned.x === 220 && pinned.y === 5, 'a fixed (dragged) node stays');
+	ok(![parent, leaf, aside].some(n => G.overlappingPairs([on_line, n], G.BOX_GAP).length), 'it is clear of the other boxes');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

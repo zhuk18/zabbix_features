@@ -21,6 +21,9 @@
 	// the box of a node (shape and label) never gets closer than this to another box
 	const BOX_GAP = 8;
 	// the largest angle (radians) that a node of an outer ring may be from the mean angle of its inner neighbors (§12.1, 2.74): 60 degrees, about the half of the arc that five siblings fill
+	// the arc of an unfolded group (§12.8, 2.74): the largest radius of the first row, and the distance of the second row
+	const RADIUS_MAX = 200;
+	const ROW_STEP = 50;
 	const DEVIATION = 60 * Math.PI / 180;
 
 	/** A rough width of a text in px when the page has no canvas (node tests): 0.6 of the font size per character. */
@@ -442,37 +445,64 @@
 		const span = Math.min(gap * 0.9, TWO * 0.9);
 		const biggest = Math.max(...leaves.map(node => Math.max(node.box.w, node.box.h)));
 		const minimum = Math.max(parent.box.w, parent.box.h) / 2 + biggest / 2 + 36;
-		// for a radius and a start angle: the leaves one after the other along the arc, each at the first angle where its box (shape and label) is clear of the one before and of the parent;
-		// returns the angle that they use. The test is made at the angles where the leaves really are, so that the result has no overlap.
-		const layout = (radius, start) => {
+		// for a radius, a number of rows (1; 2: the leaves alternate between the radius and the radius + ROW_STEP) and a start angle: the leaves one after the other along the arc, each at the
+		// first angle where its box (shape and label) is clear of the parent and of every leaf placed before; returns the angle that they use. The test is made at the angles where the
+		// leaves really are, so that the result has no overlap.
+		const layout = (radius, start, rows) => {
 			let angle = start;
 			leaves.forEach((node, i) => {
+				const r = radius + (rows === 2 && i % 2 === 1 ? ROW_STEP : 0);
 				for (let guard = 0; guard < 4000; guard++) {
-					node.x = parent.x + Math.cos(angle) * radius;
-					node.y = parent.y + Math.sin(angle) * radius;
-					if ((i === 0 || !overlaps(node, leaves[i - 1], BOX_GAP)) && !overlaps(node, parent, BOX_GAP)) {
+					node.x = parent.x + Math.cos(angle) * r;
+					node.y = parent.y + Math.sin(angle) * r;
+					if (!leaves.slice(0, i).some(before => overlaps(node, before, BOX_GAP)) && !overlaps(node, parent, BOX_GAP)) {
 						break;
 					}
-					angle += 0.5 / radius;
+					angle += 0.5 / r;
 				}
 			});
 			return angle - start;
 		};
+		// §12.8, 2.74 "Arc size": 1. one row, the radius up to RADIUS_MAX, in the free angle; 2. two rows (r and r + ROW_STEP), in the free angle; 3. the angle widens on both sides of its centre
+		// until they fit at RADIUS_MAX (the nodes in it move out, the lines of the leaves may cross the other lines of the parent); only when even the whole circle is not enough, the radius grows
+		let rows = 1;
 		let radius = minimum;
-		let used = layout(radius, centre - span / 2);
-		while (used > span && radius < 4000) {
+		let width = span;
+		let used = layout(radius, centre - width / 2, 1);
+		while (used > width && radius + 12 <= RADIUS_MAX) {
 			radius += 12;
-			used = layout(radius, centre - span / 2);
+			used = layout(radius, centre - width / 2, 1);
 		}
-		// centred in the free angle: a second layout from the middle of what they use (the final layout is the one that is returned)
-		layout(radius, centre - used / 2);
+		if (used > width) {
+			rows = 2;
+			radius = minimum;
+			used = layout(radius, centre - width / 2, 2);
+			while (used > width && radius + 12 <= RADIUS_MAX) {
+				radius += 12;
+				used = layout(radius, centre - width / 2, 2);
+			}
+		}
+		const free_angle_used = width;
+		while (used > width && width < TWO * 0.95) {
+			width = Math.min(TWO * 0.95, width + 0.05);
+			used = layout(radius, centre - width / 2, rows);
+		}
+		while (used > width && radius < 4000) {
+			radius += 12;
+			used = layout(radius, centre - width / 2, rows);
+		}
+		// centred in the angle: a second layout from the middle of what they use (the final layout is the one that is returned)
+		layout(radius, centre - used / 2, rows);
 
-		return leaves.map(node => ({node, x: node.x, y: node.y}));
+		const placed = leaves.map(node => ({node, x: node.x, y: node.y}));
+		placed.info = {free_angle: gap, rows, span: used, radius: rows === 2 ? radius + ROW_STEP : radius, widened: used > free_angle_used + 1e-9};
+
+		return placed;
 	}
 
 	/**
 	 * Moves the nodes that are in the way of an arc out of its sector (§12.8: "other nodes in the way move away"): a node that is nearer to the parent than the leaves are, and whose angle (with
-	 * the angle that its box covers) is inside the sector of the leaves, is turned about the parent to the nearest edge of the sector, at the same distance. Fixed nodes (fx) stay.
+	 * the angle that its box covers) is inside the sector of the leaves, is turned about the parent to the nearest edge of the sector, at the same distance. Fixed nodes (fx) stay. Returns the nodes that were moved.
 	 */
 	function clearSector(parent, leaves, others) {
 		const TWO = 2 * Math.PI;
@@ -482,6 +512,7 @@
 		const reach = Math.max(...leaves.map(n => Math.hypot(n.x - parent.x, n.y - parent.y)));
 		const low = Math.min(...leaves.map(n => rel(angle_of(n))));
 		const high = Math.max(...leaves.map(n => rel(angle_of(n))));
+		const moved = [];
 		others.forEach(node => {
 			if (node === parent || leaves.includes(node) || (node.fx !== undefined && node.fx !== null)) {
 				return;
@@ -499,7 +530,72 @@
 			const target = (angle - low) < (high - angle) ? low - half - 0.02 : high + half + 0.02;
 			node.x = parent.x + distance * Math.cos(mean + target);
 			node.y = parent.y + distance * Math.sin(mean + target);
+			moved.push(node);
 		});
+
+		return moved;
+	}
+
+	/**
+	 * After the collision step: a node (not a leaf, not the parent, not fixed) that a line from the parent to a leaf crosses is turned about the parent to the nearest angle, at the same
+	 * distance (then 1.25 to 3 times as far), where its box is clear of every other box and of every leaf line. A node that has no such place stays. Returns the nodes that were moved.
+	 */
+	function clearLines(parent, leaves, nodes) {
+		const crosses = (node, ends) => ends.some(leaf => {
+			const left = node.x - node.box.w / 2 - 2;
+			const right = node.x + node.box.w / 2 + 2;
+			const top = node.y + node.box.top - 2;
+			const bottom = node.y + node.box.bottom + 2;
+			let t0 = 0;
+			let t1 = 1;
+			const dx = leaf.x - parent.x;
+			const dy = leaf.y - parent.y;
+			for (const [p, q] of [[-dx, parent.x - left], [dx, right - parent.x], [-dy, parent.y - top], [dy, bottom - parent.y]]) {
+				if (p === 0) {
+					if (q < 0) {
+						return false;
+					}
+				}
+				else {
+					const r = q / p;
+					if (p < 0) {
+						t0 = Math.max(t0, r);
+					}
+					else {
+						t1 = Math.min(t1, r);
+					}
+				}
+			}
+			return t0 <= t1;
+		});
+		const moved = [];
+		const free = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP));
+		nodes.forEach(node => {
+			if (node === parent || leaves.includes(node) || (node.fx !== undefined && node.fx !== null) || !crosses(node, leaves)) {
+				return;
+			}
+			const distance = Math.hypot(node.x - parent.x, node.y - parent.y);
+			const angle = Math.atan2(node.y - parent.y, node.x - parent.x);
+			const x0 = node.x;
+			const y0 = node.y;
+			for (const scale of [1, 1.25, 1.5, 2, 2.5, 3]) {
+				for (let k = 1; k <= 90; k++) {
+					for (const sign of [1, -1]) {
+						const turned = angle + sign * k * 2 * Math.PI / 180;
+						node.x = parent.x + distance * scale * Math.cos(turned);
+						node.y = parent.y + distance * scale * Math.sin(turned);
+						if (free(node) && !crosses(node, leaves)) {
+							moved.push(node);
+							return;
+						}
+					}
+				}
+			}
+			node.x = x0;
+			node.y = y0;
+		});
+
+		return moved;
 	}
 
 	/**
@@ -714,5 +810,5 @@
 		return lines.join('\n');
 	}
 
-	return {bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

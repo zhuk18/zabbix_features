@@ -1761,6 +1761,7 @@ const view = new class {
 				node.y = base.y + Math.sin(angle) * 90;
 			});
 		};
+		const new_arcs = [];      // the arcs of this drawing: {parent, leaves}
 		if (relayout) {
 			nodes.forEach(node => {
 				if (node.fx === undefined || node.fx === null) {
@@ -1854,15 +1855,25 @@ const view = new class {
 						other_angles.push({angle: Math.atan2(other.y - parent.y, other.x - parent.x), half: Math.asin(Math.min(0.99, (Math.hypot(other.box.w, other.box.h) / 2 + 8) / Math.max(distance, 1)))});
 					}
 				});
-				G.arcPlace(parent, leaves.map(leaf => leaf.node), other_angles).forEach(({node, x, y}) => {
+				const arc = G.arcPlace(parent, leaves.map(leaf => leaf.node), other_angles);
+				(this.arc_info ??= new Map()).set(String(parent.id), arc.info);
+				arc.forEach(({node, x, y}) => {
 					node.x = x;
 					node.y = y;
 					node.fx = x;      // fixed while the collision step makes room: the others move away
 					node.fy = y;
 					node.temp_fixed = true;
 				});
+				// the parent stays where it is while the collision step makes room: the arc is at its radius from it (a node that is not fixed could be moved by that step, and the leaves
+				// would then be at another distance from it)
+				if (parent.fx === undefined || parent.fx === null) {
+					parent.fx = parent.x;
+					parent.fy = parent.y;
+					parent.temp_fixed = true;
+				}
 				// the nodes that are in the way of the arc turn out of its sector (the lines of the leaves must not cross another node)
 				G.clearSector(parent, leaves.map(leaf => leaf.node), nodes.filter(other => Number.isFinite(other.x)));
+				new_arcs.push({parent, leaves: leaves.map(leaf => leaf.node)});
 			});
 		}
 		// the collision step: no box (shape and label) overlaps another; too small an area → a larger one
@@ -1892,6 +1903,8 @@ const view = new class {
 				node.temp_fixed = false;
 			}
 		});
+		// the collision step may have put a node back into the sector of an arc: a node that a line to a leaf crosses is turned out of the way, where there is room (§12.8, "nodes in it move out")
+		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 		this.view_size = {width, height, keep: true};
 		// 091 (§12.1 "Scale"): the view is the size of the window and the graph is drawn at scale 1 or more; the user pans (drag on the empty area) and zooms out (wheel). The double click
 		// does not zoom (it folds a group, §12.8); a double click on the empty area does nothing, as before the zoom was there.

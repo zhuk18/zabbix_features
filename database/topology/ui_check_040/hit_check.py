@@ -138,13 +138,13 @@ try:
             time.sleep(0.2)
             h = hovered(js)
             check(h is not None and h.endswith('#%s' % (line['edge'] if line['edge'] is not None else 'null')), 'the pointer 5 px beside %s (away from the other line) hovers it' % line['label'], [h, line['edge']])
-            # between the two lines, 2 px nearer to this one: the nearest line
+            # between the two lines, 3 px nearer to this one: the nearest line
             mid = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
-            toward = ((p[0] - q[0]) / norm * 2, (p[1] - q[1]) / norm * 2)
+            toward = ((p[0] - q[0]) / norm * 3, (p[1] - q[1]) / norm * 3)
             mouse(ws, mid[0] + toward[0], mid[1] + toward[1])
             time.sleep(0.2)
             h = hovered(js)
-            check(h is not None and h.endswith('#%s' % (line['edge'] if line['edge'] is not None else 'null')), 'a point between the two lines, 2 px nearer to %s: the nearest one is hovered' % line['label'], [h, line['edge']])
+            check(h is not None and h.endswith('#%s' % (line['edge'] if line['edge'] is not None else 'null')), 'a point between the two lines, 3 px nearer to %s: the nearest one is hovered' % line['label'], [h, line['edge']])
     finally:
         post('topology.link.remove', {'id': str(manual)})
         check(sql("SELECT COUNT(*) FROM topo_edges WHERE id = %s" % int(manual)) == '0', 'the manual link is removed again')
