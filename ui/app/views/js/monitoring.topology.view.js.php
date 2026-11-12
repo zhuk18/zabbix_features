@@ -1903,16 +1903,28 @@ const view = new class {
 				node.temp_fixed = false;
 			}
 		});
-		// §12.3 (2.73): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched
-		if (relayout) {
+		// the collision step may have put a node back into the sector of an arc: a node that a line to a leaf crosses is turned out of the way, where there is room (§12.8, "nodes in it move out")
+		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
+		// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched, after
+		// every change of the layout: the first drawing, a new filter, an unfold, a fold (here) and a drag (below)
+		{
 			const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
 			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
 			const placement = G.parallelIndex(lines);
 			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
 				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: line.label.length * 6 + 4, index, count}));
+			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
+			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
+			held.forEach(node => {
+				node.fx = node.x;
+				node.fy = node.y;
+			});
 			G.makeLabelRoom(nodes, bundles, {width, height, padding});
+			held.forEach(node => {
+				node.fx = undefined;
+				node.fy = undefined;
+			});
 		}
-		// the collision step may have put a node back into the sector of an arc: a node that a line to a leaf crosses is turned out of the way, where there is room (§12.8, "nodes in it move out")
 		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 		this.view_size = {width, height, keep: true};
 		// 091 (§12.1 "Scale"): the view is the size of the window and the graph is drawn at scale 1 or more; the user pans (drag on the empty area) and zooms out (wheel). The double click
@@ -2256,6 +2268,9 @@ const view = new class {
 						if (!G.resolveOverlaps(nodes, {width, height, padding})) {
 							// the area is full; the nodes stay as they are
 						}
+						// 2.76: the labels of the bundles get their room again (the dragged node and the other fixed nodes stay)
+						G.makeLabelRoom(nodes, simulation_links.filter(link => link.type === 'lag_bundle')
+							.map(link => ({a: link.source, b: link.target, width: link.label.length * 6 + 4, index: link.parallel.index, count: link.parallel.count})), {width, height, padding});
 						draw_positions();
 					}
 				}));

@@ -124,6 +124,28 @@ try:
     time.sleep(1.0)
     after_empty = state()
     check(after_empty['k'] == after_parent['k'] and after_empty['nodes'] == after_parent['nodes'], 'a double click on the empty area changes nothing (the same scale %s, the same nodes)' % after_empty['k'], [after_parent, after_empty])
+    # task 094 §5 (model 2.76 §12.3): after a DRAG the labels of the bundles get their room again: SW17 (not on a bundle) is dragged onto the middle of the SW12 - zbx-office-gw1 line;
+    # then no label of a bundle touches a node box or another label
+    js("view.fit && view.fit()")
+    time.sleep(0.8)
+    spot = js("""(() => { const e = view.line_entries.find(x => x.link && x.link.type === 'lag_bundle' && x.link.target.name === 'zbx-office-gw1'); const p = e.hit.getPointAtLength(e.hit.getTotalLength() * 0.5);
+        const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y}; })()""")
+    src = where("Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(g => g.__data__.label && g.__data__.label.startsWith('SW17'))")
+    mouse('mouseMoved', src['x'], src['y'])
+    mouse('mousePressed', src['x'], src['y'])
+    for step in range(1, 11):
+        mouse('mouseMoved', src['x'] + (spot['x'] - src['x']) * step / 10, src['y'] + (spot['y'] - src['y']) * step / 10)
+        time.sleep(0.05)
+    mouse('mouseReleased', spot['x'], spot['y'])
+    time.sleep(1.0)
+    drag = js("""(() => { const hit = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
+        const nodes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(e => e.getBoundingClientRect());
+        const labels = Array.from(document.querySelectorAll('#topology-canvas text.topology-lag-label')).map(e => e.getBoundingClientRect());
+        let n = 0; labels.forEach((l, i) => { nodes.forEach(b => { if (hit(l, b)) n++; }); labels.slice(i + 1).forEach(c => { if (hit(l, c)) n++; }); });
+        let pairs = 0; nodes.forEach((a, i) => nodes.slice(i + 1).forEach(c => { if (hit(a, c)) pairs++; }));
+        const sw17 = view.drawn_nodes.find(d => d.label && d.label.startsWith('SW17'));
+        return {labels: labels.length, label_overlaps: n, node_overlaps: pairs, dragged: sw17.fx !== undefined && sw17.fx !== null, places: view.lag_label_places.map(p => p.u + (p.free ? '' : '!'))}; })()""")
+    check(drag['dragged'] and drag['labels'] == 4 and drag['label_overlaps'] == 0 and drag['node_overlaps'] == 0, 'after a drag onto a bundle line the labels have their room again (no label touches a node or a label)', drag)
     print('before %s | unfolded %s | after leaf %s | after parent %s | after empty %s' % (before, unfolded, after_leaf, after_parent, after_empty))
 finally:
     chrome.kill()

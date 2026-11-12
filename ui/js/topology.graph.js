@@ -538,8 +538,8 @@
 
 	/**
 	 * Room for the labels of the LAG bundles (§12.3, 2.73) in a layout that the collision step has made: a bundle whose label has no free point on its line (every point between 30 % and 70 %
-	 * touches a node box or a label placed before) is stretched: the node at one end that is not fixed moves 14 px away from the other end along the line, the collision step makes room for
-	 * it, and the labels are tried again (up to `rounds` times). `bundles` = [{a, b, width, index, count}] (a and b are node objects, the line is as G.curve draws it). Returns true when every
+	 * touches a node box or a label placed before) is stretched: a node that is on the line (not an end, not fixed) moves 18 px across the line, away from it; with none, the node at one end that is not fixed moves 14 px away from the other end along
+	 * the line; the collision step makes room for it, and the labels are tried again (up to `rounds` times). `bundles` = [{a, b, width, index, count}] (a and b are node objects, the line is as G.curve draws it). Returns true when every
 	 * label has a free point.
 	 */
 	function makeLabelRoom(nodes, bundles, bounds, rounds = 60) {
@@ -558,7 +558,17 @@
 				const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
 				const ux = (b.x - a.x) / length;
 				const uy = (b.y - a.y) / length;
-				if (!fixed(b)) {
+				// a node (not an end of the bundle) on the part of the line where the label could be: it is moved away from the line, across it (a node that is fixed stays)
+				const in_the_way = nodes.find(node => node !== a && node !== b && !fixed(node) && [0.3, 0.4, 0.5, 0.6, 0.7].some(u => {
+					const point = curve(a, b, index, count).at(u);
+					return point.x > node.x - node.box.w / 2 - width / 2 && point.x < node.x + node.box.w / 2 + width / 2 && point.y > node.y + node.box.top - 8 && point.y < node.y + node.box.bottom + 14;
+				}));
+				if (in_the_way) {
+					const side = Math.sign((in_the_way.x - a.x) * -uy + (in_the_way.y - a.y) * ux) || 1;
+					in_the_way.x += -uy * side * 18;
+					in_the_way.y += ux * side * 18;
+				}
+				else if (!fixed(b)) {
 					b.x += ux * 14;
 					b.y += uy * 14;
 				}

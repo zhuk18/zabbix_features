@@ -302,7 +302,7 @@ CHECKS = {
         return r;
     })()''',
     # model §12.8 (2.72, 2.74; tasks 092, 093): for every leaf group of the view, unfolded alone (a new layout each time): the leaves are on one or two staggered arcs around the parent, the radius is
-    # at most 250 px (200 + 50), no leaf box overlaps another box, the angles of the leaves follow the order of the parent's local port; the lines of the leaves through other nodes are reported
+    # at most 250 px (200 + 50), no leaf box overlaps another box, the angles of the leaves follow the order of the parent's local port; a line of a leaf through another node fails the check on the office stand (2.76), and so do an overlap of nodes or of bundle labels after the unfold (task 094 §5)
     'arc': '''(async () => {
         const groups = view.leaf_groups.map(g => ({parent: String(g.parent), devices: g.devices.map(String)}));
         const rect = n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom});
@@ -324,14 +324,21 @@ CHECKS = {
             const mean = Math.atan2(leaves.reduce((s, n) => s + Math.sin(angle(n)), 0), leaves.reduce((s, n) => s + Math.cos(angle(n)), 0));
             const rel = leaves.map(n => Math.atan2(Math.sin(angle(n) - mean), Math.cos(angle(n) - mean)));
             const by_port = leaves.map((n, i) => [port(n), rel[i]]).sort((a, b) => a[0].localeCompare(b[0], undefined, {numeric: true})).map(x => x[1]);
+            // 2.76 (task 094 §5): the overlap check after each unfold: no two node boxes overlap, and no label of a LAG bundle touches a node box or another label
+            const dom = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(e => e.getBoundingClientRect());
+            const labels = Array.from(document.querySelectorAll('#topology-canvas text.topology-lag-label')).map(e => e.getBoundingClientRect());
+            const hit = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
+            let node_pairs = 0, label_hits = 0;
+            dom.forEach((a, i) => { dom.slice(i + 1).forEach(c => { if (hit(a, c)) node_pairs++; }); labels.forEach(l => { if (hit(a, l)) label_hits++; }); });
+            labels.forEach((a, i) => labels.slice(i + 1).forEach(c => { if (hit(a, c)) label_hits++; }));
             const info = view.arc_info.get(g.parent) || {};
             rows.push({parent: parent.label.slice(0, 8), leaves: leaves.length, expected: g.devices.length, free_deg: Math.round(info.free_angle * 180 / Math.PI), rows: info.rows,
                 final_deg: Math.round((Math.max(...rel) - Math.min(...rel)) * 180 / Math.PI), radius_max: Math.round(Math.max(...leaves.map(radius))), box_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
-                lines_through_other_nodes: through.length,
+                lines_through_other_nodes: through.length, node_overlaps: node_pairs, label_overlaps: label_hits,
                 ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)});
         }
         const r = {groups: rows.length, rows};
-        r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port);
+        r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port && x.lines_through_other_nodes === 0 && x.node_overlaps === 0 && x.label_overlaps === 0);
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
