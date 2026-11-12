@@ -241,4 +241,42 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const lone = G.arcPlace(parent, [G.layoutNode({id: 'x', label: 'one'}, 'small')], []);
 	ok(lone.length === 1 && lone[0].y < 0, 'no other line: the arc is above the parent');
 }
+// ---- the place of the label of a LAG bundle (§12.3, 2.73) ----
+{
+	const at = u => ({x: 100 * u, y: 0});      // a line of 100 px
+	let place = G.placeLabel(at, 40, []);
+	ok(place.free && place.u === 0.5 && place.x === 50 && place.y === -4, 'a free line: the label is in the middle', place);
+	// an obstacle over the middle (a node box 45..60): the nearest free point on one side, within 30 to 70 %
+	const obstacle = {left: 45, right: 60, top: -20, bottom: 20};
+	place = G.placeLabel(at, 20, [obstacle]);
+	ok(place.free && place.u >= 0.3 - 1e-9 && place.u <= 0.7 + 1e-9 && (place.box.right <= 45 || place.box.left >= 60), 'a node at the middle: the label moves to the nearest free point within 30 to 70 %', place);
+	// the free point nearest to the middle: the next point towards the middle touches the node
+	const next = place.u + (place.u < 0.5 ? 0.01 : -0.01);
+	const next_box = {left: 100 * next - 14, right: 100 * next + 14};
+	ok(next_box.left < obstacle.right && obstacle.left < next_box.right, 'the next point towards the middle touches the node', {u: place.u});
+	// another label placed before: avoided
+	const before = G.placeLabel(at, 6, []);
+	place = G.placeLabel(at, 6, [before.box]);
+	ok(place.free && (place.box.right <= before.box.left || place.box.left >= before.box.right), 'a label placed before is avoided');
+	// no free point: the middle, and free is false (the overlap check lists it)
+	place = G.placeLabel(at, 20, [{left: -50, right: 150, top: -50, bottom: 50}]);
+	ok(!place.free && place.u === 0.5, 'no free point: the middle and "not free"', place);
+	// a curved (parallel) line
+	const curved = G.curve({x: 0, y: 0}, {x: 100, y: 0}, 0, 2).at;
+	const mid = G.curve({x: 0, y: 0}, {x: 100, y: 0}, 0, 2).mid;
+	ok(Math.abs(curved(0.5).x - mid.x) < 1e-9 && Math.abs(curved(0.5).y - mid.y) < 1e-9 && curved(0).x === 0 && curved(1).x === 100, 'the point at 50 % of a curve is its middle; 0 and 1 are the ends');
+}
+// ---- rings leave a free place for the label of a LAG link (2.73) ----
+{
+	const focus = G.layoutNode({id: 'F', label: 'SW12-10-CORE-6000-48G'}, 'large');
+	const near = G.layoutNode({id: 'N', label: 'SW18-09-ACC-2530-48G'}, 'large');
+	const links = [{type: 'physical_link', source: 'F', target: 'N', source_lag_id: null, source_lag: null, target_lag_id: '9', target_lag: 'Trk1'}];
+	G.placeRadial([focus, near], links, 'F', {x: 0, y: 0});
+	const box = node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom});
+	const label = G.placeLabel(u => ({x: focus.x + (near.x - focus.x) * u, y: focus.y + (near.y - focus.y) * u}), ('Trk1 ×2'.length * 6), [box(focus), box(near)]);
+	ok(label.free, 'a LAG link between the focus node and ring 1: the label has a free place on the line', label);
+	const plain = [G.layoutNode({id: 'F', label: 'SW12-10-CORE-6000-48G'}, 'large'), G.layoutNode({id: 'N', label: 'SW18-09-ACC-2530-48G'}, 'large')];
+	const r_plain = G.placeRadial(plain, [{type: 'physical_link', source: 'F', target: 'N'}], 'F', {x: 0, y: 0});
+	ok(Math.hypot(near.x, near.y) >= r_plain, 'the ring with a LAG link is not smaller than without', [Math.hypot(near.x, near.y), r_plain]);
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

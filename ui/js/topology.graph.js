@@ -225,6 +225,22 @@
 			}
 		});
 		const depths = [...rings.keys()].sort((a, b) => a - b);
+		// the LAG links of the node to the nodes of the inner rings: the width of the longest label that a bundle on it can have ("lag16 ↔ Trk1 ×2": 6 px a character at 10 px, with the box gap)
+		const lag_widths = new Map(ids.map(id => [id, []]));
+		links.forEach(link => {
+			if (link.type === 'physical_link' && (link.source_lag_id || link.target_lag_id) && by_id.has(link.source) && by_id.has(link.target)) {
+				const names = [link.source_lag, link.target_lag].filter(name => name !== null && name !== undefined && name !== '');
+				const width = ((names.length ? names.join(' ↔ ') + ' ' : '') + '×2').length * 6 + 4;
+				[[link.source, link.target], [link.target, link.source]].forEach(([from, to]) => {
+					if (by_id.get(to).ring < by_id.get(from).ring) {
+						lag_widths.get(from).push({other: by_id.get(to), width});
+					}
+				});
+			}
+		});
+		const box_of = node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom});
+		// false when the label of a LAG link of the node to an inner node has no free place on the line between the two boxes (the inner node is placed already)
+		const lag_room = node => lag_widths.get(node.id).every(({other, width}) => placeLabel(u => ({x: node.x + (other.x - node.x) * u, y: node.y + (other.y - node.y) * u}), width, [box_of(node), box_of(other)]).free);
 		const width_of = node => Math.max(node.box.w, node.box.h) + BOX_GAP;
 		// the angle that a node wants: the circular mean of the angles of its neighbors on the given rings (undefined when none is placed yet)
 		const desired = (node, wanted_rings) => {
@@ -295,10 +311,16 @@
 			const need = ring.reduce((sum, node) => sum + width_of(node), 0);
 			const tallest = Math.max(...ring.map(node => node.box.h));
 			radius = Math.max(radius + tallest + 2 * BOX_GAP + 24, need / (2 * Math.PI));
-			ring.forEach(node => {
+			const put = () => ring.forEach(node => {
 				node.x = center.x + radius * Math.cos(node.angle);
 				node.y = center.y + radius * Math.sin(node.angle);
 			});
+			put();
+			// §12.3 (2.73): the line of a LAG link to a node of an inner ring shows the label of its bundle: the ring is as far out as the label needs a free place on the line
+			for (let guard = 0; guard < 200 && ring.some(node => lag_room(node) === false); guard++) {
+				radius += 6;
+				put();
+			}
 		});
 
 		return radius;
@@ -411,8 +433,46 @@
 
 		return {
 			d: count === 1 ? `M${s.x},${s.y}L${t.x},${t.y}` : `M${s.x},${s.y}Q${cx},${cy} ${t.x},${t.y}`,
-			mid: count === 1 ? {x: (s.x + t.x) / 2, y: (s.y + t.y) / 2} : {x: (s.x + 2 * cx + t.x) / 4, y: (s.y + 2 * cy + t.y) / 4}
+			mid: count === 1 ? {x: (s.x + t.x) / 2, y: (s.y + t.y) / 2} : {x: (s.x + 2 * cx + t.x) / 4, y: (s.y + 2 * cy + t.y) / 4},
+			// the point at the fraction u (0..1) of the line, by its parameter (u = 0.5 is `mid`)
+			at: u => (count === 1
+				? {x: s.x + (t.x - s.x) * u, y: s.y + (t.y - s.y) * u}
+				: {x: (1 - u) * (1 - u) * s.x + 2 * (1 - u) * u * cx + u * u * t.x, y: (1 - u) * (1 - u) * s.y + 2 * (1 - u) * u * cy + u * u * t.y})
 		};
+	}
+
+	/**
+	 * The place of the label of a LAG bundle on its line (§12.3, 2.73): the point between 30 % and 70 % of the line where the box of the label touches no obstacle (the box of a node with its
+	 * label, a label placed before), the one nearest to the middle; the middle when it is free, and also when no point is free (`free` is false then, and the overlap check lists it).
+	 *
+	 * @param function at   u (0..1) -> {x, y}: the point of the line
+	 * @param number   width  the width of the text of the label
+	 * @param array    obstacles  [{left, right, top, bottom}] in the coordinates of the line
+	 *
+	 * @return object  {u, x, y, free, box}; (x, y) is the anchor of the text (middle, baseline), box is the box of the label
+	 */
+	function placeLabel(at, width, obstacles, step = 0.01) {
+		const boxAt = u => {
+			const p = at(u);
+			// the text is anchored in the middle, its baseline 4 px above the line; a 10 px font: 10 px above the baseline, 3 px below it; a gap of 2 px
+			return {u, x: p.x, y: p.y - 4, box: {left: p.x - width / 2 - 2, right: p.x + width / 2 + 2, top: p.y - 4 - 10 - 2, bottom: p.y - 4 + 3 + 2}};
+		};
+		const touches = box => obstacles.some(o => box.left < o.right && o.left < box.right && box.top < o.bottom && o.top < box.bottom);
+		const candidates = [];
+		for (let k = 0; k <= Math.round(0.2 / step); k++) {
+			candidates.push(0.5 + k * step);
+			if (k > 0) {
+				candidates.push(0.5 - k * step);
+			}
+		}
+		for (const u of candidates) {
+			const place = boxAt(u);
+			if (!touches(place.box)) {
+				return {...place, free: true};
+			}
+		}
+
+		return {...boxAt(0.5), free: false};
 	}
 
 	/** Groups the links by node pair (either direction): returns link -> {index, count} (the order is the order of the links). */
@@ -540,5 +600,5 @@
 		return out;
 	}
 
-	return {clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

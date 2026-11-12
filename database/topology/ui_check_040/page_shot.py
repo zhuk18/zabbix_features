@@ -277,7 +277,14 @@ CHECKS = {
             font_small_min: Math.min(...labels.filter(t => t.parentNode.classList.contains('topology-size-small')).map(t => parseFloat(getComputedStyle(t).fontSize) * t.getScreenCTM().a)),
             zoom_k: view.zoom_transform ? Math.round(view.zoom_transform.k * 100) / 100 : null,
             visible_nodes: boxes.filter(b => b.right > svg.getBoundingClientRect().left && b.left < svg.getBoundingClientRect().right && b.bottom > svg.getBoundingClientRect().top && b.top < svg.getBoundingClientRect().bottom).length};
-        r.ok = r.nodes > 0 && r.overlaps === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        // task 093 (model §12.3, 2.73): the label of a LAG bundle touches no node box and no other bundle label; each place is reported as the % of its line (an unplaced one is listed)
+        const lag = Array.from(document.querySelectorAll('#topology-canvas text.topology-lag-label')).map(t => { const b = t.getBoundingClientRect(); return {name: t.textContent, left: b.left, right: b.right, top: b.top, bottom: b.bottom}; });
+        const hit = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
+        r.bundle_labels = lag.length;
+        r.bundle_label_overlaps = [];
+        lag.forEach((a, i) => { boxes.forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); lag.slice(i + 1).forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); });
+        r.bundle_label_places = (view.lag_label_places || []).map(p => p.source.slice(0, 4) + '-' + p.target.slice(0, 4) + ' ' + p.label + ': ' + p.u + ' %' + (p.free ? '' : ' (no free point)'));
+        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         return r;
     })()''',
     # model §12.1 "Fit" (2.72, task 092): the control "Fit" puts the whole drawn graph in the window and centres it

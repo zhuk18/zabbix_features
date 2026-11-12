@@ -2043,7 +2043,7 @@ const view = new class {
 			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
 		// the label of a LAG bundle at the middle of its line: "Trk1 ×2", "lag16 ↔ Trk1 ×2" (the name comes from the network: text())
 		const lag_labels = scene.append('g').selectAll('text').data(simulation_links.filter(link => link.type === 'lag_bundle')).join('text')
-			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#334155').style('pointer-events', 'none')
+			.attr('class', 'topology-lag-label').attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#334155').style('pointer-events', 'none')
 			.style('paint-order', 'stroke').style('stroke', halo_colour).style('stroke-width', '3px').style('stroke-linejoin', 'round')
 			.text(link => link.label);
 		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where discovery says the cable actually goes — a dashed orange
@@ -2356,8 +2356,18 @@ const view = new class {
 				const mid = G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid;
 				return `translate(${mid.x},${mid.y})`;
 			});
-			lag_labels.attr('x', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.x)
-				.attr('y', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.y - 4);
+			// §12.3 (2.73): the label of a bundle is at the point between 30 % and 70 % of its line where its box touches no node box and no label placed before it; the middle when it is free
+			const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
+			const placed = [];
+			const view_places = [];
+			lag_labels.each(function (link) {
+				const line = G.curve(link.source, link.target, link.parallel.index, link.parallel.count);
+				const place = G.placeLabel(line.at, this.getComputedTextLength(), [...node_boxes, ...placed]);
+				placed.push(place.box);
+				d3.select(this).attr('x', place.x).attr('y', place.y);
+				view_places.push({label: link.label, source: link.source.name, target: link.target.name, u: Math.round(place.u * 100), free: place.free});
+			});
+			this.lag_label_places = view_places;
 			hits.attr('d', entry => entry.d());
 			extra_glows.selectAll('path').attr('d', function () {
 				return this.d_fn();
