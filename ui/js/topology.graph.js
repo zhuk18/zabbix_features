@@ -334,5 +334,16 @@
 			.map(name => (counts[name] === 1 ? names[name][0] : names[name][1]).replace('%1$s', String(counts[name]))).join(', ');
 	}
 
-	return {ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	/**
+	 * Is a node drawn (§12.1, FR-C V-1; 091): a Host or a Device without a drawn link only with the switch "Show devices without links", with "Possible duplicates only", or as the focus
+	 * host. A Proxy, a group node and every node with a drawn link: drawn (a Proxy is in the view by the view scope rules).
+	 */
+	function isDrawn(node, ctx) {
+		if (node.type !== 'host' && node.type !== 'device') {
+			return true;
+		}
+		return ctx.has_link || ctx.show_unlinked || ctx.only_duplicates || ctx.is_focus;
+	}
+
+	return {isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

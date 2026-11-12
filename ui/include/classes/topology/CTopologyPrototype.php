@@ -114,7 +114,8 @@ class CTopologyPrototype {
 			' LEFT JOIN topo_nodes rep ON rep.type='.zbx_dbstr('device').' AND rep.represented_by_node_id=node.id'.
 			' WHERE ('.
 				'node.type='.zbx_dbstr('device').
-				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL AND rep.id IS NOT NULL'.
+				// 2.71 (§12.1, FR-C V-1): a Host node without a Device is data of the view too; the page draws it only by the rule for a node without a link
+				' OR (node.type='.zbx_dbstr('host').' AND host.hostid IS NOT NULL'.
 					' AND '.($visible_hostids ? dbConditionId('host.hostid', $visible_hostids) : '1=0').')'.
 				' OR (node.type='.zbx_dbstr('proxy').' AND proxy.proxyid IS NOT NULL AND rep.id IS NOT NULL)'.
 			')';

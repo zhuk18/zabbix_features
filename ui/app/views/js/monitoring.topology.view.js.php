@@ -1690,10 +1690,11 @@ const view = new class {
 		simulation_links = simulation_links.filter(link => !hidden_ids.has(link.source) && !hidden_ids.has(link.target));
 
 		// "Show devices without links" (§12.1, V-1): a Device (drawn as itself or as its Host) is drawn only when it has a link that the graph draws; the switch, the filter
-		// "Possible duplicates only" and the focus host draw the others. A Host or Proxy without a Device is a start node of the scope: always drawn.
+		// "Possible duplicates only" and the focus host draw the others. A Host without a Device and without a drawn link follows the same rule (091); a Proxy is in the view by the view scope rules.
 		const focus_id = this.focusNodeId(nodes);
-		const needs_link = node => node.type === 'device' || (node.type === 'host' && node.device);
-		nodes = nodes.filter(node => this.show_unlinked || this.only_duplicates || !needs_link(node) || link_count.has(String(node.id)) || String(node.id) === focus_id);
+		// (the rule is for every node: a Host without a Device too; a Proxy is in the view by the view scope rules)
+		nodes = nodes.filter(node => G.isDrawn(node, {has_link: link_count.has(String(node.id)), show_unlinked: this.show_unlinked, only_duplicates: this.only_duplicates,
+			is_focus: String(node.id) === focus_id}));
 		nodes.push(...group_nodes.filter(group_node => nodes.some(node => String(node.id) === group_node.parent)));
 		rendered_ids = new Set(nodes.map(node => String(node.id)));
 		group_nodes.forEach(group_node => {
