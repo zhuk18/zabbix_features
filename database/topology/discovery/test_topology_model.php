@@ -804,6 +804,13 @@ check($by_name['Gi0/10']['learned_mac_count'] === 312 && $by_name['Gi0/10']['lea
 check($by_name['Gi0/6']['lag'] === 'Po1' && $by_name['Gi0/1']['lag'] === null, 'a LAG member shows the name of its LAG');
 check($by_name['Gi0/12']['status'] === 'down' && $by_name['Gi0/12']['admin_status'] === 'down' && $by_name['Gi0/11']['status'] === 'up', 'oper_status and admin_status are columns');
 check($by_name['Gi0/9']['source'] === 'FDB' && $by_name['Gi0/1']['source'] === 'LLDP', 'source: FDB for MAC addresses only, LLDP for a discovered link');
+// task 094 (§12.5 "Links"): the fields of the Links section
+check($by_name['Gi0/1']['remote_port'] === 'f1' && $by_name['Gi0/1']['remote_device_id'] === (string) $F && $by_name['Gi0/1']['edge_id'] !== null,
+	'a connected port gives its link id, the far port name and the far Device: '.json_encode([$by_name['Gi0/1']['remote_port'], $by_name['Gi0/1']['remote_device_id']]));
+check($by_name['Gi0/1']['stale'] === true && $by_name['mgmt0']['stale'] === false && $by_name['Gi0/1']['last_seen'] === 1, 'stale and the time of the last confirmation: the old last_seen is stale, the new one is not');
+check($by_name['Vlan10']['remote_port'] === null && $by_name['Vlan10']['remote_device_id'] === (string) $F && $by_name['Vlan10']['edge_id'] !== null, 'a device-level link: no far port, the far Device and the link id: '.json_encode([$by_name['Vlan10']['remote_port'], $by_name['Vlan10']['remote_device_id'], $by_name['Vlan10']['edge_id'], (string) $F]));
+check($by_name['Gi0/11']['edge_id'] === null && $by_name['Gi0/11']['remote_port'] === null && $by_name['Gi0/11']['load'] === null, 'a port without a link has no link fields and no load');
+check($by_name['Gi0/6']['lag_id'] === (string) $lag && $by_name['Gi0/1']['lag_id'] === null, 'the LAG id of a member port');
 
 // no group without ports
 reset_topology($pdo);

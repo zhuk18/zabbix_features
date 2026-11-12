@@ -1186,6 +1186,21 @@ class CTopologyPrototype {
 			}
 		}
 		$linked_names = self::getLinkedDeviceNames($connected_port_ids);
+		// task 094 (§12.5 "Links"): the far end of each link (its port name, its LAG, its Device) and the load of each local port, for the Links section; one query each for all the ports
+		$far_ids = array_values(array_unique(array_filter(array_column($rows, 'linked_port_id'), static fn ($id): bool => $id !== null)));
+		$far_details = self::getPortDetails($far_ids);
+		$far_devices = [];
+		if ($far_ids) {
+			$cursor = DBselect('SELECT id,device_id FROM topo_nodes WHERE '.dbConditionId('id', $far_ids));
+			while ($far = DBfetch($cursor)) {
+				$far_devices[$far['id']] = (string) $far['device_id'];
+			}
+		}
+		$itemids_by_port = [];
+		foreach ($rows as $row) {
+			$itemids_by_port[$row['id']] = array_map('strval', self::attrs($row)['zabbix_itemids'] ?? []);
+		}
+		$port_loads = self::getPortLoads($itemids_by_port);
 		// (DBfetchArray turns a NULL lag_id into '0')
 		$lag_names = [];
 		$lag_ids = array_values(array_unique(array_filter(array_column($rows, 'lag_id'), static fn ($id): bool => $id !== null)));
@@ -1200,7 +1215,7 @@ class CTopologyPrototype {
 		// whose port is not known. An active one only; the port keeps its row either way.
 		$device_level = [];
 		$cursor = DBselect(
-			'SELECT link.id,link.src_id,link.attrs,device.attrs AS device_attrs'.
+			'SELECT link.id,link.src_id,link.dst_id,link.attrs,device.attrs AS device_attrs'.
 			' FROM topo_edges link'.
 			' JOIN topo_nodes port ON port.id=link.src_id AND port.device_id='.zbx_dbstr($deviceid).
 			' JOIN topo_nodes device ON device.id=link.dst_id'.
@@ -1212,7 +1227,8 @@ class CTopologyPrototype {
 				$device_level[$link['src_id']] = [
 					'id' => $link['id'], 'discovered_via' => (string) ($link_attrs['discovered_via'] ?? 'lldp'),
 					'reason' => (string) ($link_attrs['far_port_reason'] ?? ''),
-					'device' => json_decode($link['device_attrs'], true)['sysname'] ?? null
+					'device' => json_decode($link['device_attrs'], true)['sysname'] ?? null,
+					'device_id' => (string) $link['dst_id'], 'last_seen' => isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null
 				];
 			}
 		}
@@ -1224,6 +1240,7 @@ class CTopologyPrototype {
 				: null;
 
 			$device_link = $row['linkid'] === null ? ($device_level[$row['id']] ?? null) : null;
+			$link_attrs_of_row = $row['linkid'] !== null ? (json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR) ?: []) : [];
 			$learned_macs = array_values((array) ($attrs['learned_macs'] ?? []));
 			$learned_mac_count = isset($attrs['learned_mac_count']) ? (int) $attrs['learned_mac_count'] : null;
 			$group = self::portGroup($row['linkid'] !== null || $device_link !== null, (string) ($attrs['if_type'] ?? 'physical'), $learned_macs,
@@ -1236,6 +1253,17 @@ class CTopologyPrototype {
 				'lag' => $row['lag_id'] !== null ? ($lag_names[$row['lag_id']] ?? null) : null,
 				'connected_to' => $linked_names[$row['id']] ?? $device_link['device'] ?? null,
 				'linked_port_id' => $row['linkid'] !== null ? $row['linked_port_id'] : null,
+				// 2.75 (§12.5 "Links"): the link's id, the far port and its LAG, the far Device, when the link was last confirmed, the load of this port, the LAG id of this port
+				'edge_id' => $row['linkid'] ?? $device_link['id'] ?? null,
+				'lag_id' => $row['lag_id'] === null || (string) $row['lag_id'] === '0' ? null : (string) $row['lag_id'],
+				'remote_port' => $row['linkid'] !== null ? ($far_details[$row['linked_port_id']]['name'] ?? null) : null,
+				'remote_lag_id' => $row['linkid'] !== null ? ($far_details[$row['linked_port_id']]['lag_id'] ?? null) : null,
+				'remote_lag' => $row['linkid'] !== null ? ($far_details[$row['linked_port_id']]['lag_name'] ?? null) : null,
+				'remote_device_id' => $row['linkid'] !== null ? ($far_devices[$row['linked_port_id']] ?? null) : ($device_link['device_id'] ?? null),
+				'last_seen' => $row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null),
+				'stale' => self::isLinkStale($row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null)),
+				'speed' => $attrs['speed'] ?? null,
+				'load' => $port_loads[$row['id']] ?? null,
 				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
 				'device_link_id' => $device_link['id'] ?? null,
 				'far_port_reason' => $device_link['reason'] ?? null,
