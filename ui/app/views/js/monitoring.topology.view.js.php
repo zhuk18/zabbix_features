@@ -1830,17 +1830,29 @@ const view = new class {
 		this.zoom ??= d3.zoom().scaleExtent([0.15, 4])
 			.filter(event => event.type !== 'dblclick' && !event.target.closest?.('.topology-node') && !event.target.closest?.('.topology-link') && !event.button)
 			.on('zoom', event => {
+				if (event.sourceEvent) {
+					this.user_moved = true;      // a pan or a zoom of the user: the view is not centred again by a redraw
+				}
 				this.zoom_transform = event.transform;
 				d3.select('#topology-scene').attr('transform', event.transform);
 			});
 		this.canvas.call(this.zoom).on('dblclick.zoom', null);
-		if (relayout || !this.zoom_transform) {
-			// the first drawing: scale 1; the graph is centred when it fits the window, else centred on the focus host, or on the node with the most drawn links
+		if (relayout) {
+			this.user_moved = false;
+		}
+		if (relayout || !this.zoom_transform || !this.user_moved) {
+			// the first drawing (and every redraw until the user pans or zooms: the window can change its size, for example the menu): scale 1; the graph is centred when it fits the window, else centred on the focus host, or on the node with the most drawn links
 			const fits = width <= view_width * 1.02 && height <= view_height * 1.02;
 			let centre = {x: width / 2, y: height / 2};
 			if (!fits) {
+				// the node with the most drawn links (the lines that are on the screen: a folded group is one line)
+				const drawn_links = new Map();
+				simulation_links.forEach(link => {
+					drawn_links.set(String(link.source), (drawn_links.get(String(link.source)) ?? 0) + 1);
+					drawn_links.set(String(link.target), (drawn_links.get(String(link.target)) ?? 0) + 1);
+				});
 				const best = focus_id !== null ? node_by_id.get(focus_id)
-					: nodes.reduce((top, node) => ((link_count.get(String(node.id)) ?? 0) > (link_count.get(String(top.id)) ?? 0) ? node : top), nodes[0]);
+					: nodes.reduce((top, node) => ((drawn_links.get(String(node.id)) ?? 0) > (drawn_links.get(String(top.id)) ?? 0) ? node : top), nodes[0]);
 				if (best) {
 					centre = {x: best.x, y: best.y};
 				}
