@@ -537,6 +537,46 @@
 	}
 
 	/**
+	 * Room for the labels of the LAG bundles (§12.3, 2.73) in a layout that the collision step has made: a bundle whose label has no free point on its line (every point between 30 % and 70 %
+	 * touches a node box or a label placed before) is stretched: the node at one end that is not fixed moves 14 px away from the other end along the line, the collision step makes room for
+	 * it, and the labels are tried again (up to `rounds` times). `bundles` = [{a, b, width, index, count}] (a and b are node objects, the line is as G.curve draws it). Returns true when every
+	 * label has a free point.
+	 */
+	function makeLabelRoom(nodes, bundles, bounds, rounds = 60) {
+		const fixed = node => node.fx !== undefined && node.fx !== null;
+		for (let round = 0; round < rounds; round++) {
+			const boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
+			const placed = [];
+			let blocked = 0;
+			bundles.forEach(({a, b, width, index, count}) => {
+				const place = placeLabel(curve(a, b, index, count).at, width, [...boxes, ...placed]);
+				placed.push(place.box);
+				if (place.free) {
+					return;
+				}
+				blocked++;
+				const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+				const ux = (b.x - a.x) / length;
+				const uy = (b.y - a.y) / length;
+				if (!fixed(b)) {
+					b.x += ux * 14;
+					b.y += uy * 14;
+				}
+				else if (!fixed(a)) {
+					a.x -= ux * 14;
+					a.y -= uy * 14;
+				}
+			});
+			if (blocked === 0) {
+				return true;
+			}
+			resolveOverlaps(nodes, bounds);
+		}
+
+		return false;
+	}
+
+	/**
 	 * After the collision step: a node (not a leaf, not the parent, not fixed) that a line from the parent to a leaf crosses is turned about the parent to the nearest angle, at the same
 	 * distance (then 1.25 to 3 times as far), where its box is clear of every other box and of every leaf line. A node that has no such place stays. Returns the nodes that were moved.
 	 */
@@ -810,5 +850,5 @@
 		return lines.join('\n');
 	}
 
-	return {clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

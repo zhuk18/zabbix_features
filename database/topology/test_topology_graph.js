@@ -392,4 +392,24 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(pinned.x === 220 && pinned.y === 5, 'a fixed (dragged) node stays');
 	ok(![parent, leaf, aside].some(n => G.overlappingPairs([on_line, n], G.BOX_GAP).length), 'it is clear of the other boxes');
 }
+// ---- room for the label of a LAG bundle in a finished layout (2.73) ----
+{
+	const a = G.layoutNode({id: 'A', x: 300, y: 300, label: 'SW12-10-CORE-6000-48G'}, 'large');
+	const b = G.layoutNode({id: 'B', x: 300 + a.box.w / 2 + 10 + 74, y: 300, label: 'SW18-09-ACC-2530-48G'}, 'large');
+	const filler = G.layoutNode({id: 'C', x: 300, y: 500, label: 'SW20'}, 'large');
+	const nodes = [a, b, filler];
+	const bundle = {a, b, width: 'Trk1 ×2'.length * 6 + 4, index: 0, count: 1};
+	const room = () => {
+		const boxes = nodes.map(n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom}));
+		return G.placeLabel(G.curve(a, b, 0, 1).at, bundle.width, boxes).free;
+	};
+	ok(!room(), 'start: two boxes 10 px apart leave no free point for the label');
+	ok(G.makeLabelRoom(nodes, [bundle], {width: 1200, height: 900, padding: 10}) && room(), 'after makeLabelRoom the label has a free point');
+	ok(G.overlappingPairs(nodes, 0).length === 0, 'and no box overlaps another');
+	const pinned_a = G.layoutNode({id: 'A', x: 300, y: 300, fx: 300, fy: 300, label: 'SW12-10-CORE-6000-48G'}, 'large');
+	const pinned_b = G.layoutNode({id: 'B', x: 300 + pinned_a.box.w / 2 + 10 + 74, y: 300, fx: 800, fy: 300, label: 'SW18-09-ACC-2530-48G'}, 'large');
+	const before = [pinned_a.x, pinned_a.y, pinned_b.x, pinned_b.y];
+	G.makeLabelRoom([pinned_a, pinned_b], [{a: pinned_a, b: pinned_b, width: 40, index: 0, count: 1}], {width: 1200, height: 900, padding: 10}, 3);
+	ok(before.join() === [pinned_a.x, pinned_a.y, pinned_b.x, pinned_b.y].join(), 'two fixed (dragged) nodes do not move');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

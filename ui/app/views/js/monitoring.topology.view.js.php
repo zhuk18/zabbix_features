@@ -1903,6 +1903,15 @@ const view = new class {
 				node.temp_fixed = false;
 			}
 		});
+		// §12.3 (2.73): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched
+		if (relayout) {
+			const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
+			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
+			const placement = G.parallelIndex(lines);
+			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
+				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: line.label.length * 6 + 4, index, count}));
+			G.makeLabelRoom(nodes, bundles, {width, height, padding});
+		}
 		// the collision step may have put a node back into the sector of an arc: a node that a line to a leaf crosses is turned out of the way, where there is room (§12.8, "nodes in it move out")
 		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 		this.view_size = {width, height, keep: true};
