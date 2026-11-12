@@ -272,8 +272,12 @@ CHECKS = {
             labels_wider_than_160: labels.filter(t => t.getBBox().width > 160.5).length, labels_multiline: labels.filter(t => t.childElementCount > 0).length,
             text_in_shape: document.querySelectorAll('#topology-canvas .topology-shape text, #topology-canvas rect + text:not(.topology-label)').length,
             scale: Math.round(scale * 100) / 100,
-            outside: boxes.filter(b => b.left < svg.getBoundingClientRect().left - 1 || b.right > svg.getBoundingClientRect().right + 1).length};
-        r.ok = r.nodes > 0 && r.overlaps === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && !r.outside;
+            // the first drawing is at scale 1 or more (§12.1 "Scale"): the label font on the screen is at least 12 px (large) and 10 px (small); the node that the view is centred on is in the window
+            font_large_min: Math.min(...labels.filter(t => t.parentNode.classList.contains('topology-size-large')).map(t => parseFloat(getComputedStyle(t).fontSize) * t.getScreenCTM().a)),
+            font_small_min: Math.min(...labels.filter(t => t.parentNode.classList.contains('topology-size-small')).map(t => parseFloat(getComputedStyle(t).fontSize) * t.getScreenCTM().a)),
+            zoom_k: view.zoom_transform ? Math.round(view.zoom_transform.k * 100) / 100 : null,
+            visible_nodes: boxes.filter(b => b.right > svg.getBoundingClientRect().left && b.left < svg.getBoundingClientRect().right && b.bottom > svg.getBoundingClientRect().top && b.top < svg.getBoundingClientRect().bottom).length};
+        r.ok = r.nodes > 0 && r.overlaps === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table

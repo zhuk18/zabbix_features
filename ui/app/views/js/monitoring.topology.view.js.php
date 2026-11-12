@@ -1813,8 +1813,35 @@ const view = new class {
 			}
 		});
 		this.view_size = {width, height, keep: true};
-		this.canvas.attr('viewBox', `0 0 ${width} ${height}`).selectAll('*').remove();
+		// 091 (§12.1 "Scale"): the view is the size of the window and the graph is drawn at scale 1 or more; the user pans (drag on the empty area) and zooms out (wheel). The double click
+		// does not zoom (it folds a group, §12.8); a double click on the empty area does nothing, as before the zoom was there.
+		this.canvas.attr('viewBox', `0 0 ${view_width} ${view_height}`).selectAll('*').remove();
 		const defs = this.canvas.append('defs');
+		const scene = this.canvas.append('g').attr('id', 'topology-scene');
+		this.zoom ??= d3.zoom().scaleExtent([0.15, 4])
+			.filter(event => event.type !== 'dblclick' && !event.target.closest?.('.topology-node') && !event.target.closest?.('.topology-link') && !event.button)
+			.on('zoom', event => {
+				this.zoom_transform = event.transform;
+				d3.select('#topology-scene').attr('transform', event.transform);
+			});
+		this.canvas.call(this.zoom).on('dblclick.zoom', null);
+		if (relayout || !this.zoom_transform) {
+			// the first drawing: scale 1; the graph is centred when it fits the window, else centred on the focus host, or on the node with the most drawn links
+			const fits = width <= view_width * 1.02 && height <= view_height * 1.02;
+			let centre = {x: width / 2, y: height / 2};
+			if (!fits) {
+				const best = focus_id !== null ? node_by_id.get(focus_id)
+					: nodes.reduce((top, node) => ((link_count.get(String(node.id)) ?? 0) > (link_count.get(String(top.id)) ?? 0) ? node : top), nodes[0]);
+				if (best) {
+					centre = {x: best.x, y: best.y};
+				}
+			}
+			this.zoom_transform = d3.zoomIdentity.translate(view_width / 2 - centre.x, view_height / 2 - centre.y);
+		}
+		scene.attr('transform', this.zoom_transform);
+		this.canvas.property('__zoom', this.zoom_transform);
+		// the halo of a label (§12.2): a stroke in the page background colour under the text, so a line under a label does not cross the letters; it has no meaning
+		const halo_colour = getComputedStyle(document.querySelector('.topology-workspace')).backgroundColor || '#ffffff';
 		defs.append('pattern')
 			.attr('id', 'topology-blind-spot-hatch').attr('width', 8).attr('height', 8)
 			.attr('patternUnits', 'userSpaceOnUse').attr('patternTransform', 'rotate(45)')
@@ -1852,9 +1879,9 @@ const view = new class {
 			}
 		};
 		// the highlight under the line of a hovered node (§12.3 "Hover"): its own element, so the channels of the link itself do not change
-		const glows = this.canvas.append('g').selectAll('path').data(simulation_links).join('path')
+		const glows = scene.append('g').selectAll('path').data(simulation_links).join('path')
 			.attr('class', 'topology-link-glow').style('stroke-width', link => link_style.width(link) + 6);
-		const links = this.canvas.append('g').selectAll('path').data(simulation_links).join('path')
+		const links = scene.append('g').selectAll('path').data(simulation_links).join('path')
 			.attr('class', 'topology-link')
 			.style('fill', 'none')
 			.style('cursor', link => link.type === 'group_link' ? 'default' : 'pointer')
@@ -1914,7 +1941,7 @@ const view = new class {
 		});
 		// A bundle of device-level links between the same two Devices is one line labelled with the count and the known local ports on each side ("2 links: Gi0/1, Gi0/2 ↔ ?").
 		const bundle_data = simulation_links.filter(link => link.type === 'device_link' && (link.count ?? 0) > 1);
-		const bundle_labels = this.canvas.append('g').selectAll('text').data(bundle_data).join('text')
+		const bundle_labels = scene.append('g').selectAll('text').data(bundle_data).join('text')
 			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#475569')
 			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
 		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where discovery says the cable actually goes — a dashed orange
@@ -1934,7 +1961,7 @@ const view = new class {
 			ghost_seen.add(pair);
 			ghost_data.push({from, to, entry, shadow});
 		});
-		const ghosts = this.canvas.append('g').selectAll('g').data(ghost_data).join('g')
+		const ghosts = scene.append('g').selectAll('g').data(ghost_data).join('g')
 			.attr('class', 'topology-ghost-link')
 			.style('cursor', 'pointer')
 			.on('click', (event, ghost) => this.manualAction('open', ghost.entry.edge_id));
@@ -1960,7 +1987,7 @@ const view = new class {
 				});
 			});
 		}
-		const pairs = this.canvas.append('g').selectAll('g').data(pair_data).join('g')
+		const pairs = scene.append('g').selectAll('g').data(pair_data).join('g')
 			.attr('class', 'topology-pair-line').style('cursor', 'pointer')
 			.on('click', (event, pair) => this.selectPair(pair.a, pair.candidate));
 		const pair_lines = pairs.append('line').attr('stroke', '#b45309').attr('stroke-width', 2)
@@ -1970,7 +1997,7 @@ const view = new class {
 			.style('fill', '#b45309').style('pointer-events', 'none').text(pair => this.pairReason(pair.candidate));
 		const contradicted_links = simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type) && link.edge_id !== null
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
-		const link_badges = this.canvas.append('g').selectAll('g').data(contradicted_links).join('g')
+		const link_badges = scene.append('g').selectAll('g').data(contradicted_links).join('g')
 			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
 			.on('click', (event, link) => this.selectLink(link));
 		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
@@ -1998,7 +2025,7 @@ const view = new class {
 			return subject.type === 'host' && subject.disabled ? '#55606b' : (subject.type === 'device' ? '#4b5563' : '#1f2937');
 		};
 
-		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
+		const node_selection = scene.append('g').selectAll('g').data(nodes).join('g')
 			.attr('class', node => `topology-node ${node.type} topology-size-${node.size}${this.only_duplicates && !is_duplicate_node(node) ? ' topology-context' : ''}`)
 			.style('opacity', node => this.only_duplicates && !is_duplicate_node(node) ? 0.45 : null)
 			// hover (§12.3): the node and its drawn links get a highlight outline; no other channel changes
@@ -2077,6 +2104,7 @@ const view = new class {
 		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
 			.attr('y', node => node.shape_h / 2 + 3 + node.font)
 			.style('font-size', node => `${node.font}px`).style('fill', '#1f2937').style('pointer-events', 'none')
+			.style('paint-order', 'stroke').style('stroke', halo_colour).style('stroke-width', '3px').style('stroke-linejoin', 'round')
 			.text(node => node.label_text);
 
 		// Badges (§12.2): a blind spot (top right), maintenance (top left), a hidden neighbor of a contradicted manual link (bottom right), a possible duplicate (bottom left);
