@@ -467,6 +467,7 @@ class IngestLinks {
 		//     that entity at lower precision and takes its outcome.
 		$lower_of = []; // device-level claim key => ['claim' => port-level claim key] | ['link' => link id]
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			if ($claim['dev'] === null) {
 				continue;
 			}
@@ -496,6 +497,7 @@ class IngestLinks {
 			}
 		}
 		foreach ($lower_of as $key => $target) {
+			ingest_tick('resolve: claims');
 			if (isset($target['claim'])) {
 				foreach ($rules_of[$key] ?? [] as $itemid => $unused) {
 					$rules_of[$target['claim']][$itemid] = true; // the device-level sighting says the cable is there
@@ -509,6 +511,7 @@ class IngestLinks {
 		//     port simply has several claimants: no link, all ambiguous. Decided on the claims as they are, once.
 		$claimants_of = [];
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			foreach ($claim['occupies'] as $touched) {
 				$claimants_of[$touched][$key] = true;
 			}
@@ -544,6 +547,7 @@ class IngestLinks {
 		$linked_ambiguous_supersede = []; // link key => T
 		$port_candidates = [];            // local port => candidate indexes that are claims on it (not fixed by a pre-outcome, not shadowed)
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick('resolve: claims');
 			if ($candidate['pre_outcome'] === null && ($candidate_entity($candidate)[0] ?? null) !== null
 					&& (!isset($result[$i]) || $result[$i]['outcome'] === 'ambiguous')) {
 				$port_candidates[$candidate['local_port_id']][] = $i;
@@ -555,6 +559,7 @@ class IngestLinks {
 		}
 		ksort($port_candidates);
 		foreach ($port_candidates as $port => $indexes) {
+			ingest_tick('resolve: claims');
 			$active = [];
 			foreach ($by_port[$port] ?? [] as $lid) {
 				if ($is_active_discovered($links[$lid])) {
@@ -612,6 +617,7 @@ class IngestLinks {
 		//    contradicted by it.
 		$claims_by_port = [];
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			foreach ($claim['occupies'] as $touched) {
 				$claims_by_port[$touched][] = $key;
 			}
@@ -619,6 +625,7 @@ class IngestLinks {
 		$wins = [];
 		$blockers = [];      // claim key => [entity keys touching its ports]
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			$entities = [];
 			foreach ($claim['occupies'] as $touched) {
 				foreach ($by_port[$touched] ?? [] as $lid) {
@@ -651,6 +658,7 @@ class IngestLinks {
 		$superseded = $linked_ambiguous_supersede; // link key => T (the earliest winning contradiction; 4c: the newest clock of the claims on its port, nothing replaces it)
 		$superseded_by = [];
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			if (!$wins[$key]) {
 				continue;
 			}
@@ -785,6 +793,7 @@ class IngestLinks {
 		};
 		$after = [];        // key => link id, for every entity that is an active link once this run is done
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			$existing = isset($link_by_key[$key]) ? $links[$link_by_key[$key]] : null;
 			$stays = $existing !== null && ($existing['manual'] || $existing['superseded_at'] === null)
 				&& !isset($superseded[$key]);
@@ -826,6 +835,7 @@ class IngestLinks {
 
 		// 7. Outcomes of the claims.
 		foreach ($claims as $key => $claim) {
+			ingest_tick('resolve: claims');
 			foreach ($claim['indexes'] as $i) {
 				if (isset($after[$key])) {
 					$result[$i] = ['outcome' => 'applied', 'edge_id' => $after[$key], 'key' => $key];
@@ -852,6 +862,7 @@ class IngestLinks {
 		// 7b. Device-level sightings of a cable known at port level (4a): they take the outcome of that cable. A sighting
 		//     of an existing active link only advances that link's clocks (last_seen_port stays), and says "lower".
 		foreach ($candidates as $i => $candidate) {
+			ingest_tick('resolve: claims');
 			[$key] = $candidate_entity($candidate);
 			if ($key === null || !isset($lower_of[$key]) || $candidate['level'] !== 'device') {
 				continue;
