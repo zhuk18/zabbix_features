@@ -1967,6 +1967,15 @@ const view = new class {
 			// hover (§12.3): the node and its drawn links get a highlight outline; no other channel changes
 			.on('mouseenter', (event, node) => this.highlight(node, true))
 			.on('mouseleave', (event, node) => this.highlight(node, false))
+			// a double click on the parent of an unfolded group, or on one of its leaves, folds the group (§12.8; the panel button "Fold <N> devices" does the same)
+			.on('dblclick', (event, node) => {
+				const group = (this.leaf_groups ?? []).find(candidate => this.unfolded.has(String(candidate.parent))
+					&& (String(candidate.parent) === String(node.id) || candidate.devices.map(String).includes(String(node.id))));
+				if (group) {
+					event.preventDefault();
+					this.foldGroup(group.parent);
+				}
+			})
 			// a dragged node stays where it is dropped, until the page is loaded again or the filter is applied (§12.1 "Node placement"); positions are not stored
 			.call(d3.drag()
 				.on('start', (event, node) => {
