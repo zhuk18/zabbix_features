@@ -489,7 +489,9 @@ class CTopologyPrototype {
 			}
 			$pair = [$row['device_a'], $row['device_b']];
 			sort($pair);
-			$key = implode('-', $pair).(isset($own_line[$row['link_id']]) ? '#'.$row['link_id'] : '');
+			// 2.70 (§12.3 "Parallel links"): every drawn link is its own relation, with its own channels; the graph draws links between the same two nodes as separate curved
+			// lines (device-level links are still bundled, below)
+			$key = implode('-', $pair).'#'.$row['link_id'];
 			$link_attrs = json_decode($row['link_attrs'], true, 512, JSON_THROW_ON_ERROR);
 			$superseded_at = self::supersededAt($link_attrs);
 			// Any source other than 'manual' (lldp, cdp, ...) is a discovered link. 'lldp' stays the normalized
@@ -735,13 +737,57 @@ class CTopologyPrototype {
 			$node_ids = self::duplicatesScope($node_ids);
 		}
 
+		$devices = self::getDevices($node_ids);
+		$relations = self::getRelations($node_ids);
+		$contradictions = self::getContradictions();
+		// a Device with a badge other than "possible duplicate" (an unacknowledged hidden neighbor of a contradicted manual link) is in no leaf group (§12.8)
+		$badge_device_ids = [];
+		foreach ($contradictions as $entry) {
+			foreach ($entry['shadows'] ?? [] as $shadow) {
+				if (empty($shadow['acknowledged']) && ($shadow['hidden_device_id'] ?? null) !== null) {
+					$badge_device_ids[] = $shadow['hidden_device_id'];
+				}
+			}
+		}
+
 		return [
-			'devices' => self::getDevices($node_ids),
-			'relations' => self::getRelations($node_ids),
+			'devices' => $devices,
+			'relations' => $relations,
+			// §12.8 (2.70, FR-C V-22): the leaves that the graph draws as one group node of their node; a UI projection, nothing is stored. Access: the Devices without association are
+			// not filtered by access yet (access spec §3.4 is not implemented), so every leaf counts.
+			'leaf_groups' => CTopologyLeafGroups::compute($devices, $relations, self::getTopologyLinkCounts(), $badge_device_ids, $duplicates),
 			// Manual links hidden-behind by discovery (topology-1-model.md "Contradiction"): badges, ghost links
 			// and details. Strings inside come from the network and are escaped where they are rendered.
-			'contradictions' => self::getContradictions()
+			'contradictions' => $contradictions
 		];
+	}
+
+	/**
+	 * Device id => the number of links that are not superseded in the WHOLE topology (physical and device-level; §12.8: a leaf is counted by the whole topology, not by the view).
+	 */
+	private static function getTopologyLinkCounts(): array {
+		$counts = [];
+		$cursor = DBselect(
+			'SELECT link.type,link.attrs,src_port.device_id AS device_a,dst_port.device_id AS port_device_b,link.dst_id AS dst_id'.
+			' FROM topo_edges link'.
+			' JOIN topo_nodes src_port ON src_port.id=link.src_id'.
+			' LEFT JOIN topo_nodes dst_port ON dst_port.id=link.dst_id AND dst_port.type='.zbx_dbstr('port').
+			' WHERE '.dbConditionString('link.type', ['physical_link', 'device_link'])
+		);
+		while ($row = DBfetch($cursor, false)) {
+			if (self::supersededAt(self::attrs($row)) !== null) {
+				continue;
+			}
+			$a = (string) $row['device_a'];
+			$b = (string) ($row['type'] === 'physical_link' ? $row['port_device_b'] : $row['dst_id']);
+			if ($a === '' || $b === '' || $a === $b) {
+				continue;
+			}
+			$counts[$a] = ($counts[$a] ?? 0) + 1;
+			$counts[$b] = ($counts[$b] ?? 0) + 1;
+		}
+
+		return $counts;
 	}
 
 	/**
