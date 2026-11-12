@@ -420,12 +420,12 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(ids('proxy', true) === 'links,ports,identity' && G.panelSections('proxy', true)[2].open === false, 'Proxy with a Device: Links, Ports, Identity (folded)');
 	ok(ids('proxy', false) === '', 'a Proxy without a Device: the header only (no section)');
 	ok(ids('host', false) === 'problems', 'a Host without a Device: Problems only');
-	const w = {link: '%1$s link', links: '%1$s links', lag: '%1$s LAG', port: '%1$s port', ports: '%1$s ports', up: '%1$s up'};
-	ok(G.summaryLine({links: 12, lag: 2, ports: 48, up: 14}, w) === '12 links · 2 LAG · 48 ports (14 up)', 'summary line: all parts');
-	ok(G.summaryLine({links: 0, lag: 2, ports: 48, up: 14}, w) === '2 LAG · 48 ports (14 up)', 'a part that is 0 is left out (links)');
-	ok(G.summaryLine({links: 3, lag: 0, ports: 24, up: 0}, w) === '3 links · 24 ports', 'no LAG, no port up: those parts are left out');
-	ok(G.summaryLine({links: 1, lag: 0, ports: 1, up: 1}, w) === '1 link · 1 port (1 up)', 'one link, one port');
-	ok(G.summaryLine({links: 0, lag: 0, ports: 0, up: 0}, w) === '', 'all 0: an empty line');
+	const w = {link: '%1$s link', links: '%1$s links', neighbor: '%1$s neighbor', neighbors: '%1$s neighbors', to: '%1$s to %2$s', port: '%1$s port', ports: '%1$s ports', up: '%1$s up'};
+	ok(G.summaryLine({links: 11, neighbors: 7, ports: 58, up: 30}, w) === '11 links to 7 neighbors · 58 ports (30 up)', 'summary line: all parts (SW12)');
+	ok(G.summaryLine({links: 0, neighbors: 0, ports: 48, up: 14}, w) === '48 ports (14 up)', 'a part that is 0 is left out (links)');
+	ok(G.summaryLine({links: 3, neighbors: 2, ports: 24, up: 0}, w) === '3 links to 2 neighbors · 24 ports', 'no port up: that part is left out');
+	ok(G.summaryLine({links: 1, neighbors: 1, ports: 1, up: 1}, w) === '1 link to 1 neighbor · 1 port (1 up)', 'one link, one neighbor, one port');
+	ok(G.summaryLine({links: 0, neighbors: 0, ports: 0, up: 0}, w) === '', 'all 0: an empty line');
 	ok(G.loadText({in: 250e6, out: 5e6, speed: 1e9}) === 'in 25 % / out 0.5 %', 'load "in x % / out y %"', G.loadText({in: 250e6, out: 5e6, speed: 1e9}));
 	ok(G.loadText({in: 0, out: 0, speed: 1e9}) === 'in 0 % / out 0 %', 'load 0 is 0 %, not a dash');
 	ok(G.loadText(null) === '—' && G.loadText({in: null, out: null, speed: 1e9}) === '—' && G.loadText({in: 1, out: 1, speed: null}) === '—', 'load "—" without items, without a value, without a speed');
@@ -450,5 +450,26 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(rows.length === 2 && rows.every(r => r.type === 'link'), 'device-level links are not bundled');
 	rows = G.linkRows([entry('1/1/5', {superseded_at: 123})]);
 	ok(rows.length === 1 && rows[0].entry.superseded_at === 123, 'a superseded link has its row');
+}
+// ---- the tooltip of a link (2.77, task 095) ----
+{
+	const words = {in: 'in', out: 'out', of: 'of', status: {up: 'Up', down: 'DOWN', disabled: 'Disabled'}, speed: bps => (bps >= 1e9 ? bps / 1e9 + ' Gbps' : bps / 1e6 + ' Mbps')};
+	const link = (extra = {}) => ({source: {name: 'SW12'}, target: {name: 'SW15'}, source_port: '1/1/41', target_port: '1/1/21', source_status: 'up', target_status: 'up', source_text: 'LLDP',
+		source_load: {in: 2e6, out: 5e5, speed: 1e9, percent: 0.2}, target_load: {in: 0, out: 0, speed: 1e9, percent: 0}, marks: [], ...extra});
+	let lines = G.linkTooltip(link(), words).split('\n');
+	ok(lines.length === 4 && lines[0] === 'SW12 1/1/41 ↔ SW15 1/1/21' && lines[1] === 'LLDP · Up / Up', 'port-level: the ports, then "source · status A / status B"', lines);
+	ok(lines[2] === 'SW12: in 2 Mbps / out 0.5 Mbps of 1 Gbps (0.2 %)' && lines[3] === 'SW15: in 0 bps / out 0 bps of 1 Gbps (0 %)', 'one line per side with the load', lines.slice(2));
+	lines = G.linkTooltip(link({source_load: null, target_load: null}), words).split('\n');
+	ok(lines.length === 2, 'no load: no load lines', lines);
+	lines = G.linkTooltip(link({stale: true, marks: ['Not recently reconfirmed.', 'The remote port 5 hasn\'t been confirmed since x.']}), words).split('\n');
+	ok(lines.length === 6 && lines[4] === 'Not recently reconfirmed.' && lines[5].startsWith('The remote port'), 'stale and the other marks: each on its own line', lines);
+	lines = G.linkTooltip(link({superseded_at: 5, marks: ['Replaced on 1/1/2026 by a link to SW20.']}), words).split('\n');
+	ok(lines[lines.length - 1] === 'Replaced on 1/1/2026 by a link to SW20.', 'superseded: the replaced note is the last line');
+	lines = G.linkTooltip(link({source_status: 'down', target_status: null, source_text: 'manual', source_load: null, target_load: null}), words).split('\n');
+	ok(lines[1] === 'manual · DOWN', 'one side has no status: only the known one', lines[1]);
+	lines = G.linkTooltip(link({source: {name: '<img src=x>'}, source_port: '<b>1</b>'}), words).split('\n');
+	ok(lines[0] === '<img src=x> <b>1</b> ↔ SW15 1/1/21', 'HTML in a name stays text (§13)', lines[0]);
+	lines = G.linkTooltip(link({source_port: null, target_port: null, source_load: null, target_load: null}), words).split('\n');
+	ok(lines[0] === 'SW12 ? ↔ SW15 ?', 'an unknown port is "?" (a device-level end)', lines[0]);
 }
 console.log('\nAll ' + n + ' topology graph checks passed.');

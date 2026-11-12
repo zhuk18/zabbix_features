@@ -880,22 +880,42 @@
 	}
 
 	/**
-	 * The summary line "<N> links · <L> LAG · <P> ports (<U> up)"; a part that is 0 is not shown, and "(<U> up)" goes with the ports. `words`: {link, links, lag, port, ports, up}, each with %1$s.
+	 * The summary line "<N> links to <M> neighbors · <P> ports (<U> up)" (§12.5, 2.77); a part that is 0 is not shown, and "(<U> up)" goes with the ports. `words`: {link, links, neighbor, neighbors, to,
+	 * port, ports, up}, each with %1$s ("to" with %1$s and %2$s).
 	 */
 	function summaryLine(counts, words) {
 		const part = (n, one, many) => (n === 1 ? one : many).replace('%1$s', String(n));
 		const parts = [];
 		if (counts.links > 0) {
-			parts.push(part(counts.links, words.link, words.links));
-		}
-		if (counts.lag > 0) {
-			parts.push(words.lag.replace('%1$s', String(counts.lag)));
+			parts.push(words.to.replace('%1$s', part(counts.links, words.link, words.links)).replace('%2$s', part(counts.neighbors, words.neighbor, words.neighbors)));
 		}
 		if (counts.ports > 0) {
 			parts.push(part(counts.ports, words.port, words.ports) + (counts.up > 0 ? ' (' + words.up.replace('%1$s', String(counts.up)) + ')' : ''));
 		}
 
 		return parts.join(' · ');
+	}
+
+	/**
+	 * The tooltip of a port-level link (§12.3, 2.77): "<A> <port> ↔ <B> <port>"; "<source> · <status A> / <status B>"; one line per side "<node>: in <x> / out <y> of <speed> (<p> %)"; then the
+	 * marks, each on its own line. Text only (§13). `link` has source/target (nodes with name), source_port/target_port, source_status/target_status, source_load/target_load, source_text, `marks` (the
+	 * caller's texts). `words`: {in, out, of, status: {up, down, disabled}, speed: bps -> text}.
+	 */
+	function linkTooltip(link, words) {
+		const lines = [`${link.source?.name ?? '?'} ${link.source_port ?? '?'} ↔ ${link.target?.name ?? '?'} ${link.target_port ?? '?'}`];
+		const state = side => (side ? (words.status[side] ?? side) : null);
+		const statuses = [state(link.source_status), state(link.target_status)].filter(Boolean).join(' / ');
+		lines.push([link.source_text, statuses].filter(Boolean).join(' · '));
+		const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
+		[[link.source, link.source_load], [link.target, link.target_load]].forEach(([node, load]) => {
+			if (load && ((load.in !== null && load.in !== undefined) || (load.out !== null && load.out !== undefined))) {
+				lines.push(`${node?.name ?? '?'}: ${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '')
+					+ (load.percent !== null && load.percent !== undefined ? ` (${load.percent} %)` : ''));
+			}
+		});
+		(link.marks ?? []).forEach(mark => lines.push(mark));
+
+		return lines.filter(line => line !== '').join('\n');
 	}
 
 	/** The load of a port as "in <x> % / out <y> %" (§4.8): % of the speed, one decimal at most; "—" without items, without speed, or when neither value is known. */
@@ -952,5 +972,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });
