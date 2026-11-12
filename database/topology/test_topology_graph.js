@@ -279,4 +279,26 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const r_plain = G.placeRadial(plain, [{type: 'physical_link', source: 'F', target: 'N'}], 'F', {x: 0, y: 0});
 	ok(Math.hypot(near.x, near.y) >= r_plain, 'the ring with a LAG link is not smaller than without', [Math.hypot(near.x, near.y), r_plain]);
 }
+// ---- the tooltip of a LAG bundle (§12.3, 2.73) ----
+{
+	const words = {in: 'in', out: 'out', of: 'of', status: {up: 'Up', down: 'DOWN', disabled: 'Disabled'}, speed: bps => (bps >= 1e9 ? bps / 1e9 + ' Gbps' : bps / 1e6 + ' Mbps')};
+	const member = (a, b, extra = {}) => ({source_port: a, target_port: b, source_status: 'up', target_status: 'up', source_load: {in: 2e6, out: 5e5, speed: 1e9}, ...extra});
+	const bundle = {lag_name: 'Trk1', source: {name: 'SW12'}, target: {name: 'SW18'}, members: [member('1/1/47', '47'), member('1/1/48', '48', {source_status: 'down', target_status: 'down', source_load: null})]};
+	let lines = G.bundleTooltip(bundle, words).split('\n');
+	ok(lines[0] === 'LAG Trk1 ×2: SW12 ↔ SW18', 'first line: LAG <name> ×<N>: <node A> ↔ <node B>', lines[0]);
+	ok(lines.length === 3, 'one line per member', lines);
+	ok(lines[1] === '1/1/47 ↔ 47 · Up · in 2 Mbps / out 0.5 Mbps of 1 Gbps', 'a member: ports · status · in / out of speed', lines[1]);
+	ok(lines[2] === '1/1/48 ↔ 48 · DOWN', 'a member without load: no load part', lines[2]);
+	lines = G.bundleTooltip({...bundle, lag_name: 'lag16 ↔ Trk1'}, words).split('\n');
+	ok(lines[0] === 'LAG lag16 ↔ Trk1 ×2: SW12 ↔ SW18', 'a LAG on both sides: both names', lines[0]);
+	lines = G.bundleTooltip({...bundle, lag_name: ''}, words).split('\n');
+	ok(lines[0] === 'LAG ×2: SW12 ↔ SW18', 'no LAG name: "LAG ×2"', lines[0]);
+	lines = G.bundleTooltip({...bundle, members: [member('a', 'b', {target_status: 'down'})]}, words).split('\n');
+	ok(lines[1] === 'a ↔ b · Up / DOWN · in 2 Mbps / out 0.5 Mbps of 1 Gbps', 'the two sides differ: both states', lines[1]);
+	lines = G.bundleTooltip({...bundle, source: {name: '<img src=x>'}, members: [member('<b>', 'x')]}, words).split('\n');
+	ok(lines[0].includes('<img src=x>') && lines[1].startsWith('<b> ↔ x'), 'HTML in a name stays text (the page writes the tooltip with text(), §13)');
+	const named = G.bundleLinks([{type: 'physical_link', edge_id: 1, source: 'A', target: 'B', source_lag_id: '5', source_lag: 'lag16', target_lag_id: '9', target_lag: 'Trk1', stale: false, superseded_at: null},
+		{type: 'physical_link', edge_id: 2, source: 'A', target: 'B', source_lag_id: '5', source_lag: 'lag16', target_lag_id: '9', target_lag: 'Trk1', stale: false, superseded_at: null}]);
+	ok(named[0].lag_name === 'lag16 ↔ Trk1', 'the bundle carries the LAG name for the tooltip', named[0].lag_name);
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

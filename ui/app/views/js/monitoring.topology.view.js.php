@@ -2001,8 +2001,9 @@ const view = new class {
 			.style('opacity', link => (['physical_link', 'lag_bundle', 'device_link'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
 		const link_tooltip = link => {
 			if (link.type === 'lag_bundle') {
-				// the members, each with its two ports, its status and its load (§4.8)
-				return [`${link.source.name} ↔ ${link.target.name}: LAG ${link.label}`, ...link.members.map(member => this.memberLine(member))].join('\n');
+				// 2.73: "LAG <name> ×<N>: <A> ↔ <B>", then a line per member: its two ports, its status and the load of side A (§4.8); the link panel has both sides
+				return G.bundleTooltip(link, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
+					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
 			}
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'

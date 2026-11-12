@@ -584,7 +584,7 @@
 			const names = [first.source_lag, first.target_lag].filter(name => name !== null && name !== undefined && name !== '');
 			// "Trk1 ×2"; both sides known: "lag16 ↔ Trk1 ×2"
 			const label = (names.length ? names.join(' ↔ ') + ' ' : '') + '×' + members.length;
-			bundled.set(indexes[0], {...first, type: 'lag_bundle', members, count: members.length, label, edge_id: null});
+			bundled.set(indexes[0], {...first, type: 'lag_bundle', members, count: members.length, label, lag_name: names.join(' ↔ '), edge_id: null});
 			indexes.forEach(i => skipped.add(i));
 		});
 		const out = [];
@@ -600,5 +600,34 @@
 		return out;
 	}
 
-	return {placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	/**
+	 * The tooltip of a LAG bundle (§12.3, 2.73): the first line "LAG <name> ×<N>: <node A> ↔ <node B>", then one line per member: "<port A> ↔ <port B> · <status> · in <x> / out <y> of <speed>" (the
+	 * load of side A; the link panel has both sides). Text only (§13): the caller writes it with text(). `words` = {in, out, of, status: {up, down, disabled}, speed: bps -> text}.
+	 */
+	function bundleTooltip(bundle, words) {
+		const name = bundle.lag_name ? bundle.lag_name + ' ' : '';
+		const node = side => side?.name ?? side?.label ?? '';
+		const lines = [`LAG ${name}×${bundle.members.length}: ${node(bundle.source)} ↔ ${node(bundle.target)}`];
+		bundle.members.forEach(member => {
+			const status = side => (side ? (words.status[side] ?? side) : null);
+			const a = status(member.source_status);
+			const b = status(member.target_status);
+			const state = a !== null && b !== null && a !== b ? `${a} / ${b}` : (a ?? b);
+			const load = member.source_load;
+			const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
+			const has_load = load && (load.in !== null && load.in !== undefined || load.out !== null && load.out !== undefined);
+			const parts = [`${member.source_port ?? '?'} ↔ ${member.target_port ?? '?'}`];
+			if (state !== null) {
+				parts.push(state);
+			}
+			if (has_load) {
+				parts.push(`${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : ''));
+			}
+			lines.push(parts.join(' · '));
+		});
+
+		return lines.join('\n');
+	}
+
+	return {bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });
