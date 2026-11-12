@@ -1,6 +1,7 @@
 <?php
 
 $this->addJsFile('d3.js');
+$this->addJsFile('topology.graph.js');
 $this->addJsFile('multiselect.js');
 $this->includeJsFile('monitoring.topology.view.js.php', ['legend_collapsed' => (int) ($data['legend_collapsed'] ?? 0)]);
 
@@ -49,6 +50,7 @@ $page_styles = '
 .topology-address{padding:6px 0;border-bottom:1px solid #e5e7eb}
 .topology-address-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .topology-address-value{font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;word-break:break-all}
+.topology-address-count{font-size:11px;color:#55606b;cursor:pointer}
 .topology-address-source{font-size:11px;color:#55606b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;font-size:11.5px;margin-bottom:6px}
 .topology-address-identity th{text-align:left;font-weight:600;padding:3px 6px 3px 0;white-space:nowrap;width:1%}
@@ -88,45 +90,29 @@ $page_styles = '
 .topology-link-pick:empty{display:none}
 .topology-link-pick a{margin-left:8px;color:#2b7dbc;cursor:pointer}
 .topology-link-button,.topology-unlink-button{font-size:10px;padding:2px 7px;white-space:nowrap}
-.topology-filter-bar{display:flex;align-items:flex-start;gap:8px 24px;flex-wrap:wrap;flex:0 0 auto;margin-bottom:12px;padding:8px 12px;border:1px solid #d9d9d9;background:#fbfbfb}
-.topology-filter-field{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
+.topology-filter-bar{display:flex;align-items:center;gap:8px 12px;flex-wrap:nowrap;flex:0 0 auto;margin-bottom:12px;padding:6px 10px;border:1px solid #d9d9d9;background:#fbfbfb}
+.topology-run-line{font-size:12px;color:#3d4650}
+.topology-filter-field{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .topology-filter-bar label{font-size:12px;color:#1f2933;margin-right:4px}
-.topology-filter-hint{flex-basis:100%;color:#7c8594;font-size:12px}
+.topology-node.topology-hover .topology-shape{stroke:#0b6fb8!important;stroke-width:4!important}
+.topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
+.topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
+.topology-group-fold{margin:8px 0}
+.topology-group-row{cursor:pointer}
+.topology-group-row:hover{background:#eef6fc}
 ';
 
 (new CHtmlPage())
 	->setTitle(_('Topology prototype'))
 	->addItem(
 		(new CDiv([
+			// §12.1 "Page header and filter bar" (2.70): the title, "Run discovery ingest", the state of the run and the time of the last run as one line of text, the link "Last run"
 			(new CDiv([
 				(new CTag('h1', true, _('Physical topology'))),
 				(new CDiv())->setId('topology-link-pick')->addClass('topology-link-pick'),
-				(new CDiv([
-					new CLabel(_('Links'), 'topology-link-filter'),
-					(new CSelect('link_filter'))
-						->setId('topology-link-filter')
-						->setValue('all')
-						->addOptions(CSelect::createOptionsFromArray([
-							'all' => _('Automatic + manual'),
-							'lldp' => _('Automatic only'),
-							'manual' => _('Manual only')
-						]))
-				]))->addClass('topology-header-field'),
-				// §12.1 (2.47, FR-C V-16): the filter "possible duplicate": only the Devices that have a duplicate candidate
-				(new CDiv([
-					(new CCheckBox('only_duplicates'))
-						->setId('topology-filter-duplicates')
-						->setLabel(_('Possible duplicates only'))
-				]))->addClass('topology-header-field'),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
-				(new CSpan(''))->setId('topology-ingest-status')->addClass('topology-ingest-status'),
-				// FR-C V-21 / model §12.7: the time of the last run and "<N> reporters have new data since the last run"
-				(new CSpan(''))->setId('topology-run-info')->addClass('topology-ingest-status'),
-				// §12.7: the view of the last run (the run summary and the observation list), next to the button that starts a run
-				(new CLink(_('Last run'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun'))),
-				// Wipes topo_nodes/topo_edges outright (this branch's entire persisted graph) --
-				// destructive and irreversible, confirmed client-side before the request fires.
-				(new CButton('topology-clean-all', _('Clean All')))->addClass(ZBX_STYLE_BTN_ALT)
+				(new CSpan(''))->setId('topology-run-line')->addClass('topology-run-line'),
+				(new CLink(_('Last run'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun')))
 			]))->addClass('topology-header'),
 			(new CForm())
 				->setId('topology-filter-bar')
@@ -145,7 +131,7 @@ $page_styles = '
 									'dstfld1' => 'groupids_'
 								]
 							]
-						]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH)
+						]))->setWidth(120)
 					]))->addClass('topology-filter-field'),
 					(new CDiv([
 						new CLabel(_('Focus host'), 'hostid_ms'),
@@ -161,23 +147,32 @@ $page_styles = '
 									'dstfld1' => 'hostid'
 								]
 							]
-						]))->setWidth(ZBX_TEXTAREA_FILTER_STANDARD_WIDTH),
+						]))->setWidth(120)
+					]))->addClass('topology-filter-field'),
+					(new CDiv([
 						new CLabel(_('Depth'), 'topology-filter-hops'),
 						(new CSelect('hops'))
 							->setId('topology-filter-hops')
 							->setValue('1')
 							->addOptions(CSelect::createOptionsFromArray([
 								'' => _('No limit'), 1 => '1', 2 => '2', 3 => '3', 4 => '4', 5 => '5', 6 => '6'
-							]))
+							])),
+						// the help text of the view scope is in a hint, not as fixed text above the graph (§12.1)
+						makeHelpIcon(_('The Hosts of the selected host groups and the focus host are the start nodes. The view shows every '.
+							'node at a distance of Depth or less from a start node (no Depth: no limit). Distance counts only links: one '.
+							'physical link or device-level link is 1; a Device and its Host or Proxy, and a Host and its monitoring Proxy, '.
+							'are never a hop. Only links whose two ends are in the view are drawn. Each node is drawn as its Host or Proxy, '.
+							'also at the edge of the view. "Reset" clears the selection and displays every node.'))
 					]))->addClass('topology-filter-field'),
-					(new CButton('topology-filter-apply', _('Apply filter')))->addClass(ZBX_STYLE_BTN_ALT),
-					(new CButton('topology-filter-clear', _('Show all')))->addClass(ZBX_STYLE_BTN_ALT),
-					(new CDiv(_('The Hosts of the selected host groups and the focus host are the start nodes. The view shows every '.
-						'node at a distance of Depth or less from a start node (no Depth: no limit). Distance counts only links: one '.
-						'physical link or device-level link is 1; a Device and its Host or Proxy, and a Host and its monitoring Proxy, '.
-						'are never a hop. Only links whose two ends are in the view are drawn. Each node is drawn as its Host or Proxy, '.
-						'also at the edge of the view. "Show all" clears the selection and displays every node.')))
-						->addClass('topology-filter-hint')
+					// §12.1 (2.47, FR-C V-16): only the Devices that have a duplicate candidate; V-1: the Devices without a link are drawn too (small); both are part of the filter
+					(new CDiv(
+						(new CCheckBox('only_duplicates'))->setId('topology-filter-duplicates')->setLabel(_('Possible duplicates only'))
+					))->addClass('topology-filter-field'),
+					(new CDiv(
+						(new CCheckBox('show_unlinked'))->setId('topology-filter-unlinked')->setLabel(_('Show devices without links'))
+					))->addClass('topology-filter-field'),
+					(new CButton('topology-filter-apply', _('Apply')))->addClass(ZBX_STYLE_BTN_ALT),
+					(new CButton('topology-filter-clear', _('Reset')))->addClass(ZBX_STYLE_BTN_ALT)
 				]),
 			(new CDiv([
 				(new CTag('svg', true))->setId('topology-canvas'),

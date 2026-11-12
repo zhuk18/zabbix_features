@@ -78,6 +78,7 @@ $available_js = [
 	'flickerfreescreen.js' => '',
 	'multilineinput.js' => '',
 	'multiselect.js' => '',
+	'topology.graph.js' => '',
 	'chkbxrange.js' => '',
 	'layout.mode.js' => '',
 	'inputsecret.js' => '',

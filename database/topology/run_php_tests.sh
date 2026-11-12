@@ -93,11 +93,17 @@ fresh topo_t_busy_port
 php_test topo_t_busy_port discovery/test_manual_link_busy_port.php name
 
 # ---- 2. PHP tests without a database ----
-for t in test_freshness.php test_node_label.php test_hop_scope.php; do
+for t in test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php; do
 	exec_test "$t" "/tmp/topo_t_$(basename "$t" .php).log" php "$here/$t"
 done
 
 # ---- 3. Python and JS tests that need nothing of the lab ----
+# the pure parts of the graph (ui/js/topology.graph.js: labels, sizes, collision, radial placement, parallel links, the run line), task 090
+if command -v node >/dev/null; then
+	exec_test "test_topology_graph.js" /tmp/topo_t_topology_graph.log node "$here/test_topology_graph.js"
+else
+	skip "test_topology_graph.js" "node is not installed"
+fi
 exec_test discovery/test_push.py /tmp/topo_t_test_push.log python3 "$here/discovery/test_push.py"
 if [ -x "$repo/src/zabbix_js/zabbix_js" ]; then
 	exec_test discovery/lld_js/test_lld_js.php /tmp/topo_t_test_lld_js.log php "$here/discovery/lld_js/test_lld_js.php"
@@ -167,10 +173,20 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	sw12=SW12-10-CORE-6000-48G
 	exec_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
 	exec_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
+	# task 090 (model §12.1, §12.2): no node box overlaps another, at both window sizes, without a focus host (force placement) and with one (radial placement); the switch
+	# "Show devices without links"; the Addresses of SW12 with the count and the folded sources
+	exec_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
+	exec_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
+	exec_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
+	exec_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
+	exec_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
+	exec_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
 	exec_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
 	# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
 	exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
 	# the UI only requests a run, the CLI executes it; executor_missing; a write action waits for the run lock; accept discovery (087)
+	# the page header and filter bar, parallel links, leaf groups (090)
+	exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
 	exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
 	exec_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
 	exec_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png

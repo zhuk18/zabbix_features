@@ -126,6 +126,9 @@ CHECKS = {
             panel_buttons_out: Array.from(panel.querySelectorAll('table button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
             panel_headers_out: Array.from(panel.querySelectorAll('table th')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
             headers_cut: Array.from(new Set(Array.from(panel.querySelectorAll('table th')).filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim()))),
+            // task 090 (model §12.1): the filter bar is one row (every field and button has the same vertical centre) and the page has no "Links" select and no "Clean all" button
+            filter_one_row: (() => { const c = Array.from(document.querySelectorAll('.topology-filter-bar > *')).map(e => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; }); return c.length > 5 && Math.max(...c) - Math.min(...c) < 6; })(),
+            removed_controls: ['topology-link-filter', 'topology-clean-all'].filter(id => document.getElementById(id)),
             panel_tables: panel.querySelectorAll('table').length,
             workspace_bottom: Math.round(ws.bottom), below: Math.round((document.querySelector('footer') || {getBoundingClientRect: () => ({top: H})}).getBoundingClientRect().top), canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
         // model §12.1 "Width" (2.38): the page keeps the Zabbix minimum width of main (1200 px). When the content area is narrower (for example a
@@ -149,7 +152,7 @@ CHECKS = {
             r.header_buttons_out = Array.from(document.querySelectorAll('.topology-header button, .topology-filter-bar button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right; }).map(name);
         }
         r.ok = (d.scrollWidth <= W || r.zabbix_min_width_scroll) && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
-            && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
+            && r.filter_one_row && !r.removed_controls.length && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
             && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
         return r;
     })()''',
@@ -192,8 +195,14 @@ CHECKS = {
             labels: labels.map(t => t.textContent),
             labels_cut: labels.filter(t => t.scrollWidth > t.clientWidth + 1).map(t => t.textContent),
             out_of_panel: Array.from(section.querySelectorAll('*')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).map(e => e.className || e.tagName).slice(0, 5),
-            addresses: section.querySelectorAll('.topology-address').length, empty: !!section.querySelector('.topology-empty')};
-        r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID') && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty);
+            addresses: section.querySelectorAll('.topology-address').length, empty: !!section.querySelector('.topology-empty'),
+            // task 090 (model §12.5, 2.70): one line per address with the count "reported by <N> ports of <M> hosts"; the sources are folded, closed by default
+            counts: Array.from(section.querySelectorAll('summary.topology-address-count')).map(t => t.textContent),
+            sources_open: Array.from(section.querySelectorAll('details.topology-address-sources')).filter(d => d.open).length,
+            source_lines_visible: Array.from(section.querySelectorAll('details.topology-address-sources .topology-address-source')).filter(e => e.checkVisibility ? e.checkVisibility() : e.offsetHeight > 0).length,
+            duplicate_addresses: (() => { const v = Array.from(section.querySelectorAll('.topology-address-head .topology-address-value')).map(e => e.textContent); return v.length - new Set(v).size; })()};
+        r.counts_ok = r.counts.every(t => /^reported by \d+ ports? of \d+ hosts?$/.test(t));
+        r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID') && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty) && r.counts_ok && r.sources_open === 0 && r.source_lines_visible === 0 && r.duplicate_addresses === 0;
         return r;
     })()''',
     # model §12.2, §12.1 (2.47, task 057): with a Device that has a duplicate candidate selected (--select), the panel names the reason in words and offers Merge,
@@ -204,7 +213,9 @@ CHECKS = {
             actions: ['merge', 'dismiss', 'delete'].map(a => panel.querySelectorAll('[data-topology-dup="' + a + '"]').length)};
         const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
         r.nodes_before = nodes();
+        // the switches are part of the filter (task 090, model §12.1): the checkbox and Apply
         document.getElementById('topology-filter-duplicates').click();
+        document.getElementById('topology-filter-apply').click();
         // wait for the server's answer (the number of nodes changes), at most 30 s: a fixed pause of 3 s was too short on a busy VM
         for (let i = 0; i < 60 && nodes() === r.nodes_before; i++) {
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -219,6 +230,50 @@ CHECKS = {
         r.pair_labels = Array.from(document.querySelectorAll('#topology-canvas .topology-pair-line text')).map(t => t.textContent);
         r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.duplicate_nodes > 0 && r.badges_filtered === r.duplicate_nodes
             && r.pair_lines > 0 && r.pair_labels.every(t => /^(same address|same name|same HW-ID|same device ID|possible hardware replacement)/.test(t));
+        return r;
+    })()''',
+    # model §12.1 / FR-C V-1 (task 090): the switch "Show devices without links" is part of the filter: the MikroTik Devices of SW18 (no link) are drawn only with the switch on
+    'unlinked': '''(async () => {
+        const drawn = () => Array.from(document.querySelectorAll('#topology-canvas g.topology-node text.topology-label')).filter(t => t.textContent.startsWith('MikroTik')).length;
+        const settle = async before => { for (let i = 0; i < 40 && drawn() === before; i++) { await new Promise(resolve => setTimeout(resolve, 500)); } await new Promise(resolve => setTimeout(resolve, 800)); };
+        const sw = document.getElementById('topology-filter-unlinked');
+        const r = {switch_default: sw.checked, off_at_start: drawn()};
+        sw.checked = true;
+        document.getElementById('topology-filter-apply').click();
+        await settle(r.off_at_start);
+        r.on = drawn();
+        sw.checked = false;
+        document.getElementById('topology-filter-apply').click();
+        await settle(r.on);
+        r.off_again = drawn();
+        r.ok = r.switch_default === false && r.off_at_start === 0 && r.on > 0 && r.off_again === 0;
+        return r;
+    })()''',
+    # model §12.1 "Node placement" and §12.2 "Label placement" (task 090): no node box (the shape with its label) overlaps another; a label is one line of at most 160 px; the shape has no text
+    'overlap': '''(() => {
+        const boxes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(g => {
+            const b = g.getBoundingClientRect();
+            return {name: (g.querySelector('text.topology-label') || {textContent: '?'}).textContent, left: b.left, right: b.right, top: b.top, bottom: b.bottom};
+        });
+        const pairs = [];
+        for (let i = 0; i < boxes.length; i++) {
+            for (let j = i + 1; j < boxes.length; j++) {
+                const a = boxes[i], c = boxes[j];
+                if (a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5) {
+                    pairs.push([a.name, c.name]);
+                }
+            }
+        }
+        const svg = document.querySelector('#topology-canvas');
+        const view_box = svg.viewBox.baseVal;
+        const scale = svg.getBoundingClientRect().width / (view_box.width || 1);
+        const labels = Array.from(document.querySelectorAll('#topology-canvas text.topology-label'));
+        const r = {nodes: boxes.length, overlapping_pairs: pairs.slice(0, 6), overlaps: pairs.length,
+            labels_wider_than_160: labels.filter(t => t.getBBox().width > 160.5).length, labels_multiline: labels.filter(t => t.childElementCount > 0).length,
+            text_in_shape: document.querySelectorAll('#topology-canvas .topology-shape text, #topology-canvas rect + text:not(.topology-label)').length,
+            scale: Math.round(scale * 100) / 100,
+            outside: boxes.filter(b => b.left < svg.getBoundingClientRect().left - 1 || b.right > svg.getBoundingClientRect().right + 1).length};
+        r.ok = r.nodes > 0 && r.overlaps === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && !r.outside;
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
@@ -249,6 +304,7 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--width', type=int, default=1400)
     ap.add_argument('--height', type=int, default=900)
+    ap.add_argument('--unlinked', action='store_true', help='set the switch "Show devices without links" before the filter is applied (model §12.1, V-1)')
     ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
     ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
     ap.add_argument('--action', default='topology.view', help='the page (zabbix.php?action=...); another page than topology.view gets no filter (to compare with stock Zabbix pages)')
@@ -315,9 +371,10 @@ def main():
             if (host) jQuery('#hostid').multiSelect('addData', [host]);
             if (groups.length) jQuery('#groupids_').multiSelect('addData', groups);
             document.getElementById('topology-filter-hops').value = %s;
+            document.getElementById('topology-filter-unlinked').checked = %s;
             document.getElementById('topology-filter-apply').click();
             return [jQuery('#hostid').multiSelect('getData'), jQuery('#groupids_').multiSelect('getData'), document.getElementById('topology-filter-hops').value];
-        })()''' % (json.dumps(host), json.dumps(groups), json.dumps(a.depth))
+        })()''' % (json.dumps(host), json.dumps(groups), json.dumps(a.depth), 'true' if a.unlinked else 'false')
         if a.menu:
             js('''(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden');
                 window.dispatchEvent(new Event('resize')); })()''' % ('true' if a.menu == 'collapsed' else 'false'))

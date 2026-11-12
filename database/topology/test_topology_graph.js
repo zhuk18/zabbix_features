@@ -1,0 +1,100 @@
+'use strict';
+// Tests of ui/js/topology.graph.js (task 090, model 2.70 §12.1 "Node placement", §12.2 "Size", "Label placement", §12.3 "Parallel links", FR-C V-21). Run: node test_topology_graph.js
+const assert = require('assert');
+const G = require('../../ui/js/topology.graph.js');
+let n = 0;
+const ok = (condition, text, detail) => {
+	assert.ok(condition, text + (detail === undefined ? '' : ' ' + JSON.stringify(detail)));
+	n++;
+	console.log('  ok: ' + text);
+};
+
+// ---- the line "<N> reporters have new data since the last run" (FR-C V-21) ----
+const t = {one: '%1$s reporter has new data since the last run', many: '%1$s reporters have new data since the last run', last: 'Last run: %1$s'};
+ok(G.runInfoText(0, '10:00', t) === 'Last run: 10:00', 'N = 0: only the time of the last run');
+ok(G.runInfoText(1, '10:00', t) === '1 reporter has new data since the last run — Last run: 10:00', 'N = 1: "1 reporter has"');
+ok(G.runInfoText(2, '10:00', t) === '2 reporters have new data since the last run — Last run: 10:00', 'N = 2: "2 reporters have"');
+ok(G.runInfoText(0, '', t) === '', 'N = 0 and no run yet: nothing');
+
+// ---- the label: cut in the middle, at most 160 px ----
+const m = G.approxMeasure;
+const long_name = 'SW19-09-POE-6000-24G-with-a-very-long-suffix-of-the-name';
+const cut = G.cutMiddle(long_name, G.MAX_LABEL_PX, 12);
+ok(m(cut, 12) <= G.MAX_LABEL_PX && cut.includes('…') && cut.startsWith('SW19-09') && cut.endsWith('name'), 'a long label is cut in the middle, start and end stay', cut);
+ok(G.cutMiddle('SW12', G.MAX_LABEL_PX, 12) === 'SW12', 'a short label is not changed');
+ok(G.cutMiddle('SW19-09-POE-6000-24G', 90, 12).includes('…'), 'the cut follows the width');
+
+// ---- sizes (§12.2) ----
+ok(G.sizeOf({type: 'host'}, 1) === 'large' && G.sizeOf({type: 'proxy'}, 0) === 'large', 'Host and Proxy: large');
+ok(G.sizeOf({type: 'device'}, 2) === 'large' && G.sizeOf({type: 'device'}, 1) === 'small' && G.sizeOf({type: 'device'}, 0) === 'small', 'Device: large with two or more links, else small');
+ok(G.sizeOf({type: 'group'}, 1) === 'small', 'a leaf group node: small');
+const big = G.layoutNode({label: 'SW12'}, 'large');
+const small = G.layoutNode({label: 'SW12'}, 'small');
+ok(big.shape_w > small.shape_w && big.font > small.font, 'two sizes: the small node has a smaller shape and font');
+ok(big.box.h > big.shape_h && big.box.bottom > big.shape_h / 2, 'the collision box includes the label under the shape');
+
+// ---- no overlap (boxes with labels) ----
+const make = (count, seed) => {
+	let s = seed;
+	const rnd = () => (s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296;
+	return Array.from({length: count}, (_, i) => G.layoutNode({id: String(i), label: 'node-' + i + '-with-a-label', x: 400 + rnd() * 60, y: 300 + rnd() * 60}, i % 3 === 0 ? 'large' : 'small'));
+};
+for (const [w, h] of [[1500, 900], [1280, 800]]) {
+	const nodes = make(40, 7);
+	ok(G.overlappingPairs(nodes).length > 0, 'the start is crowded (' + w + ' × ' + h + ')');
+	const fits = G.resolveOverlaps(nodes, {width: w, height: h, padding: 20});
+	ok(fits && G.overlappingPairs(nodes).length === 0, 'after the collision step no box overlaps another (' + w + ' × ' + h + ')');
+	ok(nodes.every(node => node.x >= 0 && node.y >= 0 && node.x <= w && node.y <= h), 'all nodes stay inside the area');
+}
+{
+	const nodes = make(6, 3);
+	nodes[0].fx = nodes[0].x;
+	nodes[0].fy = nodes[0].y;
+	const before = [nodes[0].x, nodes[0].y];
+	G.resolveOverlaps(nodes, {width: 1200, height: 800, padding: 20});
+	ok(nodes[0].x === before[0] && nodes[0].y === before[1] && G.overlappingPairs(nodes).length === 0, 'a dragged (fixed) node stays where it is dropped, the others move away');
+}
+{
+	const nodes = make(400, 5);
+	ok(G.resolveOverlaps(nodes, {width: 400, height: 300, padding: 10}) === false, 'too small an area for the boxes: false (the page makes the area larger)');
+}
+
+// ---- radial placement with a focus host ----
+{
+	const ids = ['f', 'a', 'b', 'c', 'a1', 'a2', 'b1', 'x'];
+	const nodes = ids.map(id => G.layoutNode({id, label: 'node ' + id}, id.length === 1 ? 'large' : 'small'));
+	const links = [['f', 'a'], ['f', 'b'], ['f', 'c'], ['a', 'a1'], ['a', 'a2'], ['b', 'b1']].map(([source, target]) => ({source, target}));
+	const radius = G.placeRadial(nodes, links, 'f', {x: 600, y: 400});
+	const by = new Map(nodes.map(node => [node.id, node]));
+	const r = id => Math.hypot(by.get(id).x - 600, by.get(id).y - 400);
+	ok(r('f') === 0, 'the focus host is in the centre');
+	ok(Math.abs(r('a') - r('b')) < 1e-6 && Math.abs(r('a') - r('c')) < 1e-6, 'nodes at distance 1 are on one ring');
+	ok(r('a1') > r('a') && Math.abs(r('a1') - r('b1')) < 1e-6, 'nodes at distance 2 are on ring 2, outside ring 1');
+	ok(r('x') > r('a1'), 'a node with no path to the focus host is on the outer ring', [r('x'), r('a1')]);
+	ok(G.overlappingPairs(nodes).length === 0, 'no box overlaps another on the rings');
+	ok(radius >= r('x') - 1e-6, 'the radius returned is that of the outer ring');
+	const dist = G.distances(ids, links, 'f');
+	ok(dist.get('a1') === 2 && !dist.has('x'), 'distance counts links only');
+}
+{
+	const nodes = Array.from({length: 61}, (_, i) => G.layoutNode({id: 'n' + i, label: 'a-long-device-name-' + i}, 'small'));
+	const links = nodes.slice(1).map(node => ({source: 'n0', target: node.id}));
+	G.placeRadial(nodes, links, 'n0', {x: 0, y: 0});
+	ok(G.overlappingPairs(nodes).length === 0, '60 nodes at distance 1: the ring grows until the boxes fit');
+}
+
+// ---- parallel links ----
+{
+	const s = {x: 0, y: 0};
+	const tt = {x: 200, y: 0};
+	const one = G.curve(s, tt, 0, 1);
+	ok(one.d === 'M0,0L200,0', 'a single link is a straight line');
+	const a = G.curve(s, tt, 0, 2);
+	const b = G.curve(s, tt, 1, 2);
+	ok(a.d !== b.d && a.d.includes('Q') && b.d.includes('Q'), 'two links between the same nodes are two curved lines');
+	ok(Math.abs(Math.abs(a.mid.y - b.mid.y) - 16) < 1e-6, 'a fixed distance between the lines (16 px at the middle)', [a.mid, b.mid]);
+	const links = [{source: {id: 1}, target: {id: 2}}, {source: {id: 2}, target: {id: 1}}, {source: {id: 1}, target: {id: 3}}];
+	const idx = G.parallelIndex(links);
+	ok(idx[0].count === 2 && idx[1].count === 2 && idx[0].index === 0 && idx[1].index === 1 && idx[2].count === 1, 'the direction of a link does not matter for the pair');
+}
+console.log('\nAll ' + n + ' topology graph checks passed.');

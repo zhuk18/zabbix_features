@@ -10,12 +10,12 @@ def build(tag, js_path, view_path, dump_path, collapsed='0'):
     js = subprocess.run(['php', HERE + '/render_js.php', js_path, collapsed], capture_output=True, text=True).stdout
     view = open(view_path).read()
     css = re.search(r"\$page_styles = '(.*?)';\n", view, re.S).group(1).replace("\\'", "'")
-    d3 = open(REPO + '/ui/js/vendors/D3/d3.js').read()
+    d3 = open(REPO + '/ui/js/vendors/D3/d3.js').read() + open(REPO + '/ui/js/topology.graph.js').read().replace('module.exports', 'window.__unused')
     dump = open(dump_path).read().strip()
     html = '''<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:Arial,sans-serif}%s .topology-prototype{height:100vh}</style></head><body>
 <div class="topology-prototype"><div class="topology-header"><h1>Physical topology</h1><div id="topology-link-pick"></div>
-<span id="topology-ingest-status"></span><button id="topology-ingest-run">Run discovery ingest</button><button id="topology-clean-all">Clean</button>
-<select id="topology-link-filter"><option value="all">all</option></select><input id="topology-filter-hops" value="3"><button id="topology-filter-apply"></button><button id="topology-filter-clear"></button></div>
+<button id="topology-ingest-run">Run discovery ingest</button><span id="topology-run-line"></span>
+<input id="topology-filter-hops" value="3"><input type="checkbox" id="topology-filter-duplicates"><input type="checkbox" id="topology-filter-unlinked"><button id="topology-filter-apply"></button><button id="topology-filter-clear"></button></div>
 <div class="topology-workspace"><svg id="topology-canvas"></svg><div class="topology-panel" id="topology-panel"><button class="topology-panel-toggle" id="topology-panel-toggle">«</button>
 <h2 id="topology-details-title">Device details</h2><div id="topology-details">Select a device.</div><div id="topology-more-hint" class="topology-more" hidden></div></div></div></div>
 <script>%s</script>

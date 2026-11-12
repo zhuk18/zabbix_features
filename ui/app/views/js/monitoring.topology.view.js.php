@@ -47,15 +47,10 @@ const view = new class {
 		this.nodes = new Map();
 		this.links = [];
 		this.link_pick = null;
-		// Automatic (LLDP) vs manual physical_link display — purely a client-side render filter,
-		// not a data-scope query like groupids/hostid above: the discovered_via a link needs is
-		// already in what loadDevices() fetched, so toggling it just re-renders, no server round
-		// trip. represented_by/monitored_by aren't physical wiring and are never affected by this.
-		this.link_filter = 'all';
-		document.getElementById('topology-link-filter').addEventListener('change', event => {
-			this.link_filter = event.target.value;
-			this.render();
-		});
+		this.unfolded = new Set();
+		this.leaf_groups = [];
+		this.relayout = true;
+		this.show_unlinked = false;
 		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47, 2.49; FR-C V-16, V-17): the server answers with the Devices that have a candidate (linked
 		// or not), their partners and one hop of context; render() dims the context and draws the pair lines.
 		this.only_duplicates = false;
@@ -64,10 +59,7 @@ const view = new class {
 			this.only_duplicates = true;
 			document.getElementById('topology-filter-duplicates').checked = true;
 		}
-		document.getElementById('topology-filter-duplicates').addEventListener('change', event => {
-			this.only_duplicates = event.target.checked;
-			this.guard(() => this.loadDevices());
-		});
+
 		// Device details panel: collapsible so a wide canvas/graph gets the room back when the
 		// panel isn't needed — purely a CSS class toggle (topology-panel-collapsed on the grid
 		// container shrinks the panel's column), nothing about the loaded data changes.
@@ -113,22 +105,12 @@ const view = new class {
 		panel.addEventListener('scroll', update_hint);
 		new ResizeObserver(update_hint).observe(this.details);
 		hint.addEventListener('click', () => panel.scrollBy({top: panel.clientHeight * 0.8, behavior: 'smooth'}));
-		this.ingest_status_element = document.getElementById('topology-ingest-status');
-		this.run_info_element = document.getElementById('topology-run-info');
+		// the state of the run and the time of the last run are one line of text (§12.1 "Page header")
+		this.run_line_element = document.getElementById('topology-run-line');
+		this.run_state = '';
+		this.run_info = '';
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
-		}));
-		// Destructive: wipes topo_nodes/topo_edges (this branch's whole persisted graph) outright,
-		// with no undo. Confirmed here, client-side, before the request ever fires -- there is no
-		// server-side confirmation step of its own.
-		document.getElementById('topology-clean-all').addEventListener('click', () => this.guard(async () => {
-			if (!confirm(<?= json_encode(_('This permanently deletes every node and link in the topology database (topo_nodes/topo_edges). This cannot be undone. Continue?')) ?>)) {
-				return;
-			}
-			await this.request('topology.clean.all', {
-				method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
-			});
-			await this.loadDevices();
 		}));
 		// A run may already be in progress from a previous page load (button click before a reload) or
 		// from the CLI — reflect that on load instead of only ever noticing it after this tab's own click.
@@ -137,14 +119,22 @@ const view = new class {
 		// Hostgroup / host+hops scope: read on "Apply", not on every multiselect change — a
 		// group multiselect can see several add/remove events in a row while the user is still
 		// picking, and firing a request per keystroke there would be wasteful.
+		// Apply reads every field of the filter, the two switches too, and starts the layout again (a dragged node stays only until then, §12.1)
 		document.getElementById('topology-filter-apply').addEventListener('click', () => this.guard(async () => {
-			await this.loadDevices();
+			this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
+			this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
+			await this.loadDevices({reset_layout: true});
 		}));
+		// Reset (the former "Show all"): clears the selection and the switches and shows every node (Depth 1 as the page starts)
 		document.getElementById('topology-filter-clear').addEventListener('click', () => this.guard(async () => {
 			jQuery('#groupids_').multiSelect('clean');
 			jQuery('#hostid').multiSelect('clean');
 			document.getElementById('topology-filter-hops').value = '1';
-			await this.loadDevices();
+			document.getElementById('topology-filter-duplicates').checked = false;
+			document.getElementById('topology-filter-unlinked').checked = false;
+			this.only_duplicates = false;
+			this.show_unlinked = false;
+			await this.loadDevices({reset_layout: true});
 		}));
 		await this.loadDevices();
 	}
@@ -174,18 +164,29 @@ const view = new class {
 	// FR-C V-21: the time of the last run, and "<N> reporters have new data since the last run" (only the time when N is 0). Read with the status, so it is polled with the three states of
 	// the run (every 2 or 3 seconds while a run works or waits) and every 30 seconds otherwise.
 	renderRunInfo(status) {
-		if (!this.run_info_element) {
-			return;
+		const time = status.finished_at ? new Date(status.finished_at * 1000).toLocaleString() : '';
+		this.setRunInfo(TopologyGraph.runInfoText(status.reporters_new_data ?? 0, time, {
+			one: <?= json_encode(_('%1$s reporter has new data since the last run')) ?>,
+			many: <?= json_encode(_('%1$s reporters have new data since the last run')) ?>,
+			last: <?= json_encode(_('Last run: %1$s')) ?>
+		}));
+	}
+
+	// One line: the state of the run (§12.7: in progress, requested, does not run), then the note about new data and the time of the last run.
+	setRunState(text) {
+		this.run_state = text;
+		this.updateRunLine();
+	}
+
+	setRunInfo(text) {
+		this.run_info = text;
+		this.updateRunLine();
+	}
+
+	updateRunLine() {
+		if (this.run_line_element) {
+			this.run_line_element.textContent = [this.run_state, this.run_info].filter(text => text !== '').join(' — ');
 		}
-		const parts = [];
-		const n = Number(status.reporters_new_data ?? 0);
-		if (n > 0) {
-			parts.push(<?= json_encode(_('%1$s reporters have new data since the last run')) ?>.replace('%1$s', String(n)));
-		}
-		if (status.finished_at) {
-			parts.push(<?= json_encode(_('Last run: %1$s')) ?>.replace('%1$s', new Date(status.finished_at * 1000).toLocaleString()));
-		}
-		this.run_info_element.textContent = parts.join(' — ');
 	}
 
 	async refreshRunInfo() {
@@ -215,7 +216,7 @@ const view = new class {
 			}
 			catch (error) {
 				this.ingest_polling = false;
-				this.ingest_status_element.textContent = '';
+				this.setRunState('');
 				alert(error.message);
 				return;
 			}
@@ -223,23 +224,23 @@ const view = new class {
 			if (status.running || status.status === 'running') {
 				this.ingest_polling = true;
 				this.requested_here = true;
-				this.ingest_status_element.textContent = <?= json_encode(_('Reconciliation in progress')) ?>;
+				this.setRunState(<?= json_encode(_('Reconciliation in progress')) ?>);
 				setTimeout(poll, 2000);
 				return;
 			}
 
 			if (status.requested) {
 				this.ingest_polling = true;
-				this.ingest_status_element.textContent = status.executor_missing
+				this.setRunState(status.executor_missing
 					? <?= json_encode(_('The reconciliation does not run. Check the scheduled CLI job.')) ?>
-					: <?= json_encode(_('Run requested')) ?>;
+					: <?= json_encode(_('Run requested')) ?>);
 				setTimeout(poll, status.executor_missing ? 15000 : 3000);
 				return;
 			}
 
 			const was_polling = this.ingest_polling;
 			this.ingest_polling = false;
-			this.ingest_status_element.textContent = '';
+			this.setRunState('');
 
 			if (status.status === 'idle') {
 				// Nothing has ever run — expected on a normal page load (ignore_idle's caller); not
@@ -300,16 +301,33 @@ const view = new class {
 		return query;
 	}
 
-	async loadDevices({reselect_edge = null, reselect_device = null} = {}) {
-		const {devices = [], relations = [], contradictions = []} =
-			await this.request(`topology.devices.get${this.filterQuery()}`);
+	async loadDevices({reselect_edge = null, reselect_device = null, reset_layout = false} = {}) {
+		const query = this.filterQuery();
+		const {devices = [], relations = [], contradictions = [], leaf_groups = []} = await this.request(`topology.devices.get${query}`);
 		this.contradictions = contradictions;
+		this.leaf_groups = leaf_groups;
+		// the focus host of the radial placement (§12.1): the Host chosen in the filter when this view was loaded
+		this.applied_hostid = jQuery('#hostid').multiSelect('getData')[0]?.id ?? null;
+		// positions: a dragged node stays until the page is loaded again or the filter is applied (§12.1); other reloads (after an action) keep every position
+		const old_nodes = reset_layout ? new Map() : this.nodes;
+		if (reset_layout || !this.view_size) {
+			this.relayout = true;
+			this.unfolded.clear();
+			this.group_nodes?.clear();
+			this.view_size = null;
+		}
 		devices.forEach(node => {
 			if (node.type === 'host' || node.type === 'proxy') {
 				node.linked = true;
 			}
 		});
-		this.nodes = new Map(devices.map(node => [String(node.id), node]));
+		this.nodes = new Map(devices.map(node => {
+			const before = old_nodes.get(String(node.id));
+			if (before) {
+				Object.assign(node, {x: before.x, y: before.y, fx: before.fx, fy: before.fy});
+			}
+			return [String(node.id), node];
+		}));
 		// discovered_via/source_port/target_port/source_status/target_status/source_speed/
 		// target_speed ride along for physical_link relations (dash-pattern provenance,
 		// connectivity color, and the "Link details" panel — see render()/selectLink()) —
@@ -667,6 +685,7 @@ const view = new class {
 				this.render();
 			}
 			this.showPanel(node, problems, groups);
+			this.addFoldControl(node);
 			return;
 		}
 		if (node.type !== 'device') {
@@ -680,6 +699,7 @@ const view = new class {
 		]);
 		this.render();
 		this.showPorts(node, groups, addresses);
+		this.addFoldControl(node);
 	}
 
 	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
@@ -866,7 +886,7 @@ const view = new class {
 					body: JSON.stringify({id: link.source_port_id, dst_id: link.target_port_id})
 				});
 				// The link itself is gone, not just refreshable in place — both endpoints' data
-				// changes, so a full reload (same as "Apply filter"/"Show all") rather than a
+				// changes, so a full reload (same as Apply and Reset) rather than a
 				// targeted re-render.
 				await this.loadDevices();
 			}));
@@ -1097,6 +1117,9 @@ const view = new class {
 	buildLegend(collapsed) {
 		const workspace = document.querySelector('.topology-workspace');
 		const node = (outline, fill, icon, dash) => `<svg width="44" height="26" viewBox="0 0 44 26"><rect x="2" y="3" width="40" height="20" rx="3" style="fill:${fill};stroke:${outline};stroke-width:2;${dash ? 'stroke-dasharray:5 3' : ''}"/>${icon}</svg>`;
+		const size = kind => kind === 'large'
+			? '<svg width="44" height="26" viewBox="0 0 44 26"><rect x="4" y="3" width="36" height="20" rx="4" style="fill:#f3f4f6;stroke:#697386;stroke-width:2"/></svg>'
+			: '<svg width="44" height="26" viewBox="0 0 44 26"><rect x="14" y="7" width="16" height="12" rx="3" style="fill:#f3f4f6;stroke:#697386;stroke-width:2"/></svg>';
 		const host_icon = '<g transform="translate(6,8)" style="fill:none;stroke:#1f2937;stroke-width:1.4"><rect x="0" y="0" width="10" height="7" rx="1"/><path d="M3 10 H7 M5 7 V10"/></g>';
 		const proxy_icon = '<g transform="translate(6,8)" style="fill:none;stroke:#1f2937;stroke-width:1.4"><rect x="2" y="2" width="6" height="6" rx="1"/><path d="M0 5 H2 M8 5 H10 M5 0 V2 M5 8 V10"/></g>';
 		const badge = (fill, stroke, letter) => `<svg width="44" height="26" viewBox="0 0 44 26"><circle cx="22" cy="13" r="9" style="fill:${fill};stroke:${stroke};stroke-width:2"/><text x="22" y="17" text-anchor="middle" style="font:bold 11px sans-serif;fill:#fff">${letter}</text></svg>`;
@@ -1109,6 +1132,10 @@ const view = new class {
 				[node('#1f2937', '#cbd2d9', host_icon, false), <?= json_encode(_('Host, disabled: muted fill')) ?>],
 				[node('#1f2937', '#ffffff', proxy_icon, false), <?= json_encode(_('Proxy: solid outline, Proxy icon, neutral fill')) ?>],
 				[node('#697386', '#f3f4f6', '', true), <?= json_encode(_('Device without association: dashed outline, grey fill, no icon')) ?>]
+			]],
+			[<?= json_encode(_('Size')) ?>, [
+				[size('large'), <?= json_encode(_('Large: Host, Proxy, a Device with two or more links')) ?>],
+				[size('small'), <?= json_encode(_('Small: a Device with one link or none, a group of devices')) ?>]
 			]],
 			[<?= json_encode(_('Badges')) ?>, [
 				[badge('#475569', '#1e293b', 'M'), <?= json_encode(_('Maintenance')) ?>],
@@ -1137,37 +1164,6 @@ const view = new class {
 		});
 	}
 
-	// Node/device names here are typically one hyphenated word (e.g. "core-switch-48") rather than prose, so
-	// wrapping on spaces alone (as CSS text-wrap would) wouldn't help — this also breaks on '-'. Greedy
-	// last-fit: the break point is the latest hyphen/space at or before maxChars, so the first line never
-	// overflows; the second line is left as-is even if it runs a little over rather than ellipsis-truncating
-	// it — for names like "access-switch-1" losing the trailing "-1" to an ellipsis would destroy the one
-	// thing that makes the label useful, which is worse than a few pixels of visual overflow. SVG text has no
-	// native wrapping, so this returns plain line strings; the caller renders each as its own <tspan>.
-	wrapLabel(text, maxChars) {
-		text = String(text ?? '');
-		if (text.length <= maxChars) {
-			return [text];
-		}
-		let break_at = -1;
-		for (let i = Math.min(maxChars, text.length - 1); i >= 1; i--) {
-			if ('- '.includes(text[i])) {
-				break_at = i;
-				break;
-			}
-		}
-		if (break_at === -1) {
-			break_at = maxChars;
-		}
-		const cut_after_hyphen = text[break_at] === '-';
-		const first = text.slice(0, break_at + (cut_after_hyphen ? 1 : 0)).trim();
-		const second = text.slice(break_at + (cut_after_hyphen ? 1 : 0)).trim();
-		return [first, second];
-	}
-
-	// Renders `textFn(node)` as one or two vertically-centered <tspan> lines (wrapped via wrapLabel()) instead
-	// of a single line that can run past the node box's edge — every <tspan> repeats `x` explicitly, since a
-	// tspan with no x of its own continues from the end of the previous line's text, not back at the start.
 	// The page (filter bar, graph area and side panel) ends at the bottom of the window: the graph area has the height that is left, and the side panel
 	// scrolls inside it (topology-1-model.md §12.1 "Layout"). Not below the CSS minimum.
 	fitToWindow() {
@@ -1185,20 +1181,6 @@ const view = new class {
 			height = Math.max(520, height - excess);
 			page.style.height = `${height}px`;
 		}
-	}
-
-	// A node label is wrapped and can be cut by the node box: the node has the full label as its tooltip (§12.1 "Layout"), written with text(), so
-	// a value from the network stays text (§13).
-	renderWrappedLabel(selection, textFn, maxChars, x = 0) {
-		selection.each((node, index, elements) => {
-			const lines = this.wrapLabel(textFn(node), maxChars);
-			const text = d3.select(elements[index]);
-			d3.select(elements[index].parentNode).append('title').attr('class', 'topology-label-title').text(String(textFn(node) ?? ''));
-			const x_of_node = typeof x === 'function' ? x(node) : x;
-			lines.forEach((line, line_index) => {
-				text.append('tspan').attr('x', x_of_node).attr('dy', line_index === 0 ? (lines.length > 1 ? -2 : 4) : 12).text(line);
-			});
-		});
 	}
 
 	// Problems section fragment only — no title, no this.details assignment. Called from showPanel()
@@ -1473,13 +1455,27 @@ const view = new class {
 		};
 		const identity = [[<?= json_encode(_('System name')) ?>, data.sysname], [<?= json_encode(_('Hardware ID')) ?>, data.chassis_id]].filter(([, value]) => value)
 			.map(([label, value]) => `<tr><th>${escape(label)}</th><td class="topology-address-value" title="${escape(value)}">${escape(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
-		const lines = data.addresses.map(line => `<li class="topology-address">
+		// §12.5 (2.70): one line per address with the count "reported by <N> ports of <M> hosts"; the sources (reporter, local port, protocol, how the reporter is monitored) are in a
+		// folded list under the line, closed by default
+		const plural = (n, one, many) => (n === 1 ? one : many).replace('%1$s', String(n));
+		const lines = data.addresses.map(line => {
+			const ports = new Set(line.sources.map(source => `${source.reporter.hostid ?? source.reporter.name}|${source.local_port ?? ''}`)).size;
+			const hosts = new Set(line.sources.map(source => source.reporter.hostid ?? source.reporter.name)).size;
+			const count = line.sources.length
+				? <?= json_encode(_('reported by %1$s of %2$s')) ?>
+					.replace('%1$s', plural(ports, <?= json_encode(_('%1$s port')) ?>, <?= json_encode(_('%1$s ports')) ?>))
+					.replace('%2$s', plural(hosts, <?= json_encode(_('%1$s host')) ?>, <?= json_encode(_('%1$s hosts')) ?>))
+				: '';
+			return `<li class="topology-address">
 			<div class="topology-address-head"><span class="topology-address-value" title="${escape(line.address)}">${escape(line.address)}</span>
 				${line.management ? `<span class="topology-source-badge">${escape(<?= json_encode(_('management')) ?>)}</span>` : ''}${line.link_local ? `<span class="topology-source-badge">${escape(<?= json_encode(_('link-local')) ?>)}</span>` : ''}${copy(line.address, line.address)}</div>
 			${line.not_reported_now ? `<div class="topology-address-source">${escape(<?= json_encode(_('not reported now')) ?>)}</div>` : ''}
-			${line.sources.map(source => `<div class="topology-address-source" title="${escape(`${source.reporter.name}, ${source.local_port ?? ''}, ${source.source}`)}">` +
-				`${escape(source.reporter.name)} · ${escape(source.local_port ?? '?')} · ${escape(String(source.source).toUpperCase())} · ${escape(<?= json_encode(_('monitored by')) ?>)} ${escape(monitoring(source.monitoring))}</div>`).join('')}
-		</li>`).join('');
+			${count ? `<details class="topology-address-sources"><summary class="topology-address-count">${escape(count)}</summary>` +
+				line.sources.map(source => `<div class="topology-address-source" title="${escape(`${source.reporter.name}, ${source.local_port ?? ''}, ${source.source}`)}">` +
+					`${escape(source.reporter.name)} · ${escape(source.local_port ?? '?')} · ${escape(String(source.source).toUpperCase())} · ${escape(<?= json_encode(_('monitored by')) ?>)} ${escape(monitoring(source.monitoring))}</div>`).join('') +
+				`</details>` : ''}
+		</li>`;
+		}).join('');
 		return `<section class="topology-group topology-addresses"><h3>${escape(<?= json_encode(_('Addresses')) ?>)}</h3>` +
 			(identity ? `<table class="topology-address-identity"><tbody>${identity}</tbody></table>` : '') +
 			(data.addresses.length ? `<ul class="topology-address-list">${lines}</ul>`
@@ -1509,23 +1505,100 @@ const view = new class {
 		}));
 	}
 
+	// The width of a text in px as the browser draws it (the label of a node: §12.2 "Label placement"); one canvas for the page.
+	measureText(text, font) {
+		if (!this.measure_context) {
+			this.measure_context = document.createElement('canvas').getContext('2d');
+			this.measure_family = getComputedStyle(this.canvas.node()).fontFamily || 'sans-serif';
+		}
+		this.measure_context.font = `${font}px ${this.measure_family}`;
+		return this.measure_context.measureText(text).width;
+	}
+
+	// The focus host (§12.1 "Node placement"): the node of the Host chosen in the filter, or null.
+	focusNodeId(nodes) {
+		const hostid = this.applied_hostid ?? null;
+		if (hostid === null) {
+			return null;
+		}
+		const node = nodes.find(candidate => candidate.type === 'host' && String(candidate.hostid) === String(hostid));
+		return node ? String(node.id) : null;
+	}
+
+	// Leaf group (§12.8): the click on its node unfolds it, "Fold <N> devices" folds it. The state is kept until the page is loaded or the filter applied, not stored.
+	unfoldGroup(parent_id) {
+		this.unfolded.add(String(parent_id));
+		this.render();
+	}
+
+	foldGroup(parent_id) {
+		this.unfolded.delete(String(parent_id));
+		this.render();
+	}
+
+	// The side panel of a leaf group: its Devices, one line each: label, the local port of the parent, the remote port. A click on a line opens the panel of that Device.
+	showGroup(group) {
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
+		const rows = group.devices.map(id => {
+			const device = this.nodes.get(String(id));
+			const link = this.links.find(candidate => ['physical_link', 'device_link'].includes(candidate.type)
+				&& (String(candidate.source) === String(id) || String(candidate.target) === String(id)) && !candidate.superseded_at);
+			const leaf_is_source = link && String(link.source) === String(id);
+			const local = link ? (leaf_is_source ? link.target_port : link.source_port) : null;
+			const remote = link ? (leaf_is_source ? link.source_port : link.target_port) : null;
+			return `<tr class="topology-group-row" data-device-id="${this.escape(id)}"><td title="${this.escape(device?.label ?? id)}">${this.escape(device?.label ?? device?.name ?? id)}</td>` +
+				`<td>${this.escape(local ?? '–')}</td><td title="${this.escape(remote ?? '')}">${this.escape(remote ?? '–')}</td></tr>`;
+		}).join('');
+		const parent = this.nodes.get(String(group.parent));
+		this.details.innerHTML = `<h2>${this.escape(group.label)}</h2>` +
+			`<div class="topology-group-fold"><button type="button" class="btn-alt" id="topology-fold" data-parent="${this.escape(group.parent)}">${this.escape(
+				<?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.count)))}</button></div>` +
+			`<p class="topology-group-help">${this.escape(<?= json_encode(_('Devices with one link each, at')) ?>)} ${this.escape(parent?.label ?? parent?.name ?? '')}</p>` +
+			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Device')) ?>)}</th><th>${this.escape(<?= json_encode(_('Local port')) ?>)}</th>` +
+			`<th>${this.escape(<?= json_encode(_('Remote port')) ?>)}</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+		this.wireFoldButtons();
+		this.details.querySelectorAll('.topology-group-row').forEach(row => row.addEventListener('click', () => {
+			const device = this.nodes.get(row.dataset.deviceId);
+			if (device) {
+				this.guard(() => this.selectNode(device));
+			}
+		}));
+	}
+
+	// "Fold <N> devices" in a panel (the parent's, and the group's): one delegated lookup after the panel is built.
+	wireFoldButtons() {
+		this.details.querySelectorAll('[data-parent]').forEach(button => button.addEventListener('click', () => this.foldGroup(button.dataset.parent)));
+	}
+
+	// The parent of an unfolded group gets the control "Fold <N> devices" at the top of its panel.
+	addFoldControl(node) {
+		const group = (this.leaf_groups ?? []).find(candidate => String(candidate.parent) === String(node.id) && this.unfolded.has(String(candidate.parent)));
+		if (!group) {
+			return;
+		}
+		const title = this.details.querySelector('h2');
+		const holder = document.createElement('div');
+		holder.className = 'topology-group-fold';
+		const button = document.createElement('button');
+		button.type = 'button';
+		button.className = 'btn-alt';
+		button.dataset.parent = String(group.parent);
+		button.textContent = <?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.devices.length));
+		holder.appendChild(button);
+		(title ?? this.details.firstChild)?.after(holder);
+		this.wireFoldButtons();
+	}
+
 	render() {
+		const G = TopologyGraph;
 		const element = this.canvas.node();
 		const bounds = element.getBoundingClientRect();
-		const width = bounds.width || 800;
-		const height = bounds.height || 500;
-		const padding = 70;
+		const view_width = bounds.width || 800;
+		const view_height = bounds.height || 500;
+		const padding = 24;
 
-		// topology-1-model.md "UI" (graph): a Device with an active represented_by has no on-screen position of its own at all — only its
-		// Host/Proxy shows, styled exactly as any other Host/Proxy would be. This still needs to know, for
-		// any given Host/Proxy node, whether it has an associated Device (and which one, for showPanel()'s
-		// Device section — see selectNode()) and needs to keep the Device itself out of the simulation
-		// graph, same as the earlier split-node design did — only the "draw two halves" part is dropped, not
-		// the "the Device gets no simulation node of its own" part. Only counts when both sides are actually
-		// loaded — under the lazy-creation policy (topology-1-model.md "Lazy Host/Proxy nodes") a Device and its representation's Host/Proxy always
-		// arrive together in the same /topo/devices response, so this is normally satisfied by construction;
-		// still guarded defensively, same "both endpoints must be on the canvas" rule used for every other
-		// link type here.
+		// topology-1-model.md "UI" (graph): a Device with an active represented_by has no on-screen position of its own at all — only its Host/Proxy shows, styled exactly as any
+		// other Host/Proxy would be. node.device is the Device of a Host/Proxy (for showPanel()'s Device section — see selectNode()). Only counts when both sides are loaded.
 		const device_of_target = new Map(); // Host/Proxy id (string) -> its represented Device node object
 		const target_id_of_device = new Map(); // Device id (string) -> its represented_by target's id (string)
 		this.links.forEach(link => {
@@ -1537,51 +1610,172 @@ const view = new class {
 		this.nodes.forEach((node, id) => {
 			node.device = device_of_target.get(id) ?? null;
 		});
-		// 1:1 on represented_by (backend-enforced) guarantees at most one represented Device per Host/Proxy —
-		// no ambiguity about which Device a node's .device points at.
 		const has_duplicates = node => (node.duplicates ?? []).length > 0;
-		const nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))));
+		let nodes = [...this.nodes.values()].filter(node => !(node.type === 'device' && target_id_of_device.has(String(node.id))));
 		// the filter "possible duplicate" (V-17): a node is a duplicate node when it, or the Device it represents, has a candidate; the others are context
 		const is_duplicate_node = node => node.type === 'device' ? has_duplicates(node) : Boolean(node.device && has_duplicates(node.device));
-		const rendered_ids = new Set(nodes.map(node => String(node.id)));
 		const resolve_display_id = id => target_id_of_device.get(id) ?? id;
-		const simulation_links = this.links
+		let rendered_ids = new Set(nodes.map(node => String(node.id)));
+		let simulation_links = this.links
 			.filter(link => link.type !== 'represented_by')
-			// Automatic/manual toggle: only ever hides physical_link edges — monitored_by isn't
-			// physical wiring and passes through regardless of the selector's current value.
-			.filter(link => this.link_filter === 'all' || !['physical_link', 'device_link'].includes(link.type) ||
-				link.discovered_via === this.link_filter)
-			.map(link => ({
-				...link,
-				// A physical_link endpoint that's a represented Device (off-graph, per above) resolves to its
-				// Host/Proxy's id instead — same "attach to whatever's actually on screen" principle, just
-				// pointing straight at the plain Host/Proxy node now instead of a merged node's bounding box.
-				source: resolve_display_id(link.source),
-				target: resolve_display_id(link.target)
-			}))
+			.map(link => ({...link, source: resolve_display_id(link.source), target: resolve_display_id(link.target)}))
 			.filter(link => rendered_ids.has(link.source) && rendered_ids.has(link.target));
-		const columns = Math.max(1, Math.floor((width - 2 * padding) / 140));
-		nodes.forEach((node, index) => {
-			if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
-				node.x = padding + (index % columns) * ((width - 2 * padding) / Math.max(1, columns - 1));
-				node.y = padding + Math.floor(index / columns) * 80;
-				node.vx = 0;
-				node.vy = 0;
+
+		// Size (§12.2): large = Host, Proxy, a Device without association with two or more links; small = a leaf, a Device without a link, a group node. The count is by the drawn
+		// links before the leaves are folded into groups, so a fold does not change the size of its parent.
+		const link_count = new Map();
+		simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type)).forEach(link => {
+			link_count.set(link.source, (link_count.get(link.source) ?? 0) + 1);
+			link_count.set(link.target, (link_count.get(link.target) ?? 0) + 1);
+		});
+
+		// Leaf groups (§12.8): the leaves of a group are not drawn while it is folded; one small group node with one line to its node is.
+		this.group_nodes ??= new Map();
+		const hidden_ids = new Set();
+		const group_nodes = [];
+		(this.leaf_groups ?? []).forEach(group => {
+			const parent_id = String(group.parent);
+			if (!rendered_ids.has(parent_id) || this.unfolded.has(parent_id)) {
+				return;
+			}
+			const members = group.devices.map(String).filter(id => rendered_ids.has(id));
+			if (!members.length) {
+				return;
+			}
+			members.forEach(id => hidden_ids.add(id));
+			const group_node = this.group_nodes.get(parent_id) ?? {id: `group:${parent_id}`, type: 'group', parent: parent_id};
+			Object.assign(group_node, {devices: members, count: members.length,
+				label: <?= json_encode(_('%1$s devices')) ?>.replace('%1$s', String(members.length))});
+			group_node.name = group_node.label;
+			this.group_nodes.set(parent_id, group_node);
+			group_nodes.push(group_node);
+		});
+		nodes = nodes.filter(node => !hidden_ids.has(String(node.id)));
+		simulation_links = simulation_links.filter(link => !hidden_ids.has(link.source) && !hidden_ids.has(link.target));
+
+		// "Show devices without links" (§12.1, V-1): a Device (drawn as itself or as its Host) is drawn only when it has a link that the graph draws; the switch, the filter
+		// "Possible duplicates only" and the focus host draw the others. A Host or Proxy without a Device is a start node of the scope: always drawn.
+		const focus_id = this.focusNodeId(nodes);
+		const needs_link = node => node.type === 'device' || (node.type === 'host' && node.device);
+		nodes = nodes.filter(node => this.show_unlinked || this.only_duplicates || !needs_link(node) || link_count.has(String(node.id)) || String(node.id) === focus_id);
+		nodes.push(...group_nodes.filter(group_node => nodes.some(node => String(node.id) === group_node.parent)));
+		rendered_ids = new Set(nodes.map(node => String(node.id)));
+		group_nodes.forEach(group_node => {
+			if (rendered_ids.has(group_node.id)) {
+				simulation_links.push({type: 'group_link', source: group_node.parent, target: group_node.id});
 			}
 		});
-		// render() reruns on every click (selectNode() always calls it, even when nothing new was
-		// discovered) as well as on real structural changes, and it always rebuilds the
-		// simulation from these same node objects — which already carry x/y/vx/vy from wherever
-		// they last settled, or from a manual drag. What it does NOT already carry over on its
-		// own is alpha: a plain `d3.forceSimulation(nodes)` starts at the default alpha=1 (full
-		// force strength) regardless, so every re-render was re-throwing the WHOLE graph through
-		// a full-energy settle even when only one node/edge actually changed — every other node
-		// visibly wobbling on every single click, not just the ones near it. Reheating gently
-		// (low alpha) instead of cold-starting fixes that: existing positions get nudged to
-		// accommodate whatever's new, not thrown back into a fresh layout. Only the very first
-		// render (nothing to preserve yet) still wants the full alpha=1 settle.
-		const is_first_render = !this.simulation;
-		this.simulation?.stop();
+		simulation_links = simulation_links.filter(link => rendered_ids.has(link.source) && rendered_ids.has(link.target));
+
+		nodes.forEach(node => G.layoutNode(node, G.sizeOf(node, link_count.get(String(node.id)) ?? 0), (text, font) => this.measureText(text, font)));
+
+		// ---- placement (§12.1 "Node placement") ----
+		const relayout = this.relayout || !this.view_size;
+		this.relayout = false;
+		const area = nodes.reduce((sum, node) => sum + (node.box.w + 24) * (node.box.h + 24), 0) * 2.4;
+		const scale = Math.max(1, Math.sqrt(area / (view_width * view_height)));
+		let width = Math.max(view_width * scale, !relayout && this.view_size ? this.view_size.width : 0);
+		let height = Math.max(view_height * scale, !relayout && this.view_size ? this.view_size.height : 0);
+		const node_by_id = new Map(nodes.map(node => [String(node.id), node]));
+		const placed_before = nodes.filter(node => Number.isFinite(node.x) && Number.isFinite(node.y));
+		const place_new_near_parents = () => {
+			// a node without a position (an unfolded leaf, a group node, a node that appeared): near its neighbor, then the collision step moves it to a free place
+			nodes.filter(node => !Number.isFinite(node.x) || !Number.isFinite(node.y)).forEach((node, index) => {
+				const neighbor_link = simulation_links.find(link => link.source === String(node.id) || link.target === String(node.id));
+				const other = neighbor_link ? node_by_id.get(neighbor_link.source === String(node.id) ? neighbor_link.target : neighbor_link.source) : null;
+				const base = other && Number.isFinite(other.x) ? other : {x: width / 2, y: height / 2};
+				const angle = index * 2.399963;
+				node.x = base.x + Math.cos(angle) * 90;
+				node.y = base.y + Math.sin(angle) * 90;
+			});
+		};
+		if (relayout) {
+			nodes.forEach(node => {
+				if (node.fx === undefined || node.fx === null) {
+					node.x = undefined;
+					node.y = undefined;
+				}
+			});
+			if (focus_id !== null) {
+				// radial: the focus host in the centre, a node at distance d on ring d, a node with no path on the outer ring
+				let radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2});
+				const extent = Math.max(...nodes.map(node => Math.max(node.box.w, node.box.h))) + padding;
+				width = Math.max(width, 2 * (radius + extent));
+				height = Math.max(height, 2 * (radius + extent));
+				radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2});
+			}
+			else {
+				nodes.forEach((node, index) => {
+					if (!Number.isFinite(node.x)) {
+						const angle = index * 2.399963;
+						const r = 18 * Math.sqrt(index + 1);
+						node.x = width / 2 + Math.cos(angle) * r;
+						node.y = height / 2 + Math.sin(angle) * r;
+					}
+				});
+				const force_links = simulation_links.map(link => ({source: node_by_id.get(link.source), target: node_by_id.get(link.target)}));
+				const collide = () => {
+					for (let i = 0; i < nodes.length; i++) {
+						for (let j = i + 1; j < nodes.length; j++) {
+							const a = nodes[i];
+							const b = nodes[j];
+							if (G.overlappingPairs([a, b], G.BOX_GAP).length) {
+								const dx = (a.x - b.x) || 0.01;
+								const dy = (a.y - b.y) || 0.01;
+								const norm = Math.hypot(dx, dy);
+								a.vx += dx / norm * 3;
+								a.vy += dy / norm * 3;
+								b.vx -= dx / norm * 3;
+								b.vy -= dy / norm * 3;
+							}
+						}
+					}
+				};
+				const simulation = d3.forceSimulation(nodes)
+					.force('link', d3.forceLink(force_links).distance(130).strength(0.6))
+					.force('charge', d3.forceManyBody().strength(-380))
+					.force('center', d3.forceCenter(width / 2, height / 2))
+					.force('x', d3.forceX(width / 2).strength(0.03))
+					.force('y', d3.forceY(height / 2).strength(0.03))
+					.force('collide', collide)
+					.stop();
+				for (let i = 0; i < 300; i++) {
+					simulation.tick();
+				}
+			}
+		}
+		else {
+			place_new_near_parents();
+			// a node that was already placed stays; a new one finds a free place (the placed ones are not moved)
+			const stay = new Set(placed_before);
+			nodes.forEach(node => {
+				if (stay.has(node) && (node.fx === undefined || node.fx === null)) {
+					node.fx = node.x;
+					node.fy = node.y;
+					node.temp_fixed = true;
+				}
+			});
+		}
+		// the collision step: no box (shape and label) overlaps another; too small an area → a larger one
+		for (let attempt = 0; attempt < 6; attempt++) {
+			nodes.forEach(node => {
+				node.x = Math.max(padding + node.box.w / 2, Math.min(width - padding - node.box.w / 2, node.x));
+				node.y = Math.max(padding - node.box.top, Math.min(height - padding - node.box.bottom, node.y));
+			});
+			if (G.resolveOverlaps(nodes, {width, height, padding})) {
+				break;
+			}
+			width *= 1.3;
+			height *= 1.3;
+		}
+		nodes.forEach(node => {
+			if (node.temp_fixed) {
+				node.fx = undefined;
+				node.fy = undefined;
+				node.temp_fixed = false;
+			}
+		});
+		this.view_size = {width, height, keep: true};
 		this.canvas.attr('viewBox', `0 0 ${width} ${height}`).selectAll('*').remove();
 		const defs = this.canvas.append('defs');
 		defs.append('pattern')
@@ -1591,66 +1785,63 @@ const view = new class {
 				pattern.append('rect').attr('width', 8).attr('height', 8).attr('fill', '#2b7dbc');
 				pattern.append('rect').attr('width', 4).attr('height', 8).attr('fill', '#f59e0b');
 			});
-		const simulation = d3.forceSimulation(nodes)
-			.alpha(is_first_render ? 1 : 0.3)
-			.force('link', d3.forceLink(simulation_links).id(node => String(node.id)).distance(160))
-			.force('charge', d3.forceManyBody().strength(-600))
-			.force('center', d3.forceCenter(width / 2, height / 2));
-		this.simulation = simulation;
-		// Two independent visual channels on physical_link, deliberately kept apart so they can't collide:
-		// dash pattern = provenance (dashed = "manual", not yet discovery-confirmed — same dashed/solid
-		// language already used for represented_by/monitored_by and for an unassociated Device's outline),
-		// color + stroke-width = connectivity — an *unexpected* down (admin says up, oper says down) on
-		// either endpoint port, which is orthogonal — a manually-declared link can be down just as easily
-		// as an LLDP one. 'disabled' (admin turned the port off on purpose, see portStatus() server-side)
-		// deliberately does NOT turn the link red — that's an intentional state, not an alarm.
-		const links = this.canvas.append('g').selectAll('line').data(simulation_links).join('line')
-			.attr('class', 'topology-link')
-			.style('cursor', 'pointer')
-			.style('pointer-events', 'stroke')
-			.on('click', (event, link) => this.selectLink(link))
-			// style, not attribute: the stylesheet rule .topology-link{stroke:...} would override a presentation attribute
-			.style('stroke', link => {
-				if (link.type === 'represented_by') {
-					return '#2b7dbc';
-				}
+		simulation_links.forEach(link => {
+			link.source = node_by_id.get(link.source);
+			link.target = node_by_id.get(link.target);
+		});
+		const parallel = G.parallelIndex(simulation_links);
+		simulation_links.forEach((link, i) => {
+			link.parallel = parallel[i];
+		});
+
+		// Two independent visual channels on physical_link: dash pattern = provenance (dashed = manual), color + stroke-width = severity of the problems on the port items
+		// (§12.3); opacity = stale or superseded. A bundle of device-level links is one line. Parallel links are separate curved lines (§12.3, 2.70).
+		const link_style = {
+			stroke: link => {
 				if (link.type === 'monitored_by') {
 					return '#6b46c1';
+				}
+				if (link.type === 'group_link') {
+					return '#64748b';
 				}
 				if (link.type === 'device_link') {
 					return link.discovered_via === 'manual' ? '#334155' : '#64748b';
 				}
-				// colour = severity of the problems on the port items (topology-1-model.md §4.8, §12.3), overload included through the template's
-				// trigger; the port status is NOT a colour (it is in the tooltip and the panel)
 				return link.type === 'physical_link' && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
-			})
-			.style('stroke-width', link => {
+			},
+			width: link => {
 				const severe = link.type === 'physical_link' && link.severity !== null && link.severity !== undefined;
 				return link.type === 'device_link' ? 3 : (severe ? 4 : 2);
-			})
-			.attr('stroke-dasharray', link => {
-				// represented_by and monitored_by both connect monitoring-related nodes and are easy to
-				// mis-read as the same kind of relationship — a distinct dash pattern per type (not just
-				// color) keeps them apart even for a colorblind viewer, without touching the dashed/solid
-				// channel that already means "physical_link provenance" / "Device association status".
-				if (link.type === 'represented_by') {
-					return '6 3';
+			}
+		};
+		// the highlight under the line of a hovered node (§12.3 "Hover"): its own element, so the channels of the link itself do not change
+		const glows = this.canvas.append('g').selectAll('path').data(simulation_links).join('path')
+			.attr('class', 'topology-link-glow').style('stroke-width', link => link_style.width(link) + 6);
+		const links = this.canvas.append('g').selectAll('path').data(simulation_links).join('path')
+			.attr('class', 'topology-link')
+			.style('fill', 'none')
+			.style('cursor', link => link.type === 'group_link' ? 'default' : 'pointer')
+			.style('pointer-events', 'stroke')
+			.on('click', (event, link) => {
+				if (link.type !== 'group_link') {
+					this.selectLink(link);
 				}
+			})
+			// style, not attribute: the stylesheet rule .topology-link{stroke:...} would override a presentation attribute
+			.style('stroke', link_style.stroke)
+			.style('stroke-width', link_style.width)
+			.attr('stroke-dasharray', link => {
 				if (link.type === 'monitored_by') {
 					return '2 2';
 				}
-				// A device-level link (far port unknown) is dotted: distinct from dashed manual, faded stale and the
-				// orange dotted ghost line. A manual one keeps its manual indicator as a darker stroke below.
+				// A device-level link (far port unknown) is dotted: distinct from dashed manual, faded stale and the orange dotted ghost line.
 				if (link.type === 'device_link') {
 					return '1 4';
 				}
 				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
 			})
-			// staleness indicator (topology-1-model.md "Link channels"): a THIRD independent channel, deliberately on neither the dash
-			// pattern (provenance) nor the stroke color/width (connectivity) above — a stale manual
-			// link is still dashed, just faded; a stale link with a down/red endpoint is still red,
-			// just faded. Never collapse this into either of the other two.
-			.style('opacity', link => (['physical_link', 'device_link'].includes(link.type) && link.stale) ? 0.45 : 1);
+			// staleness (§12.3): a third independent channel; never collapse it into the dash pattern or the colour
+			.style('opacity', link => (['physical_link', 'device_link'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
 		links.append('title').text(link => {
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'
@@ -1667,6 +1858,7 @@ const view = new class {
 				if (link.target_status) {
 					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
 				}
+				const ports = link.source_port || link.target_port ? ` ${link.source.name} ${link.source_port ?? '?'} ↔ ${link.target.name} ${link.target_port ?? '?'}.` : '';
 				const loads = [[link.source, link.source_load], [link.target, link.target_load]].map(([node, load]) => {
 					const text = this.loadText(load);
 					return text === '' ? '' : ` ${node.name} ${<?= json_encode(_('load')) ?>}: ${text}.`;
@@ -1676,25 +1868,20 @@ const view = new class {
 				const stale_note = (link.superseded_at
 					? ` ${this.replacedNote(link)}`
 					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '')) + lost;
-				return `${provenance}.${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
+				return `${provenance}.${ports}${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
 			}
 			if (link.type === 'device_link') {
 				return this.deviceLinkTooltip(link);
 			}
 			return '';
 		});
-		// A bundle of device-level links between the same two Devices is one line labelled with the count and the
-		// known local ports on each side ("2 links: Gi0/1, Gi0/2 ↔ ?").
+		// A bundle of device-level links between the same two Devices is one line labelled with the count and the known local ports on each side ("2 links: Gi0/1, Gi0/2 ↔ ?").
 		const bundle_data = simulation_links.filter(link => link.type === 'device_link' && (link.count ?? 0) > 1);
 		const bundle_labels = this.canvas.append('g').selectAll('text').data(bundle_data).join('text')
 			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#475569')
 			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
-		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where
-		// discovery says the cable actually goes — a dashed orange line from the reporting Device to the hidden
-		// neighbor, not a stored link (not selectable as one; a click opens the manual link's details). One per
-		// Device pair however many observations (LLDP + CDP, both ends) say it. Acknowledged → none. The
-		// warning badges use a color none of stale / superseded / conflict uses.
-		const node_by_id = new Map(nodes.map(node => [String(node.id), node]));
+		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where discovery says the cable actually goes — a dashed orange
+		// line from the reporting Device to the hidden neighbor, not a stored link. One per Device pair however many observations say it. Acknowledged → none.
 		const ghost_data = [];
 		const ghost_seen = new Set();
 		this.unacknowledgedShadows().forEach(({entry, shadow}) => {
@@ -1702,8 +1889,6 @@ const view = new class {
 				return;
 			}
 			const from = node_by_id.get(resolve_display_id(String(shadow.local_device_id)));
-			// The line goes from the reporter's Device to the Device it saw; for a third-party observation that is an end of the
-			// manual link, not the hidden neighbor (which is the reporter itself).
 			const to = node_by_id.get(resolve_display_id(String(shadow.remote_device_id ?? shadow.hidden_device_id)));
 			const pair = [from?.id, to?.id].sort().join('-');
 			if (!from || !to || from === to || ghost_seen.has(pair)) {
@@ -1750,20 +1935,15 @@ const view = new class {
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
 		const link_badges = this.canvas.append('g').selectAll('g').data(contradicted_links).join('g')
 			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
-			.on('click', (event, link) => this.selectLink(this.resolvedLink(link)));
+			.on('click', (event, link) => this.selectLink(link));
 		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
 			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
 		link_badges.append('title').text(link => this.contradictionSummary(this.contradictionOf(link.edge_id)));
-		// topology-1-model.md "Node styles": disabled overrides every other host channel — not polled, so severity/blind-spot/maintenance are
-		// all meaningless for it right now. Muted gray is a *third* state, distinct from both "severity: ok"
-		// (monitored, currently fine) and blind-spot (monitored, but this proxy can't currently confirm it).
-		// A node with an associated Device (node.device set) is styled exactly the same as one without —
-		// nothing here reads .device at all, per the topology-1-model.md "UI" rule "completely unchanged by whether it happens to have an
-		// associated Device."
-		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind.
-		// Fill = the severity of a Host only: white without problems, the severity colour with them, muted when the Host is disabled. A Proxy and a Device never
-		// show a severity: a Proxy is neutral, a Device is always grey. Maintenance, blind spot, contradiction and possible duplicate are badges, never a fill.
+
+		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind. Fill = the severity
+		// of a Host only: white without problems, the severity colour with them, muted when the Host is disabled. A Proxy is neutral, a Device is always grey. Maintenance, blind
+		// spot, contradiction and possible duplicate are badges, never a fill.
 		const fill_for = subject => {
 			if (subject.type === 'host') {
 				if (subject.disabled) {
@@ -1773,94 +1953,99 @@ const view = new class {
 			}
 			return subject.type === 'proxy' ? '#ffffff' : '#f3f4f6';
 		};
-		const stroke_for = subject => subject.type === 'device' ? '#697386' : '#1f2937';
-		const label_fill_for = subject => {
+		const stroke_for = subject => subject.type === 'device' || subject.type === 'group' ? '#697386' : '#1f2937';
+		const icon_stroke_for = subject => {
 			if (subject.type === 'host' && !subject.disabled && subject.severity !== null && subject.severity !== undefined) {
 				return this.readableTextOn(this.cssColor(subject.color));
 			}
 			return subject.type === 'host' && subject.disabled ? '#55606b' : '#1f2937';
 		};
-		// Host and Proxy carry an icon at the left; the label moves right by the room it takes. A Device has no icon.
-		const has_icon = subject => subject.type === 'host' || subject.type === 'proxy';
-		const label_x = subject => has_icon(subject) ? 9 : 0;
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
-			.attr('class', node => `topology-node ${node.type}${this.only_duplicates && !is_duplicate_node(node) ? ' topology-context' : ''}`)
+			.attr('class', node => `topology-node ${node.type} topology-size-${node.size}${this.only_duplicates && !is_duplicate_node(node) ? ' topology-context' : ''}`)
 			.style('opacity', node => this.only_duplicates && !is_duplicate_node(node) ? 0.45 : null)
-			// Manual positioning: fx/fy pin a node in place for the force simulation (it stops
-			// pushing that node around once set) and, since render() only auto-places a node
-			// whose x/y aren't already finite (see the "give a good initial position" loop
-			// below), the pinned spot survives every future re-render — filter changes, the
-			// automatic/manual link toggle, a fresh loadDevices() poll — same as if the layout
-			// had put it there itself. d3.drag() coexists with the click-to-select handlers on
-			// the child <rect> elements below without extra guarding: a plain click (no pointer
-			// movement) still fires as a normal DOM 'click' event on mouseup.
+			// hover (§12.3): the node and its drawn links get a highlight outline; no other channel changes
+			.on('mouseenter', (event, node) => this.highlight(node, true))
+			.on('mouseleave', (event, node) => this.highlight(node, false))
+			// a dragged node stays where it is dropped, until the page is loaded again or the filter is applied (§12.1 "Node placement"); positions are not stored
 			.call(d3.drag()
 				.on('start', (event, node) => {
-					if (!event.active) {
-						simulation.alphaTarget(0.3).restart();
-					}
-					node.fx = node.x;
-					node.fy = node.y;
+					node.drag_moved = false;
 				})
 				.on('drag', (event, node) => {
 					node.fx = event.x;
 					node.fy = event.y;
+					node.x = event.x;
+					node.y = event.y;
+					node.drag_moved = true;
+					draw_positions();
 				})
 				.on('end', (event, node) => {
-					if (!event.active) {
-						simulation.alphaTarget(0);
+					if (node.drag_moved) {
+						// the others make room: the dragged node is fixed for the collision step
+						if (!G.resolveOverlaps(nodes, {width, height, padding})) {
+							// the area is full; the nodes stay as they are
+						}
+						draw_positions();
 					}
-					// fx/fy stay set — the node keeps the spot it was dropped at rather than
-					// springing back into the simulation's own layout.
 				}));
-
-		// Every node — Host, Proxy, or a standalone (unrepresented) Device — renders through this one
-		// single-box path, styled purely by its own actual type. A Host/Proxy that happens to have an
-		// associated Device (node.device set, see above) is not treated any differently here: no on-screen
-		// trace of the represented_by relationship beyond what selectNode()'s panel does with it (topology-1-model.md "UI" — the
-		// earlier split-square "merged node" design that used to fork rendering here has been dropped).
-		node_selection.append('rect').attr('x', -58).attr('y', -22).attr('width', 116).attr('height', 44).attr('rx', 4)
+		node_selection.each((node, i, elements) => {
+			node.element = elements[i];
+		});
+		// the shape: no text inside it (§12.2 "Label placement")
+		node_selection.append('rect').attr('class', 'topology-shape')
+			.attr('x', node => -node.shape_w / 2).attr('y', node => -node.shape_h / 2).attr('width', node => node.shape_w).attr('height', node => node.shape_h)
+			.attr('rx', node => node.size === 'small' ? 3 : 5)
 			.style('fill', fill_for)
 			.style('stroke', stroke_for)
 			.style('stroke-width', node => (node.type === 'proxy' && node.unreachable) ? 3 : 2)
-			.style('stroke-dasharray', node => node.type === 'device' ? '6 4' : null)
+			.style('stroke-dasharray', node => node.type === 'device' || node.type === 'group' ? (node.size === 'small' ? '4 3' : '6 4') : null)
 			.style('cursor', 'pointer')
-			.on('click', (event, node) => this.selectNode(node));
-		// kind icons (§12.2 "Icon"): a monitor for a Host, a relay (box with two arms) for a Proxy; a Device without association has none
+			.on('click', (event, node) => {
+				if (node.drag_moved) {
+					node.drag_moved = false;
+					return;
+				}
+				if (node.type === 'group') {
+					this.unfoldGroup(node.parent);
+					this.showGroup(node);
+					return;
+				}
+				this.selectNode(node);
+			});
+		// kind icons (§12.2 "Icon"): a monitor for a Host, a relay (box with two arms) for a Proxy; a Device without association has none. Inside the large shape, centred.
 		const host_icons = node_selection.filter(node => node.type === 'host').append('g').attr('class', 'topology-icon topology-icon-host')
-			.attr('transform', 'translate(-52,-8)').style('pointer-events', 'none');
+			.attr('transform', 'translate(-7,-8)').style('pointer-events', 'none');
 		host_icons.append('rect').attr('x', 0).attr('y', 0).attr('width', 14).attr('height', 10).attr('rx', 1.5)
-			.style('fill', 'none').style('stroke', label_fill_for).style('stroke-width', 1.6);
-		host_icons.append('path').attr('d', 'M4 14 H10 M7 10 V14').style('fill', 'none').style('stroke', label_fill_for).style('stroke-width', 1.6);
+			.style('fill', 'none').style('stroke', icon_stroke_for).style('stroke-width', 1.6);
+		host_icons.append('path').attr('d', 'M4 14 H10 M7 10 V14').style('fill', 'none').style('stroke', icon_stroke_for).style('stroke-width', 1.6);
 		const proxy_icons = node_selection.filter(node => node.type === 'proxy').append('g').attr('class', 'topology-icon topology-icon-proxy')
-			.attr('transform', 'translate(-52,-8)').style('pointer-events', 'none');
+			.attr('transform', 'translate(-7,-7)').style('pointer-events', 'none');
 		proxy_icons.append('rect').attr('x', 3).attr('y', 3).attr('width', 8).attr('height', 8).attr('rx', 1.5)
 			.style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
 		proxy_icons.append('path').attr('d', 'M0 7 H3 M11 7 H14 M7 0 V3 M7 11 V14').style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
-		const node_labels = node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
-			.style('fill', label_fill_for).style('pointer-events', 'none');
-		// the label of §12.2 comes from the server (`label`); written with text(), so a value from the network is never markup (§13)
-		this.renderWrappedLabel(node_labels, node => node.label ?? node.name ?? '?', 13, label_x);
+		// the label: under the shape, one line, at most 160 px, cut in the middle (the full text is in the tooltip); written with text(), so a value from the network is never markup (§13)
+		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+			.attr('y', node => node.shape_h / 2 + 3 + node.font)
+			.style('font-size', node => `${node.font}px`).style('fill', '#1f2937').style('pointer-events', 'none')
+			.text(node => node.label_text);
 
-		// blind-spot ("?", amber, top-right) and maintenance ("M", slate) are deliberately different corners
-		// with unrelated colors — a host can be both at once (behind an unreachable proxy AND in a maintenance
-		// window) and the two badges must read as different concerns, never the same warning twice.
-		const blind_spot_badges = node_selection.filter(node => node.type === 'host' && node.blind_spot);
-		blind_spot_badges.append('circle').attr('cx', 50).attr('cy', -18).attr('r', 10)
-			.style('fill', '#f59e0b').style('stroke', '#7c2d12').style('stroke-width', 2);
-		blind_spot_badges.append('text').attr('x', 50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
-			.text('?');
-		const maintenance_badges = node_selection.filter(node => node.type === 'host' && node.maintenance && !node.disabled);
-		maintenance_badges.append('circle').attr('cx', -50).attr('cy', -18).attr('r', 10)
-			.style('fill', '#475569').style('stroke', '#1e293b').style('stroke-width', 2);
-		maintenance_badges.append('text').attr('x', -50).attr('y', -14).attr('text-anchor', 'middle')
-			.style('font-size', '11px').style('font-weight', 'bold').style('fill', '#ffffff')
-			.text('M');
-
-		// Badge on every unacknowledged hidden neighbor, whether or not it has other links (bottom-right: the
-		// other corners are taken by the proxy / blind-spot / maintenance badges).
+		// Badges (§12.2): a blind spot (top right), maintenance (top left), a hidden neighbor of a contradicted manual link (bottom right), a possible duplicate (bottom left);
+		// each badge is its own group with a tooltip that holds its text.
+		const badge = (selection, fx, fy, fill, stroke, letter, text_of) => {
+			const group = selection.append('g').attr('class', 'topology-badge')
+				.attr('transform', node => `translate(${fx * node.shape_w / 2},${fy * node.shape_h / 2})`);
+			group.append('circle').attr('r', node => node.size === 'small' ? 6 : 8).style('fill', fill).style('stroke', stroke).style('stroke-width', 1.6);
+			group.append('text').attr('y', node => node.size === 'small' ? 3 : 4).attr('text-anchor', 'middle')
+				.style('font-size', node => node.size === 'small' ? '8px' : '11px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text(letter);
+			group.append('title').text(text_of);
+			return group;
+		};
+		badge(node_selection.filter(node => node.type === 'host' && node.blind_spot), 1, -1, '#f59e0b', '#7c2d12', '?',
+			() => <?= json_encode(_('Monitoring blind spot: the proxy for this host is unreachable, this does not mean the host itself is down.')) ?>);
+		badge(node_selection.filter(node => node.type === 'host' && node.maintenance && !node.disabled), -1, -1, '#475569', '#1e293b', 'M',
+			() => <?= json_encode(_('In maintenance — still monitored, notifications suppressed.')) ?>);
+		// Badge on every unacknowledged hidden neighbor, whether or not it has other links
 		const hidden_tooltips = new Map();
 		this.unacknowledgedShadows().forEach(({entry, shadow}) => {
 			if (shadow.hidden_device_id === null) {
@@ -1872,28 +2057,23 @@ const view = new class {
 				`${<?= json_encode(_('on')) ?>} ${shadow.reporter.name}`;
 			hidden_tooltips.set(display_id, [...(hidden_tooltips.get(display_id) ?? []), line]);
 		});
-		const hidden_badges = node_selection.filter(node => hidden_tooltips.has(String(node.id)));
-		hidden_badges.append('circle').attr('class', 'topology-hidden-badge').attr('cx', 50).attr('cy', 18).attr('r', 10)
-			.style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
-		hidden_badges.append('text').attr('x', 50).attr('y', 22).attr('text-anchor', 'middle')
-			.style('font-size', '12px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
-		hidden_badges.append('title').text(node => hidden_tooltips.get(String(node.id)).join('\n'));
-
-		// Possible duplicates (topology-1-model.md §12.2): a badge bottom-left (the other corners are taken) with the reasons as its tooltip
-		const duplicate_badges = node_selection.filter(node => node.type === 'device' && (node.duplicates ?? []).length > 0);
-		duplicate_badges.append('circle').attr('class', 'topology-duplicate-badge').attr('cx', -50).attr('cy', 18).attr('r', 10)
-			.style('fill', '#6d28d9').style('stroke', '#4c1d95').style('stroke-width', 2);
-		duplicate_badges.append('text').attr('x', -50).attr('y', 22).attr('text-anchor', 'middle')
-			.style('font-size', '12px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('=');
-		duplicate_badges.append('title').text(node => <?= json_encode(_('Possible duplicate')) ?> + ': ' +
-			node.duplicates.map(candidate => `${candidate.reason} (${candidate.name ?? candidate.value})`).join(', '));
+		badge(node_selection.filter(node => hidden_tooltips.has(String(node.id))), 1, 1, '#c2410c', '#7c2d12', '!', node => hidden_tooltips.get(String(node.id)).join('\n'))
+			.attr('class', 'topology-badge topology-hidden-badge');
+		// Possible duplicates: the reasons are the tooltip
+		badge(node_selection.filter(node => node.type === 'device' && (node.duplicates ?? []).length > 0), -1, 1, '#6d28d9', '#4c1d95', '=',
+			node => <?= json_encode(_('Possible duplicate')) ?> + ': ' + node.duplicates.map(candidate => `${candidate.reason} (${candidate.name ?? candidate.value})`).join(', '))
+			.attr('class', 'topology-badge topology-duplicate-badge');
 
 		const describeSubject = subject => {
+			const full = subject.label ?? subject.name;
+			if (subject.type === 'group') {
+				return full;
+			}
 			if (subject.type === 'proxy' && subject.unreachable) {
-				return <?= json_encode(_('Proxy unreachable')) ?>;
+				return `${full} — ${<?= json_encode(_('Proxy unreachable')) ?>}`;
 			}
 			if (subject.type === 'host' && subject.disabled) {
-				return <?= json_encode(_('Host is disabled — not polled, no severity to show.')) ?>;
+				return `${full} — ${<?= json_encode(_('Host is disabled — not polled, no severity to show.')) ?>}`;
 			}
 			const notes = [];
 			if (subject.type === 'host' && subject.blind_spot) {
@@ -1905,22 +2085,13 @@ const view = new class {
 			if ((subject.type === 'host' || subject.type === 'proxy') && subject.severity_name) {
 				notes.push(`${<?= json_encode(_('Severity: ')) ?>}${subject.severity_name}`);
 			}
-			return notes.length ? `${subject.name} — ${notes.join(' ')}` : subject.name;
+			return notes.length ? `${full} — ${notes.join(' ')}` : full;
 		};
-		node_selection.append('title').text(node => describeSubject(node));
-		simulation.on('tick', () => {
-			nodes.forEach(node => {
-				if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
-					node.x = width / 2;
-					node.y = height / 2;
-					node.vx = 0;
-					node.vy = 0;
-				}
-				node.x = Math.max(padding, Math.min(width - padding, node.x));
-				node.y = Math.max(padding, Math.min(height - padding, node.y));
-			});
-			links.attr('x1', link => link.source.x).attr('y1', link => link.source.y)
-				.attr('x2', link => link.target.x).attr('y2', link => link.target.y);
+		node_selection.append('title').attr('class', 'topology-label-title').text(node => describeSubject(node));
+
+		const draw_positions = () => {
+			links.attr('d', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d);
+			glows.attr('d', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d);
 			node_selection.attr('transform', node => `translate(${node.x},${node.y})`);
 			ghost_lines.attr('x1', ghost => ghost.from.x).attr('y1', ghost => ghost.from.y)
 				.attr('x2', ghost => ghost.to.x).attr('y2', ghost => ghost.to.y);
@@ -1928,9 +2099,24 @@ const view = new class {
 			pair_lines.attr('x1', pair => pair.from.x).attr('y1', pair => pair.from.y)
 				.attr('x2', pair => pair.to.x).attr('y2', pair => pair.to.y);
 			pair_labels.attr('x', pair => (pair.from.x + pair.to.x) / 2).attr('y', pair => (pair.from.y + pair.to.y) / 2 - 5);
-			link_badges.attr('transform', link => `translate(${(link.source.x + link.target.x) / 2},${(link.source.y + link.target.y) / 2})`);
-			bundle_labels.attr('x', link => (link.source.x + link.target.x) / 2).attr('y', link => (link.source.y + link.target.y) / 2 - 6);
-		});
+			link_badges.attr('transform', link => {
+				const mid = G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid;
+				return `translate(${mid.x},${mid.y})`;
+			});
+			bundle_labels.attr('x', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.x)
+				.attr('y', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.y - 6);
+		};
+		draw_positions();
+		this.drawn_nodes = nodes;
+		this.drawn_links = simulation_links;
+		this.link_selection = links;
+		this.glow_selection = glows;
+	}
+
+	// Hover (§12.3): the node and its drawn links get a highlight outline, nothing else changes (the opacity stays the channel of stale links).
+	highlight(node, on) {
+		d3.select(node.element).classed('topology-hover', on);
+		this.glow_selection?.classed('topology-link-hover', link => on && (link.source === node || link.target === node));
 	}
 };
 </script>
