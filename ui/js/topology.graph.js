@@ -860,5 +860,97 @@
 		return lines.join('\n');
 	}
 
-	return {makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	// ---- the side panel of a node (§12.5 "Structure of a node panel", 2.75, task 094) ----
+
+	/**
+	 * The sections of a node panel in their order: Host: Problems, Links, Ports, Identity (folded); Device without association: Identity (with Addresses, open), Links, Ports; Proxy: Links, Ports,
+	 * Identity (folded). Links, Ports and Identity are the Device's: a node without a Device has Problems only (a Host) or the header only (a Proxy).
+	 *
+	 * @return array  [{id, open}]
+	 */
+	function panelSections(kind, has_device) {
+		if (kind === 'host') {
+			return has_device ? [{id: 'problems', open: true}, {id: 'links', open: true}, {id: 'ports', open: true}, {id: 'identity', open: false}] : [{id: 'problems', open: true}];
+		}
+		if (kind === 'proxy') {
+			return has_device ? [{id: 'links', open: true}, {id: 'ports', open: true}, {id: 'identity', open: false}] : [];
+		}
+
+		return [{id: 'identity', open: true}, {id: 'links', open: true}, {id: 'ports', open: true}];
+	}
+
+	/**
+	 * The summary line "<N> links · <L> LAG · <P> ports (<U> up)"; a part that is 0 is not shown, and "(<U> up)" goes with the ports. `words`: {link, links, lag, port, ports, up}, each with %1$s.
+	 */
+	function summaryLine(counts, words) {
+		const part = (n, one, many) => (n === 1 ? one : many).replace('%1$s', String(n));
+		const parts = [];
+		if (counts.links > 0) {
+			parts.push(part(counts.links, words.link, words.links));
+		}
+		if (counts.lag > 0) {
+			parts.push(words.lag.replace('%1$s', String(counts.lag)));
+		}
+		if (counts.ports > 0) {
+			parts.push(part(counts.ports, words.port, words.ports) + (counts.up > 0 ? ' (' + words.up.replace('%1$s', String(counts.up)) + ')' : ''));
+		}
+
+		return parts.join(' · ');
+	}
+
+	/** The load of a port as "in <x> % / out <y> %" (§4.8): % of the speed, one decimal at most; "—" without items, without speed, or when neither value is known. */
+	function loadText(load, words = {in: 'in', out: 'out'}) {
+		if (!load || !(load.speed > 0) || ((load.in === null || load.in === undefined) && (load.out === null || load.out === undefined))) {
+			return '—';
+		}
+		const percent = value => (value === null || value === undefined ? '—' : String(Math.round(1000 * value / load.speed) / 10));
+
+		return `${words.in} ${percent(load.in)} % / ${words.out} ${percent(load.out)} %`;
+	}
+
+	/**
+	 * The problems of a Host for the panel: the count by severity (the highest first) and the 5 newest (the smallest age first). `problems` = [{severity_name, severity, color, name, age}].
+	 *
+	 * @return object  {total, by_severity: [{severity_name, severity, color, count}], newest}
+	 */
+	function problemSummary(problems) {
+		const by = new Map();
+		problems.forEach(problem => {
+			const key = problem.severity_name ?? String(problem.severity);
+			const entry = by.get(key) ?? {severity_name: problem.severity_name, severity: Number(problem.severity ?? 0), color: problem.color ?? null, count: 0};
+			entry.count++;
+			by.set(key, entry);
+		});
+
+		return {
+			total: problems.length,
+			by_severity: [...by.values()].sort((a, b) => b.severity - a.severity),
+			newest: [...problems].sort((a, b) => a.age - b.age).slice(0, 5)
+		};
+	}
+
+	/**
+	 * The rows of the Links section: one row for each link of the Device and one row for each LAG bundle (the same rule as the graph, `bundleLinks`: the same neighbor, the same LAG on the side
+	 * where it is known, the same channels). `ports` = the entries of the Connected ports of /ports plus the links that /ports does not give (a superseded link), each
+	 * {port_id, edge_id, port, remote_port, remote_device_id, connected_to, status, source, load, stale, last_seen, superseded_at, lag_id, lag, remote_lag_id, remote_lag, device_link_id}.
+	 * Order: the natural order of the local port (the first member of a bundle).
+	 *
+	 * @return array  [{type: 'link', entry} | {type: 'bundle', label, lag_name, members: [entry], count}]
+	 */
+	function linkRows(entries) {
+		const links = entries.map((entry, i) => ({
+			type: entry.device_link_id ? 'device_link' : 'physical_link', edge_id: i, source: 'near', target: String(entry.remote_device_id ?? entry.connected_to ?? '?'),
+			source_lag_id: entry.lag_id ?? null, source_lag: entry.lag ?? null, target_lag_id: entry.remote_lag_id ?? null, target_lag: entry.remote_lag ?? null,
+			discovered_via: entry.source === 'Manual' ? 'manual' : 'lldp', stale: Boolean(entry.stale), superseded_at: entry.superseded_at ?? null, severity: entry.severity ?? null, color: entry.color ?? null, entry
+		}));
+		const rows = bundleLinks(links).map(line => (line.type === 'lag_bundle'
+			? {type: 'bundle', label: line.label, lag_name: line.lag_name, members: line.members.map(member => member.entry), count: line.members.length}
+			: {type: 'link', entry: line.entry}));
+		const natural = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), undefined, {numeric: true, sensitivity: 'base'});
+		const first = row => (row.type === 'bundle' ? row.members[0] : row.entry);
+
+		return rows.sort((a, b) => natural(first(a).port, first(b).port));
+	}
+
+	return {panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

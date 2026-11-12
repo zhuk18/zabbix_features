@@ -412,4 +412,43 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	G.makeLabelRoom([pinned_a, pinned_b], [{a: pinned_a, b: pinned_b, width: 40, index: 0, count: 1}], {width: 1200, height: 900, padding: 10}, 3);
 	ok(before.join() === [pinned_a.x, pinned_a.y, pinned_b.x, pinned_b.y].join(), 'two fixed (dragged) nodes do not move');
 }
+// ---- the side panel of a node (2.75, task 094) ----
+{
+	const ids = (kind, has) => G.panelSections(kind, has).map(x => x.id).join();
+	ok(ids('host', true) === 'problems,links,ports,identity' && G.panelSections('host', true)[3].open === false, 'Host: Problems, Links, Ports, Identity (folded)');
+	ok(ids('device', false) === 'identity,links,ports' && G.panelSections('device', false)[0].open === true, 'Device without association: Identity (with Addresses, open), Links, Ports');
+	ok(ids('proxy', true) === 'links,ports,identity' && G.panelSections('proxy', true)[2].open === false, 'Proxy with a Device: Links, Ports, Identity (folded)');
+	ok(ids('proxy', false) === '', 'a Proxy without a Device: the header only (no section)');
+	ok(ids('host', false) === 'problems', 'a Host without a Device: Problems only');
+	const w = {link: '%1$s link', links: '%1$s links', lag: '%1$s LAG', port: '%1$s port', ports: '%1$s ports', up: '%1$s up'};
+	ok(G.summaryLine({links: 12, lag: 2, ports: 48, up: 14}, w) === '12 links · 2 LAG · 48 ports (14 up)', 'summary line: all parts');
+	ok(G.summaryLine({links: 0, lag: 2, ports: 48, up: 14}, w) === '2 LAG · 48 ports (14 up)', 'a part that is 0 is left out (links)');
+	ok(G.summaryLine({links: 3, lag: 0, ports: 24, up: 0}, w) === '3 links · 24 ports', 'no LAG, no port up: those parts are left out');
+	ok(G.summaryLine({links: 1, lag: 0, ports: 1, up: 1}, w) === '1 link · 1 port (1 up)', 'one link, one port');
+	ok(G.summaryLine({links: 0, lag: 0, ports: 0, up: 0}, w) === '', 'all 0: an empty line');
+	ok(G.loadText({in: 250e6, out: 5e6, speed: 1e9}) === 'in 25 % / out 0.5 %', 'load "in x % / out y %"', G.loadText({in: 250e6, out: 5e6, speed: 1e9}));
+	ok(G.loadText({in: 0, out: 0, speed: 1e9}) === 'in 0 % / out 0 %', 'load 0 is 0 %, not a dash');
+	ok(G.loadText(null) === '—' && G.loadText({in: null, out: null, speed: 1e9}) === '—' && G.loadText({in: 1, out: 1, speed: null}) === '—', 'load "—" without items, without a value, without a speed');
+	ok(G.loadText({in: 1e8, out: null, speed: 1e9}) === 'in 10 % / out — %', 'one value missing: "—" in its place');
+	const problems = [{severity: 2, severity_name: 'Warning', color: 'ffc859', name: 'a', age: 500}, {severity: 4, severity_name: 'High', color: 'e97659', name: 'b', age: 100},
+		{severity: 2, severity_name: 'Warning', color: 'ffc859', name: 'c', age: 50}, {severity: 2, severity_name: 'Warning', color: 'ffc859', name: 'd', age: 900}, {severity: 1, severity_name: 'Information', color: '7499ff', name: 'e', age: 20},
+		{severity: 2, severity_name: 'Warning', color: 'ffc859', name: 'f', age: 700}, {severity: 2, severity_name: 'Warning', color: 'ffc859', name: 'g', age: 10}];
+	const summary = G.problemSummary(problems);
+	ok(summary.total === 7 && summary.by_severity.map(x => x.severity_name + x.count).join() === 'High1,Warning5,Information1', 'problems: the count by severity, the highest first', summary.by_severity);
+	ok(summary.newest.length === 5 && summary.newest.map(x => x.name).join('') === 'gecba', 'problems: the 5 newest (the smallest age first)', summary.newest.map(x => x.name));
+	ok(G.problemSummary([]).total === 0 && G.problemSummary([]).newest.length === 0, 'no problems: nothing');
+	// Links rows
+	const entry = (port, extra = {}) => ({port_id: port, edge_id: port, port, remote_port: '9', remote_device_id: '77', connected_to: 'SW18', status: 'up', source: 'LLDP', load: null, stale: false, last_seen: 100,
+		superseded_at: null, lag_id: null, lag: null, remote_lag_id: null, remote_lag: null, device_link_id: null, ...extra});
+	let rows = G.linkRows([entry('1/1/10'), entry('1/1/2'), entry('1/1/1', {remote_device_id: '88', connected_to: 'SW20'})]);
+	ok(rows.map(r => r.entry.port).join() === '1/1/1,1/1/2,1/1/10', 'rows in the natural order of the local port (1/1/2 before 1/1/10)', rows.map(r => r.entry.port));
+	rows = G.linkRows([entry('1/1/43', {remote_lag_id: '5', remote_lag: 'Trk1'}), entry('1/1/44', {remote_lag_id: '5', remote_lag: 'Trk1'}), entry('1/1/1')]);
+	ok(rows.length === 2 && rows[0].type === 'link' && rows[1].type === 'bundle' && rows[1].count === 2 && rows[1].label === 'Trk1 ×2', 'two members of one LAG to one neighbor: one bundle row', rows.map(r => r.type));
+	rows = G.linkRows([entry('1/1/43', {remote_lag_id: '5', remote_lag: 'Trk1'}), entry('1/1/44', {remote_lag_id: '5', remote_lag: 'Trk1', stale: true})]);
+	ok(rows.length === 2 && rows.every(r => r.type === 'link'), 'a stale member is its own row (as in the graph)');
+	rows = G.linkRows([entry('1/1/1', {device_link_id: '5', remote_port: null, remote_device_id: '77'}), entry('1/1/2', {device_link_id: '6', remote_port: null, remote_device_id: '77'})]);
+	ok(rows.length === 2 && rows.every(r => r.type === 'link'), 'device-level links are not bundled');
+	rows = G.linkRows([entry('1/1/5', {superseded_at: 123})]);
+	ok(rows.length === 1 && rows[0].entry.superseded_at === 123, 'a superseded link has its row');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');
