@@ -71,7 +71,7 @@ try:
             mouse('mouseReleased', x, y, 2)
 
     state = lambda: js("""({nodes: view.drawn_nodes.length, k: view.zoom_transform ? Math.round(view.zoom_transform.k * 1000) / 1000 : null, tx: Math.round(view.zoom_transform.x), ty: Math.round(view.zoom_transform.y),
-        unfolded: Array.from(view.unfolded), panel: (document.querySelector('#topology-details h2') || {textContent: ''}).textContent.trim(),
+        unfolded: Array.from(view.unfolded), panel: (document.getElementById('topology-details-title') || {textContent: ''}).textContent.trim(), group_h2: document.querySelectorAll('#topology-details h2').length,
         fold_button: !!document.querySelector('#topology-details [data-parent]')})""")
     # put the parent in the middle of the window by panning only (the scale stays), then find the screen positions of its nodes
     js("""(() => { const h = Array.from(view.nodes.values()).find(n => n.type === 'host' && n.label.startsWith('%s'));
@@ -101,8 +101,7 @@ try:
     after_leaf = state()
     check(after_leaf['nodes'] == before['nodes'] and parent_id not in after_leaf['unfolded'], 'a double click on an unfolded leaf folds the group (nodes before %d, unfolded %d, after %d)' % (before['nodes'], unfolded['nodes'], after_leaf['nodes']), after_leaf)
     check(after_leaf['k'] == before['k'] and (after_leaf['tx'], after_leaf['ty']) == (unfolded['tx'], unfolded['ty']), 'the graph does not zoom or move: scale %s before, %s after' % (before['k'], after_leaf['k']), [before, after_leaf])
-    check(after_leaf['panel'].endswith('devices') and not after_leaf['panel'].startswith('SW') and 'Device details' in after_leaf['panel'] or after_leaf['panel'].split('\n')[-1].strip().endswith('devices'),
-          'the side panel shows the group after the fold', after_leaf['panel'])
+    check(' devices at ' in after_leaf['panel'] and after_leaf['group_h2'] == 0, 'the side panel shows the group after the fold: the title "<N> devices at <parent>", no second line "<N> devices" (task 093)', after_leaf)
     # unfold again, a real double click on the parent
     group_pos = where("Array.from(document.querySelectorAll('#topology-canvas g.topology-node.group')).find(g => String(g.__data__.parent) === '%s')" % parent_id)
     click(group_pos['x'], group_pos['y'])
@@ -117,7 +116,7 @@ try:
     time.sleep(2.5)
     after_parent = state()
     check(again['nodes'] > before['nodes'] and after_parent['nodes'] == before['nodes'] and parent_id not in after_parent['unfolded'], 'a double click on the parent folds the group (nodes %d → %d → %d)' % (before['nodes'], again['nodes'], after_parent['nodes']), after_parent)
-    check(after_parent['k'] == before['k'] and after_parent['panel'].split('\n')[-1].strip().endswith('devices'), 'no zoom; the side panel shows the group', after_parent)
+    check(after_parent['k'] == before['k'] and ' devices at ' in after_parent['panel'] and after_parent['group_h2'] == 0, 'no zoom; the side panel shows the group', after_parent)
     # a double click on the empty area: nothing (no zoom: dblclick.zoom is off)
     empty = js("(() => { const b = document.getElementById('topology-canvas').getBoundingClientRect(); return {x: b.left + 12, y: b.bottom - 12}; })()")
     pos = where("document.elementFromPoint(%f, %f)" % (empty['x'], empty['y']))

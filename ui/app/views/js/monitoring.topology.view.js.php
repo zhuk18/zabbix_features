@@ -1590,8 +1590,8 @@ const view = new class {
 		const parent = this.nodes.get(String(group.parent));
 		// 2.72: the title is "<N> devices at <parent>", not "Device details"
 		this.setDetailsTitle(<?= json_encode(_('%1$s devices at %2$s')) ?>.replace('%1$s', String(group.count)).replace('%2$s', parent?.label ?? parent?.name ?? ''));
-		this.details.innerHTML = `<h2>${this.escape(group.label)}</h2>` +
-			`<div class="topology-group-fold"><button type="button" class="btn-alt" id="topology-fold" data-parent="${this.escape(group.parent)}">${this.escape(
+		// 2.73: no second line with "<N> devices" under the title
+		this.details.innerHTML = `<div class="topology-group-fold"><button type="button" class="btn-alt" id="topology-fold" data-parent="${this.escape(group.parent)}">${this.escape(
 				<?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.count)))}</button></div>` +
 			`<p class="topology-group-help">${this.escape(<?= json_encode(_('Devices with one link each, at')) ?>)} ${this.escape(parent?.label ?? parent?.name ?? '')}</p>` +
 			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Device')) ?>)}</th><th>${this.escape(<?= json_encode(_('Local port')) ?>)}</th>` +
