@@ -190,11 +190,12 @@ CHECKS = {
         }
         const pr = panel.getBoundingClientRect();
         const panel_right = pr.left + panel.clientLeft + panel.clientWidth;
-        const labels = Array.from(section.querySelectorAll('.topology-address-identity th'));
+        const labels = Array.from(panel.querySelectorAll('.topology-identity .topology-address-identity th'));  // 2.75: the identity is in the section Identity, Addresses is inside it
         const r = {window: document.documentElement.clientWidth + 'x' + document.documentElement.clientHeight,
             labels: labels.map(t => t.textContent),
             labels_cut: labels.filter(t => t.scrollWidth > t.clientWidth + 1).map(t => t.textContent),
             out_of_panel: Array.from(section.querySelectorAll('*')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).map(e => e.className || e.tagName).slice(0, 5),
+            identity_open: panel.querySelector('details.topology-identity').open, addresses_open: section.open,
             addresses: section.querySelectorAll('.topology-address').length, empty: !!section.querySelector('.topology-empty'),
             // task 090 (model §12.5, 2.70): one line per address with the count "reported by <N> ports of <M> hosts"; the sources are folded, closed by default
             counts: Array.from(section.querySelectorAll('summary.topology-address-count')).map(t => t.textContent),
@@ -202,7 +203,7 @@ CHECKS = {
             source_lines_visible: Array.from(section.querySelectorAll('details.topology-address-sources .topology-address-source')).filter(e => e.checkVisibility ? e.checkVisibility() : e.offsetHeight > 0).length,
             duplicate_addresses: (() => { const v = Array.from(section.querySelectorAll('.topology-address-head .topology-address-value')).map(e => e.textContent); return v.length - new Set(v).size; })()};
         r.counts_ok = r.counts.every(t => /^reported by \d+ ports? of \d+ hosts?$/.test(t));
-        r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID') && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty) && r.counts_ok && r.sources_open === 0 && r.source_lines_visible === 0 && r.duplicate_addresses === 0;
+        r.ok = labels.length > 0 && r.labels.every(t => t === 'System name' || t === 'Hardware ID' || t === 'Device class') && r.identity_open && r.addresses_open && !r.labels_cut.length && !r.out_of_panel.length && (r.addresses > 0 || r.empty) && r.counts_ok && r.sources_open === 0 && r.source_lines_visible === 0 && r.duplicate_addresses === 0;
         return r;
     })()''',
     # model §12.2, §12.1 (2.47, task 057): with a Device that has a duplicate candidate selected (--select), the panel names the reason in words and offers Merge,
@@ -349,13 +350,14 @@ CHECKS = {
         view.render();
         const title = Array.from(document.querySelectorAll('#topology-canvas title.topology-label-title')).find(t => t.textContent === evil);
         const div = document.createElement('div');
-        div.innerHTML = view.buildPortsFragment({id: '0', represented: true}, {connected: [{id: '1', port: '<i>p</i>', group: 'connected', status: 'up',
-            connected_to: evil, linked_port_id: '2', source: 'LLDP'}]});
-        const cell = div.querySelector('td.topology-port-name').nextElementSibling.nextElementSibling;
+        // 2.75: the cells of a row of the Links section (the neighbor and the ports come from the network) and the Copy of the identity stay text
+        div.innerHTML = '<table><tbody>' + view.linkEntryHtml({port_id: '1', edge_id: '9', port: '<i>p</i>', remote_port: '<b>q</b>', remote_device_id: null, connected_to: evil, status: 'up', source: 'LLDP', source_text: 'LLDP',
+            load: null, stale: true, last_seen: 5, superseded_at: null, lag_id: null, lag: null, remote_lag_id: null, remote_lag: null, device_link_id: null, linked_port_id: '2'}) + '</tbody></table>';
+        const cell = div.querySelector('td.topology-link-neighbor span, td.topology-link-neighbor a');
         const r = {node_title_is_text: !!title && title.childElementCount === 0, img_in_svg: document.querySelectorAll('#topology-canvas img').length,
             script_ran: window.__xss === 1, cell_title: cell.getAttribute('title'), img_in_table: !!div.querySelector('img, b, i'),
-            port_title: div.querySelector('td.topology-port-name').getAttribute('title')};
-        r.ok = r.node_title_is_text && !r.img_in_svg && !r.script_ran && r.cell_title === evil && !r.img_in_table && r.port_title === '<i>p</i>';
+            port_title: div.querySelector('td.topology-link-ports').getAttribute('title')};
+        r.ok = r.node_title_is_text && !r.img_in_svg && !r.script_ran && r.cell_title === evil && !r.img_in_table && r.port_title === '<i>p</i> ↔ <b>q</b>';
         return r;
     })()''',
 }

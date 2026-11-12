@@ -38,7 +38,14 @@ const view = new class {
 	// #topology-details for the specific node/link's own name. Kept in sync with whatever kind
 	// of thing is currently selected, not left stuck on whichever label happened to render last.
 	setDetailsTitle(text) {
-		document.getElementById('topology-details-title').textContent = text;
+		const title = document.getElementById('topology-details-title');
+		title.hidden = false;
+		title.textContent = text;
+	}
+
+	// A node panel has no title of its own (§12.5, 2.75): its header is the title.
+	hideDetailsTitle() {
+		document.getElementById('topology-details-title').hidden = true;
 	}
 
 	async init() {
@@ -685,53 +692,31 @@ const view = new class {
 		await this.loadDevices({reselect_device: stay});
 	}
 
+	// The panel of a node (§12.5 "Structure of a node panel", 2.75): a header, then the sections of the node kind. A Host or a Proxy shows the data of the Device that it represents
+	// (node.device); a Device without association shows its own.
 	async selectNode(node) {
 		// two clicks of a double click start two selections; the panel of a later request (a fold shows the group) must not be overwritten by a late answer of an earlier one
 		const token = this.select_token = (this.select_token ?? 0) + 1;
-		// Host/Proxy: one combined panel, plus a Device section when this node has an active
-		// represented_by (node.device, set in render() from the same represented_by edges that used
-		// to drive the old split-node merge — see render()'s device_of_target map). A represented
-		// Device has no on-screen position of its own (topology-1-model.md "Side panels"), so its /neighbors + /ports are fetched here,
-		// keyed off the clicked Host/Proxy, exactly like a standalone Device click below would.
-		// Problems section is Host-only (topology-1-model.md "API" /problems, topology-1-model.md "Side panels") — Zabbix has no clean "this problem
-		// belongs to this proxy" semantics, so a Proxy panel never fetches or shows one.
-		if (node.type === 'host' || node.type === 'proxy') {
-			const problems = node.type === 'host'
-				? (await this.request(`topology.problems.get&id=${encodeURIComponent(node.id)}`)).problems
-				: null;
-			let groups = null;
-			if (node.device) {
-				const [neighbor_groups] = await Promise.all([
-					this.request(`topology.ports.get&id=${encodeURIComponent(node.device.id)}`),
-					this.mergeNeighbors(node.device)
-				]);
-				groups = neighbor_groups.groups;
-				this.render();
-			}
-			if (token !== this.select_token) {
-				return;
-			}
-			this.showPanel(node, problems, groups);
-			this.addClassLine(node);
-			this.addFoldControl(node);
+		if (!['host', 'proxy', 'device'].includes(node.type)) {
 			return;
 		}
-		if (node.type !== 'device') {
-			return;
-		}
-
-		const [{groups}, addresses] = await Promise.all([
-			this.request(`topology.ports.get&id=${encodeURIComponent(node.id)}`),
-			this.request(`topology.addresses.get&id=${encodeURIComponent(node.id)}`),
-			this.mergeNeighbors(node)
+		const device = node.type === 'device' ? node : node.device;
+		const id = value => encodeURIComponent(value);
+		// Problems: a Host only (Zabbix has no clean "this problem belongs to this proxy" semantics, so a Proxy never shows them), read live
+		const [problems, groups, addresses] = await Promise.all([
+			node.type === 'host' ? this.request(`topology.problems.get&id=${id(node.id)}`).then(answer => answer.problems) : null,
+			device ? this.request(`topology.ports.get&id=${id(device.id)}`).then(answer => answer.groups) : null,
+			device ? this.request(`topology.addresses.get&id=${id(device.id)}`) : null,
+			device ? this.mergeNeighbors(device) : null
 		]);
-		this.render();
+		if (device) {
+			this.render();
+		}
 		if (token !== this.select_token) {
 			return;
 		}
-		this.showPorts(node, groups, addresses);
-		this.addClassLine(node);
-		this.addFoldControl(node);
+		this.selected_node = node;
+		this.showNodePanel(node, {device, problems, groups, addresses});
 	}
 
 	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
@@ -1218,37 +1203,400 @@ const view = new class {
 		}
 	}
 
-	// Problems section fragment only — no title, no this.details assignment. Called from showPanel()
-	// only for a Host (never a Proxy, topology-1-model.md "Side panels" — showPanel() guards on `problems !== null`); kept as its
-	// own method rather than inlined there so the table markup stays next to formatAge()/cssColor().
-	buildProblemsFragment(problems) {
-		return `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Problems')) ?>)}</h3>${problems.length
-			? `<table><thead><tr><th>Severity</th><th>Problem</th><th>Age</th></tr></thead><tbody>
-				${problems.map(problem => `<tr>
-					<td title="${this.escape(problem.severity_name)}"><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}">${this.escape(problem.severity_name)}</span></td>
-					<td title="${this.escape(problem.name)}">${this.escape(problem.name)}</td>
-					<td>${this.escape(this.formatAge(problem.age))}</td>
-				</tr>`).join('')}
-				</tbody></table>`
-			: `<div class="topology-empty">${this.escape(<?= json_encode(_('No active problems.')) ?>)}</div>`}</section>`;
+	// ---- the side panel of a node (§12.5 "Structure of a node panel", 2.75, task 094) ----
+
+	// A text cut in the middle to a width in px (the full text goes in a tooltip: the caller writes it).
+	cutText(text, max_px) {
+		return TopologyGraph.cutMiddle(String(text ?? ''), max_px, 12, (value, font) => this.measureText(value, font));
 	}
 
-	// Host/Proxy side panel (topology-1-model.md "Side panels"): a Problems section for a Host (never for a Proxy — `problems` is
-	// null there, topology-1-model.md "API"), plus a Device section when `node.device` is set (this Host/Proxy has an
-	// active represented_by — see render()'s device_of_target map, which populates node.device).
-	// `groups` is the represented Device's /ports response, or null when there's no represented
-	// Device at all — in which case the Device section is simply omitted, not rendered empty. A
-	// Proxy with no represented Device gets an entirely empty panel — expected, not a bug (topology-1-model.md "Side panels").
-	showPanel(node, problems, groups) {
-		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
-		const problems_section = problems !== null ? this.buildProblemsFragment(problems) : '';
-		const device_section = groups !== null
-			? `<section class="topology-group"><h3>${this.escape(<?= json_encode(_('Device')) ?>)}</h3>${this.buildPortsFragment(node.device, groups)}</section>`
-			: '';
-		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${problems_section}${device_section}`;
-		if (groups !== null) {
-			this.wirePortsFragment(node.device, node);
+	// The menu "⋯": a button and a list of items, each {label, href, cls, attrs}; no item → no menu. The list opens at the button (fixed position: the panel scrolls).
+	menuHtml(items, title) {
+		if (!items.length) {
+			return '';
 		}
+		return `<span class="topology-menu"><button type="button" class="topology-menu-button" aria-haspopup="true" aria-expanded="false" title="${this.escape(title)}">⋯</button>` +
+			`<ul class="topology-menu-list" hidden>${items.map(item => `<li>${item.href
+				? `<a class="topology-menu-item ${item.cls ?? ''}" href="${this.escape(item.href)}" ${item.attrs ?? ''}>${this.escape(item.label)}</a>`
+				: `<button type="button" class="topology-menu-item ${item.cls ?? ''}" ${item.attrs ?? ''}>${this.escape(item.label)}</button>`}</li>`).join('')}</ul></span>`;
+	}
+
+	wireMenus() {
+		this.details.querySelectorAll('.topology-menu-button').forEach(button => button.addEventListener('click', event => {
+			event.stopPropagation();
+			const list = button.parentNode.querySelector('.topology-menu-list');
+			const open = list.hidden;
+			this.closeMenus();
+			if (open) {
+				const rect = button.getBoundingClientRect();
+				list.hidden = false;
+				list.style.top = `${Math.min(rect.bottom + 2, window.innerHeight - list.offsetHeight - 8)}px`;
+				list.style.left = `${Math.max(8, Math.min(rect.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 8))}px`;
+				button.setAttribute('aria-expanded', 'true');
+			}
+		}));
+		if (!this.menu_closer) {
+			this.menu_closer = () => this.closeMenus();
+			document.addEventListener('click', this.menu_closer);
+		}
+	}
+
+	closeMenus() {
+		this.details.querySelectorAll('.topology-menu-list').forEach(list => {
+			list.hidden = true;
+		});
+		this.details.querySelectorAll('.topology-menu-button').forEach(button => button.setAttribute('aria-expanded', 'false'));
+	}
+
+	// The names of the sources of a link (§12.5 "Links"): LLDP, CDP, push, manual.
+	sourceText(source) {
+		const key = String(source ?? 'lldp').toLowerCase();
+		return {lldp: 'LLDP', cdp: 'CDP', push: 'push', manual: <?= json_encode(_('manual')) ?>}[key] ?? key;
+	}
+
+	// The Links of a Device as entries (the Connected ports of /ports, with the graph's data of the same link when it has it) plus the superseded links that /ports does not give.
+	linkEntries(device, groups) {
+		const own = String(device.id);
+		const by_edge = new Map();
+		this.links.forEach(link => {
+			if (link.edge_id !== null && link.edge_id !== undefined) {
+				by_edge.set(String(link.edge_id), link);
+			}
+		});
+		const entries = (groups?.connected ?? []).map(port => {
+			const relation = by_edge.get(String(port.edge_id)) ?? null;
+			return {
+				port_id: port.id, edge_id: port.edge_id, port: port.port, remote_port: port.remote_port ?? null, remote_device_id: port.remote_device_id ?? null, connected_to: port.connected_to ?? null,
+				status: port.status, source: port.source === 'Manual' ? 'Manual' : 'LLDP', source_text: this.sourceText(port.source === 'Manual' ? 'manual' : relation?.discovery_source ?? 'lldp'),
+				load: port.load ?? null, stale: Boolean(port.stale), last_seen: port.last_seen ?? null, superseded_at: null, lag_id: port.lag_id ?? null, lag: port.lag ?? null,
+				remote_lag_id: port.remote_lag_id ?? null, remote_lag: port.remote_lag ?? null, device_link_id: port.device_link_id ?? null, linked_port_id: port.linked_port_id ?? null,
+				severity: relation?.severity ?? null, color: relation?.color ?? null
+			};
+		});
+		const known = new Set(entries.map(entry => String(entry.edge_id)));
+		this.links.filter(link => link.type === 'physical_link' && link.superseded_at && (link.source === own || link.target === own)
+				&& link.edge_id !== null && !known.has(String(link.edge_id))).forEach(link => {
+			const near = link.source === own;
+			const far = this.nodes.get(near ? link.target : link.source);
+			entries.push({
+				port_id: near ? link.source_port_id : link.target_port_id, edge_id: link.edge_id, port: near ? link.source_port : link.target_port, remote_port: near ? link.target_port : link.source_port,
+				remote_device_id: near ? link.target : link.source, connected_to: far?.label ?? far?.name ?? null, status: near ? link.source_status : link.target_status,
+				source: link.discovered_via === 'manual' ? 'Manual' : 'LLDP', source_text: this.sourceText(link.discovered_via === 'manual' ? 'manual' : link.discovery_source ?? 'lldp'),
+				load: null, stale: true, last_seen: link.last_seen_port ?? null, superseded_at: link.superseded_at, lag_id: near ? link.source_lag_id : link.target_lag_id,
+				lag: near ? link.source_lag : link.target_lag, remote_lag_id: near ? link.target_lag_id : link.source_lag_id, remote_lag: near ? link.target_lag : link.source_lag,
+				device_link_id: null, linked_port_id: null, severity: link.severity ?? null, color: link.color ?? null
+			});
+		});
+
+		return entries;
+	}
+
+	// The node that shows a Device on the graph: the Device itself, or the Host/Proxy that represents it; null when it is not in the view.
+	nodeOfDevice(device_id) {
+		const device = this.nodes.get(String(device_id));
+		if (!device) {
+			return null;
+		}
+		return [...this.nodes.values()].find(node => node.type !== 'device' && node.device && String(node.device.id) === String(device_id)) ?? device;
+	}
+
+	linkEntryHtml(entry, {member = false, bundle = null} = {}) {
+		const esc = value => this.escape(value);
+		const status_labels = {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>};
+		const neighbor_text = entry.connected_to ?? '?';
+		const neighbor_node = entry.remote_device_id !== null ? this.nodeOfDevice(entry.remote_device_id) : null;
+		const neighbor_cut = esc(this.cutText(neighbor_text, 78));
+		const neighbor = neighbor_node
+			? `<a class="topology-neighbor" data-node="${esc(neighbor_node.id)}" title="${esc(neighbor_text)}">${neighbor_cut}</a>`
+			: `<span class="topology-neighbor" title="${esc(neighbor_text)}">${neighbor_cut}</span>`;
+		const ports_text = `${entry.port ?? '?'} ↔ ${entry.remote_port ?? '?'}`;
+		const status = entry.status ?? '';
+		const load = TopologyGraph.loadText(entry.load, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>});
+		const marks = [];
+		if (entry.superseded_at) {
+			marks.push(<?= json_encode(_('superseded')) ?>);
+		}
+		else if (entry.stale) {
+			marks.push(entry.last_seen ? <?= json_encode(_('not confirmed since %1$s')) ?>.replace('%1$s', this.formatDate(entry.last_seen)) : <?= json_encode(_('not confirmed recently')) ?>);
+		}
+		const items = [];
+		const relation = this.links.find(link => link.edge_id !== null && link.edge_id !== undefined && String(link.edge_id) === String(entry.edge_id));
+		if (relation) {
+			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-link-details', attrs: `data-edge="${esc(entry.edge_id)}"`});
+		}
+		if (entry.port_id) {
+			items.push({label: <?= json_encode(_('Neighbor reports')) ?>, href: `zabbix.php?action=topology.lastrun&port_id=${encodeURIComponent(entry.port_id)}`});
+		}
+		if (entry.device_link_id) {
+			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-remove-link-button', attrs: `data-edge-id="${esc(entry.device_link_id)}"`});
+		}
+		else if (entry.linked_port_id) {
+			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-unlink-button', attrs: `data-port-id="${esc(entry.port_id)}" data-linked-port-id="${esc(entry.linked_port_id)}"`});
+		}
+		const edges = bundle ? bundle.members.map(item => item.edge_id).join(',') : String(entry.edge_id ?? '');
+		return `<tr class="topology-link-row${member ? ' topology-link-member' : ''}" data-edges="${esc(edges)}"${member ? ` data-bundle="${esc(bundle?.key ?? '')}" hidden` : ''}>` +
+			`<td class="topology-link-neighbor">${neighbor}</td>` +
+			`<td class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(entry.port ?? '?', 40))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 40))}</td>` +
+			`<td class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></td>` +
+			`<td class="topology-link-source">${esc(entry.source_text ?? '')}</td>` +
+			`<td class="topology-link-load" title="${esc(load)}">${esc(load)}</td>` +
+			`<td class="topology-link-menu">${this.menuHtml(items, <?= json_encode(_('Link actions')) ?>)}</td></tr>` +
+			(marks.length ? `<tr class="topology-link-note"${member ? ' hidden' : ''}><td colspan="6">${esc(marks.join(' · '))}</td></tr>` : '');
+	}
+
+	linkBundleHtml(row, index) {
+		const esc = value => this.escape(value);
+		const first = row.members[0];
+		const key = `b${index}`;
+		const members = row.members;
+		const sum = name => members.every(member => member.load && member.load[name] !== null && member.load[name] !== undefined) ? members.reduce((total, member) => total + member.load[name], 0) : null;
+		const speed = members.every(member => member.load && member.load.speed > 0) ? members.reduce((total, member) => total + member.load.speed, 0) : null;
+		const load = TopologyGraph.loadText(speed === null ? null : {in: sum('in'), out: sum('out'), speed}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>});
+		const statuses = [...new Set(members.map(member => member.status))];
+		const neighbor_text = first.connected_to ?? '?';
+		const neighbor_node = first.remote_device_id !== null ? this.nodeOfDevice(first.remote_device_id) : null;
+		const cut = esc(this.cutText(neighbor_text, 58));
+		const neighbor = neighbor_node ? `<a class="topology-neighbor" data-node="${esc(neighbor_node.id)}" title="${esc(neighbor_text)}">${cut}</a>` : `<span class="topology-neighbor" title="${esc(neighbor_text)}">${cut}</span>`;
+		const head = `<tr class="topology-link-row topology-link-bundle" data-edges="${esc(members.map(member => member.edge_id).join(','))}">` +
+			`<td class="topology-link-neighbor"><button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>${neighbor}</td>` +
+			`<td class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(this.cutText('LAG ' + row.label, 90))}</td>` +
+			`<td class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</td>` +
+			`<td class="topology-link-source">${esc(first.source_text ?? '')}</td><td class="topology-link-load" title="${esc(load)}">${esc(load)}</td><td class="topology-link-menu"></td></tr>`;
+		return head + members.map(member => this.linkEntryHtml(member, {member: true, bundle: {key, members: [member]}})).join('');
+	}
+
+	buildLinksSection(rows, open) {
+		const esc = value => this.escape(value);
+		const count = rows.reduce((total, row) => total + (row.type === 'bundle' ? row.count : 1), 0);
+		const body = rows.length
+			? `<table class="topology-links-table"><tbody>${rows.map((row, i) => (row.type === 'bundle' ? this.linkBundleHtml(row, i) : this.linkEntryHtml(row.entry))).join('')}</tbody></table>`
+			: `<div class="topology-empty">${esc(<?= json_encode(_('No links')) ?>)}</div>`;
+		return `<details class="topology-section topology-links" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Links')) ?>)} (${count})</summary>${body}</details>`;
+	}
+
+	buildProblemsSection(problems, node, open) {
+		const esc = value => this.escape(value);
+		const summary = TopologyGraph.problemSummary(problems ?? []);
+		let body;
+		if (summary.total === 0) {
+			body = `<div class="topology-empty">${esc(<?= json_encode(_('No problems')) ?>)}</div>`;
+		}
+		else {
+			body = `<div class="topology-problem-counts">${summary.by_severity.map(entry => `<span class="topology-severity-badge" style="background:${this.cssColor(entry.color)}" title="${esc(entry.severity_name)}">${esc(entry.severity_name)} ${entry.count}</span>`).join(' ')}</div>` +
+				`<table class="topology-problems-table"><tbody>${summary.newest.map(problem => `<tr><td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}" title="${esc(problem.severity_name)}">${esc(problem.severity_name)}</span></td>` +
+					`<td title="${esc(problem.name)}">${esc(this.cutText(problem.name, 170))}</td><td>${esc(this.formatAge(problem.age))}</td></tr>`).join('')}</tbody></table>`;
+		}
+		const all = `<div class="topology-problems-all"><a href="zabbix.php?action=problem.view&filter_name=&hostids%5B%5D=${encodeURIComponent(node.hostid ?? '')}&filter_set=1">${esc(<?= json_encode(_('All problems')) ?>)}</a></div>`;
+		return `<details class="topology-section topology-problems" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Problems')) ?>)}${summary.total ? ` (${summary.total})` : ''}</summary>${body}${all}</details>`;
+	}
+
+	buildIdentitySection(node, device, addresses, open) {
+		const esc = value => this.escape(value);
+		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${esc(text)}" title="${esc(label)}">${esc(<?= json_encode(_('Copy')) ?>)}</button>`;
+		const name = TopologyGraph.iconOf(device);
+		const bits = (device.device_class_bits ?? []).join(', ');
+		const class_text = `${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
+		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id], [<?= json_encode(_('Device class')) ?>, class_text]]
+			.filter(([, value]) => value).map(([label, value]) => `<tr><th>${esc(label)}</th><td class="topology-address-value" title="${esc(value)}">${esc(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
+		// the Addresses are part of it: open for a Device without association, folded for a Host or a Proxy (§12.5)
+		const addresses_html = addresses ? this.buildAddressesFragment(addresses, node.type === 'device') : '';
+		return `<details class="topology-section topology-identity" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Identity')) ?>)}</summary>` +
+			`<table class="topology-address-identity"><tbody>${rows}</tbody></table>${addresses_html}</details>`;
+	}
+
+	// The header of a node panel: class icon, name (a Host: the standard Zabbix host menu), kind mark, badges, actions, summary.
+	buildNodeHeader(node, device, groups, entries) {
+		const esc = value => this.escape(value);
+		const G = TopologyGraph;
+		const icon_name = G.iconOf(node);
+		const icon = icon_name ? `<svg class="topology-node-icon" width="26" height="22" viewBox="0 0 44 26"><g transform="translate(22,13)">${G.iconMarkup(icon_name, '#1f2937', 1.3)}</g></svg>` : '';
+		const label = node.label ?? node.name;
+		const name = node.type === 'host' && node.hostid
+			? `<a class="topology-host-name link-action" href="javascript:void(0)" data-menu-popup="${esc(JSON.stringify({type: 'host', data: {hostid: String(node.hostid)}}))}" aria-haspopup="true" aria-expanded="false">${esc(label)}</a>`
+			: `<span class="topology-node-title">${esc(label)}</span>`;
+		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>, device: <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
+		const badges = [];
+		if (node.type === 'host' && node.disabled) {
+			badges.push(<?= json_encode(_('Host is disabled')) ?>);
+		}
+		if (node.type === 'host' && node.maintenance) {
+			badges.push(<?= json_encode(_('In maintenance')) ?>);
+		}
+		if (node.type === 'host' && node.blind_spot) {
+			badges.push(<?= json_encode(_('Blind spot: the Proxy of the Host is not reachable')) ?>);
+		}
+		if (node.type === 'proxy' && node.unreachable) {
+			badges.push(<?= json_encode(_('Proxy unreachable')) ?>);
+		}
+		if (device && this.hiddenByFragment(device.id) !== '') {
+			badges.push(<?= json_encode(_('Link hidden by a manual link')) ?>);
+		}
+		if (device && (device.duplicates ?? []).length) {
+			badges.push(<?= json_encode(_('Possible duplicate')) ?> + ': ' + device.duplicates.map(candidate => this.markLabel(candidate)).join(', '));
+		}
+		// actions: Focus (Host only), Neighbor reports (the node's), and the menu of the node actions that apply
+		const actions = [];
+		if (node.type === 'host' && node.hostid) {
+			actions.push(`<button type="button" class="btn-alt topology-focus-button" data-hostid="${esc(node.hostid)}">${esc(<?= json_encode(_('Focus')) ?>)}</button>`);
+		}
+		if (device) {
+			actions.push(`<a class="topology-node-reports" href="zabbix.php?action=topology.lastrun&device_id=${encodeURIComponent(device.id)}">${esc(<?= json_encode(_('Neighbor reports')) ?>)}</a>`);
+		}
+		const items = [];
+		if (device && !device.represented) {
+			items.push({label: <?= json_encode(_('Promote to host')) ?>, cls: 'topology-menu-promote'});
+		}
+		if (device && device.represented) {
+			items.push({label: <?= json_encode(_('Depromote')) ?>, cls: 'topology-depromote-button'});
+		}
+		if (device && ((device.duplicates ?? []).length || (device.dismissed ?? []).length)) {
+			items.push({label: <?= json_encode(_('Possible duplicates')) ?>, cls: 'topology-menu-duplicates'});
+		}
+		if (device && !device.represented) {
+			items.push({label: <?= json_encode(_('Delete Device')) ?>, cls: 'topology-delete-device-button', attrs: `data-topology-dup="delete" data-device="${esc(device.id)}"`});
+		}
+		if (device && this.link_pick && String(this.link_pick.device_id) !== String(device.id)) {
+			items.push({label: <?= json_encode(_('Link to this device (port unknown)')) ?>, cls: 'topology-link-device-button'});
+		}
+		actions.push(this.menuHtml(items, <?= json_encode(_('Node actions')) ?>));
+		// the summary line (§12.5): "<N> links · <L> LAG · <P> ports (<U> up)"
+		let summary = '';
+		if (groups) {
+			const all_ports = Object.values(groups).flat();
+			const lags = new Set([...all_ports.filter(port => port.group === 'lag').map(port => `n:${port.port}`), ...all_ports.filter(port => port.lag).map(port => `n:${port.lag}`)]);
+			summary = G.summaryLine({links: entries.filter(entry => !entry.superseded_at).length, lag: lags.size, ports: all_ports.length, up: all_ports.filter(port => port.status === 'up').length},
+				{link: <?= json_encode(_('%1$s link')) ?>, links: <?= json_encode(_('%1$s links')) ?>, lag: <?= json_encode(_('%1$s LAG')) ?>, port: <?= json_encode(_('%1$s port')) ?>,
+					ports: <?= json_encode(_('%1$s ports')) ?>, up: <?= json_encode(_('%1$s up')) ?>});
+		}
+		return `<div class="topology-node-head"><div class="topology-node-name">${icon}${name} <span class="topology-node-kind">${esc(kind)}</span></div>` +
+			(badges.length ? `<div class="topology-node-badges">${badges.map(text => `<span class="topology-text-badge">${esc(text)}</span>`).join('')}</div>` : '') +
+			`<div class="topology-node-actions">${actions.join('')}</div>` +
+			(summary !== '' ? `<div class="topology-node-summary">${esc(summary)}</div>` : '') + `</div>`;
+	}
+
+	showNodePanel(node, {device, problems, groups, addresses}) {
+		const G = TopologyGraph;
+		this.hideDetailsTitle();
+		const entries = device && groups ? this.linkEntries(device, groups) : [];
+		const rows = G.linkRows(entries);
+		const sections = G.panelSections(node.type, Boolean(device)).map(section => {
+			if (section.id === 'problems') {
+				return this.buildProblemsSection(problems, node, section.open);
+			}
+			if (section.id === 'links') {
+				return this.buildLinksSection(rows, section.open);
+			}
+			if (section.id === 'ports') {
+				return this.buildPortGroups(groups ?? {}, section.open);
+			}
+			return this.buildIdentitySection(node, device, addresses, section.open);
+		}).join('');
+		// the blocks that a menu item shows: Promote to host (the picker), the duplicates (§6.7.5); a contradicted link's note stays in the panel
+		const promote = device && !device.represented ? `<div class="topology-promote topology-promote-form" hidden><input type="text" class="topology-promote-search" placeholder="${this.escape(<?= json_encode(_('Search host or proxy by name/IP…')) ?>)}">` +
+			`<div class="topology-promote-results"></div><div class="topology-promote-selected"></div>` +
+			`<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button></div>` : '';
+		const duplicates = device ? `<div class="topology-duplicates-block" hidden>${this.duplicatesFragment(device)}</div>` : '';
+		const hidden_by = device ? this.hiddenByFragment(device.id) : '';
+		this.details.innerHTML = this.buildNodeHeader(node, device, groups, entries) + promote + duplicates + hidden_by + sections;
+		this.wireNodePanel(node, device);
+		this.addFoldControl(node);
+	}
+
+	wireNodePanel(node, device) {
+		this.wireMenus();
+		this.wireCopyButtons();
+		const on = (selector, handler) => this.details.querySelectorAll(selector).forEach(element => element.addEventListener('click', handler));
+		on('.topology-menu-promote', () => {
+			const form = this.details.querySelector('.topology-promote-form');
+			form.hidden = false;
+			form.querySelector('.topology-promote-search')?.focus();
+		});
+		on('.topology-menu-duplicates', () => {
+			const block = this.details.querySelector('.topology-duplicates-block');
+			block.hidden = false;
+			block.scrollIntoView({block: 'nearest'});
+		});
+		// Focus (Host only): the Focus host of the filter becomes this host, and the filter is applied
+		on('.topology-focus-button', event => {
+			const button = event.currentTarget;
+			jQuery('#hostid').multiSelect('clean');
+			jQuery('#hostid').multiSelect('addData', [{id: button.dataset.hostid, name: node.name ?? node.label}]);
+			document.getElementById('topology-filter-apply').click();
+		});
+		// a neighbor of a row: select it on the graph and open its panel
+		on('.topology-neighbor[data-node]', event => {
+			const target = this.nodes.get(event.currentTarget.dataset.node);
+			if (target) {
+				this.guard(() => this.selectNode(target));
+			}
+		});
+		on('.topology-link-details', event => {
+			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(event.currentTarget.dataset.edge));
+			if (link) {
+				this.selectLink(this.resolvedLink(link));
+			}
+		});
+		on('.topology-bundle-toggle', event => {
+			const button = event.currentTarget;
+			const open = button.getAttribute('aria-expanded') !== 'true';
+			button.setAttribute('aria-expanded', String(open));
+			button.textContent = open ? '▾' : '▸';
+			let row = button.closest('tr').nextElementSibling;
+			while (row && (row.classList.contains('topology-link-member') || row.classList.contains('topology-link-note'))) {
+				row.hidden = !open;
+				row = row.nextElementSibling;
+			}
+		});
+		// a row and its line are one thing (§12.3): a hover on a row is a hover on its line
+		this.details.querySelectorAll('tr[data-edges]').forEach(row => {
+			row.addEventListener('mouseenter', () => this.hoverRow(row));
+			row.addEventListener('mouseleave', () => this.hoverRow(null));
+		});
+		if (device) {
+			this.wirePortsFragment(device, node);
+		}
+	}
+
+	// The ids of the stored links that a drawn line stands for (a bundle: its members; a device-level bundle: the links in it).
+	lineEdgeIds(link) {
+		const ids = [];
+		const add = value => {
+			if (value !== null && value !== undefined) {
+				ids.push(String(value));
+			}
+		};
+		add(link.edge_id);
+		(link.members ?? []).forEach(member => add(member.edge_id));
+		(link.links ?? []).forEach(item => {
+			add(item.edge_id);
+			add(item.id);
+		});
+		return ids;
+	}
+
+	// A hover on a row of the Links section: the line gets its hover (highlight and tooltip, at the middle of the line); null clears it.
+	hoverRow(row) {
+		if (!row) {
+			this.hoverLine(null, null);
+			return;
+		}
+		const ids = row.dataset.edges.split(',').filter(Boolean);
+		const entry = (this.line_entries ?? []).find(candidate => candidate.link && this.lineEdgeIds(candidate.link).some(id => ids.includes(id)));
+		if (!entry) {
+			return;
+		}
+		const middle = entry.hit.getPointAtLength(entry.hit.getTotalLength() / 2);
+		const point = new DOMPoint(middle.x, middle.y).matrixTransform(entry.hit.getScreenCTM());
+		this.hoverLine({clientX: point.x, clientY: point.y}, entry);
+	}
+
+	// A hover on a line marks its row in the open panel (when the panel is one of its ends).
+	markRows(entry) {
+		const ids = entry && entry.link ? this.lineEdgeIds(entry.link) : [];
+		this.details.querySelectorAll('tr[data-edges]').forEach(row => {
+			const mine = row.dataset.edges.split(',').filter(Boolean);
+			row.classList.toggle('topology-row-hover', ids.length > 0 && mine.some(id => ids.includes(id)));
+		});
 	}
 
 	renderLinkPick() {
@@ -1265,74 +1613,49 @@ const view = new class {
 		});
 	}
 
-	// Device section fragment (grouped /ports table + Promote-or-Depromote button) — no title, no
-	// this.details assignment. Shared by showPorts() (standalone Device panel, unchanged behavior) and
-	// showPanel() (Device section inside a Host/Proxy's combined panel, topology-1-model.md "Side panels") — `device` is always the
-	// actual Device node either way, never the Host/Proxy that might be showing it.
-	buildPortsFragment(device, groups) {
-		const hidden_by = this.hiddenByFragment(device.id);
-		// topology-1-model.md §12.5 "Port table groups": the server gives each port its group (first true rule: connected, lag, mgmt, virtual, mac_only,
-		// no_neighbor) and leaves empty groups out. Status (oper / admin) is a column, not a group.
+	// The Ports section (§12.5, 2.75): the port groups of the Device except Connected (that is the Links section), each folded by default with its counts in the header: "No neighbor (5 up,
+	// 30 down)", "Port-channel (4)". The rules of the groups do not change (§12.5 "Port table groups").
+	buildPortGroups(groups, open = true) {
 		const labels = {
-			connected: <?= json_encode(_('Connected')) ?>, lag: <?= json_encode(_('Port-channel')) ?>, mgmt: <?= json_encode(_('Management')) ?>,
+			lag: <?= json_encode(_('Port-channel')) ?>, mgmt: <?= json_encode(_('Management')) ?>,
 			virtual: <?= json_encode(_('Virtual')) ?>, mac_only: <?= json_encode(_('MAC addresses only')) ?>, no_neighbor: <?= json_encode(_('No neighbor')) ?>
 		};
 		const help = {
 			mac_only: <?= json_encode(_('No LLDP or CDP neighbor on these ports. The switch learned MAC addresses here (FDB), so a device is connected, but it is not known.')) ?>
 		};
 		const mac_count_text = <?= json_encode(_('%1$s MAC addresses')) ?>;
-		// Connected to: the far Device of a link; for a port in "MAC addresses only" the learned MACs, or their number above the MAC limit
 		const connected_cell = port => port.group === 'mac_only'
 			? (port.learned_mac_count !== null && port.learned_mac_count !== undefined
 				? this.escape(mac_count_text.replace('%1$s', String(port.learned_mac_count)))
 				: (port.learned_macs ?? []).map(mac => this.escape(mac)).join('<br>'))
-			: `${this.escape(port.connected_to ?? '–')}${port.device_link_id ? ` <em>(${this.escape(<?= json_encode(_('port unknown')) ?>)})</em>` : ''}`;
+			: `${this.escape(port.connected_to ?? '–')}`;
 		const status_cell = port => `<span class="topology-status-dot topology-status-${this.escape(port.status)}"></span>${this.escape(port.status)}` +
 			(port.admin_status === 'down' ? ` <em>(${this.escape(<?= json_encode(_('admin down')) ?>)})</em>` : '');
-		const port_action = port => port.device_link_id
-			? `<button type="button" class="btn-alt topology-remove-link-button" data-edge-id="${this.escape(port.device_link_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
-			: port.linked_port_id
-			? `<button type="button" class="btn-alt topology-unlink-button" data-port-id="${this.escape(port.id)}" data-linked-port-id="${this.escape(port.linked_port_id)}">${this.escape(<?= json_encode(_('Unlink')) ?>)}</button>`
-			: `<button type="button" class="btn-alt topology-link-button" data-port-id="${this.escape(port.id)}" data-port-name="${this.escape(port.port)}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`;
+		const link_button = port => `<button type="button" class="btn-alt topology-link-button" data-port-id="${this.escape(port.id)}" data-port-name="${this.escape(port.port)}">${this.escape(<?= json_encode(_('Link')) ?>)}</button>`;
 		const source_classes = {LLDP: 'topology-source-lldp', Manual: 'topology-source-manual'};
-		const sections = Object.entries(groups).filter(([, ports]) => ports.length).map(([group, ports]) => `
-			<section class="topology-group"><h3>${this.escape(labels[group] ?? group)}</h3>${help[group] ? `<p class="topology-group-help">${this.escape(help[group])}</p>` : ''}<table><colgroup>
+		const count_text = (group, ports) => {
+			if (group === 'no_neighbor' || group === 'mac_only') {
+				const up = ports.filter(port => port.status === 'up').length;
+				const down = ports.length - up;
+				return `(${[up ? `${up} ${<?= json_encode(_('up')) ?>}` : '', down ? `${down} ${<?= json_encode(_('down')) ?>}` : ''].filter(Boolean).join(', ')})`;
+			}
+			return `(${ports.length})`;
+		};
+		const sections = Object.entries(groups).filter(([group, ports]) => group !== 'connected' && ports.length).map(([group, ports]) => `
+			<details class="topology-group topology-port-group" data-group="${this.escape(group)}"><summary>${this.escape(labels[group] ?? group)} ${this.escape(count_text(group, ports))}</summary>${help[group] ? `<p class="topology-group-help">${this.escape(help[group])}</p>` : ''}<table><colgroup>
 				<col class="topology-col-port"><col class="topology-col-status"><col class="topology-col-connected">
 				<col class="topology-col-source"><col class="topology-col-action">
 			</colgroup><thead><tr>${[<?= json_encode(_('Port')) ?>, <?= json_encode(_('Status')) ?>, <?= json_encode(_('Connected to')) ?>, <?= json_encode(_('Source')) ?>]
 				.map(header => `<th title="${this.escape(header)}">${this.escape(header)}</th>`).join('')}<th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
-				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}${port.connected_to || port.device_link_id ? `<a class="topology-port-reports" href="zabbix.php?action=topology.lastrun&port_id=${encodeURIComponent(port.id)}">${this.escape(<?= json_encode(_('Neighbor reports')) ?>)}</a>` : ''}</td>
+				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
 				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
-				<td>${port_action(port)}</td>
+				<td>${link_button(port)}</td>
 			</tr>`).join('')}
-			</tbody></table></section>`).join('');
-		// topology-1-model.md "Lazy Host/Proxy nodes": under lazy-creation, most Zabbix hosts/proxies have no local topo_nodes row (and
-		// therefore no `this.nodes` entry) to build a candidate list from — the search-as-you-type
-		// picker below (wirePromoteSearch()) queries Zabbix directly via /topo/hosts/search and
-		// /topo/proxies/search instead of a pre-fetched candidate list.
-		const promotion = device.represented
-			? `<div class="topology-promote"><button type="button" class="btn-alt topology-depromote-button">${this.escape(<?= json_encode(_('Depromote')) ?>)}</button></div>`
-			: `<div class="topology-promote">
-				<input type="text" class="topology-promote-search" placeholder="${this.escape(<?= json_encode(_('Search host or proxy by name/IP…')) ?>)}">
-				<div class="topology-promote-results"></div>
-				<div class="topology-promote-selected"></div>
-				<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button>
-			</div>
-			<div class="topology-promote"><button type="button" class="btn-alt topology-delete-device-button" data-topology-dup="delete" data-device="${this.escape(device.id)}">` +
-				`${this.escape(<?= json_encode(_('Delete Device')) ?>)}</button></div>`;
-		// A pick started on another Device's port can also end at this Device as a whole (a manual device-level link,
-		// topology-1-model.md "Manual links" (creation)): the far port is not chosen.
-		const link_to_device = this.link_pick && String(this.link_pick.device_id) !== String(device.id)
-			? `<div class="topology-promote"><button type="button" class="btn-alt topology-link-device-button">` +
-				`${this.escape(<?= json_encode(_('Link to this device (port unknown)')) ?>)}</button></div>`
-			: '';
-		// §12.7: the last run view filtered to this Device (what the neighbors reported about it)
-		const neighbor_reports = `<div class="topology-device-reports"><a href="zabbix.php?action=topology.lastrun&device_id=${encodeURIComponent(device.id)}">` +
-			`${this.escape(<?= json_encode(_('Neighbor reports')) ?>)}</a></div>`;
-		return `${neighbor_reports}${hidden_by}${this.duplicatesFragment(device)}${sections}${link_to_device}${promotion}`;
+			</tbody></table></details>`).join('');
+		return sections === '' ? '' : `<details class="topology-section topology-ports" ${open ? 'open' : ''}><summary>${this.escape(<?= json_encode(_('Ports')) ?>)}</summary>${sections}</details>`;
 	}
 
 	// Search-as-you-type picker for the "Promote to host" panel (topology-1-model.md "API", "Side panels"): debounced, queries
@@ -1444,6 +1767,9 @@ const view = new class {
 		}
 		this.details.querySelectorAll('.topology-remove-link-button').forEach(remove_button => {
 			remove_button.addEventListener('click', () => this.guard(async () => {
+				if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
+					return;
+				}
 				await this.request('topology.link.remove', {
 					method: 'POST', headers: {'Content-Type': 'application/json'},
 					body: JSON.stringify({id: remove_button.dataset.edgeId})
@@ -1453,6 +1779,9 @@ const view = new class {
 		});
 		this.details.querySelectorAll('.topology-unlink-button').forEach(unlink_button => {
 			unlink_button.addEventListener('click', () => this.guard(async () => {
+				if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
+					return;
+				}
 				await this.request('topology.ports.unlink', {
 					method: 'POST', headers: {'Content-Type': 'application/json'},
 					body: JSON.stringify({id: unlink_button.dataset.portId, dst_id: unlink_button.dataset.linkedPortId})
@@ -1462,20 +1791,11 @@ const view = new class {
 		});
 	}
 
-	// Side panel — standalone Device (no represented_by): unchanged by the topology-1-model.md "UI" rewrite, since this only
-	// ever applies to a Device with no on-screen Host/Proxy counterpart to begin with.
-	showPorts(node, groups, addresses = null) {
-		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
-		this.details.innerHTML = `<h2>${this.escape(node.label ?? node.name)}</h2>${addresses ? this.buildAddressesFragment(addresses) : ''}${this.buildPortsFragment(node, groups)}`;
-		this.wirePortsFragment(node, node);
-		this.wireCopyButtons();
-	}
-
 	// topology-1-model.md §12.5 "Addresses": the addresses of a Device without association as its neighbors report them (topology.addresses.get), above the port table: the
 	// sysname and the chassis id (the name for a new host), the addresses (management first, then IPv4, then IPv6) each with a Copy control, and per address who reported it
 	// (reporter, local port, LLDP / CDP / push) and how that reporter is monitored (the proxy for the new host). Read only. Every value comes from the network and is
 	// escaped (§13): nothing here is markup.
-	buildAddressesFragment(data) {
+	buildAddressesFragment(data, open = true) {
 		const escape = value => this.escape(value);
 		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${escape(text)}" title="${escape(label)}">${escape(<?= json_encode(_('Copy')) ?>)}</button>`;
 		const monitoring = (m) => {
@@ -1488,8 +1808,6 @@ const view = new class {
 			}
 			return <?= json_encode(_('server')) ?>;
 		};
-		const identity = [[<?= json_encode(_('System name')) ?>, data.sysname], [<?= json_encode(_('Hardware ID')) ?>, data.chassis_id]].filter(([, value]) => value)
-			.map(([label, value]) => `<tr><th>${escape(label)}</th><td class="topology-address-value" title="${escape(value)}">${escape(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
 		// §12.5 (2.70): one line per address with the count "reported by <N> ports of <M> hosts"; the sources (reporter, local port, protocol, how the reporter is monitored) are in a
 		// folded list under the line, closed by default
 		const plural = (n, one, many) => (n === 1 ? one : many).replace('%1$s', String(n));
@@ -1511,10 +1829,9 @@ const view = new class {
 				`</details>` : ''}
 		</li>`;
 		}).join('');
-		return `<section class="topology-group topology-addresses"><h3>${escape(<?= json_encode(_('Addresses')) ?>)}</h3>` +
-			(identity ? `<table class="topology-address-identity"><tbody>${identity}</tbody></table>` : '') +
+		return `<details class="topology-group topology-addresses" ${open ? 'open' : ''}><summary>${escape(<?= json_encode(_('Addresses')) ?>)}</summary>` +
 			(data.addresses.length ? `<ul class="topology-address-list">${lines}</ul>`
-				: `<div class="topology-empty">${escape(<?= json_encode(_('No address reported')) ?>)}</div>`) + `</section>`;
+				: `<div class="topology-empty">${escape(<?= json_encode(_('No address reported')) ?>)}</div>`) + `</details>`;
 	}
 
 	// The Copy controls of the Addresses section: the text goes to the clipboard (the Clipboard API where the page is a secure context, else a hidden textarea).
@@ -1613,19 +1930,16 @@ const view = new class {
 	// The parent of an unfolded group gets the control "Fold <N> devices" at the top of its panel.
 	addFoldControl(node) {
 		const group = (this.leaf_groups ?? []).find(candidate => String(candidate.parent) === String(node.id) && this.unfolded.has(String(candidate.parent)));
-		if (!group) {
+		const actions = this.details.querySelector('.topology-node-actions');
+		if (!group || !actions) {
 			return;
 		}
-		const title = this.details.querySelector('h2');
-		const holder = document.createElement('div');
-		holder.className = 'topology-group-fold';
 		const button = document.createElement('button');
 		button.type = 'button';
 		button.className = 'btn-alt';
 		button.dataset.parent = String(group.parent);
 		button.textContent = <?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.devices.length));
-		holder.appendChild(button);
-		(title ?? this.details.firstChild)?.after(holder);
+		actions.prepend(button);
 		this.wireFoldButtons();
 	}
 
@@ -1644,20 +1958,6 @@ const view = new class {
 	classLabel(name) {
 		return {access_point: <?= json_encode(_('Access point')) ?>, phone: <?= json_encode(_('Phone')) ?>, switch: <?= json_encode(_('Switch')) ?>,
 			router: <?= json_encode(_('Router')) ?>, station: <?= json_encode(_('Station')) ?>, generic: <?= json_encode(_('Generic (no class)')) ?>}[name] ?? <?= json_encode(_('Generic (no class)')) ?>;
-	}
-
-	// The side panel shows the class of a Device and the bits it comes from (§12.2); the bits are data from the network, escaped.
-	addClassLine(node) {
-		const device = node.type === 'device' ? node : node.device;
-		if (!device) {
-			return;
-		}
-		const name = TopologyGraph.iconOf(device);
-		const bits = (device.device_class_bits ?? []).join(', ');
-		const line = document.createElement('p');
-		line.className = 'topology-device-class';
-		line.textContent = `${<?= json_encode(_('Device class')) ?>}: ${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
-		this.details.querySelector('h2')?.after(line);
 	}
 
 	render() {
@@ -2440,6 +2740,7 @@ const view = new class {
 
 	// The tooltip of a line (§12.3 "Hit area of a line"): the line nearest to the pointer; plain text.
 	hoverLine(event, entry) {
+		this.markRows(entry);
 		if (this.hover_entry && this.hover_entry !== entry) {
 			d3.select(this.hover_entry.glow()).classed('topology-link-hover', false);
 		}

@@ -97,6 +97,44 @@ $page_styles = '
 .topology-node.topology-hover .topology-shape{stroke:#0b6fb8!important;stroke-width:4!important}
 .topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
 .topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
+.topology-node-head{margin-bottom:10px}
+.topology-node-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:16px;font-weight:bold;padding-right:30px}
+.topology-node-icon{flex:0 0 auto}
+.topology-host-name,.topology-node-title{font-size:16px;font-weight:bold;word-break:break-all}
+.topology-node-kind{font-size:11px;font-weight:normal;color:#3d556a;background:#eef2f5;border:1px solid #d6dde2;border-radius:3px;padding:1px 6px}
+.topology-node-badges{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
+.topology-text-badge{font-size:11px;color:#7c2d12;background:#fff4e5;border:1px solid #f0c78a;border-radius:3px;padding:1px 6px}
+.topology-node-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px}
+.topology-node-summary{margin-top:6px;font-size:12px;color:#3d4650}
+.topology-menu{position:relative;display:inline-block}
+.topology-menu-button{padding:0 5px;font-size:16px;line-height:1.3;cursor:pointer;color:#1f2c33;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
+.topology-menu-list{position:fixed;z-index:1001;margin:0;padding:4px 0;list-style:none;min-width:140px;background:#fff;border:1px solid #b9c4cc;border-radius:3px;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+.topology-menu-list[hidden]{display:none}
+.topology-menu-item{display:block;width:100%;box-sizing:border-box;text-align:left;padding:5px 12px;font-size:12px;color:#1f2c33;background:none;border:0;cursor:pointer;text-decoration:none;white-space:nowrap}
+.topology-menu-item:hover{background:#eef6fc}
+.topology-section{margin:10px 0;border-top:1px solid #e1e6ea;padding-top:6px}
+.topology-section>summary{cursor:pointer;font-weight:bold;font-size:13px;padding:2px 0}
+.topology-port-group>summary{cursor:pointer;font-weight:bold;font-size:12px;margin:6px 0 2px}
+.topology-links-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.topology-links-table td{padding:3px 3px;white-space:nowrap;overflow:hidden;text-overflow:clip;border-bottom:1px solid #eef1f3;vertical-align:middle}
+.topology-links-table td.topology-link-neighbor{width:25%}
+.topology-links-table td.topology-link-ports{width:26%}
+.topology-links-table td.topology-link-status{width:5%;text-align:center}
+.topology-links-table td.topology-link-source{width:8%;font-size:11px}
+.topology-links-table td.topology-link-load{width:25%;font-size:11px}
+.topology-links-table td.topology-link-menu{width:7%;text-align:right;overflow:visible}
+.topology-links-table tr.topology-link-note td{font-size:11px;color:#7c2d12;padding-left:14px;border-bottom:1px solid #eef1f3}
+.topology-links-table tr[hidden]{display:none}
+.topology-link-row.topology-row-hover td{background:#e3f0fa}
+.topology-neighbor{color:#2b7dbc;cursor:pointer}
+span.topology-neighbor{color:inherit;cursor:default}
+.topology-bundle-toggle{border:0;background:none;cursor:pointer;padding:0 3px 0 0;font-size:11px;color:#3d556a}
+.topology-link-member td.topology-link-neighbor{padding-left:16px}
+.topology-problem-counts{margin:4px 0}
+.topology-problems-table{width:100%;border-collapse:collapse;font-size:12px}
+.topology-problems-table td{padding:2px 3px;border-bottom:1px solid #eef1f3;white-space:nowrap}
+.topology-problems-all{margin-top:4px;font-size:12px}
+.topology-identity>summary~table{margin-top:4px}
 .topology-group-fold{margin:8px 0}
 .topology-fit{position:absolute;left:8px;top:8px;z-index:2;padding:2px 12px}
 .topology-tooltip{position:fixed;z-index:1000;max-width:420px;padding:5px 8px;font-size:12px;line-height:1.35;color:#fff;background:rgba(31,41,55,.95);border-radius:3px;white-space:pre-line;pointer-events:none}
