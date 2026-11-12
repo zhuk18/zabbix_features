@@ -664,6 +664,8 @@ const view = new class {
 	}
 
 	async selectNode(node) {
+		// two clicks of a double click start two selections; the panel of a later request (a fold shows the group) must not be overwritten by a late answer of an earlier one
+		const token = this.select_token = (this.select_token ?? 0) + 1;
 		// Host/Proxy: one combined panel, plus a Device section when this node has an active
 		// represented_by (node.device, set in render() from the same represented_by edges that used
 		// to drive the old split-node merge — see render()'s device_of_target map). A represented
@@ -684,6 +686,9 @@ const view = new class {
 				groups = neighbor_groups.groups;
 				this.render();
 			}
+			if (token !== this.select_token) {
+				return;
+			}
 			this.showPanel(node, problems, groups);
 			this.addClassLine(node);
 			this.addFoldControl(node);
@@ -699,6 +704,9 @@ const view = new class {
 			this.mergeNeighbors(node)
 		]);
 		this.render();
+		if (token !== this.select_token) {
+			return;
+		}
 		this.showPorts(node, groups, addresses);
 		this.addClassLine(node);
 		this.addFoldControl(node);
@@ -1543,6 +1551,7 @@ const view = new class {
 
 	// The side panel of a leaf group: its Devices, one line each: label, the local port of the parent, the remote port. A click on a line opens the panel of that Device.
 	showGroup(group) {
+		this.select_token = (this.select_token ?? 0) + 1;
 		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
 		const rows = group.devices.map(id => {
 			const device = this.nodes.get(String(id));
@@ -2038,6 +2047,11 @@ const view = new class {
 				if (group) {
 					event.preventDefault();
 					this.foldGroup(group.parent);
+					// 091 (§12.8): the side panel then shows the group, not a leaf that is no longer drawn
+					const group_node = this.group_nodes.get(String(group.parent));
+					if (group_node) {
+						this.showGroup(group_node);
+					}
 				}
 			})
 			// a dragged node stays where it is dropped, until the page is loaded again or the filter is applied (§12.1 "Node placement"); positions are not stored
