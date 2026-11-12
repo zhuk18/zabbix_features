@@ -542,6 +542,8 @@ class CTopologyPrototype {
 					// Ids, not just labels — port_status_of()/port_speed_of() below key on these too.
 					'source_port_id' => $row['port_a'], 'target_port_id' => $row['port_b'],
 					'source_status' => self::portStatus($port_a), 'target_status' => self::portStatus($port_b),
+					'source_lag_id' => $port_a['lag_id'] ?? null, 'source_lag' => $port_a['lag_name'] ?? null,
+					'target_lag_id' => $port_b['lag_id'] ?? null, 'target_lag' => $port_b['lag_name'] ?? null,
 					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null,
 					// staleness indicator (topology-1-model.md "Disappearance and staleness"): rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
@@ -1184,6 +1186,7 @@ class CTopologyPrototype {
 			}
 		}
 		$linked_names = self::getLinkedDeviceNames($connected_port_ids);
+		// (DBfetchArray turns a NULL lag_id into '0')
 		$lag_names = [];
 		$lag_ids = array_values(array_unique(array_filter(array_column($rows, 'lag_id'), static fn ($id): bool => $id !== null)));
 		if ($lag_ids) {
@@ -3368,11 +3371,22 @@ class CTopologyPrototype {
 		}
 
 		$details = [];
-		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $portids).
+		$result = DBselect('SELECT id,attrs,lag_id FROM topo_nodes WHERE '.dbConditionId('id', $portids).
 			' AND type='.zbx_dbstr('port'));
-		while ($row = DBfetch($result)) {
+		$rows = DBfetchArray($result);
+		$lag_names = [];
+		$lag_ids = array_values(array_unique(array_filter(array_column($rows, 'lag_id'), static fn ($id) => $id !== null && (string) $id !== '0')));
+		if ($lag_ids) {
+			foreach (DBfetchArray(DBselect('SELECT id,attrs FROM topo_nodes WHERE '.dbConditionId('id', $lag_ids).' AND type='.zbx_dbstr('port'))) as $lag) {
+				$lag_names[$lag['id']] = self::attrs($lag)['name'] ?? null;
+			}
+		}
+		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
 			$details[$row['id']] = [
+				// 2.72 (§12.3 "LAG bundle", FR-C V-6): the LAG Port that this port is a member of, and its name, when known (data from the network: the page escapes it)
+				'lag_id' => $row['lag_id'] === null || (string) $row['lag_id'] === '0' ? null : (string) $row['lag_id'],
+				'lag_name' => $row['lag_id'] === null || (string) $row['lag_id'] === '0' ? null : ($lag_names[$row['lag_id']] ?? null),
 				'name' => $attrs['name'] ?? null,
 				'oper_status' => $attrs['oper_status'] ?? null,
 				'admin_status' => $attrs['admin_status'] ?? null,

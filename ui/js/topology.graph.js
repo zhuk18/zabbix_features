@@ -352,5 +352,57 @@
 		return ctx.has_link || ctx.show_unlinked || ctx.only_duplicates || ctx.is_focus;
 	}
 
-	return {runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	// ---- LAG bundle (§12.3, 2.72; FR-C V-6) ----
+	const channelsOf = link => [link.discovered_via === 'manual' ? 'manual' : 'discovered', link.stale || link.superseded_at ? 'faded' : 'solid',
+		link.severity !== null && link.severity !== undefined ? 'severity:' + String(link.color ?? link.severity) : 'none'].join('|');
+
+	/**
+	 * Port-level links between the same two nodes whose ports on one side, or on both sides, are members of one LAG (the same `lag_id`) are one line when they have the same channels (dash,
+	 * colour, opacity); a member with other channels is its own line; a bundle has two or more members, one left is an ordinary line; the members of two LAGs between the same nodes are two
+	 * bundles. Device-level links and links that `keep(link)` refuses (a contradicted manual link) are not touched.
+	 *
+	 * @return array  the lines in the order of the first member: a link as it is, or a bundle {type: 'lag_bundle', source, target, members, label, ...the channels of its members}
+	 */
+	function bundleLinks(links, keep = () => true) {
+		const groups = new Map();
+		links.forEach((link, index) => {
+			if (link.type !== 'physical_link' || !keep(link) || (!link.source_lag_id && !link.target_lag_id)) {
+				return;
+			}
+			const pair = [String(link.source), String(link.target)];
+			// the key: the pair as the link has it, each side with its LAG, and the channels
+			const key = [pair.join('>'), link.source_lag_id ?? '-', link.target_lag_id ?? '-', channelsOf(link)].join('#');
+			if (!groups.has(key)) {
+				groups.set(key, []);
+			}
+			groups.get(key).push(index);
+		});
+		const bundled = new Map();      // index of the first member -> bundle
+		const skipped = new Set();
+		groups.forEach(indexes => {
+			if (indexes.length < 2) {
+				return;
+			}
+			const members = indexes.map(i => links[i]);
+			const first = members[0];
+			const names = [first.source_lag, first.target_lag].filter(name => name !== null && name !== undefined && name !== '');
+			// "Trk1 ×2"; both sides known: "lag16 ↔ Trk1 ×2"
+			const label = (names.length ? names.join(' ↔ ') + ' ' : '') + '×' + members.length;
+			bundled.set(indexes[0], {...first, type: 'lag_bundle', members, count: members.length, label, edge_id: null});
+			indexes.forEach(i => skipped.add(i));
+		});
+		const out = [];
+		links.forEach((link, index) => {
+			if (bundled.has(index)) {
+				out.push(bundled.get(index));
+			}
+			else if (!skipped.has(index)) {
+				out.push(link);
+			}
+		});
+
+		return out;
+	}
+
+	return {bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

@@ -128,4 +128,35 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(G.isDrawn({type: 'host'}, {...none, has_link: true}) === true && G.isDrawn({type: 'device'}, {...none, has_link: true}) === true, 'a node with a drawn link: drawn');
 	ok(G.isDrawn({type: 'proxy'}, none) === true && G.isDrawn({type: 'group'}, none) === true, 'a Proxy (by the view scope) and a group node: drawn');
 }
+// ---- LAG bundle (§12.3, 2.72) ----
+{
+	const link = (id, extra = {}) => ({type: 'physical_link', edge_id: id, source: 'A', target: 'B', source_lag_id: null, source_lag: null, target_lag_id: '9', target_lag: 'Trk1',
+		discovered_via: 'lldp', stale: false, superseded_at: null, severity: null, color: null, ...extra});
+	const kinds = lines => lines.map(l => l.type === 'lag_bundle' ? 'bundle×' + l.count : 'link');
+	let lines = G.bundleLinks([link(1), link(2)]);
+	ok(kinds(lines).join() === 'bundle×2' && lines[0].label === 'Trk1 ×2' && lines[0].members.length === 2, '2 members with the same channels: one line "Trk1 ×2"', lines.map(l => l.label));
+	lines = G.bundleLinks([link(1), link(2, {stale: true})]);
+	ok(kinds(lines).join() === 'link,link', 'one member stale: two lines');
+	lines = G.bundleLinks([link(1), link(2, {discovered_via: 'manual'})]);
+	ok(kinds(lines).join() === 'link,link', 'one member manual: two lines');
+	lines = G.bundleLinks([link(1), link(2, {severity: 3, color: 'e97659'})]);
+	ok(kinds(lines).join() === 'link,link', 'a member with another severity colour: two lines');
+	lines = G.bundleLinks([link(1), link(2), link(3, {stale: true})]);
+	ok(kinds(lines).join() === 'bundle×2,link', 'two alike and one stale: a bundle of two and an own line');
+	lines = G.bundleLinks([link(1), link(2, {target_lag_id: '10', target_lag: 'Trk2'}), link(3, {target_lag_id: '10', target_lag: 'Trk2'}), link(4)]);
+	ok(kinds(lines).join() === 'bundle×2,bundle×2' && lines.map(l => l.label).join() === 'Trk1 ×2,Trk2 ×2', 'members of two LAGs between the same nodes: two bundles, not one', lines.map(l => l.label));
+	lines = G.bundleLinks([link(1, {target_lag_id: null, target_lag: null}), link(2, {target_lag_id: null, target_lag: null})]);
+	ok(kinds(lines).join() === 'link,link', 'no LAG on either side: separate curves as now');
+	lines = G.bundleLinks([link(1, {source_lag_id: '5', source_lag: 'lag16'}), link(2, {source_lag_id: '5', source_lag: 'lag16'})]);
+	ok(lines.length === 1 && lines[0].label === 'lag16 ↔ Trk1 ×2', 'a LAG on both sides: "lag16 ↔ Trk1 ×2"', lines.map(l => l.label));
+	lines = G.bundleLinks([link(1), link(2)], l => l.edge_id !== 2);
+	ok(kinds(lines).join() === 'link,link', 'a link that the caller keeps out (a contradicted manual link) is not bundled');
+	lines = G.bundleLinks([link(1, {type: 'device_link'}), link(2, {type: 'device_link'})]);
+	ok(kinds(lines).join() === 'link,link', 'device-level links are not touched (their own bundling stays)');
+	const evil = '<img src=x onerror=alert(1)>';
+	lines = G.bundleLinks([link(1, {target_lag: evil}), link(2, {target_lag: evil})]);
+	ok(lines[0].label === evil + ' ×2', 'a LAG name with HTML is returned as text (the page writes it with text(), §13)');
+	lines = G.bundleLinks([link(1), link(2), link(3, {source: 'C', target: 'B'}), link(4, {source: 'C', target: 'B'})]);
+	ok(kinds(lines).join() === 'bundle×2,bundle×2', 'two node pairs: one bundle for each');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');
