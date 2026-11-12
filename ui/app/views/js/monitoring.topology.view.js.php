@@ -1815,20 +1815,65 @@ const view = new class {
 			}
 		}
 		else {
-			place_new_near_parents();
-			// a node that was already placed stays; a new one finds a free place (the placed ones are not moved)
-			const stay = new Set(placed_before);
-			nodes.forEach(node => {
-				if (stay.has(node) && (node.fx === undefined || node.fx === null)) {
-					node.fx = node.x;
-					node.fy = node.y;
-					node.temp_fixed = true;
+			// 2.72 (§12.8): the nodes that have no place yet (the leaves of a group that was just unfolded, the group node of a fold, a node that appeared) go on an arc around the node
+			// they are linked to, in its largest free angle, in the order of the parent's local port; the radius grows to fit. The nodes that were placed stay unless they are in the
+			// way: the collision step moves them away (a dragged node does not move).
+			const fresh = nodes.filter(node => !Number.isFinite(node.x) || !Number.isFinite(node.y));
+			const by_parent = new Map();
+			fresh.forEach(node => {
+				const link = simulation_links.find(candidate => (candidate.source === String(node.id) || candidate.target === String(node.id)));
+				const other_id = link ? (link.source === String(node.id) ? link.target : link.source) : null;
+				const other = other_id === null ? null : node_by_id.get(other_id);
+				const parent = other && Number.isFinite(other.x) ? other : null;
+				const key = parent ? String(parent.id) : '';
+				if (!by_parent.has(key)) {
+					by_parent.set(key, {parent, leaves: []});
 				}
+				by_parent.get(key).leaves.push({node, link});
+			});
+			by_parent.forEach(({parent, leaves}) => {
+				if (parent === null) {
+					leaves.forEach(({node}, i) => {
+						node.x = width / 2 + 40 * i;
+						node.y = height / 2;
+					});
+					return;
+				}
+				const local_port = ({node, link}) => String((link.source === String(node.id) ? link.target_port : link.source_port) ?? '');
+				leaves.sort((a, b) => local_port(a).localeCompare(local_port(b), undefined, {numeric: true}));
+				const other_angles = simulation_links.filter(link => (link.source === String(parent.id) || link.target === String(parent.id))).map(link => {
+					const other = node_by_id.get(link.source === String(parent.id) ? link.target : link.source);
+					return other && Number.isFinite(other.x) && !leaves.some(leaf => leaf.node === other) ? Math.atan2(other.y - parent.y, other.x - parent.x) : null;
+				}).filter(angle => angle !== null);
+				// the nodes near the parent that the group does not touch are in the way too: the arc is where nothing is near
+				nodes.forEach(other => {
+					if (other !== parent && Number.isFinite(other.x) && !leaves.some(leaf => leaf.node === other) && Math.hypot(other.x - parent.x, other.y - parent.y) < 420) {
+						const distance = Math.hypot(other.x - parent.x, other.y - parent.y);
+						other_angles.push({angle: Math.atan2(other.y - parent.y, other.x - parent.x), half: Math.asin(Math.min(0.99, (Math.hypot(other.box.w, other.box.h) / 2 + 8) / Math.max(distance, 1)))});
+					}
+				});
+				G.arcPlace(parent, leaves.map(leaf => leaf.node), other_angles).forEach(({node, x, y}) => {
+					node.x = x;
+					node.y = y;
+					node.fx = x;      // fixed while the collision step makes room: the others move away
+					node.fy = y;
+					node.temp_fixed = true;
+				});
+				// the nodes that are in the way of the arc turn out of its sector (the lines of the leaves must not cross another node)
+				G.clearSector(parent, leaves.map(leaf => leaf.node), nodes.filter(other => Number.isFinite(other.x)));
 			});
 		}
 		// the collision step: no box (shape and label) overlaps another; too small an area → a larger one
+		// the nodes that are fixed (the leaves of an arc, a dragged node) keep their place: the area grows to hold them
+		nodes.filter(node => node.fx !== undefined && node.fx !== null).forEach(node => {
+			width = Math.max(width, node.x + node.box.w / 2 + padding);
+			height = Math.max(height, node.y + node.box.bottom + padding);
+		});
 		for (let attempt = 0; attempt < 6; attempt++) {
 			nodes.forEach(node => {
+				if (node.fx !== undefined && node.fx !== null) {
+					return;
+				}
 				node.x = Math.max(padding + node.box.w / 2, Math.min(width - padding - node.box.w / 2, node.x));
 				node.y = Math.max(padding - node.box.top, Math.min(height - padding - node.box.bottom, node.y));
 			});

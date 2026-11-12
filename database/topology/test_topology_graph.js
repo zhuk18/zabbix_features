@@ -159,4 +159,86 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	lines = G.bundleLinks([link(1), link(2), link(3, {source: 'C', target: 'B'}), link(4, {source: 'C', target: 'B'})]);
 	ok(kinds(lines).join() === 'bundle×2,bundle×2', 'two node pairs: one bundle for each');
 }
+// ---- ring order by barycentre (2.72) and the arc of an unfolded group ----
+{
+	const crossings = (nodes, links) => {
+		const by = new Map(nodes.map(n => [n.id, n]));
+		const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+		let count = 0;
+		for (let i = 0; i < links.length; i++) {
+			for (let j = i + 1; j < links.length; j++) {
+				const [a, b, c, d] = [by.get(links[i].source), by.get(links[i].target), by.get(links[j].source), by.get(links[j].target)];
+				if ([a, b].some(n => n === c || n === d)) {
+					continue;
+				}
+				if (o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b)) {
+					count++;
+				}
+			}
+		}
+		return count;
+	};
+	// a tree: the focus f, 8 nodes of ring 1 with 2 children each; the ids are chosen so that the order by id puts the children of one parent far apart
+	const nodes = [{id: 'f'}];
+	const links = [];
+	for (let i = 0; i < 8; i++) {
+		nodes.push({id: 'p' + i});
+		links.push({source: 'f', target: 'p' + i});
+		for (let k = 0; k < 2; k++) {
+			nodes.push({id: 'c' + (k * 8 + (i * 5) % 8)});
+			links.push({source: 'p' + i, target: 'c' + (k * 8 + (i * 5) % 8)});
+		}
+	}
+	nodes.forEach(n => G.layoutNode(n, 'small'));
+	G.placeRadial(nodes, links, 'f', {x: 0, y: 0});
+	ok(crossings(nodes, links) === 0, 'ring order by barycentre: a tree of 8 branches has no crossing of its lines', crossings(nodes, links));
+	ok(G.overlappingPairs(nodes).length === 0, 'and no box overlaps another');
+	const by = new Map(nodes.map(n => [n.id, n]));
+	const angle = n => Math.atan2(n.y, n.x);
+	const spread = id => Math.abs(Math.atan2(Math.sin(angle(by.get('c' + id)) - angle(by.get('p' + 0))), Math.cos(angle(by.get('c' + id)) - angle(by.get('p' + 0)))));
+	ok(links.filter(l => l.source.startsWith('p')).every(l => {
+		const d = Math.abs(Math.atan2(Math.sin(angle(by.get(l.target)) - angle(by.get(l.source))), Math.cos(angle(by.get(l.target)) - angle(by.get(l.source)))));
+		return d < 0.6;
+	}), 'a node of ring 2 is near the angle of its parent (barycentre)');
+	// the arc
+	const parent = G.layoutNode({id: 'P', x: 0, y: 0, label: 'SW18-09-ACC-2530-48G'}, 'large');
+	const leaves = Array.from({length: 6}, (_, i) => G.layoutNode({id: 'L' + i, label: 'ZBX-5CD' + i + 'AAAA'}, 'small'));
+	const placed = G.arcPlace(parent, leaves, [0, Math.PI / 2, Math.PI]);      // other lines to the right, down and left: the largest free angle is the top
+	placed.forEach(({node, x, y}) => {
+		node.x = x;
+		node.y = y;
+	});
+	ok(placed.every(({y}) => y < 0), 'the leaves are in the largest free angle (here: above the parent, away from the lines to the right, down and left)');
+	const angles = placed.map(({node}) => Math.atan2(node.y, node.x));
+	ok(angles.every((a, i) => i === 0 || a > angles[i - 1]), 'in the given order (by the local port): the angles grow along the arc', angles);
+	ok(G.overlappingPairs(leaves, 0).length === 0 && !leaves.some(n => G.overlappingPairs([parent, n], 0).length), 'no leaf overlaps another or the parent');
+	const radius = n => Math.hypot(n.x, n.y);
+	ok(Math.max(...leaves.map(radius)) - Math.min(...leaves.map(radius)) < 1e-6, 'all leaves are at one radius (an arc)');
+	const many = Array.from({length: 15}, (_, i) => G.layoutNode({id: 'M' + i, label: 'ZBX-5CD' + i + 'AAAA'}, 'small'));
+	const placed_many = G.arcPlace(parent, many, [0]);
+	placed_many.forEach(({node, x, y}) => {
+		node.x = x;
+		node.y = y;
+	});
+	ok(radius(placed_many[0].node) > radius(placed[0].node) && G.overlappingPairs(many, 0).length === 0, 'the radius grows with the number of leaves, and they still fit', [radius(placed_many[0].node), radius(placed[0].node)]);
+	// a node in the sector of the arc is turned out of it
+	{
+		const p = G.layoutNode({id: 'P', x: 0, y: 0, label: 'parent'}, 'large');
+		const ls = Array.from({length: 4}, (_, i) => G.layoutNode({id: 'L' + i, label: 'leaf' + i}, 'small'));
+		G.arcPlace(p, ls, [Math.PI / 2]).forEach(({node, x, y}) => { node.x = x; node.y = y; });
+		const mean = Math.atan2(ls.reduce((s, n) => s + n.y, 0), ls.reduce((s, n) => s + n.x, 0));
+		const r = Math.max(...ls.map(n => Math.hypot(n.x, n.y)));
+		const blocker = G.layoutNode({id: 'B', x: Math.cos(mean) * r * 0.6, y: Math.sin(mean) * r * 0.6, label: 'blocker'}, 'large');
+		const hits = n => ls.some(l => { for (let t = 0.05; t < 0.96; t += 0.05) { const x = l.x * t, y = l.y * t; if (x > n.x - n.box.w / 2 && x < n.x + n.box.w / 2 && y > n.y + n.box.top && y < n.y + n.box.bottom) { return true; } } return false; });
+		ok(hits(blocker), 'start: a node in the sector has a leaf line through its box');
+		G.clearSector(p, ls, [blocker]);
+		ok(!hits(blocker), 'after clearSector the lines of the leaves do not cross it', [blocker.x, blocker.y]);
+		const dragged = G.layoutNode({id: 'D', x: Math.cos(mean) * r * 0.6, y: Math.sin(mean) * r * 0.6, fx: 1, fy: 1, label: 'dragged'}, 'large');
+		const before = [dragged.x, dragged.y];
+		G.clearSector(p, ls, [dragged]);
+		ok(dragged.x === before[0] && dragged.y === before[1], 'a dragged (fixed) node stays');
+	}
+	const lone = G.arcPlace(parent, [G.layoutNode({id: 'x', label: 'one'}, 'small')], []);
+	ok(lone.length === 1 && lone[0].y < 0, 'no other line: the arc is above the parent');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

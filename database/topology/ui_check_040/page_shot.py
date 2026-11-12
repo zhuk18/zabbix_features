@@ -280,6 +280,43 @@ CHECKS = {
         r.ok = r.nodes > 0 && r.overlaps === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         return r;
     })()''',
+    # model §12.1 "Fit" (2.72, task 092): the control "Fit" puts the whole drawn graph in the window and centres it
+    'fit': '''(async () => {
+        const before = view.zoom_transform.k;
+        document.getElementById('topology-fit').click();
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const svg = document.getElementById('topology-canvas').getBoundingClientRect();
+        const boxes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(g => g.getBoundingClientRect());
+        const left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right)), top = Math.min(...boxes.map(b => b.top)), bottom = Math.max(...boxes.map(b => b.bottom));
+        const r = {k_before: Math.round(before * 100) / 100, k_after: Math.round(view.zoom_transform.k * 100) / 100, nodes: boxes.length,
+            inside: left >= svg.left - 1 && right <= svg.right + 1 && top >= svg.top - 1 && bottom <= svg.bottom + 1,
+            centre_offset: [Math.round((left + right) / 2 - (svg.left + svg.right) / 2), Math.round((top + bottom) / 2 - (svg.top + svg.bottom) / 2)]};
+        r.ok = r.inside && Math.abs(r.centre_offset[0]) <= 3 && Math.abs(r.centre_offset[1]) <= 3 && r.k_after > 0;
+        return r;
+    })()''',
+    # model §12.8 (2.72, task 092): the leaves of an unfolded group are on an arc around the parent (one radius), ordered by the parent's local port, no leaf box overlaps another node, and the line of a leaf does
+    # not cross a node that is not a leaf of the group; the radius and the crossings are reported
+    'arc': '''(async () => {
+        const h = Array.from(view.nodes.values()).find(n => n.type === 'host' && n.label.startsWith('SW18'));
+        view.unfoldGroup(h.id);
+        const parent = view.drawn_nodes.find(n => String(n.id) === String(h.id));
+        const g = view.leaf_groups.find(x => String(x.parent) === String(h.id));
+        const leaves = view.drawn_nodes.filter(n => g.devices.map(String).includes(String(n.id)));
+        const radius = n => Math.hypot(n.x - parent.x, n.y - parent.y);
+        const rect = n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom});
+        const overlap = (a, b) => { const x = rect(a), y = rect(b); return x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom; };
+        const through = [];
+        leaves.forEach(leaf => view.drawn_nodes.forEach(n => { if (n !== parent && n !== leaf && !leaves.includes(n)) { const r = rect(n);
+            for (let t = 0.05; t < 0.96; t += 0.05) { const x = parent.x + (leaf.x - parent.x) * t, y = parent.y + (leaf.y - parent.y) * t; if (x > r.left && x < r.right && y > r.top && y < r.bottom) { through.push([leaf.label, n.label]); break; } } } }));
+        const port = leaf => { const l = view.links.find(c => ['physical_link'].includes(c.type) && (String(c.source) === String(leaf.id) || String(c.target) === String(leaf.id))); return String(String(l.source) === String(leaf.id) ? l.target_port : l.source_port); };
+        const mean = Math.atan2(leaves.reduce((s, n) => s + Math.sin(Math.atan2(n.y - parent.y, n.x - parent.x)), 0), leaves.reduce((s, n) => s + Math.cos(Math.atan2(n.y - parent.y, n.x - parent.x)), 0));
+        const angles = leaves.map(n => Math.atan2(Math.sin(Math.atan2(n.y - parent.y, n.x - parent.x) - mean), Math.cos(Math.atan2(n.y - parent.y, n.x - parent.x) - mean)));
+        const by_port = leaves.map((n, i) => [port(n), angles[i]]).sort((a, b) => a[0].localeCompare(b[0], undefined, {numeric: true})).map(x => x[1]);
+        const r = {leaves: leaves.length, radii: leaves.map(n => Math.round(radius(n))), leaf_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
+            lines_through_other_nodes: through, ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)};
+        r.ok = r.leaves === 6 && Math.max(...r.radii) - Math.min(...r.radii) <= 60 && !r.leaf_overlaps && r.lines_through_other_nodes.length === 0 && r.ordered_by_port;
+        return r;
+    })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table
     'escape': '''(() => {
         const evil = '<img src=x onerror="window.__xss=1">SW-<b>very</b>-long-name-for-a-node';

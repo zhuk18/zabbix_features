@@ -198,8 +198,9 @@
 	}
 
 	/**
-	 * Radial placement (model §12.1 "Node placement"): the focus host in the centre, a node at distance d on ring d, a node with no path to the focus host on the outer ring. A ring is as large
-	 * as its boxes need. The order on a ring follows the angles of the neighbors on the ring inside it, so that links cross less. Returns the radius of the outer ring.
+	 * Radial placement (model §12.1 "Node placement", "Order on a ring", 2.72): the focus host in the centre, a node at distance d on ring d, a node with no path to the focus host on the
+	 * outer ring. The order on a ring is the barycentre: a node of ring d+1 is placed at the mean angle of its neighbors on the inner rings, and the order of ring 1 follows its neighbors on the
+	 * outer rings (a few passes of the barycentre in both directions). A ring is as large as its boxes need: its radius grows until they fit. Returns the radius of the outer ring.
 	 * nodes need .id and .box (layoutNode); links need .source and .target (ids).
 	 */
 	function placeRadial(nodes, links, focus_id, center) {
@@ -209,6 +210,7 @@
 		const rings = new Map();
 		nodes.forEach(node => {
 			const d = dist.has(node.id) ? dist.get(node.id) : max_known + 1;
+			node.ring = d;
 			if (!rings.has(d)) {
 				rings.set(d, []);
 			}
@@ -217,46 +219,180 @@
 		const by_id = new Map(nodes.map(node => [node.id, node]));
 		const adjacent = new Map(ids.map(id => [id, []]));
 		links.forEach(link => {
-			if (adjacent.has(link.source) && adjacent.has(link.target)) {
+			if (adjacent.has(link.source) && adjacent.has(link.target) && link.source !== link.target) {
 				adjacent.get(link.source).push(link.target);
 				adjacent.get(link.target).push(link.source);
 			}
 		});
-		let radius = 0;
-		[...rings.keys()].sort((a, b) => a - b).forEach(d => {
-			const ring = rings.get(d);
-			if (d === 0) {
-				ring.forEach(node => {
-					node.x = center.x;
-					node.y = center.y;
-					node.angle = 0;
-				});
-				return;
-			}
-			// the order on the ring: by the mean angle of the neighbors that are already placed (inner rings), then by id
-			ring.forEach(node => {
-				const placed = adjacent.get(node.id).map(id => by_id.get(id)).filter(other => other.angle !== undefined && other !== node && (dist.get(other.id) ?? -1) < d);
-				node.sort_angle = placed.length ? Math.atan2(
-					placed.reduce((s, other) => s + Math.sin(other.angle), 0), placed.reduce((s, other) => s + Math.cos(other.angle), 0)) : 0;
+		const depths = [...rings.keys()].sort((a, b) => a - b);
+		const width_of = node => Math.max(node.box.w, node.box.h) + BOX_GAP;
+		// the angle that a node wants: the circular mean of the angles of its neighbors on the given rings (undefined when none is placed yet)
+		const desired = (node, wanted_rings) => {
+			const near = adjacent.get(node.id).map(id => by_id.get(id)).filter(other => other.angle !== undefined && wanted_rings.includes(other.ring));
+			return near.length ? Math.atan2(near.reduce((sum, other) => sum + Math.sin(other.angle), 0), near.reduce((sum, other) => sum + Math.cos(other.angle), 0)) : undefined;
+		};
+		// the angles of a ring in a given order: spread by the widths of the boxes, then the whole ring turned to the mean of the wishes
+		const assign = (ring, order) => {
+			const need = order.reduce((sum, node) => sum + width_of(node), 0);
+			let travelled = 0;
+			const base = order.map(node => {
+				const share = width_of(node) / need;
+				const angle = (travelled + share / 2) * 2 * Math.PI;
+				travelled += share;
+				return angle;
 			});
-			ring.sort((a, b) => (a.sort_angle - b.sort_angle) || String(a.id).localeCompare(String(b.id)));
-			// the radius: the boxes along the circle need their widths, the ring must be outside the inner ring by the tallest box
-			const need = ring.reduce((sum, node) => sum + Math.max(node.box.w, node.box.h) + BOX_GAP, 0);
+			const wishes = order.map((node, i) => [node.wish, base[i]]).filter(([wish]) => wish !== undefined);
+			const turn = wishes.length ? Math.atan2(wishes.reduce((sum, [wish, a]) => sum + Math.sin(wish - a), 0), wishes.reduce((sum, [wish, a]) => sum + Math.cos(wish - a), 0)) : 0;
+			order.forEach((node, i) => {
+				node.angle = base[i] + turn;
+			});
+			rings.set(ring, order);
+		};
+		const sort_ring = (ring, wanted_rings) => {
+			const order = rings.get(ring);
+			order.forEach(node => {
+				node.wish = desired(node, wanted_rings);
+			});
+			// by the wish; nodes without a wish keep their place at the end, by id
+			const key = node => (node.wish === undefined ? Infinity : ((node.wish % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
+			order.sort((a, b) => (key(a) - key(b)) || String(a.id).localeCompare(String(b.id)));
+			assign(ring, order);
+		};
+		nodes.forEach(node => {
+			node.angle = undefined;
+		});
+		const focus_ring = rings.get(0) ?? [];
+		focus_ring.forEach(node => {
+			node.angle = 0;
+		});
+		const outer = depths.filter(d => d > 0);
+		// the first pass outwards: ring 1 by id, the others by their inner neighbors
+		outer.forEach(d => {
+			if (d === 1) {
+				const order = rings.get(1).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+				order.forEach(node => {
+					node.wish = undefined;
+				});
+				assign(1, order);
+			}
+			else {
+				sort_ring(d, [d - 1]);
+			}
+		});
+		// passes in both directions: a ring follows the mean angle of its neighbors on the rings next to it
+		for (let pass = 0; pass < 4; pass++) {
+			[...outer].reverse().forEach(d => sort_ring(d, [d - 1, d + 1]));
+			outer.forEach(d => sort_ring(d, d === 1 ? [2] : [d - 1, d + 1]));
+		}
+		// the radius of each ring: the boxes along the circle need their widths; the ring is outside the inner ring by the tallest box
+		let radius = 0;
+		focus_ring.forEach(node => {
+			node.x = center.x;
+			node.y = center.y;
+		});
+		outer.forEach(d => {
+			const ring = rings.get(d);
+			const need = ring.reduce((sum, node) => sum + width_of(node), 0);
 			const tallest = Math.max(...ring.map(node => node.box.h));
 			radius = Math.max(radius + tallest + 2 * BOX_GAP + 24, need / (2 * Math.PI));
-			const offset = ring.length ? ring[0].sort_angle : 0;
-			let travelled = 0;
 			ring.forEach(node => {
-				const share = (Math.max(node.box.w, node.box.h) + BOX_GAP) / need;
-				const angle = offset + (travelled + share / 2) * 2 * Math.PI;
-				travelled += share;
-				node.angle = angle;
-				node.x = center.x + radius * Math.cos(angle);
-				node.y = center.y + radius * Math.sin(angle);
+				node.x = center.x + radius * Math.cos(node.angle);
+				node.y = center.y + radius * Math.sin(node.angle);
 			});
 		});
 
 		return radius;
+	}
+
+	/**
+	 * The leaves of an unfolded group on an arc around the parent (§12.8, 2.72): in the largest free angle between the other lines of the parent (`other_angles`: the angles, in radians, of
+	 * its lines to the nodes that are not in the group), in the given order (the caller orders them by the parent's local port); the radius grows until they fit. Returns [{node, x, y}].
+	 */
+	function arcPlace(parent, leaves, other_angles) {
+		const TWO = 2 * Math.PI;
+		const norm = a => ((a % TWO) + TWO) % TWO;
+		// an obstacle is an angle (a line) or {angle, half}: the angle of a node and the half of the angle that its box covers; they are merged into the free angles between them
+		const intervals = other_angles.map(o => (typeof o === 'number' ? {angle: o, half: 0.06} : {angle: o.angle, half: Math.max(o.half, 0.06)}))
+			.map(o => [norm(o.angle - o.half), o.half * 2]).sort((x, y) => x[0] - y[0]);
+		let centre = -Math.PI / 2;      // no other line: the arc is above the parent
+		let gap = TWO;
+		if (intervals.length) {
+			// the free gap after each obstacle, up to the start of the next obstacle (the ones that overlap leave no gap)
+			gap = 0;
+			intervals.forEach(([start, length], i) => {
+				const end = start + length;
+				let free_until = i + 1 < intervals.length ? intervals[i + 1][0] : intervals[0][0] + TWO;
+				// a later obstacle that starts before this one ends: the gap is between this end and the next start that is after it
+				for (let k = i + 1; k < intervals.length + 1 && free_until < end; k++) {
+					free_until = k + 1 < intervals.length ? intervals[k + 1][0] : intervals[0][0] + TWO;
+				}
+				if (free_until - end > gap) {
+					gap = free_until - end;
+					centre = end + gap / 2;
+				}
+			});
+		}
+		const span = Math.min(gap * 0.9, TWO * 0.9);
+		const biggest = Math.max(...leaves.map(node => Math.max(node.box.w, node.box.h)));
+		const minimum = Math.max(parent.box.w, parent.box.h) / 2 + biggest / 2 + 36;
+		// for a radius and a start angle: the leaves one after the other along the arc, each at the first angle where its box (shape and label) is clear of the one before and of the parent;
+		// returns the angle that they use. The test is made at the angles where the leaves really are, so that the result has no overlap.
+		const layout = (radius, start) => {
+			let angle = start;
+			leaves.forEach((node, i) => {
+				for (let guard = 0; guard < 4000; guard++) {
+					node.x = parent.x + Math.cos(angle) * radius;
+					node.y = parent.y + Math.sin(angle) * radius;
+					if ((i === 0 || !overlaps(node, leaves[i - 1], BOX_GAP)) && !overlaps(node, parent, BOX_GAP)) {
+						break;
+					}
+					angle += 0.5 / radius;
+				}
+			});
+			return angle - start;
+		};
+		let radius = minimum;
+		let used = layout(radius, centre - span / 2);
+		while (used > span && radius < 4000) {
+			radius += 12;
+			used = layout(radius, centre - span / 2);
+		}
+		// centred in the free angle: a second layout from the middle of what they use (the final layout is the one that is returned)
+		layout(radius, centre - used / 2);
+
+		return leaves.map(node => ({node, x: node.x, y: node.y}));
+	}
+
+	/**
+	 * Moves the nodes that are in the way of an arc out of its sector (§12.8: "other nodes in the way move away"): a node that is nearer to the parent than the leaves are, and whose angle (with
+	 * the angle that its box covers) is inside the sector of the leaves, is turned about the parent to the nearest edge of the sector, at the same distance. Fixed nodes (fx) stay.
+	 */
+	function clearSector(parent, leaves, others) {
+		const TWO = 2 * Math.PI;
+		const angle_of = node => Math.atan2(node.y - parent.y, node.x - parent.x);
+		const mean = Math.atan2(leaves.reduce((s, n) => s + Math.sin(angle_of(n)), 0), leaves.reduce((s, n) => s + Math.cos(angle_of(n)), 0));
+		const rel = a => Math.atan2(Math.sin(a - mean), Math.cos(a - mean));      // the angle from the middle of the arc, -π..π
+		const reach = Math.max(...leaves.map(n => Math.hypot(n.x - parent.x, n.y - parent.y)));
+		const low = Math.min(...leaves.map(n => rel(angle_of(n))));
+		const high = Math.max(...leaves.map(n => rel(angle_of(n))));
+		others.forEach(node => {
+			if (node === parent || leaves.includes(node) || (node.fx !== undefined && node.fx !== null)) {
+				return;
+			}
+			const distance = Math.hypot(node.x - parent.x, node.y - parent.y);
+			if (distance > reach + Math.hypot(node.box.w, node.box.h) / 2) {
+				return;
+			}
+			const half = Math.asin(Math.min(0.99, (Math.hypot(node.box.w, node.box.h) / 2 + BOX_GAP) / Math.max(distance, 1)));      // the angle that the box covers (its corner)
+			const angle = rel(angle_of(node));
+			if (angle + half < low || angle - half > high) {
+				return;
+			}
+			// to the nearer edge of the sector, outside it by the angle that the box covers
+			const target = (angle - low) < (high - angle) ? low - half - 0.02 : high + half + 0.02;
+			node.x = parent.x + distance * Math.cos(mean + target);
+			node.y = parent.y + distance * Math.sin(mean + target);
+		});
 	}
 
 	/**
@@ -404,5 +540,5 @@
 		return out;
 	}
 
-	return {bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });
