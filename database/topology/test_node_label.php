@@ -47,7 +47,9 @@ check(!str_contains($encoded, '<') && !str_contains($encoded, '>') && !str_conta
 
 // the view writes the label as text, never as markup
 $js = file_get_contents(__DIR__.'/../../ui/app/views/js/monitoring.topology.view.js.php');
-check(str_contains($js, "node.label ?? node.name ?? '?'"), 'the view labels a node with `label`');
-check(preg_match('/node_labels[^;]*\.(html|innerHTML)\b/', $js) !== 1, 'the label text element is never given markup');
-check(str_contains($js, ".text(line)"), 'the label lines are written with text()');
+$graph = file_get_contents(__DIR__.'/../../ui/js/topology.graph.js');
+// 2.70 (task 090): the label of §12.2 is read in the module of the graph (cut in the middle for the drawing), and drawn with text()
+check(str_contains($graph, "node.label ?? node.name ?? '?'") && str_contains($js, ".text(node => node.label_text)"), 'the view labels a node with `label` (the graph module cuts it, the page writes it with text())');
+check(preg_match("/topology-label'\)[^;]*\.(html|innerHTML)\b/", $js) !== 1, 'the label text element is never given markup');
+check(str_contains($js, "append('text').attr('class', 'topology-label')") && str_contains($js, ".text(node => node.label_text)") && !preg_match('/\.innerHTML\s*=\s*[^;]*label_text/', $js), 'the label is written with text()');
 echo "\nAll checks passed.\n";

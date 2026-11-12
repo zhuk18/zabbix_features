@@ -168,7 +168,7 @@ check(is_int($status['summary']['stats']['heartbeat_gap_max_seconds'] ?? null), 
 $item = $pdo->query("SELECT s.itemid, s.rows_hash FROM topo_lld_snapshot s JOIN items i ON i.itemid = s.itemid AND i.status = 0 AND i.topology_type = s.topology_type ORDER BY s.itemid LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 $pdo->prepare("UPDATE topo_lld_snapshot SET rows_hash = 'zz-changed' WHERE itemid = ?")->execute([$item['itemid']]);
 check(($admin->json('topology.ingest.status')['reporters_new_data'] ?? null) === 1, 'one rule\'s rows change: reporters_new_data = 1');
-check(str_contains($admin->request('zabbix.php?action=topology.view'), 'topology-run-info'), 'the page has the place of the note');
+check(str_contains($admin->request('zabbix.php?action=topology.view'), 'topology-run-line'), 'the page has the place of the note');
 $pdo->prepare('UPDATE topo_lld_snapshot SET rows_hash = ? WHERE itemid = ?')->execute([$item['rows_hash'], $item['itemid']]);
 cli();
 check(($admin->json('topology.ingest.status')['reporters_new_data'] ?? null) === 0, 'the data restored and a run: 0 again');
