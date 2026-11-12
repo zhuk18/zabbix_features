@@ -285,5 +285,54 @@
 		});
 	}
 
-	return {MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	// ---- the icon by device class (§12.2 "Device class", 2.71) ----
+	// One style: strokes only, drawn in a box of about 16 × 12 around (0, 0); the page scales it to the size of the node (large 1.3, small 0.8: readable in 26 × 18).
+	const ICON_DEFS = {
+		access_point: [['path', {d: 'M-6.5 -1 A9 9 0 0 1 6.5 -1'}], ['path', {d: 'M-3.6 2 A5 5 0 0 1 3.6 2'}], ['circle', {cx: 0, cy: 5, r: 1.1, fill: 'currentColor'}]],
+		phone: [['rect', {x: -4, y: -6, width: 8, height: 12, rx: 1.5}], ['path', {d: 'M-1.8 -3.5 H1.8 M-1.8 3.5 H1.8'}]],
+		switch: [['rect', {x: -8, y: -4.5, width: 16, height: 9, rx: 1.5}], ['path', {d: 'M-5 -1.2 H4 L2.2 -3 M5 1.2 H-4 L-2.2 3'}]],
+		router: [['circle', {cx: 0, cy: 0, r: 6.2}], ['path', {d: 'M-3.2 0 H3.2 M0 -3.2 V3.2 M-3.2 0 L-2 -1.2 M3.2 0 L2 1.2'}]],
+		station: [['rect', {x: -6.5, y: -5.5, width: 13, height: 8.5, rx: 1}], ['path', {d: 'M-3.5 6.5 H3.5 M0 3 V6.5'}]],
+		generic: [['rect', {x: -4.5, y: -4.5, width: 9, height: 9, rx: 2}], ['circle', {cx: 0, cy: 0, r: 1.2, fill: 'currentColor'}]],
+		proxy: [['rect', {x: -4, y: -4, width: 8, height: 8, rx: 1.5}], ['path', {d: 'M-7 0 H-4 M4 0 H7 M0 -7 V-4 M0 4 V7'}]]
+	};
+	const CLASS_ORDER = ['access_point', 'phone', 'switch', 'router', 'station', 'generic'];
+
+	/** The icon name of a node: a Proxy its own; a Host the class of its Device (a Host without a Device: generic); a Device its class (none: generic); a group node none. */
+	function iconOf(node) {
+		if (node.type === 'proxy') {
+			return 'proxy';
+		}
+		const device = node.type === 'host' ? node.device : (node.type === 'device' ? node : null);
+		if (node.type !== 'host' && node.type !== 'device') {
+			return null;
+		}
+		return device && CLASS_ORDER.includes(device.device_class) ? device.device_class : 'generic';
+	}
+
+	/** The markup of an icon (a constant of this file, no data from the network): for the legend, which is built as text. */
+	function iconMarkup(name, stroke, scale = 1) {
+		const attrs = a => Object.entries(a).map(([k, v]) => `${k}="${v}"`).join(' ');
+		return `<g transform="scale(${scale})" style="fill:none;stroke:${stroke};stroke-width:${1.5 / scale};color:${stroke}">` +
+			(ICON_DEFS[name] ?? ICON_DEFS.generic).map(([tag, a]) => `<${tag} ${attrs(a)}/>`).join('') + '</g>';
+	}
+
+	/** Counts of the nodes by class name (the classes of CLASS_ORDER). */
+	function classCounts(devices) {
+		const counts = {};
+		devices.forEach(device => {
+			const name = CLASS_ORDER.includes(device.device_class) ? device.device_class : 'generic';
+			counts[name] = (counts[name] ?? 0) + 1;
+		});
+		return counts;
+	}
+
+	/** "9 access points, 6 stations": the counts by class, the largest first; names = {class: [one, many]}, with %1$s for the number. */
+	function classText(counts, names) {
+		return CLASS_ORDER.filter(name => counts[name])
+			.sort((a, b) => counts[b] - counts[a] || CLASS_ORDER.indexOf(a) - CLASS_ORDER.indexOf(b))
+			.map(name => (counts[name] === 1 ? names[name][0] : names[name][1]).replace('%1$s', String(counts[name]))).join(', ');
+	}
+
+	return {ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

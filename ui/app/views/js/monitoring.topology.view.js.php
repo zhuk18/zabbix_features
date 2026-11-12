@@ -685,6 +685,7 @@ const view = new class {
 				this.render();
 			}
 			this.showPanel(node, problems, groups);
+			this.addClassLine(node);
 			this.addFoldControl(node);
 			return;
 		}
@@ -699,6 +700,7 @@ const view = new class {
 		]);
 		this.render();
 		this.showPorts(node, groups, addresses);
+		this.addClassLine(node);
 		this.addFoldControl(node);
 	}
 
@@ -1127,12 +1129,15 @@ const view = new class {
 		const row = (swatch, text) => `<div class="topology-legend-row">${swatch}<span>${text}</span></div>`;
 		const sections = [
 			[<?= json_encode(_('Nodes')) ?>, [
-				[node('#1f2937', '#ffffff', host_icon, false), <?= json_encode(_('Host: solid outline, Host icon; white fill: no problems')) ?>],
-				[node('#1f2937', '#f97a5e', host_icon, false), <?= json_encode(_('Host fill: the severity of its problems')) ?>],
-				[node('#1f2937', '#cbd2d9', host_icon, false), <?= json_encode(_('Host, disabled: muted fill')) ?>],
-				[node('#1f2937', '#ffffff', proxy_icon, false), <?= json_encode(_('Proxy: solid outline, Proxy icon, neutral fill')) ?>],
-				[node('#697386', '#f3f4f6', '', true), <?= json_encode(_('Device without association: dashed outline, grey fill, no icon')) ?>]
+				[node('#1f2937', '#ffffff', '', false), <?= json_encode(_('Host: solid outline; white fill: no problems')) ?>],
+				[node('#1f2937', '#f97a5e', '', false), <?= json_encode(_('Host fill: the severity of its problems')) ?>],
+				[node('#1f2937', '#cbd2d9', '', false), <?= json_encode(_('Host, disabled: muted fill')) ?>],
+				[node('#1f2937', '#ffffff', '', false), <?= json_encode(_('Proxy: solid outline, neutral fill')) ?>],
+				[node('#697386', '#f3f4f6', '', true), <?= json_encode(_('Device without association: dashed outline, grey fill')) ?>]
 			]],
+			[<?= json_encode(_('Device class (icon)')) ?>, TopologyGraph.CLASS_ORDER.map(name => [
+				`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)">${TopologyGraph.iconMarkup(name, '#1f2937', 1.3)}</g></svg>`,
+				this.classLabel(name)]).concat([[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)">${TopologyGraph.iconMarkup('proxy', '#1f2937', 1.3)}</g></svg>`, <?= json_encode(_('Proxy')) ?>]])],
 			[<?= json_encode(_('Size')) ?>, [
 				[size('large'), <?= json_encode(_('Large: Host, Proxy, a Device with two or more links')) ?>],
 				[size('small'), <?= json_encode(_('Small: a Device with one link or none, a group of devices')) ?>]
@@ -1589,6 +1594,37 @@ const view = new class {
 		this.wireFoldButtons();
 	}
 
+	// The names of the device classes (§12.2), singular and plural, for the tooltip of a group and the legend.
+	classNames() {
+		return {
+			access_point: [<?= json_encode(_('%1$s access point')) ?>, <?= json_encode(_('%1$s access points')) ?>],
+			phone: [<?= json_encode(_('%1$s phone')) ?>, <?= json_encode(_('%1$s phones')) ?>],
+			switch: [<?= json_encode(_('%1$s switch')) ?>, <?= json_encode(_('%1$s switches')) ?>],
+			router: [<?= json_encode(_('%1$s router')) ?>, <?= json_encode(_('%1$s routers')) ?>],
+			station: [<?= json_encode(_('%1$s station')) ?>, <?= json_encode(_('%1$s stations')) ?>],
+			generic: [<?= json_encode(_('%1$s other device')) ?>, <?= json_encode(_('%1$s other devices')) ?>]
+		};
+	}
+
+	classLabel(name) {
+		return {access_point: <?= json_encode(_('Access point')) ?>, phone: <?= json_encode(_('Phone')) ?>, switch: <?= json_encode(_('Switch')) ?>,
+			router: <?= json_encode(_('Router')) ?>, station: <?= json_encode(_('Station')) ?>, generic: <?= json_encode(_('Generic (no class)')) ?>}[name] ?? <?= json_encode(_('Generic (no class)')) ?>;
+	}
+
+	// The side panel shows the class of a Device and the bits it comes from (§12.2); the bits are data from the network, escaped.
+	addClassLine(node) {
+		const device = node.type === 'device' ? node : node.device;
+		if (!device) {
+			return;
+		}
+		const name = TopologyGraph.iconOf(device);
+		const bits = (device.device_class_bits ?? []).join(', ');
+		const line = document.createElement('p');
+		line.className = 'topology-device-class';
+		line.textContent = `${<?= json_encode(_('Device class')) ?>}: ${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
+		this.details.querySelector('h2')?.after(line);
+	}
+
 	render() {
 		const G = TopologyGraph;
 		const element = this.canvas.node();
@@ -1958,7 +1994,7 @@ const view = new class {
 			if (subject.type === 'host' && !subject.disabled && subject.severity !== null && subject.severity !== undefined) {
 				return this.readableTextOn(this.cssColor(subject.color));
 			}
-			return subject.type === 'host' && subject.disabled ? '#55606b' : '#1f2937';
+			return subject.type === 'host' && subject.disabled ? '#55606b' : (subject.type === 'device' ? '#4b5563' : '#1f2937');
 		};
 
 		const node_selection = this.canvas.append('g').selectAll('g').data(nodes).join('g')
@@ -2022,17 +2058,20 @@ const view = new class {
 				}
 				this.selectNode(node);
 			});
-		// kind icons (§12.2 "Icon"): a monitor for a Host, a relay (box with two arms) for a Proxy; a Device without association has none. Inside the large shape, centred.
-		const host_icons = node_selection.filter(node => node.type === 'host').append('g').attr('class', 'topology-icon topology-icon-host')
-			.attr('transform', 'translate(-7,-8)').style('pointer-events', 'none');
-		host_icons.append('rect').attr('x', 0).attr('y', 0).attr('width', 14).attr('height', 10).attr('rx', 1.5)
-			.style('fill', 'none').style('stroke', icon_stroke_for).style('stroke-width', 1.6);
-		host_icons.append('path').attr('d', 'M4 14 H10 M7 10 V14').style('fill', 'none').style('stroke', icon_stroke_for).style('stroke-width', 1.6);
-		const proxy_icons = node_selection.filter(node => node.type === 'proxy').append('g').attr('class', 'topology-icon topology-icon-proxy')
-			.attr('transform', 'translate(-7,-7)').style('pointer-events', 'none');
-		proxy_icons.append('rect').attr('x', 3).attr('y', 3).attr('width', 8).attr('height', 8).attr('rx', 1.5)
-			.style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
-		proxy_icons.append('path').attr('d', 'M0 7 H3 M11 7 H14 M7 0 V3 M7 11 V14').style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', 1.6);
+		// the icon (§12.2 "Icon", 2.71): the class of the Device, for a Host and a Device without association alike (a Host takes the class of its Device); a Proxy has the Proxy icon;
+		// no class: the generic icon. Strokes only, scaled to the node (large 1.3, small 0.8); a group node has none. The outline and the fill keep the node kind.
+		const icon_groups = node_selection.filter(node => TopologyGraph.iconOf(node) !== null).append('g')
+			.attr('class', node => `topology-icon topology-icon-${TopologyGraph.iconOf(node)}`)
+			.attr('transform', node => `scale(${node.size === 'small' ? 0.8 : 1.3})`).style('pointer-events', 'none')
+			.style('fill', 'none').style('stroke-width', node => 1.5 / (node.size === 'small' ? 0.8 : 1.3))
+			.style('stroke', node => node.type === 'proxy' ? '#1f2937' : icon_stroke_for(node)).style('color', node => node.type === 'proxy' ? '#1f2937' : icon_stroke_for(node));
+		icon_groups.each((node, i, elements) => {
+			const group = d3.select(elements[i]);
+			TopologyGraph.ICON_DEFS[TopologyGraph.iconOf(node)].forEach(([tag, attributes]) => {
+				const shape = group.append(tag);
+				Object.entries(attributes).forEach(([name, value]) => shape.attr(name, value));
+			});
+		});
 		// the label: under the shape, one line, at most 160 px, cut in the middle (the full text is in the tooltip); written with text(), so a value from the network is never markup (§13)
 		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
 			.attr('y', node => node.shape_h / 2 + 3 + node.font)
@@ -2076,7 +2115,9 @@ const view = new class {
 		const describeSubject = subject => {
 			const full = subject.label ?? subject.name;
 			if (subject.type === 'group') {
-				return full;
+				// the tooltip counts the Devices of the group by class (§12.8): "9 access points, 6 stations"
+				const counts = TopologyGraph.classCounts(subject.devices.map(id => this.nodes.get(String(id))).filter(Boolean));
+				return `${full}: ${TopologyGraph.classText(counts, this.classNames())}`;
 			}
 			if (subject.type === 'proxy' && subject.unreachable) {
 				return `${full} — ${<?= json_encode(_('Proxy unreachable')) ?>}`;

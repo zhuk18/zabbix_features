@@ -97,4 +97,19 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const idx = G.parallelIndex(links);
 	ok(idx[0].count === 2 && idx[1].count === 2 && idx[0].index === 0 && idx[1].index === 1 && idx[2].count === 1, 'the direction of a link does not matter for the pair');
 }
+// ---- the icon by device class (§12.2, 2.71) ----
+{
+	ok(G.iconOf({type: 'proxy'}) === 'proxy', 'a Proxy keeps its icon');
+	ok(G.iconOf({type: 'device', device_class: 'switch'}) === 'switch' && G.iconOf({type: 'device'}) === 'generic', 'a Device: its class; no class: generic');
+	ok(G.iconOf({type: 'host', device: {device_class: 'router'}}) === 'router', 'a Host has the class of its Device');
+	ok(G.iconOf({type: 'host', device: null}) === 'generic' && G.iconOf({type: 'host'}) === 'generic', 'a Host without a Device: generic');
+	ok(G.iconOf({type: 'device', device_class: '<img onerror=x>'}) === 'generic' && G.iconOf({type: 'device', device_class: 'proxy'}) === 'generic', 'a class that is not one of ours (markup, or the Proxy icon) is the generic icon');
+	ok(G.iconOf({type: 'group'}) === null, 'a group node has no icon');
+	ok(['access_point', 'phone', 'switch', 'router', 'station', 'generic'].every(name => G.ICON_DEFS[name].length >= 2 && G.iconMarkup(name, '#000', 0.8).startsWith('<g ')), 'one icon for each class and a generic icon, also at the scale of a small node');
+	const names = {access_point: ['%1$s access point', '%1$s access points'], phone: ['%1$s phone', '%1$s phones'], switch: ['%1$s switch', '%1$s switches'], router: ['%1$s router', '%1$s routers'],
+		station: ['%1$s station', '%1$s stations'], generic: ['%1$s other device', '%1$s other devices']};
+	const counts = G.classCounts([...Array(9).fill({device_class: 'access_point'}), ...Array(6).fill({device_class: 'station'})]);
+	ok(G.classText(counts, names) === '9 access points, 6 stations', 'the tooltip of a group counts by class: "9 access points, 6 stations"', G.classText(counts, names));
+	ok(G.classText(G.classCounts([{device_class: 'switch'}, {}]), names) === '1 switch, 1 other device', 'one of a class and a device without a class');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

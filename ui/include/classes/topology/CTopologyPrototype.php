@@ -207,6 +207,23 @@ class CTopologyPrototype {
 		}
 		unset($node);
 
+		// 2.71 (§12.2 "Device class"; FR-C V-3, FR-B D-52): the class and the bits for the icon, from the union of `rem_sys_cap` of the current observations of each Device. Display only;
+		// the bits are data from the network: the caller escapes them. A Device without the field has no class (the generic icon).
+		$device_ids = array_column(array_filter($nodes, static fn (array $node): bool => $node['type'] === 'device'), 'id');
+		if ($device_ids) {
+			$classes = CTopologyDeviceClass::ofObservations(DBfetchArray(DBselect(
+				'SELECT device_id,remote_attrs FROM topo_observations WHERE device_id IS NOT NULL AND '.dbConditionId('device_id', $device_ids).
+				' AND remote_attrs LIKE '.zbx_dbstr('%rem_sys_cap%')
+			)));
+			foreach ($nodes as &$node) {
+				if ($node['type'] === 'device' && isset($classes[(string) $node['id']])) {
+					$node['device_class'] = $classes[(string) $node['id']]['class'];
+					$node['device_class_bits'] = $classes[(string) $node['id']]['bits'];
+				}
+			}
+			unset($node);
+		}
+
 		// topology-1-model.md §6.7.5 "Merge a group": every member of a group of Devices linked by candidates lists the whole group
 		$groups = self::duplicateGroups($nodes);
 		foreach ($nodes as &$node) {

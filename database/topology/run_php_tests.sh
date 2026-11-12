@@ -93,7 +93,7 @@ fresh topo_t_busy_port
 php_test topo_t_busy_port discovery/test_manual_link_busy_port.php name
 
 # ---- 2. PHP tests without a database ----
-for t in test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php; do
+for t in test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php test_device_class.php; do
 	exec_test "$t" "/tmp/topo_t_$(basename "$t" .php).log" php "$here/$t"
 done
 
