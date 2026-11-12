@@ -16,6 +16,11 @@ ok(G.runInfoText(1, '10:00', t) === '1 reporter has new data since the last run 
 ok(G.runInfoText(2, '10:00', t) === '2 reporters have new data since the last run — Last run: 10:00', 'N = 2: "2 reporters have"');
 ok(G.runInfoText(0, '', t) === '', 'N = 0 and no run yet: nothing');
 
+{
+	const p1 = G.runInfoParts(1, '10:00', t);
+	ok(p1.note === '1 reporter has new data since the last run' && p1.before === 'Last run: ' && p1.time === '10:00', 'the line in parts: the time is its own part (the link to the last run view)', p1);
+	ok(G.runInfoParts(0, '', t).time === '' && G.runInfoParts(0, '10:00', t).note === '', 'N = 0: no note; no run yet: no time');
+}
 // ---- the label: cut in the middle, at most 160 px ----
 const m = G.approxMeasure;
 const long_name = 'SW19-09-POE-6000-24G-with-a-very-long-suffix-of-the-name';

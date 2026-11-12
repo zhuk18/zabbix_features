@@ -23,17 +23,18 @@ echo "\n=== one test for each rule of the table ===\n";
 check($class('wlanAccessPoint') === 'access_point', 'rule 1: wlanAccessPoint → Access point');
 check($class('telephone') === 'phone', 'rule 2: telephone → Phone');
 check($class('switch') === 'switch', 'rule 3: switch (CDP) → Switch');
-check($class('router') === 'router', 'rule 4: router → Router');
 foreach (['bridge', 'transBridge', 'srcRouteBridge'] as $bit) {
-	check($class($bit) === 'switch', "rule 5: {$bit} → Switch");
+	check($class($bit) === 'switch', "rule 4: {$bit} → Switch");
 }
+check($class('router') === 'router', 'rule 5: router → Router');
 check($class('stationOnly') === 'station' && $class('host') === 'station', 'rule 6: stationOnly, host (CDP) → Station');
 check($class('repeater') === null && $class('other') === null && $class('docsisCableDevice') === null, 'rule 7: none of the bits (repeater, other, docsis) → generic');
 
 echo "\n=== the order ===\n";
 check($class('bridge router wlanAccessPoint') === 'access_point', '`bridge router wlanAccessPoint` → Access point');
 check($class('switch router bridge') === 'switch', '`switch router bridge` → Switch');
-check($class('router bridge') === 'router', '`router bridge` → Router (the known limit: an LLDP-only layer-3 switch)');
+check($class('router bridge') === 'switch', '`router bridge` → Switch (2.72: bridge before router; an LLDP layer-3 switch is a Switch)');
+check($class('router') === 'router' && $class('router host') === 'router', 'only `router` (no bridge bit) → Router');
 check($class('telephone bridge') === 'phone' && $class('stationOnly bridge') === 'switch', 'a phone before a bridge; a bridge before a station');
 
 echo "\n=== no class ===\n";

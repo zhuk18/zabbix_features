@@ -108,7 +108,7 @@ const view = new class {
 		// the state of the run and the time of the last run are one line of text (§12.1 "Page header")
 		this.run_line_element = document.getElementById('topology-run-line');
 		this.run_state = '';
-		this.run_info = '';
+		this.run_info = {note: '', before: '', time: '', after: ''};
 		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
 		}));
@@ -165,7 +165,7 @@ const view = new class {
 	// the run (every 2 or 3 seconds while a run works or waits) and every 30 seconds otherwise.
 	renderRunInfo(status) {
 		const time = status.finished_at ? new Date(status.finished_at * 1000).toLocaleString() : '';
-		this.setRunInfo(TopologyGraph.runInfoText(status.reporters_new_data ?? 0, time, {
+		this.setRunInfo(TopologyGraph.runInfoParts(status.reporters_new_data ?? 0, time, {
 			one: <?= json_encode(_('%1$s reporter has new data since the last run')) ?>,
 			many: <?= json_encode(_('%1$s reporters have new data since the last run')) ?>,
 			last: <?= json_encode(_('Last run: %1$s')) ?>
@@ -184,8 +184,20 @@ const view = new class {
 	}
 
 	updateRunLine() {
-		if (this.run_line_element) {
-			this.run_line_element.textContent = [this.run_state, this.run_info].filter(text => text !== '').join(' — ');
+		if (!this.run_line_element) {
+			return;
+		}
+		// one line (§12.1 "Page header"): the state, the note about new data, "Last run: <time>" where the time is the link to the last run view
+		const info = this.run_info ?? {note: '', before: '', time: '', after: ''};
+		const line = this.run_line_element;
+		line.textContent = [this.run_state, info.note].filter(text => text !== '').join(' — ') + (info.time !== '' && (this.run_state !== '' || info.note !== '') ? ' — ' : '') + info.before;
+		if (info.time !== '') {
+			const link = document.createElement('a');
+			link.href = 'zabbix.php?action=topology.lastrun';
+			link.id = 'topology-run-time';
+			link.textContent = info.time;
+			line.appendChild(link);
+			line.appendChild(document.createTextNode(info.after));
 		}
 	}
 
@@ -1564,6 +1576,8 @@ const view = new class {
 				`<td>${this.escape(local ?? '–')}</td><td title="${this.escape(remote ?? '')}">${this.escape(remote ?? '–')}</td></tr>`;
 		}).join('');
 		const parent = this.nodes.get(String(group.parent));
+		// 2.72: the title is "<N> devices at <parent>", not "Device details"
+		this.setDetailsTitle(<?= json_encode(_('%1$s devices at %2$s')) ?>.replace('%1$s', String(group.count)).replace('%2$s', parent?.label ?? parent?.name ?? ''));
 		this.details.innerHTML = `<h2>${this.escape(group.label)}</h2>` +
 			`<div class="topology-group-fold"><button type="button" class="btn-alt" id="topology-fold" data-parent="${this.escape(group.parent)}">${this.escape(
 				<?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.count)))}</button></div>` +

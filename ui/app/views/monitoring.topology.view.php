@@ -111,8 +111,7 @@ $page_styles = '
 				(new CTag('h1', true, _('Physical topology'))),
 				(new CDiv())->setId('topology-link-pick')->addClass('topology-link-pick'),
 				(new CButton('topology-ingest-run', _('Run discovery ingest')))->addClass(ZBX_STYLE_BTN_ALT),
-				(new CSpan(''))->setId('topology-run-line')->addClass('topology-run-line'),
-				(new CLink(_('Last run'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun')))
+				(new CSpan(''))->setId('topology-run-line')->addClass('topology-run-line')
 			]))->addClass('topology-header'),
 			(new CForm())
 				->setId('topology-filter-bar')

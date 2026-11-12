@@ -40,6 +40,13 @@
 		return parts.join(' — ');
 	}
 
+	/** The same line in parts, for the page (2.72: the time is the link to the last run view): {note: "N reporters have…" or '', before: "Last run: ", time, after: ''}. */
+	function runInfoParts(n, time, t) {
+		n = Number(n ?? 0);
+		const [before, after] = t.last.split('%1$s');
+		return {note: n > 0 ? (n === 1 ? t.one : t.many).replace('%1$s', String(n)) : '', before: time ? before : '', time: time || '', after: time ? (after ?? '') : ''};
+	}
+
 	/** A label longer than max_px is cut in the middle: the start and the end stay ("SW19-09…6000-24G"). */
 	function cutMiddle(text, max_px, font, measure = approxMeasure) {
 		text = String(text);
@@ -345,5 +352,5 @@
 		return ctx.has_link || ctx.show_unlinked || ctx.only_duplicates || ctx.is_focus;
 	}
 
-	return {isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

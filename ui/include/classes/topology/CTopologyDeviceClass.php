@@ -18,9 +18,8 @@ class CTopologyDeviceClass {
 	private const RULES = [
 		[self::ACCESS_POINT, ['wlanAccessPoint']],
 		[self::PHONE, ['telephone']],
-		[self::SWITCH, ['switch']],
+		[self::SWITCH, ['switch', 'bridge', 'transBridge', 'srcRouteBridge']],      // 2.72: `bridge` before `router`: an LLDP layer-3 switch (`bridge router`) is a Switch
 		[self::ROUTER, ['router']],
-		[self::SWITCH, ['bridge', 'transBridge', 'srcRouteBridge']],
 		[self::STATION, ['stationOnly', 'host']]
 	];
 
