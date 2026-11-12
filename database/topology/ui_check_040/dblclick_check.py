@@ -88,6 +88,12 @@ try:
     time.sleep(1.5)
     unfolded = state()
     check(unfolded['nodes'] > before['nodes'] and parent_id in unfolded['unfolded'] and 'devices' in unfolded['panel'] and unfolded['fold_button'], 'a click on the group node unfolds it and opens the group panel', [before, unfolded])
+    # the arc of the leaves can reach out of the window (the graph is bigger than the window): pan (the scale stays) so that the leaves are in the middle, then take the state
+    js("""(() => { const g = view.leaf_groups.find(x => String(x.parent) === '%s'); const ls = view.drawn_nodes.filter(n => g.devices.map(String).includes(String(n.id)));
+        const t = view.zoom_transform; const cx = ls.reduce((s, n) => s + n.x, 0) / ls.length, cy = ls.reduce((s, n) => s + n.y, 0) / ls.length;
+        view.canvas.call(view.zoom.transform, d3.zoomIdentity.translate(%d / 2 - 200 - cx * t.k, %d / 2 - cy * t.k).scale(t.k)); })()""" % (parent_id, a.width, a.height))
+    time.sleep(0.5)
+    unfolded = state()
     # a real double click on an unfolded leaf folds the group
     leaf_pos = where("(() => { const ids = view.leaf_groups.find(g => String(g.parent) === '%s').devices.map(String); return Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(g => ids.includes(String(g.__data__.id))); })()" % parent_id)
     click(leaf_pos['x'], leaf_pos['y'], 2)
@@ -101,6 +107,10 @@ try:
     group_pos = where("Array.from(document.querySelectorAll('#topology-canvas g.topology-node.group')).find(g => String(g.__data__.parent) === '%s')" % parent_id)
     click(group_pos['x'], group_pos['y'])
     time.sleep(1.5)
+    again = state()
+    js("""(() => { const n = view.drawn_nodes.find(d => String(d.id) === '%s'); const t = view.zoom_transform;
+        view.canvas.call(view.zoom.transform, d3.zoomIdentity.translate(%d / 2 - 200 - n.x * t.k, %d / 2 - n.y * t.k).scale(t.k)); })()""" % (parent_id, a.width, a.height))
+    time.sleep(0.5)
     again = state()
     parent_pos = where("Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(g => String(g.__data__.id) === '%s')" % parent_id)
     click(parent_pos['x'], parent_pos['y'], 2)

@@ -1562,11 +1562,13 @@ const view = new class {
 
 	// Leaf group (§12.8): the click on its node unfolds it, "Fold <N> devices" folds it. The state is kept until the page is loaded or the filter applied, not stored.
 	unfoldGroup(parent_id) {
+		this.user_moved = true;      // an unfold or a fold is the user's action: the view does not jump to the centre again
 		this.unfolded.add(String(parent_id));
 		this.render();
 	}
 
 	foldGroup(parent_id) {
+		this.user_moved = true;
 		this.unfolded.delete(String(parent_id));
 		this.render();
 	}
