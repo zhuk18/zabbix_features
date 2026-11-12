@@ -115,9 +115,45 @@ foreach ($scoped['leaf_groups'] ?? [] as $g) {
 }
 check($scoped_ok, 'in a view with a focus host the groups also have four or more leaves in the view');
 
-echo $failed ? "
-{$failed} check(s) FAILED
-" : "
-All graph page checks passed.
-";
+echo "\n=== a superseded link under a contradicted manual link (§12.3, §12.4; 091) ===\n";
+$dsn = (string) (getenv('TOPOLOGY_PDO_DSN') ?: 'mysql:unix_socket=/run/mysqld/mysqld.sock;dbname=zabbix');
+$pdo = new PDO($dsn, (string) (getenv('TOPOLOGY_PDO_USER') ?: 'zabbix'), (string) getenv('TOPOLOGY_PDO_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$ingest = dirname(__DIR__, 2).'/discovery/ingest.php';
+$cli = static function () use ($ingest, $dsn): void {
+	$p = proc_open([PHP_BINARY, $ingest, '--pdo-dsn', $dsn, '--pdo-user', (string) (getenv('TOPOLOGY_PDO_USER') ?: 'zabbix')], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+	stream_get_contents($pipes[1]);
+	stream_get_contents($pipes[2]);
+	proc_close($p);
+};
+$post = static function (string $action, array $body) use ($admin): array {
+	preg_match('/"_csrf_token"\]?:\s*"([0-9a-f]+)"/', $admin->request('zabbix.php?action=topology.view'), $m);
+
+	return json_decode($admin->request('zabbix.php?action='.$action, null, json_encode($body + ['_csrf_token' => $m[1] ?? ''])), true) ?? [];
+};
+$link = $pdo->query("SELECT e.id, e.src_id, e.dst_id FROM topo_edges e WHERE e.type = 'physical_link' AND JSON_UNQUOTE(JSON_EXTRACT(e.attrs, '$.discovered_via')) <> 'manual' AND JSON_EXTRACT(e.attrs, '$.superseded_at') IS NULL ORDER BY e.id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$free = (int) $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type = 'port' AND JSON_EXTRACT(p.attrs, '$.pseudo') = false AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) ORDER BY p.id LIMIT 1")->fetchColumn();
+check($link !== false && $free > 0, 'the data has a discovered link and a free port', [$link, $free]);
+$made = $post('topology.ports.link', ['id' => (string) $link['src_id'], 'dst_id' => (string) $free]);
+$manual = (int) ($made['edge_id'] ?? 0);
+$cli();
+$edge_ids = static fn (array $v): array => array_map('strval', array_column(array_filter($v['relations'], static fn (array $r): bool => $r['type'] === 'physical_link'), 'edge_id'));
+$view = $admin->json('topology.devices.get');
+$entry = array_values(array_filter($view['contradictions'], static fn (array $c): bool => (string) $c['edge_id'] === (string) $manual))[0] ?? null;
+check($entry !== null && !empty($entry['contradicted']), 'the manual link M is contradicted by discovery (a ghost line)', $manual);
+$superseded_in_db = (string) $pdo->query("SELECT JSON_EXTRACT(attrs, '$.superseded_at') FROM topo_edges WHERE id = {$link['id']}")->fetchColumn();
+check($superseded_in_db !== '' && strtolower($superseded_in_db) !== 'null', 'the discovered link L between the same pair is superseded in the database (manual wins)', $superseded_in_db);
+check(!in_array((string) $link['id'], $edge_ids($view), true) && in_array((string) $manual, $edge_ids($view), true), 'while M is contradicted the superseded edge for the same port pair is not drawn; only M and the ghost are');
+$hidden = array_values(array_filter($entry['shadows'] ?? [], static fn (array $sh): bool => empty($sh['acknowledged'])))[0] ?? null;
+$ack = $post('topology.manual.keep', ['edge_id' => (string) $manual, 'device_id' => (string) ($hidden['hidden_device_id'] ?? '')]);
+check(($ack['success'] ?? false) === true, 'keep manual: the neighbor is acknowledged', $ack);
+$view = $admin->json('topology.devices.get');
+$faded = array_values(array_filter($view['relations'], static fn (array $r): bool => (string) ($r['edge_id'] ?? '') === (string) $link['id']))[0] ?? null;
+check($faded !== null && $faded['superseded_at'] !== null, 'after the acknowledgement the superseded edge is drawn (its relation has superseded_at: the page draws it as a faded line)', $faded['superseded_at'] ?? null);
+// restore the data: M removed, a run revives L
+$post('topology.link.remove', ['id' => (string) $manual]);
+$cli();
+check((int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$manual}")->fetchColumn() === 0 && (int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$link['id']} AND JSON_EXTRACT(attrs, '$.superseded_at') IS NULL")->fetchColumn() === 1,
+	'the data is as it was: M removed, L active again after a run');
+
+echo $failed ? "\n{$failed} check(s) FAILED\n" : "\nAll graph page checks passed.\n";
 exit($failed ? 1 : 0);
