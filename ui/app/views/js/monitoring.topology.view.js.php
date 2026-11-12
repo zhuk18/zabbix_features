@@ -81,6 +81,14 @@ const view = new class {
 			setTimeout(() => this.render(), 160);
 		});
 		this.buildLegend(<?= json_encode((bool) ($data['legend_collapsed'] ?? 0)) ?>);
+		// "Fit" (§12.1, 2.72): the whole graph in the window
+		const fit_button = document.createElement('button');
+		fit_button.type = 'button';
+		fit_button.id = 'topology-fit';
+		fit_button.className = 'btn-alt topology-fit';
+		fit_button.textContent = <?= json_encode(_('Fit')) ?>;
+		fit_button.addEventListener('click', () => this.fit());
+		document.querySelector('.topology-workspace').appendChild(fit_button);
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -354,6 +362,8 @@ const view = new class {
 			source_port_id: relation.source_port_id, target_port_id: relation.target_port_id,
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
+			// the LAG of each end (2.72, §12.3 "LAG bundle"): the id and the name, when known
+			source_lag_id: relation.source_lag_id ?? null, source_lag: relation.source_lag ?? null, target_lag_id: relation.target_lag_id ?? null, target_lag: relation.target_lag ?? null,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
 			// colour of the line (§12.3): severity of the problems on the items of the end ports
 			severity: relation.severity ?? null, severity_name: relation.severity_name ?? null, color: relation.color ?? null,
@@ -1884,9 +1894,15 @@ const view = new class {
 				pattern.append('rect').attr('width', 8).attr('height', 8).attr('fill', '#2b7dbc');
 				pattern.append('rect').attr('width', 4).attr('height', 8).attr('fill', '#f59e0b');
 			});
+		// §12.3 "LAG bundle" (2.72): port-level links of one LAG between the same two nodes with the same channels are one line; a contradicted manual link keeps its own line
+		simulation_links = G.bundleLinks(simulation_links, link => !this.contradictionOf(link.edge_id)?.contradicted);
 		simulation_links.forEach(link => {
 			link.source = node_by_id.get(link.source);
 			link.target = node_by_id.get(link.target);
+			(link.members ?? []).forEach(member => {
+				member.source = node_by_id.get(member.source) ?? member.source;
+				member.target = node_by_id.get(member.target) ?? member.target;
+			});
 		});
 		const parallel = G.parallelIndex(simulation_links);
 		simulation_links.forEach((link, i) => {
@@ -1906,10 +1922,10 @@ const view = new class {
 				if (link.type === 'device_link') {
 					return link.discovered_via === 'manual' ? '#334155' : '#64748b';
 				}
-				return link.type === 'physical_link' && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
+				return ['physical_link', 'lag_bundle'].includes(link.type) && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
 			},
 			width: link => {
-				const severe = link.type === 'physical_link' && link.severity !== null && link.severity !== undefined;
+				const severe = ['physical_link', 'lag_bundle'].includes(link.type) && link.severity !== null && link.severity !== undefined;
 				return link.type === 'device_link' ? 3 : (severe ? 4 : 2);
 			}
 		};
@@ -1919,13 +1935,8 @@ const view = new class {
 		const links = scene.append('g').selectAll('path').data(simulation_links).join('path')
 			.attr('class', 'topology-link')
 			.style('fill', 'none')
-			.style('cursor', link => link.type === 'group_link' ? 'default' : 'pointer')
-			.style('pointer-events', 'stroke')
-			.on('click', (event, link) => {
-				if (link.type !== 'group_link') {
-					this.selectLink(link);
-				}
-			})
+			// the hit lines (§12.3 "Hit area of a line") take the pointer; the line itself does not
+			.style('pointer-events', 'none')
 			// style, not attribute: the stylesheet rule .topology-link{stroke:...} would override a presentation attribute
 			.style('stroke', link_style.stroke)
 			.style('stroke-width', link_style.width)
@@ -1937,11 +1948,15 @@ const view = new class {
 				if (link.type === 'device_link') {
 					return '1 4';
 				}
-				return (link.type === 'physical_link' && link.discovered_via === 'manual') ? '5 3' : null;
+				return (['physical_link', 'lag_bundle'].includes(link.type) && link.discovered_via === 'manual') ? '5 3' : null;
 			})
 			// staleness (§12.3): a third independent channel; never collapse it into the dash pattern or the colour
-			.style('opacity', link => (['physical_link', 'device_link'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
-		links.append('title').text(link => {
+			.style('opacity', link => (['physical_link', 'lag_bundle', 'device_link'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
+		const link_tooltip = link => {
+			if (link.type === 'lag_bundle') {
+				// the members, each with its two ports, its status and its load (§4.8)
+				return [`${link.source.name} ↔ ${link.target.name}: LAG ${link.label}`, ...link.members.map(member => this.memberLine(member))].join('\n');
+			}
 			if (link.type === 'physical_link') {
 				const provenance = link.discovered_via === 'manual'
 					? <?= json_encode(_('manually declared')) ?>
@@ -1973,12 +1988,17 @@ const view = new class {
 				return this.deviceLinkTooltip(link);
 			}
 			return '';
-		});
+		};
 		// A bundle of device-level links between the same two Devices is one line labelled with the count and the known local ports on each side ("2 links: Gi0/1, Gi0/2 ↔ ?").
 		const bundle_data = simulation_links.filter(link => link.type === 'device_link' && (link.count ?? 0) > 1);
 		const bundle_labels = scene.append('g').selectAll('text').data(bundle_data).join('text')
 			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#475569')
 			.style('pointer-events', 'none').text(link => this.deviceBundleLabel(link));
+		// the label of a LAG bundle at the middle of its line: "Trk1 ×2", "lag16 ↔ Trk1 ×2" (the name comes from the network: text())
+		const lag_labels = scene.append('g').selectAll('text').data(simulation_links.filter(link => link.type === 'lag_bundle')).join('text')
+			.attr('text-anchor', 'middle').style('font-size', '10px').style('fill', '#334155').style('pointer-events', 'none')
+			.style('paint-order', 'stroke').style('stroke', halo_colour).style('stroke-width', '3px').style('stroke-linejoin', 'round')
+			.text(link => link.label);
 		// Manual links contradicted by discovery (topology-1-model.md "Contradicted manual links"). Ghost link: where discovery says the cable actually goes — a dashed orange
 		// line from the reporting Device to the hidden neighbor, not a stored link. One per Device pair however many observations say it. Acknowledged → none.
 		const ghost_data = [];
@@ -1997,12 +2017,9 @@ const view = new class {
 			ghost_data.push({from, to, entry, shadow});
 		});
 		const ghosts = scene.append('g').selectAll('g').data(ghost_data).join('g')
-			.attr('class', 'topology-ghost-link')
-			.style('cursor', 'pointer')
-			.on('click', (event, ghost) => this.manualAction('open', ghost.entry.edge_id));
+			.attr('class', 'topology-ghost-link');
 		const ghost_lines = ghosts.append('line').attr('stroke', '#c2410c').attr('stroke-width', 2)
-			.attr('stroke-dasharray', '2 5').style('pointer-events', 'stroke');
-		ghosts.append('title').text(ghost => this.shadowText(ghost.shadow));
+			.attr('stroke-dasharray', '2 5').style('pointer-events', 'none');
 		const ghost_labels = ghosts.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
 			.style('fill', '#c2410c').style('pointer-events', 'none').text(ghost => ghost.shadow.remote_port ?? '');
 		// Pair lines of the filter (V-17): one dashed line per pair of candidates, labelled with the reason; not a link. A click opens the pair.
@@ -2023,11 +2040,9 @@ const view = new class {
 			});
 		}
 		const pairs = scene.append('g').selectAll('g').data(pair_data).join('g')
-			.attr('class', 'topology-pair-line').style('cursor', 'pointer')
-			.on('click', (event, pair) => this.selectPair(pair.a, pair.candidate));
+			.attr('class', 'topology-pair-line');
 		const pair_lines = pairs.append('line').attr('stroke', '#b45309').attr('stroke-width', 2)
-			.attr('stroke-dasharray', '8 4').style('pointer-events', 'stroke');
-		pairs.append('title').text(pair => this.pairReason(pair.candidate));
+			.attr('stroke-dasharray', '8 4').style('pointer-events', 'none');
 		const pair_labels = pairs.append('text').attr('text-anchor', 'middle').style('font-size', '10px')
 			.style('fill', '#b45309').style('pointer-events', 'none').text(pair => this.pairReason(pair.candidate));
 		const contradicted_links = simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type) && link.edge_id !== null
@@ -2039,6 +2054,78 @@ const view = new class {
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
 			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
 		link_badges.append('title').text(link => this.contradictionSummary(this.contradictionOf(link.edge_id)));
+
+		// ---- the hit lines (§12.3 "Hit area of a line", 2.72) ----
+		// Every drawn line (link, LAG bundle, group line, ghost, duplicate pair line) has an invisible hit line along it, 12 px wide, in a layer under the nodes. The pointer on a hit line is
+		// a hover on the line that is NEAREST to the pointer (parallel lines meet): its highlight outline and its tooltip; a click opens its panel.
+		const extra_glows = scene.insert('g', ':first-child');
+		const line_entries = [];
+		const straight = (a, b) => `M${a.x},${a.y}L${b.x},${b.y}`;
+		simulation_links.forEach((link, i) => {
+			if (link.type === 'monitored_by') {
+				return;
+			}
+			const group_node = link.type === 'group_link' ? (link.source.type === 'group' ? link.source : link.target) : null;
+			line_entries.push({
+				link,
+				d: () => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d,
+				glow: () => glows.nodes()[i],
+				tooltip: () => group_node ? describeSubject(group_node) : link_tooltip(link),
+				open: () => {
+					if (group_node) {
+						this.showGroup(group_node);
+					}
+					else if (link.type === 'lag_bundle') {
+						this.selectBundle(link);
+					}
+					else {
+						this.selectLink(link);
+					}
+				}
+			});
+		});
+		const glow_of = (width, d_fn) => {
+			const glow = extra_glows.append('path').attr('class', 'topology-link-glow').style('stroke-width', `${width}px`).node();
+			glow.d_fn = d_fn;
+			return glow;
+		};
+		ghost_data.forEach(ghost => {
+			const d = () => straight(ghost.from, ghost.to);
+			const glow = glow_of(8, d);
+			line_entries.push({d, glow: () => glow, tooltip: () => this.shadowText(ghost.shadow), open: () => this.manualAction('open', ghost.entry.edge_id)});
+		});
+		pair_data.forEach(pair => {
+			const d = () => straight(pair.from, pair.to);
+			const glow = glow_of(8, d);
+			line_entries.push({d, glow: () => glow, tooltip: () => this.pairReason(pair.candidate), open: () => this.selectPair(pair.a, pair.candidate)});
+		});
+		const hit_layer = scene.append('g').attr('class', 'topology-hit-layer');
+		const hits = hit_layer.selectAll('path').data(line_entries).join('path').attr('class', 'topology-hit')
+			.style('fill', 'none').style('stroke', 'transparent').style('stroke-width', '12px').style('pointer-events', 'stroke').style('cursor', 'pointer');
+		hits.each((entry, i, elements) => {
+			entry.hit = elements[i];
+		});
+		const nearest_entry = event => {
+			const point = d3.pointer(event, scene.node());
+			let best = null;
+			let best_distance = 6.5 + 6 / (this.zoom_transform?.k ?? 1);
+			line_entries.forEach(entry => {
+				const length = entry.hit.getTotalLength();
+				for (let at = 0; at <= length; at += 4) {
+					const p = entry.hit.getPointAtLength(at);
+					const distance = Math.hypot(p.x - point[0], p.y - point[1]);
+					if (distance < best_distance) {
+						best_distance = distance;
+						best = entry;
+					}
+				}
+			});
+			return best;
+		};
+		hits.on('mousemove', (event, entry) => this.hoverLine(event, nearest_entry(event) ?? entry))
+			.on('mouseleave', () => this.hoverLine(null, null))
+			.on('click', (event, entry) => (nearest_entry(event) ?? entry).open());
+		this.line_entries = line_entries;
 
 		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind. Fill = the severity
 		// of a Host only: white without problems, the severity colour with them, muted when the Host is disabled. A Proxy is neutral, a Device is always grey. Maintenance, blind
@@ -2222,6 +2309,12 @@ const view = new class {
 				const mid = G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid;
 				return `translate(${mid.x},${mid.y})`;
 			});
+			lag_labels.attr('x', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.x)
+				.attr('y', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.y - 4);
+			hits.attr('d', entry => entry.d());
+			extra_glows.selectAll('path').attr('d', function () {
+				return this.d_fn();
+			});
 			bundle_labels.attr('x', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.x)
 				.attr('y', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.y - 6);
 		};
@@ -2230,6 +2323,68 @@ const view = new class {
 		this.drawn_links = simulation_links;
 		this.link_selection = links;
 		this.glow_selection = glows;
+	}
+
+	// A line of a LAG bundle in the tooltip and the panel: its two ports, its status and its load (§4.8). The names come from the network; the callers write them with text().
+	memberLine(member) {
+		const status = {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>};
+		const sides = [member.source_status ? `${status[member.source_status] ?? member.source_status}` : null, member.target_status ? `${status[member.target_status] ?? member.target_status}` : null].filter(Boolean);
+		const loads = [[member.source, member.source_load], [member.target, member.target_load]].map(([node, load]) => (this.loadText(load) === '' ? '' : `${node?.name ?? ''} ${this.loadText(load)}`)).filter(Boolean);
+		return `${member.source?.name ?? ''} ${member.source_port ?? '?'} ↔ ${member.target?.name ?? ''} ${member.target_port ?? '?'}` + (sides.length ? ` — ${sides.join(' / ')}` : '') + (loads.length ? ` — ${loads.join('; ')}` : '');
+	}
+
+	// The panel of a LAG bundle: the members, each with its ports, status and load; a click on a member opens its link panel.
+	selectBundle(bundle) {
+		this.select_token = (this.select_token ?? 0) + 1;
+		this.setDetailsTitle(<?= json_encode(_('Link details')) ?>);
+		this.details.innerHTML = `<h2>${this.escape(`${bundle.source.name} ↔ ${bundle.target.name}`)}</h2><p class="topology-device-class">LAG ${this.escape(bundle.label)}</p>` +
+			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Members')) ?>)}</th></tr></thead><tbody>` +
+			bundle.members.map((member, i) => `<tr class="topology-group-row" data-member="${i}"><td title="${this.escape(this.memberLine(member))}">${this.escape(this.memberLine(member))}</td></tr>`).join('') + '</tbody></table></section>';
+		this.details.querySelectorAll('[data-member]').forEach(row => row.addEventListener('click', () => this.selectLink(bundle.members[Number(row.dataset.member)])));
+	}
+
+	// The tooltip of a line (§12.3 "Hit area of a line"): the line nearest to the pointer; plain text.
+	hoverLine(event, entry) {
+		if (this.hover_entry && this.hover_entry !== entry) {
+			d3.select(this.hover_entry.glow()).classed('topology-link-hover', false);
+		}
+		this.hover_entry = entry;
+		this.tooltip ??= (() => {
+			const element = document.createElement('div');
+			element.id = 'topology-tooltip';
+			element.className = 'topology-tooltip';
+			element.hidden = true;
+			document.body.appendChild(element);
+			return element;
+		})();
+		if (!entry) {
+			this.tooltip.hidden = true;
+			return;
+		}
+		d3.select(entry.glow()).classed('topology-link-hover', true);
+		this.tooltip.textContent = entry.tooltip();
+		this.tooltip.hidden = false;
+		const width = this.tooltip.offsetWidth;
+		this.tooltip.style.left = `${Math.min(event.clientX + 14, window.innerWidth - width - 8)}px`;
+		this.tooltip.style.top = `${Math.min(event.clientY + 14, window.innerHeight - this.tooltip.offsetHeight - 8)}px`;
+	}
+
+	// "Fit" (§12.1 "Fit", 2.72): the zoom is set so that the whole drawn graph is in the window, and the graph is centred.
+	fit() {
+		const nodes = this.drawn_nodes ?? [];
+		if (!nodes.length) {
+			return;
+		}
+		const left = Math.min(...nodes.map(node => node.x - node.box.w / 2));
+		const right = Math.max(...nodes.map(node => node.x + node.box.w / 2));
+		const top = Math.min(...nodes.map(node => node.y + node.box.top));
+		const bottom = Math.max(...nodes.map(node => node.y + node.box.bottom));
+		const bounds = this.canvas.node().getBoundingClientRect();
+		const pad = 24;
+		const k = Math.max(0.15, Math.min(2, (bounds.width - 2 * pad) / (right - left), (bounds.height - 2 * pad) / (bottom - top)));
+		const transform = d3.zoomIdentity.translate(bounds.width / 2 - k * (left + right) / 2, bounds.height / 2 - k * (top + bottom) / 2).scale(k);
+		this.user_moved = true;
+		this.canvas.call(this.zoom.transform, transform);
 	}
 
 	// Hover (§12.3): the node and its drawn links get a highlight outline, nothing else changes (the opacity stays the channel of stale links).

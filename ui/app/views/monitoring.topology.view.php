@@ -98,6 +98,9 @@ $page_styles = '
 .topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
 .topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
 .topology-group-fold{margin:8px 0}
+.topology-fit{position:absolute;left:8px;top:8px;z-index:2;padding:2px 12px}
+.topology-tooltip{position:fixed;z-index:1000;max-width:420px;padding:5px 8px;font-size:12px;line-height:1.35;color:#fff;background:rgba(31,41,55,.95);border-radius:3px;white-space:pre-line;pointer-events:none}
+.topology-tooltip[hidden]{display:none}
 .topology-group-row{cursor:pointer}
 .topology-group-row:hover{background:#eef6fc}
 ';
