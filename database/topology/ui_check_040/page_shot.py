@@ -353,10 +353,10 @@ CHECKS = {
         // 2.75: the cells of a row of the Links section (the neighbor and the ports come from the network) and the Copy of the identity stay text
         div.innerHTML = '<table><tbody>' + view.linkEntryHtml({port_id: '1', edge_id: '9', port: '<i>p</i>', remote_port: '<b>q</b>', remote_device_id: null, connected_to: evil, status: 'up', source: 'LLDP', source_text: 'LLDP',
             load: null, stale: true, last_seen: 5, superseded_at: null, lag_id: null, lag: null, remote_lag_id: null, remote_lag: null, device_link_id: null, linked_port_id: '2'}) + '</tbody></table>';
-        const cell = div.querySelector('td.topology-link-neighbor span, td.topology-link-neighbor a');
+        const cell = div.querySelector('.topology-link-name span.topology-neighbor, .topology-link-name a.topology-neighbor');
         const r = {node_title_is_text: !!title && title.childElementCount === 0, img_in_svg: document.querySelectorAll('#topology-canvas img').length,
             script_ran: window.__xss === 1, cell_title: cell.getAttribute('title'), img_in_table: !!div.querySelector('img, b, i'),
-            port_title: div.querySelector('td.topology-link-ports').getAttribute('title')};
+            port_title: div.querySelector('.topology-link-ports').getAttribute('title')};
         r.ok = r.node_title_is_text && !r.img_in_svg && !r.script_ran && r.cell_title === evil && !r.img_in_table && r.port_title === '<i>p</i> ↔ <b>q</b>';
         return r;
     })()''',

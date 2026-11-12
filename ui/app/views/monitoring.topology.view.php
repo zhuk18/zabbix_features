@@ -116,20 +116,18 @@ $page_styles = '
 .topology-section>summary{cursor:pointer;font-weight:bold;font-size:13px;padding:2px 0}
 .topology-port-group>summary{cursor:pointer;font-weight:bold;font-size:12px;margin:6px 0 2px}
 .topology-links-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
-.topology-links-table td{padding:3px 3px;white-space:nowrap;overflow:hidden;text-overflow:clip;border-bottom:1px solid #eef1f3;vertical-align:middle}
-.topology-links-table td.topology-link-neighbor{width:25%}
-.topology-links-table td.topology-link-ports{width:26%}
-.topology-links-table td.topology-link-status{width:5%;text-align:center}
-.topology-links-table td.topology-link-source{width:8%;font-size:11px}
-.topology-links-table td.topology-link-load{width:25%;font-size:11px}
-.topology-links-table td.topology-link-menu{width:7%;text-align:right;overflow:visible}
-.topology-links-table tr.topology-link-note td{font-size:11px;color:#7c2d12;padding-left:14px;border-bottom:1px solid #eef1f3}
+.topology-links-table td.topology-link-main{padding:4px 3px;border-bottom:1px solid #eef1f3;overflow:visible}
 .topology-links-table tr[hidden]{display:none}
+.topology-link-line1{display:flex;align-items:center;justify-content:space-between;gap:6px;white-space:nowrap}
+.topology-link-name{min-width:0;overflow:hidden;font-size:13px}
+.topology-link-line2{margin-top:1px;font-size:11px;color:#6b7782;line-height:1.35}
+.topology-link-line2 .topology-sep{color:#9aa5ae}
+.topology-link-mark{color:#7c2d12}
 .topology-link-row.topology-row-hover td{background:#e3f0fa}
 .topology-neighbor{color:#2b7dbc;cursor:pointer}
 span.topology-neighbor{color:inherit;cursor:default}
 .topology-bundle-toggle{border:0;background:none;cursor:pointer;padding:0 3px 0 0;font-size:11px;color:#3d556a}
-.topology-link-member td.topology-link-neighbor{padding-left:16px}
+.topology-link-member td.topology-link-main{padding-left:18px}
 .topology-problem-counts{margin:4px 0}
 .topology-problems-table{width:100%;border-collapse:collapse;font-size:12px}
 .topology-problems-table td{padding:2px 3px;border-bottom:1px solid #eef1f3;white-space:nowrap}

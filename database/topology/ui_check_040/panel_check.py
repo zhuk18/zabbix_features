@@ -71,15 +71,18 @@ PANEL = """(() => {
     const d = document.getElementById('topology-details');
     const title = document.getElementById('topology-details-title');
     const sections = Array.from(d.querySelectorAll(':scope > details.topology-section')).map(e => e.className.replace('topology-section', '').replace('topology-', '').trim() + (e.open ? '+' : '-'));
-    const row_controls = Array.from(d.querySelectorAll('.topology-links-table tr.topology-link-row')).filter(r => !r.hidden).map(r => Array.from(r.querySelectorAll('button, a')).filter(e => !e.closest('.topology-menu-list')
-        && !e.classList.contains('topology-menu-button') && !e.classList.contains('topology-bundle-toggle') && !e.classList.contains('topology-neighbor')).length);
     const rows = Array.from(d.querySelectorAll('.topology-links-table tr.topology-link-row')).filter(r => !r.hidden);
+    const row_controls = rows.map(r => Array.from(r.querySelectorAll('button, a')).filter(e => !e.closest('.topology-menu-list')
+        && !e.classList.contains('topology-menu-button') && !e.classList.contains('topology-bundle-toggle') && !e.classList.contains('topology-neighbor')).length);
+    const names = rows.map(r => { const n = r.querySelector('.topology-neighbor'); return [n.textContent, n.getAttribute('title')]; });
+    const line2 = rows.map(r => r.querySelector('.topology-link-line2').textContent);
     return {sections, title_visible: !title.hidden && title.offsetHeight > 0, title_text: title.textContent, has_device_details: d.textContent.includes('Device details'),
         name: (d.querySelector('.topology-node-name') || {textContent: ''}).textContent.trim(), icon: !!d.querySelector('.topology-node-icon'), kind: (d.querySelector('.topology-node-kind') || {textContent: ''}).textContent,
         actions: Array.from(d.querySelectorAll('.topology-node-actions > *')).map(e => e.classList.contains('topology-menu') ? e.querySelector('.topology-menu-button').textContent : (e.textContent || '').trim()),
         summary: (d.querySelector('.topology-node-summary') || {textContent: ''}).textContent,
-        row_controls: row_controls.filter(n => n > 0).length, rows: rows.length, row_heights: rows.map(r => Math.round(r.getBoundingClientRect().height)),
-        row_overflow: rows.filter(r => Array.from(r.children).some(c => c.scrollWidth > c.clientWidth + 1 && !c.classList.contains('topology-link-menu'))).length,
+        row_controls: row_controls.filter(n => n > 0).length, rows: rows.length, row_heights: rows.map(r => Math.round(r.getBoundingClientRect().height)), names, line2,
+        line_counts: rows.map(r => r.querySelectorAll('.topology-link-line1, .topology-link-line2').length),
+        row_overflow: rows.filter(r => Array.from(r.querySelectorAll('.topology-link-line1, .topology-link-line2')).some(c => c.scrollWidth > c.clientWidth + 1)).length,
         panel_width: Math.round(d.getBoundingClientRect().width)};
 })()"""
 
@@ -93,9 +96,12 @@ try:
     check(not r['title_visible'] and not r['has_device_details'], 'no "Device details" on the node panel', [r['title_text'], r['title_visible']])
     check(r['icon'] and r['name'].startswith('SW12-10-CORE-6000-48G') and 'Zabbix host' in r['name'], 'header: class icon, name, kind mark', r['name'])
     check(r['actions'][0] == 'Focus' and 'Neighbor reports' in r['actions'] and r['actions'][-1] == '⋯', 'header actions: Focus, Neighbor reports, the menu', r['actions'])
-    check(re_match := bool(__import__('re').match(r'^\d+ links( · \d+ LAG)?( · \d+ ports( \(\d+ up\))?)?$', r['summary'])), 'summary line "<N> links · <L> LAG · <P> ports (<U> up)"', r['summary'])
+    check(r['summary'] == '11 links to 7 neighbors · 58 ports (30 up)', 'summary line "<N> links to <M> neighbors · <P> ports (<U> up)"', r['summary'])
     check(r['rows'] >= 5 and r['row_controls'] == 0, 'no button or link on a Links row but the neighbor, the toggle and the menu', [r['rows'], r['row_controls']])
-    check(all(h <= 36 for h in r['row_heights']) and r['row_overflow'] == 0, 'one line per row at 1500 x 900 (height <= 36 px, no cell wider than its column)', [r['row_heights'], r['row_overflow']])
+    check(all(n == 2 for n in r['line_counts']) and all(h <= 70 for h in r['row_heights']) and r['row_overflow'] == 0, 'a row has two lines (line 1: neighbor and menu; line 2: ports, status, source, load) and nothing is wider than the panel', [r['line_counts'], r['row_heights'], r['row_overflow']])
+    check(all(shown == full for shown, full in r['names']) and len(set(f for _, f in r['names'])) == len(r['names']), 'every neighbor label is shown in full (no cut) and the neighbors can be told apart', r['names'])
+    check(any(t.startswith('core-lag ×2') for t in r['line2']) and any(t.startswith('Trk1 ×2') for t in r['line2']), 'a bundle row shows "core-lag ×2" and "Trk1 ×2" in full in line 2', r['line2'])
+    check(all(' in ' in t or t.endswith('—') or '%' in t for t in r['line2']), 'line 2 has the load "in x % / out y %"', r['line2'])
     # the Links section replaces the group Connected; the Ports section has the others, folded
     groups = js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).map(e => [e.dataset.group, e.open, e.querySelector('summary').textContent.trim()])")
     check(groups and all(not g[1] for g in groups) and 'connected' not in [g[0] for g in groups], 'Ports: the other groups, folded, and no group Connected', groups)
@@ -151,6 +157,29 @@ try:
     js("document.querySelector('#topology-details .topology-menu-list:not([hidden]) .topology-link-details').click()")
     time.sleep(0.5)
     check(js("document.getElementById('topology-details-title').textContent") == 'Link details', 'Link details opens the panel of the link')
+
+    print('=== a stale link has its mark in line 2; the bundle row menu ===')
+    def sql(statement):
+        return subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip()
+    edge = sql("SELECT e.id, e.attrs FROM topo_edges e JOIN topo_nodes a ON a.id=e.src_id JOIN topo_nodes d ON d.id=a.device_id WHERE e.type='physical_link' AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs,'$.sysname'))='SW12-10-CORE-6000-48G' "
+               "AND JSON_EXTRACT(e.attrs,'$.superseded_at') IS NULL LIMIT 1").split('\t')
+    try:
+        sql("UPDATE topo_edges SET attrs=JSON_SET(attrs,'$.last_seen',1) WHERE id=%s" % edge[0])
+        chrome.kill()
+        chrome, ws, js = session()
+        select(js, 'SW12-10-CORE-6000-48G', 'host')
+        marks = js("Array.from(document.querySelectorAll('#topology-details .topology-link-row')).filter(r => r.querySelector('.topology-link-line2 .topology-link-mark')).map(r => r.querySelector('.topology-link-line2').textContent)")
+        check(len(marks) >= 1 and all('not confirmed since' in m for m in marks), 'a stale link has its mark "not confirmed since <time>" in line 2', marks)
+    finally:
+        sql("UPDATE topo_edges SET attrs='%s' WHERE id=%s" % (edge[1].replace("'", "''"), edge[0]))
+    bundle_menu = js("""(() => { const r = document.querySelector('#topology-details tr.topology-link-bundle'); r.querySelector('.topology-menu-button').click();
+        const items = Array.from(r.querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim()); document.body.click(); return items; })()""")
+    check(bundle_menu == ['Link details'], 'the bundle row has a menu: Link details (Unlink only on members)', bundle_menu)
+    js("document.querySelector('#topology-details tr.topology-link-bundle .topology-menu-button').click()")
+    js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-details').click()")
+    time.sleep(0.5)
+    check('LAG' in js("document.getElementById('topology-details').textContent"), 'Link details of a bundle opens the bundle panel')
+    select(js, 'SW12-10-CORE-6000-48G', 'host')
 
     print('=== zbx-office-gw1 (Host) ===')
     select(js, 'zbx-office-gw1', 'host')

@@ -1300,16 +1300,28 @@ const view = new class {
 		return [...this.nodes.values()].find(node => node.type !== 'device' && node.device && String(node.device.id) === String(device_id)) ?? device;
 	}
 
-	linkEntryHtml(entry, {member = false, bundle = null} = {}) {
+	// The width that a neighbor label may have in line 1 of a Links row: the panel without the menu and the toggle.
+	linkNameBudget(toggle) {
+		return Math.max(90, (this.details.clientWidth || 340) - 62 - (toggle ? 16 : 0));
+	}
+
+	// A row of the Links section has two lines (§12.5, 2.77): line 1 the neighbor (the full width, cut in the middle only when wider) and the menu; line 2, smaller and grey, the ports, the status, the
+	// source, the load and the marks.
+	linkRowHtml({edges, cls = '', hidden = false, toggle = '', neighbor_text, neighbor_node_id, items, line2}) {
+		const esc = value => this.escape(value);
+		const cut = esc(this.cutText(neighbor_text ?? '?', this.linkNameBudget(toggle !== '')));
+		const neighbor = neighbor_node_id !== null && neighbor_node_id !== undefined
+			? `<a class="topology-neighbor" data-node="${esc(neighbor_node_id)}" title="${esc(neighbor_text ?? '?')}">${cut}</a>`
+			: `<span class="topology-neighbor" title="${esc(neighbor_text ?? '?')}">${cut}</span>`;
+		return `<tr class="topology-link-row ${cls}" data-edges="${esc(edges)}"${hidden ? ' hidden' : ''}><td class="topology-link-main">` +
+			`<div class="topology-link-line1"><span class="topology-link-name">${toggle}${neighbor}</span>${this.menuHtml(items, <?= json_encode(_('Link actions')) ?>)}</div>` +
+			`<div class="topology-link-line2">${line2.join('<span class="topology-sep"> · </span>')}</div></td></tr>`;
+	}
+
+	linkEntryHtml(entry, {member = false} = {}) {
 		const esc = value => this.escape(value);
 		const status_labels = {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>};
-		const neighbor_text = entry.connected_to ?? '?';
 		const neighbor_node = entry.remote_device_id !== null ? this.nodeOfDevice(entry.remote_device_id) : null;
-		const neighbor_cut = esc(this.cutText(neighbor_text, 78));
-		const neighbor = neighbor_node
-			? `<a class="topology-neighbor" data-node="${esc(neighbor_node.id)}" title="${esc(neighbor_text)}">${neighbor_cut}</a>`
-			: `<span class="topology-neighbor" title="${esc(neighbor_text)}">${neighbor_cut}</span>`;
-		const ports_text = `${entry.port ?? '?'} ↔ ${entry.remote_port ?? '?'}`;
 		const status = entry.status ?? '';
 		const load = TopologyGraph.loadText(entry.load, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>});
 		const marks = [];
@@ -1333,15 +1345,14 @@ const view = new class {
 		else if (entry.linked_port_id) {
 			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-unlink-button', attrs: `data-port-id="${esc(entry.port_id)}" data-linked-port-id="${esc(entry.linked_port_id)}"`});
 		}
-		const edges = bundle ? bundle.members.map(item => item.edge_id).join(',') : String(entry.edge_id ?? '');
-		return `<tr class="topology-link-row${member ? ' topology-link-member' : ''}" data-edges="${esc(edges)}"${member ? ` data-bundle="${esc(bundle?.key ?? '')}" hidden` : ''}>` +
-			`<td class="topology-link-neighbor">${neighbor}</td>` +
-			`<td class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(entry.port ?? '?', 40))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 40))}</td>` +
-			`<td class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></td>` +
-			`<td class="topology-link-source">${esc(entry.source_text ?? '')}</td>` +
-			`<td class="topology-link-load" title="${esc(load)}">${esc(load)}</td>` +
-			`<td class="topology-link-menu">${this.menuHtml(items, <?= json_encode(_('Link actions')) ?>)}</td></tr>` +
-			(marks.length ? `<tr class="topology-link-note"${member ? ' hidden' : ''}><td colspan="6">${esc(marks.join(' · '))}</td></tr>` : '');
+		const ports_text = `${entry.port ?? '?'} ↔ ${entry.remote_port ?? '?'}`;
+		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(entry.port ?? '?', 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
+			`<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>`,
+			`<span class="topology-link-source">${esc(entry.source_text ?? '')}</span>`, `<span class="topology-link-load">${esc(load)}</span>`];
+		if (marks.length) {
+			line2.push(`<span class="topology-link-mark">${esc(marks.join(' · '))}</span>`);
+		}
+		return this.linkRowHtml({edges: String(entry.edge_id ?? ''), cls: member ? 'topology-link-member' : '', hidden: member, neighbor_text: entry.connected_to, neighbor_node_id: neighbor_node?.id ?? null, items, line2});
 	}
 
 	linkBundleHtml(row, index) {
@@ -1349,20 +1360,27 @@ const view = new class {
 		const first = row.members[0];
 		const key = `b${index}`;
 		const members = row.members;
+		// the load of a bundle: the sum of the bits per second of the members against the sum of their speeds (never a sum of percents, §4.8)
 		const sum = name => members.every(member => member.load && member.load[name] !== null && member.load[name] !== undefined) ? members.reduce((total, member) => total + member.load[name], 0) : null;
 		const speed = members.every(member => member.load && member.load.speed > 0) ? members.reduce((total, member) => total + member.load.speed, 0) : null;
 		const load = TopologyGraph.loadText(speed === null ? null : {in: sum('in'), out: sum('out'), speed}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>});
 		const statuses = [...new Set(members.map(member => member.status))];
-		const neighbor_text = first.connected_to ?? '?';
 		const neighbor_node = first.remote_device_id !== null ? this.nodeOfDevice(first.remote_device_id) : null;
-		const cut = esc(this.cutText(neighbor_text, 58));
-		const neighbor = neighbor_node ? `<a class="topology-neighbor" data-node="${esc(neighbor_node.id)}" title="${esc(neighbor_text)}">${cut}</a>` : `<span class="topology-neighbor" title="${esc(neighbor_text)}">${cut}</span>`;
-		const head = `<tr class="topology-link-row topology-link-bundle" data-edges="${esc(members.map(member => member.edge_id).join(','))}">` +
-			`<td class="topology-link-neighbor"><button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>${neighbor}</td>` +
-			`<td class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(this.cutText('LAG ' + row.label, 90))}</td>` +
-			`<td class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</td>` +
-			`<td class="topology-link-source">${esc(first.source_text ?? '')}</td><td class="topology-link-load" title="${esc(load)}">${esc(load)}</td><td class="topology-link-menu"></td></tr>`;
-		return head + members.map(member => this.linkEntryHtml(member, {member: true, bundle: {key, members: [member]}})).join('');
+		const edge_ids = members.map(member => String(member.edge_id));
+		const items = [];
+		const drawn = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => edge_ids.includes(String(member.edge_id))));
+		if (drawn) {
+			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-bundle-details', attrs: `data-edges="${esc(edge_ids.join(','))}"`});
+		}
+		const local = members.map(member => member.port).join(', ');
+		const remote = members.map(member => member.remote_port ?? '?').join(', ');
+		const ports_text = `${row.label} · ${local} ↔ ${remote}`;
+		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(row.label)} · ${esc(this.cutText(local, 90))} ↔ ${esc(this.cutText(remote, 90))}</span>`,
+			`<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>`,
+			`<span class="topology-link-source">${esc(first.source_text ?? '')}</span>`, `<span class="topology-link-load">${esc(load)}</span>`];
+		const toggle = `<button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
+		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, items, line2}) +
+			members.map(member => this.linkEntryHtml(member, {member: true})).join('');
 	}
 
 	buildLinksSection(rows, open) {
@@ -1386,7 +1404,7 @@ const view = new class {
 				`<table class="topology-problems-table"><tbody>${summary.newest.map(problem => `<tr><td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}" title="${esc(problem.severity_name)}">${esc(problem.severity_name)}</span></td>` +
 					`<td title="${esc(problem.name)}">${esc(this.cutText(problem.name, 170))}</td><td>${esc(this.formatAge(problem.age))}</td></tr>`).join('')}</tbody></table>`;
 		}
-		const all = `<div class="topology-problems-all"><a href="zabbix.php?action=problem.view&filter_name=&hostids%5B%5D=${encodeURIComponent(node.hostid ?? '')}&filter_set=1">${esc(<?= json_encode(_('All problems')) ?>)}</a></div>`;
+		const all = summary.total === 0 ? '' : `<div class="topology-problems-all"><a href="zabbix.php?action=problem.view&filter_name=&hostids%5B%5D=${encodeURIComponent(node.hostid ?? '')}&filter_set=1">${esc(<?= json_encode(_('All problems')) ?>)}</a></div>`;
 		return `<details class="topology-section topology-problems" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Problems')) ?>)}${summary.total ? ` (${summary.total})` : ''}</summary>${body}${all}</details>`;
 	}
 
@@ -1396,8 +1414,9 @@ const view = new class {
 		const name = TopologyGraph.iconOf(device);
 		const bits = (device.device_class_bits ?? []).join(', ');
 		const class_text = `${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
-		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id], [<?= json_encode(_('Device class')) ?>, class_text]]
-			.filter(([, value]) => value).map(([label, value]) => `<tr><th>${esc(label)}</th><td class="topology-address-value" title="${esc(value)}">${esc(value)}</td><td>${copy(value, label)}</td></tr>`).join('');
+		// Copy for the name and the hardware id; the class has none (§12.5, 2.77)
+		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname, true], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id, true], [<?= json_encode(_('Device class')) ?>, class_text, false]]
+			.filter(([, value]) => value).map(([label, value, can_copy]) => `<tr><th>${esc(label)}</th><td class="topology-address-value" title="${esc(value)}">${esc(value)}</td><td>${can_copy ? copy(value, label) : ''}</td></tr>`).join('');
 		// the Addresses are part of it: open for a Device without association, folded for a Host or a Proxy (§12.5)
 		const addresses_html = addresses ? this.buildAddressesFragment(addresses, node.type === 'device') : '';
 		return `<details class="topology-section topology-identity" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Identity')) ?>)}</summary>` +
@@ -1463,10 +1482,11 @@ const view = new class {
 		let summary = '';
 		if (groups) {
 			const all_ports = Object.values(groups).flat();
-			const lags = new Set([...all_ports.filter(port => port.group === 'lag').map(port => `n:${port.port}`), ...all_ports.filter(port => port.lag).map(port => `n:${port.lag}`)]);
-			summary = G.summaryLine({links: entries.filter(entry => !entry.superseded_at).length, lag: lags.size, ports: all_ports.length, up: all_ports.filter(port => port.status === 'up').length},
-				{link: <?= json_encode(_('%1$s link')) ?>, links: <?= json_encode(_('%1$s links')) ?>, lag: <?= json_encode(_('%1$s LAG')) ?>, port: <?= json_encode(_('%1$s port')) ?>,
-					ports: <?= json_encode(_('%1$s ports')) ?>, up: <?= json_encode(_('%1$s up')) ?>});
+			const live = entries.filter(entry => !entry.superseded_at);
+			const neighbors = new Set(live.map(entry => String(entry.remote_device_id ?? entry.connected_to)));
+			summary = G.summaryLine({links: live.length, neighbors: neighbors.size, ports: all_ports.length, up: all_ports.filter(port => port.status === 'up').length},
+				{link: <?= json_encode(_('%1$s link')) ?>, links: <?= json_encode(_('%1$s links')) ?>, neighbor: <?= json_encode(_('%1$s neighbor')) ?>, neighbors: <?= json_encode(_('%1$s neighbors')) ?>,
+					to: <?= json_encode(_('%1$s to %2$s')) ?>, port: <?= json_encode(_('%1$s port')) ?>, ports: <?= json_encode(_('%1$s ports')) ?>, up: <?= json_encode(_('%1$s up')) ?>});
 		}
 		return `<div class="topology-node-head"><div class="topology-node-name">${icon}${name} <span class="topology-node-kind">${esc(kind)}</span></div>` +
 			(badges.length ? `<div class="topology-node-badges">${badges.map(text => `<span class="topology-text-badge">${esc(text)}</span>`).join('')}</div>` : '') +
@@ -1534,6 +1554,13 @@ const view = new class {
 			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(event.currentTarget.dataset.edge));
 			if (link) {
 				this.selectLink(this.resolvedLink(link));
+			}
+		});
+		on('.topology-bundle-details', event => {
+			const ids = event.currentTarget.dataset.edges.split(',');
+			const bundle = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => ids.includes(String(member.edge_id))));
+			if (bundle) {
+				this.selectBundle(bundle);
 			}
 		});
 		on('.topology-bundle-toggle', event => {
@@ -2340,31 +2367,20 @@ const view = new class {
 					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
 			}
 			if (link.type === 'physical_link') {
-				const provenance = link.discovered_via === 'manual'
-					? <?= json_encode(_('manually declared')) ?>
-					: (link.discovery_source || 'lldp').toUpperCase() + '-' + <?= json_encode(_('discovered')) ?>;
-				const status_labels = {
-					up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>,
-					disabled: <?= json_encode(_('Disabled')) ?>
-				};
-				const sides = [];
-				if (link.source_status) {
-					sides.push(`${link.source.name}: ${status_labels[link.source_status] ?? link.source_status}`);
+				const marks = [];
+				if (link.superseded_at) {
+					marks.push(this.replacedNote(link));
 				}
-				if (link.target_status) {
-					sides.push(`${link.target.name}: ${status_labels[link.target_status] ?? link.target_status}`);
+				else if (link.stale) {
+					marks.push(<?= json_encode(_('Not recently reconfirmed.')) ?>);
 				}
-				const ports = link.source_port || link.target_port ? ` ${link.source.name} ${link.source_port ?? '?'} ↔ ${link.target.name} ${link.target_port ?? '?'}.` : '';
-				const loads = [[link.source, link.source_load], [link.target, link.target_load]].map(([node, load]) => {
-					const text = this.loadText(load);
-					return text === '' ? '' : ` ${node.name} ${<?= json_encode(_('load')) ?>}: ${text}.`;
-				}).join('');
-				const severity_note = link.severity !== null && link.severity !== undefined ? ` ${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.` : '';
-				const lost = this.lostPrecisionNotes(link).map(note => ` ${note}`).join('') + loads + severity_note;
-				const stale_note = (link.superseded_at
-					? ` ${this.replacedNote(link)}`
-					: (link.stale ? ` ${<?= json_encode(_('Not recently reconfirmed.')) ?>}` : '')) + lost;
-				return `${provenance}.${ports}${sides.length ? ' ' + sides.join(', ') : ''}${stale_note}`;
+				marks.push(...this.lostPrecisionNotes(link));
+				if (link.severity !== null && link.severity !== undefined) {
+					marks.push(`${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.`);
+				}
+				const source = link.discovered_via === 'manual' ? <?= json_encode(_('manual')) ?> : this.sourceText(link.discovery_source || 'lldp');
+				return G.linkTooltip({...link, source_text: source, marks}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
+					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
 			}
 			if (link.type === 'device_link') {
 				return this.deviceLinkTooltip(link);
