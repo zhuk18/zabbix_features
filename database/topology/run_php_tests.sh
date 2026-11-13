@@ -46,6 +46,7 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds> <log or reason>
 	case $status in
 		PASS) echo "pass  $name" ;;
 		SKIP) echo "SKIP  $name   ($info)" ;;
+		INFRA) echo "INFRA $name   ($info)"; failed=1 ;;
 		*) echo "FAIL  $name   ($info)"; failed=1 ;;
 	esac
 }
@@ -58,6 +59,36 @@ exec_test() {
 	"$@" >"$log" 2>&1
 	rc=$?
 	record "$name" $([ $rc = 0 ] && echo PASS || echo FAIL) $(( $(date +%s) - s )) "$log"
+}
+
+# page_test <name> <log> <command...> (task 098 §2): a check of the real page. Each run has a limit of PAGE_TIMEOUT seconds (default 900). An infrastructure error is the limit, "chrome did not start",
+# "login failed", or no result line at all (a Chrome that did not answer): it is retried once, and counted apart ("infrastructure: <n>"); a check that FAILS (a result line says so) is never retried.
+infra=0
+page_infra() {   # page_infra <rc> <log>: 0 when the run was an infrastructure error
+	local rc=$1 log=$2
+	[ "$rc" = 0 ] && return 1
+	[ "$rc" = 124 ] && return 0
+	grep -qE 'chrome did not start|login failed' "$log" && return 0
+	grep -qE '^(check [a-z]+: (ok|FAILED)|[ \t]*(ok|FAIL):|[0-9]+ check\(s\) FAILED|All .* passed)' "$log" && return 1
+	return 0
+}
+page_test() {
+	local name=$1 log=$2 s rc attempt
+	shift 2
+	s=$(date +%s)
+	for attempt in 1 2; do
+		timeout "${PAGE_TIMEOUT:-900}" "$@" >"$log" 2>&1
+		rc=$?
+		page_infra $rc "$log" || break
+		infra=$(( infra + 1 ))
+		echo "infra $name   (attempt $attempt, exit $rc; see $log)"
+		[ $attempt = 1 ] && cp "$log" "$log.attempt1"
+	done
+	if page_infra $rc "$log"; then
+		record "$name" INFRA $(( $(date +%s) - s )) "$log"
+	else
+		record "$name" $([ $rc = 0 ] && echo PASS || echo FAIL) $(( $(date +%s) - s )) "$log"
+	fi
 }
 
 php_test() {   # php_test <database> <test> [dsn|name]
@@ -171,50 +202,52 @@ fi
 if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v google-chrome >/dev/null && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host like 'SW12-%' limit 1" 2>/dev/null)" ]; then
 	shot="$here/ui_check_040/page_shot.py"
 	sw12=SW12-10-CORE-6000-48G
-	exec_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
-	exec_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
+	page_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
+	page_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
 	# task 090 (model §12.1, §12.2): no node box overlaps another, at both window sizes, without a focus host (force placement) and with one (radial placement); the switch
 	# "Show devices without links"; the Addresses of SW12 with the count and the folded sources
-	exec_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
-	exec_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
-	exec_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
-	exec_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
-	exec_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
+	page_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
+	page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
+	page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
+	page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
+	page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
 	# a Host without a Device and without a link (a throwaway host through the API): not drawn, drawn with the switch, drawn as the focus host (091)
 	if [ -n "${ZBX_TOKEN:-}" ]; then
-		exec_test "page: a Host without a Device and without a link" /tmp/topo_t_nolink_host.log python3 "$here/ui_check_040/nolink_host.py"
+		page_test "page: a Host without a Device and without a link" /tmp/topo_t_nolink_host.log python3 "$here/ui_check_040/nolink_host.py"
 	else
 		skip "page: a Host without a Device and without a link" "needs ZBX_TOKEN in the environment"
 	fi
 	# a real mouse double click on the SW18 parent and on an unfolded leaf folds the group, the panel shows it, no zoom (091)
-	exec_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
+	page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
 	# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
-	exec_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
-	exec_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
+	page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
+	page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
+	# the Fold / Unfold toggle in the group and parent panels, Back in a panel opened from another panel (098)
+	page_test "page: Fold / Unfold toggle and Back in the panel" /tmp/topo_t_stack.log python3 "$here/ui_check_040/stack_check.py"
 	# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
-	exec_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
-	exec_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
-	exec_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check arc --out /tmp/topo_t_arc.png
-	exec_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
-	exec_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
+	page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
+	page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
+	page_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check arc --out /tmp/topo_t_arc.png
+	page_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
+	page_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
 	# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
 	exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
 	# the UI only requests a run, the CLI executes it; executor_missing; a write action waits for the run lock; accept discovery (087)
 	# the page header and filter bar, parallel links, leaf groups (090)
 	exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
 	exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
-	exec_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
-	exec_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
+	page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
+	page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
 	# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
 	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
-		exec_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png
-		exec_test "page Addresses labels 1460x900, menu open" /tmp/topo_t_addr_1460.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1460 --height 900 --menu open --check addresses --out /tmp/topo_t_addr_1460.png
+		page_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png
+		page_test "page Addresses labels 1460x900, menu open" /tmp/topo_t_addr_1460.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1460 --height 900 --menu open --check addresses --out /tmp/topo_t_addr_1460.png
 	else
 		skip "page Addresses labels (ui_check_040/page_shot.py --check addresses)" "the office host SW15-10-POE-6000-24G is not in the lab"
 	fi
 	# the duplicate panel and the filter "possible duplicate" (057): the MikroTik Devices of SW18 share the address 192.168.88.1
 	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from topo_nodes where type = 'device' and attrs like '%same_address%' limit 1" 2>/dev/null)" ] && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW19-09-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
-		exec_test "page duplicate panel and filter 1460x900, menu open" /tmp/topo_t_dup_1460.log python3 "$shot" --depth "" --select MikroTik --width 1460 --height 900 --menu open --check duplicates --out /tmp/topo_t_dup_1460.png
+		page_test "page duplicate panel and filter 1460x900, menu open" /tmp/topo_t_dup_1460.log python3 "$shot" --depth "" --select MikroTik --width 1460 --height 900 --menu open --check duplicates --out /tmp/topo_t_dup_1460.png
 	else
 		skip "page duplicate panel and filter (ui_check_040/page_shot.py --check duplicates)" "no Device with a same_address candidate in the lab (run the scenario R1 first) or the office host SW19 is missing"
 	fi
@@ -226,5 +259,5 @@ fi
 echo
 printf '%-62s %-5s %7s %7s\n' test result checks seconds
 awk -F'|' '{ printf "%-62s %-5s %7s %7s\n", $1, $2, ($2 == "SKIP" ? "-" : $3), ($2 == "SKIP" ? "-" : $4) }' "$results"
-awk -F'|' '$2 == "PASS" { p++; c += $3 } $2 == "FAIL" { f++ } $2 == "SKIP" { s++ } END { printf "\n%d passed (%d checks), %d failed, %d skipped; duration %d s\n", p, c, f, s, 0 }' "$results" | sed "s/duration 0 s/duration $(( $(date +%s) - start_all )) s/"
+awk -F'|' '$2 == "PASS" { p++; c += $3 } $2 == "FAIL" { f++ } $2 == "SKIP" { s++ } $2 == "INFRA" { i++ } END { printf "\n%d passed (%d checks), %d failed, %d skipped, infrastructure: %d; duration %d s\n", p, c, f, s, i, 0 }' "$results" | sed "s/duration 0 s/duration $(( $(date +%s) - start_all )) s/"
 exit $failed

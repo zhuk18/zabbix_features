@@ -104,6 +104,26 @@ class WebSocket:
 
 
 # Checks of model §12.1 "Layout" (task 042), run in the real page after the filter (and --select)
+# task 098 §2: the evidence of an overlap failure (the boxes with coordinates, the overlapping pairs and by how many px, the label places, the node positions); the page script of the checks
+# `overlap` and `arc` has it as `collect(tag)`, main() writes it into a folder with a screenshot
+COLLECT_JS = '''
+        const collect = tag => {
+            const box = (name, e) => { const b = e.getBoundingClientRect(); return {name, left: b.left, right: b.right, top: b.top, bottom: b.bottom}; };
+            const nodes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(g => box((g.querySelector('text.topology-label') || {textContent: '?'}).textContent, g));
+            const lag_boxes = Array.from(document.querySelectorAll('#topology-canvas text.topology-lag-label')).map(t => box(t.textContent, t));
+            const px = (a, c) => ({dx: Math.round((Math.min(a.right, c.right) - Math.max(a.left, c.left)) * 10) / 10, dy: Math.round((Math.min(a.bottom, c.bottom) - Math.max(a.top, c.top)) * 10) / 10});
+            const hit2 = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
+            const overlaps = [];
+            nodes.forEach((a, i) => { nodes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'node-node', a: a.name, b: c.name, ...px(a, c)}); }); });
+            lag_boxes.forEach((a, i) => { nodes.forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-node', a: a.name, b: c.name, ...px(a, c)}); });
+                lag_boxes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-label', a: a.name, b: c.name, ...px(a, c)}); }); });
+            return {tag, window: [innerWidth, innerHeight], zoom: view.zoom_transform ? {k: view.zoom_transform.k, x: view.zoom_transform.x, y: view.zoom_transform.y} : null,
+                overlaps, node_boxes: nodes, label_boxes: lag_boxes,
+                label_places: (view.lag_label_places || []).map(p => ({source: String(p.source), target: String(p.target), label: p.label, u: p.u, free: p.free})),
+                node_positions: view.drawn_nodes.map(n => ({id: String(n.id), label: n.label, x: Math.round(n.x * 10) / 10, y: Math.round(n.y * 10) / 10, fixed: n.fx !== undefined && n.fx !== null}))};
+        };
+'''
+
 CHECKS = {
     # the graph area ends at the bottom of the window; the side panel scrolls inside it; the page itself does not scroll
     # model §12.1 "Layout" and "Width" (tasks 042, 043): no page scroll in either direction (the document and Zabbix's own scroll containers), the graph
@@ -286,6 +306,9 @@ CHECKS = {
         lag.forEach((a, i) => { boxes.forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); lag.slice(i + 1).forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); });
         r.bundle_label_places = (view.lag_label_places || []).map(p => p.source.slice(0, 4) + '-' + p.target.slice(0, 4) + ' ' + p.label + ': ' + p.u + ' %' + (p.free ? '' : ' (no free point)'));
         r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        if (!r.ok) {
+            r.evidence = collect('overlap');
+        }
         return r;
     })()''',
     # model §12.1 "Fit" (2.72, task 092): the control "Fit" puts the whole drawn graph in the window and centres it
@@ -309,6 +332,7 @@ CHECKS = {
         const rect = n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom});
         const overlap = (a, b) => { const x = rect(a), y = rect(b); return x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom; };
         const rows = [];
+        let evidence = null;
         for (const g of groups) {
             Array.from(view.unfolded).forEach(id => view.unfolded.delete(id));
             view.relayout = true;
@@ -332,13 +356,22 @@ CHECKS = {
             let node_pairs = 0, label_hits = 0;
             dom.forEach((a, i) => { dom.slice(i + 1).forEach(c => { if (hit(a, c)) node_pairs++; }); labels.forEach(l => { if (hit(a, l)) label_hits++; }); });
             labels.forEach((a, i) => labels.slice(i + 1).forEach(c => { if (hit(a, c)) label_hits++; }));
+            if ((node_pairs || label_hits) && !evidence) {
+                evidence = collect('arc ' + parent.label);
+            }
             const info = view.arc_info.get(g.parent) || {};
             rows.push({parent: parent.label.slice(0, 8), leaves: leaves.length, expected: g.devices.length, free_deg: Math.round(info.free_angle * 180 / Math.PI), rows: info.rows,
                 final_deg: Math.round((Math.max(...rel) - Math.min(...rel)) * 180 / Math.PI), radius_max: Math.round(Math.max(...leaves.map(radius))), box_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
                 lines_through_other_nodes: through.length, node_overlaps: node_pairs, label_overlaps: label_hits,
                 ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)});
+            if (evidence) {
+                break;      // the page stays in the state of the failing group, so that the screenshot shows it
+            }
         }
         const r = {groups: rows.length, rows};
+        if (evidence) {
+            r.evidence = evidence;
+        }
         r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port && x.lines_through_other_nodes === 0 && x.node_overlaps === 0 && x.label_overlaps === 0);
         return r;
     })()''',
@@ -361,6 +394,10 @@ CHECKS = {
         return r;
     })()''',
 }
+
+
+CHECKS['overlap'] = CHECKS['overlap'].replace('(() => {', '(() => {' + COLLECT_JS, 1)
+CHECKS['arc'] = CHECKS['arc'].replace('(async () => {', '(async () => {' + COLLECT_JS, 1)
 
 
 def main():
@@ -464,7 +501,22 @@ def main():
         if a.check:
             result = js(CHECKS[a.check])
             failed = not result.get('ok')
+            evidence = result.pop('evidence', None)
             print('check %s: %s %s' % (a.check, 'ok' if not failed else 'FAILED', json.dumps(result)))
+            if failed and evidence:
+                # task 098 §2: one folder per failure: evidence.json (overlaps with px, boxes, label places, node positions) and the screenshot of the page in that state
+                folder = os.path.join(os.environ.get('TOPO_EVIDENCE_DIR', '/tmp/topo_evidence'), '%s-%d-%s' % (time.strftime('%Y%m%d-%H%M%S'), os.getpid(), a.check))
+                os.makedirs(folder, exist_ok=True)
+                with open(os.path.join(folder, 'evidence.json'), 'w') as f:
+                    json.dump(evidence, f, indent=1)
+                with open(os.path.join(folder, 'screenshot.png'), 'wb') as f:
+                    f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+                for o in evidence['overlaps']:
+                    print('overlap: %s "%s" and "%s": %s px wide, %s px high' % (o['kind'], o['a'], o['b'], o['dx'], o['dy']))
+                for p in evidence['label_places']:
+                    if not p['free']:
+                        print('label without a free point: %s-%s %s at %s %%' % (p['source'], p['target'], p['label'], p['u']))
+                print('evidence: %s' % folder)
         nodes = js('''Array.from(document.querySelectorAll('#topology-canvas g.node, #topology-canvas g')).length''')
         print('svg groups:', nodes)
         if a.full:
