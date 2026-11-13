@@ -57,6 +57,7 @@ const view = new class {
 		this.unfolded = new Set();
 		this.panel_stack = [];
 		this.current_panel = null;
+		this.include_ids = new Set();      // manual Devices created in this view stay in a scoped view until the filter is applied (§12.1, 2.80)
 		this.leaf_groups = [];
 		this.relayout = true;
 		this.show_unlinked = false;
@@ -98,6 +99,14 @@ const view = new class {
 		fit_button.textContent = <?= json_encode(_('Fit')) ?>;
 		fit_button.addEventListener('click', () => this.fit());
 		document.querySelector('.topology-workspace').appendChild(fit_button);
+		// "Create device" (§9.7, 2.80): next to Fit
+		const create_button = document.createElement('button');
+		create_button.type = 'button';
+		create_button.id = 'topology-create-device';
+		create_button.className = 'btn-alt topology-create-device';
+		create_button.textContent = <?= json_encode(_('Create device')) ?>;
+		create_button.addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
+		document.querySelector('.topology-workspace').appendChild(create_button);
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -140,6 +149,7 @@ const view = new class {
 		document.getElementById('topology-filter-apply').addEventListener('click', () => this.guard(async () => {
 			this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
 			this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
+			this.include_ids.clear();
 			await this.loadDevices({reset_layout: true});
 		}));
 		// Reset (the former "Show all"): clears the selection and the switches and shows every node (Depth 1 as the page starts)
@@ -151,6 +161,7 @@ const view = new class {
 			document.getElementById('topology-filter-unlinked').checked = false;
 			this.only_duplicates = false;
 			this.show_unlinked = false;
+			this.include_ids.clear();
 			await this.loadDevices({reset_layout: true});
 		}));
 		// the first layout waits for the fonts (the widths of the labels are measured with the real font, §12.3, 2.79)
@@ -333,6 +344,9 @@ const view = new class {
 		if (this.only_duplicates) {
 			query += '&duplicates=1';
 		}
+		this.include_ids.forEach(id => {
+			query += `&include[]=${encodeURIComponent(id)}`;
+		});
 		return query;
 	}
 
@@ -693,10 +707,14 @@ const view = new class {
 		}
 		else if (action === 'delete') {
 			// Delete Device (§6.7.5, 2.47): the operator deletes for real; the server refuses a Device with an association or a manual link
-			if (!confirm(<?= json_encode(_('Delete this Device? Its ports and discovered links are deleted too. If a current neighbor row reports it again, ingest makes it again with a new id.')) ?>)) {
+			// a manual Device (§9.7, 2.80) takes its manual links with it
+			const manual = this.nodes.get(String(data.device))?.manual === true;
+			if (!confirm(manual ? <?= json_encode(_('Delete this Device? Its ports and its manual links are deleted too.')) ?>
+					: <?= json_encode(_('Delete this Device? Its ports and discovered links are deleted too. If a current neighbor row reports it again, ingest makes it again with a new id.')) ?>)) {
 				return;
 			}
 			await post('topology.devices.delete', {id: data.device});
+			this.include_ids.delete(String(data.device));
 			this.details.innerHTML = '';
 			this.current_panel = null;
 			this.panel_stack = [];
@@ -1508,7 +1526,8 @@ const view = new class {
 		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${esc(text)}" title="${esc(label)}">${esc(<?= json_encode(_('Copy')) ?>)}</button>`;
 		const name = TopologyGraph.iconOf(device);
 		const bits = (device.device_class_bits ?? []).join(', ');
-		const class_text = `${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
+		// a manual Device: the class that the operator chose (§12.2, 2.80)
+		const class_text = device.manual ? `${this.classLabel(device.chosen_class)} (${<?= json_encode(_('chosen')) ?>})` : `${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
 		// Copy for the name and the hardware id; the class has none (§12.5, 2.77)
 		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname, true], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id, true], [<?= json_encode(_('Device class')) ?>, class_text, false]]
 			.filter(([, value]) => value).map(([label, value, can_copy]) => `<tr><th>${esc(label)}</th><td class="topology-address-value" title="${esc(value)}">${esc(value)}</td><td>${can_copy ? copy(value, label) : ''}</td></tr>`).join('');
@@ -1528,7 +1547,8 @@ const view = new class {
 		const name = node.type === 'host' && node.hostid
 			? `<a class="topology-host-name link-action" href="javascript:void(0)" data-menu-popup="${esc(JSON.stringify({type: 'host', data: {hostid: String(node.hostid)}}))}" aria-haspopup="true" aria-expanded="false">${esc(label)}</a>`
 			: `<span class="topology-node-title">${esc(label)}</span>`;
-		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>, device: <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
+		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>,
+			device: node.manual ? <?= json_encode(_('Not a Zabbix host · manual')) ?> : <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
 		const badges = [];
 		if (node.type === 'host' && node.disabled) {
 			badges.push(<?= json_encode(_('Host is disabled')) ?>);
@@ -1558,6 +1578,11 @@ const view = new class {
 			actions.push(`<a class="topology-node-reports" href="zabbix.php?action=topology.lastrun&device_id=${encodeURIComponent(device.id)}">${esc(<?= json_encode(_('Neighbor reports')) ?>)}</a>`);
 		}
 		const items = [];
+		// a manual Device (§9.7, 2.80): the same dialog edits it, ports are added here
+		if (device && device.manual) {
+			items.push({label: <?= json_encode(_('Edit device')) ?>, cls: 'topology-menu-edit-device'});
+			items.push({label: <?= json_encode(_('Add port')) ?>, cls: 'topology-menu-add-port'});
+		}
 		if (device && !device.represented) {
 			items.push({label: <?= json_encode(_('Promote to host')) ?>, cls: 'topology-menu-promote'});
 		}
@@ -1622,6 +1647,14 @@ const view = new class {
 		this.wireMenus();
 		this.wireCopyButtons();
 		const on = (selector, handler) => this.details.querySelectorAll(selector).forEach(element => element.addEventListener('click', handler));
+		on('.topology-menu-edit-device', () => this.guard(async () => {
+			this.closeMenus();
+			await this.deviceDialog(device);
+		}));
+		on('.topology-menu-add-port', () => this.guard(async () => {
+			this.closeMenus();
+			await this.portDialog(device, node, null);
+		}));
 		on('.topology-menu-promote', () => {
 			const form = this.details.querySelector('.topology-promote-form');
 			form.hidden = false;
@@ -1775,7 +1808,10 @@ const view = new class {
 				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
-				<td>${link_button(port)}</td>
+				<td>${link_button(port)}${port.manual ? this.menuHtml([
+					{label: <?= json_encode(_('Rename')) ?>, cls: 'topology-port-rename', attrs: `data-port-id="${this.escape(port.id)}" data-name="${this.escape(port.port)}" data-description="${this.escape(port.description ?? '')}"`},
+					{label: <?= json_encode(_('Delete')) ?>, cls: 'topology-port-delete', attrs: `data-port-id="${this.escape(port.id)}" data-name="${this.escape(port.port)}"`}
+				], <?= json_encode(_('Port actions')) ?>) : ''}</td>
 			</tr>`).join('')}
 			</tbody></table></details>`).join('');
 		return sections === '' ? '' : `<details class="topology-section topology-ports" ${open ? 'open' : ''}><summary>${this.escape(<?= json_encode(_('Ports')) ?>)}</summary>${sections}</details>`;
@@ -1868,7 +1904,8 @@ const view = new class {
 					});
 					this.link_pick = null;
 					this.renderLinkPick();
-					await this.selectNode(reselect_node);
+					// the line is drawn at once (2.80): the view is read again, and this Device's panel is shown again
+					await this.loadDevices({reselect_device: device.id});
 				}
 				else {
 					this.link_pick = {id: port_id, device_id: device.id, label: `${device.name} / ${link_button.dataset.portName}`};
@@ -1876,6 +1913,19 @@ const view = new class {
 				}
 			}));
 		});
+		// the manual port of a manual Device (§9.7): Rename and Delete in its row menu
+		this.details.querySelectorAll('.topology-port-rename').forEach(item => item.addEventListener('click', () => this.guard(async () => {
+			this.closeMenus();
+			await this.portDialog(device, reselect_node, {id: item.dataset.portId, name: item.dataset.name, description: item.dataset.description});
+		})));
+		this.details.querySelectorAll('.topology-port-delete').forEach(item => item.addEventListener('click', () => this.guard(async () => {
+			this.closeMenus();
+			if (!confirm(<?= json_encode(_('Delete the port %1$s?')) ?>.replace('%1$s', item.dataset.name))) {
+				return;
+			}
+			await this.request('topology.ports.delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: item.dataset.portId})});
+			await this.selectNode(reselect_node);
+		})));
 		const link_device_button = this.details.querySelector('.topology-link-device-button');
 		if (link_device_button) {
 			link_device_button.addEventListener('click', () => this.guard(async () => {
@@ -1897,7 +1947,7 @@ const view = new class {
 					method: 'POST', headers: {'Content-Type': 'application/json'},
 					body: JSON.stringify({id: remove_button.dataset.edgeId})
 				});
-				await this.selectNode(reselect_node);
+				await this.loadDevices({reselect_device: device.id});
 			}));
 		});
 		this.details.querySelectorAll('.topology-unlink-button').forEach(unlink_button => {
@@ -1909,7 +1959,7 @@ const view = new class {
 					method: 'POST', headers: {'Content-Type': 'application/json'},
 					body: JSON.stringify({id: unlink_button.dataset.portId, dst_id: unlink_button.dataset.linkedPortId})
 				});
-				await this.selectNode(reselect_node);
+				await this.loadDevices({reselect_device: device.id});
 			}));
 		});
 	}
@@ -2104,9 +2154,155 @@ const view = new class {
 		};
 	}
 
+	// ---- Manual Device (§9.7, 2.80): the dialogs ----
+
+	// The create / edit dialog: a Zabbix form dialog with the name, the class, the hardware ID, the management address and the ports (rows: name, description). `device` is the node of a manual Device
+	// to edit, or null to create one. The refusals of the server are shown in the dialog.
+	async deviceDialog(device) {
+		const esc = value => this.escape(value);
+		const request = (action, body) => this.request(action, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+		const classes = [['router', <?= json_encode(_('Router')) ?>], ['switch', <?= json_encode(_('Switch')) ?>], ['access_point', <?= json_encode(_('Access point')) ?>],
+			['phone', <?= json_encode(_('Phone')) ?>], ['station', <?= json_encode(_('Station')) ?>], ['other', <?= json_encode(_('Other')) ?>]];
+		// the manual ports of the Device (edit): rows with an id; a port with a link is shown, but not renamed or deleted
+		let existing = [];
+		if (device) {
+			const answer = await this.request(`topology.ports.get&id=${encodeURIComponent(device.id)}`);
+			existing = Object.values(answer.groups ?? {}).flat().filter(port => port.manual).map(port => ({id: String(port.id), name: port.port, description: port.description ?? '',
+				linked: port.group === 'connected' || port.edge_id !== null && port.edge_id !== undefined}));
+			// a manual port with a link is in the group "connected"; the groups of getPorts() list it too (the Links section reads it), so it is found here
+		}
+		const form = document.createElement('form');
+		form.className = 'topology-device-form';
+		form.setAttribute('autocomplete', 'off');
+		const port_row = (port = {id: '', name: '', description: '', linked: false}) => `<tr class="topology-port-row" data-port-id="${esc(port.id)}">` +
+			`<td><input type="text" class="topology-port-name-input" maxlength="255" value="${esc(port.name)}" ${port.linked ? 'disabled title="' + esc(<?= json_encode(_('The port has a link: unlink the port first.')) ?>) + '"' : ''}></td>` +
+			`<td><input type="text" class="topology-port-description-input" maxlength="255" value="${esc(port.description)}"></td>` +
+			`<td><button type="button" class="btn-link topology-port-remove" ${port.linked ? 'disabled' : ''}>${esc(<?= json_encode(_('Remove')) ?>)}</button></td></tr>`;
+		form.innerHTML = `<output class="topology-dialog-error" hidden></output><div class="form-grid">` +
+			`<label for="topology-device-name" class="form-label-asterisk">${esc(<?= json_encode(_('Name')) ?>)}</label><div class="form-field"><input type="text" id="topology-device-name" maxlength="255" value="${esc(device?.name ?? '')}" required></div>` +
+			`<label for="topology-device-class">${esc(<?= json_encode(_('Device class')) ?>)}</label><div class="form-field"><select id="topology-device-class">${classes.map(([value, label]) => `<option value="${value}" ${(device?.chosen_class ?? 'router') === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div>` +
+			`<label for="topology-device-mac">${esc(<?= json_encode(_('Hardware ID')) ?>)}</label><div class="form-field"><input type="text" id="topology-device-mac" maxlength="64" placeholder="00:1a:2b:3c:4d:5e" value="${esc(device?.chassis_id ?? '')}"></div>` +
+			`<label for="topology-device-ip">${esc(<?= json_encode(_('Management address')) ?>)}</label><div class="form-field"><input type="text" id="topology-device-ip" maxlength="64" value="${esc(device?.mgmt_ip ?? '')}"></div>` +
+			`<label>${esc(<?= json_encode(_('Ports')) ?>)}</label><div class="form-field"><table class="topology-port-table"><thead><tr><th>${esc(<?= json_encode(_('Name')) ?>)}</th><th>${esc(<?= json_encode(_('Description')) ?>)}</th><th></th></tr></thead>` +
+			`<tbody>${existing.map(port_row).join('')}</tbody></table><button type="button" class="btn-link topology-port-add">${esc(<?= json_encode(_('Add')) ?>)}</button></div></div>` +
+			`<p class="topology-group-help">${esc(<?= json_encode(_('A host polled by SNMP does not need this: it needs a link only.')) ?>)}</p>`;
+		const tbody = form.querySelector('tbody');
+		const wire_row = row => row.querySelector('.topology-port-remove').addEventListener('click', () => {
+			if (row.dataset.portId === '') {
+				row.remove();
+			}
+			else {
+				row.hidden = true;
+				row.dataset.removed = '1';
+			}
+		});
+		tbody.querySelectorAll('tr').forEach(wire_row);
+		form.querySelector('.topology-port-add').addEventListener('click', () => {
+			tbody.insertAdjacentHTML('beforeend', port_row());
+			wire_row(tbody.lastElementChild);
+			tbody.lastElementChild.querySelector('input').focus();
+		});
+		const error = text => {
+			const output = form.querySelector('.topology-dialog-error');
+			output.textContent = text;
+			output.hidden = text === '';
+		};
+		// a refusal stays until the operator changes the form
+		form.addEventListener('input', () => error(''));
+		const submit = async overlay => {
+			error('');
+			const value = id => form.querySelector(id).value.trim();
+			const body = {name: value('#topology-device-name'), device_class: value('#topology-device-class'), chassis_id: value('#topology-device-mac'), mgmt_ip: value('#topology-device-ip')};
+			const rows = Array.from(tbody.querySelectorAll('tr'));
+			try {
+				let device_id;
+				if (device) {
+					await request('topology.devices.update', {id: device.id, ...body});
+					device_id = String(device.id);
+					for (const row of rows) {
+						const name = row.querySelector('.topology-port-name-input').value.trim();
+						const description = row.querySelector('.topology-port-description-input').value.trim();
+						const port = existing.find(candidate => candidate.id === row.dataset.portId);
+						if (row.dataset.removed === '1') {
+							await request('topology.ports.delete', {id: row.dataset.portId});
+						}
+						else if (port && !port.linked && (port.name !== name || port.description !== description)) {
+							await request('topology.ports.update', {id: port.id, name, description});
+						}
+						else if (!port && (name !== '' || description !== '')) {
+							await request('topology.ports.create', {device_id, name, description});
+						}
+						else if (port && port.linked && port.description !== description) {
+							await request('topology.ports.update', {id: port.id, description});
+						}
+					}
+				}
+				else {
+					body.ports = rows.map(row => ({name: row.querySelector('.topology-port-name-input').value.trim(), description: row.querySelector('.topology-port-description-input').value.trim()}))
+						.filter(port => port.name !== '' || port.description !== '');
+					device_id = String((await request('topology.devices.create', body)).id);
+				}
+				overlayDialogueDestroy(overlay.dialogueid);
+				// the Device is drawn and selected in the current view, also in a scoped one, until the filter is applied (§12.1)
+				this.include_ids.add(device_id);
+				await this.loadDevices({reselect_device: device_id});
+			}
+			catch (exception) {
+				error(exception.message);
+				overlay.unsetLoading();
+			}
+			return false;
+		};
+		overlayDialogue({
+			title: device ? <?= json_encode(_('Edit device')) ?> : <?= json_encode(_('Create device')) ?>,
+			content: form,
+			class: 'modal-popup',
+			buttons: [
+				{title: device ? <?= json_encode(_('Update')) ?> : <?= json_encode(_('Create')) ?>, class: 'dialogue-widget-save', isSubmit: true, focused: true, action: overlay => { submit(overlay); return false; }},
+				{title: <?= json_encode(_('Cancel')) ?>, class: 'btn-alt', cancel: true, action: () => {}}
+			],
+			dialogueid: 'topology-device-dialog'
+		}, {dialogueid: 'topology-device-dialog'});
+		form.addEventListener('submit', event => event.preventDefault());
+	}
+
+	// Add a port to a manual Device, or rename one and change its description (§9.7).
+	async portDialog(device, reselect_node, port) {
+		const esc = value => this.escape(value);
+		const request = (action, body) => this.request(action, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+		const form = document.createElement('form');
+		form.setAttribute('autocomplete', 'off');
+		form.innerHTML = `<output class="topology-dialog-error" hidden></output><div class="form-grid">` +
+			`<label for="topology-port-name" class="form-label-asterisk">${esc(<?= json_encode(_('Name')) ?>)}</label><div class="form-field"><input type="text" id="topology-port-name" maxlength="255" value="${esc(port?.name ?? '')}" required></div>` +
+			`<label for="topology-port-description">${esc(<?= json_encode(_('Description')) ?>)}</label><div class="form-field"><input type="text" id="topology-port-description" maxlength="255" value="${esc(port?.description ?? '')}"></div></div>`;
+		overlayDialogue({
+			title: port ? <?= json_encode(_('Rename port')) ?> : <?= json_encode(_('Add port')) ?>,
+			content: form,
+			class: 'modal-popup',
+			buttons: [
+				{title: port ? <?= json_encode(_('Update')) ?> : <?= json_encode(_('Add')) ?>, class: 'dialogue-widget-save', isSubmit: true, focused: true, action: overlay => {
+					const output = form.querySelector('.topology-dialog-error');
+					const body = {name: form.querySelector('#topology-port-name').value.trim(), description: form.querySelector('#topology-port-description').value.trim()};
+					(port ? request('topology.ports.update', {id: port.id, ...body}) : request('topology.ports.create', {device_id: device.id, ...body})).then(async () => {
+						overlayDialogueDestroy(overlay.dialogueid);
+						await this.selectNode(reselect_node);
+					}).catch(exception => {
+						output.textContent = exception.message;
+						output.hidden = false;
+						overlay.unsetLoading();
+					});
+					return false;
+				}},
+				{title: <?= json_encode(_('Cancel')) ?>, class: 'btn-alt', cancel: true, action: () => {}}
+			],
+			dialogueid: 'topology-port-dialog'
+		}, {dialogueid: 'topology-port-dialog'});
+		form.addEventListener('submit', event => event.preventDefault());
+	}
+
 	classLabel(name) {
 		return {access_point: <?= json_encode(_('Access point')) ?>, phone: <?= json_encode(_('Phone')) ?>, switch: <?= json_encode(_('Switch')) ?>,
-			router: <?= json_encode(_('Router')) ?>, station: <?= json_encode(_('Station')) ?>, generic: <?= json_encode(_('Generic (no class)')) ?>}[name] ?? <?= json_encode(_('Generic (no class)')) ?>;
+			router: <?= json_encode(_('Router')) ?>, station: <?= json_encode(_('Station')) ?>, other: <?= json_encode(_('Other')) ?>, generic: <?= json_encode(_('Generic (no class)')) ?>}[name] ?? <?= json_encode(_('Generic (no class)')) ?>;
 	}
 
 	render() {

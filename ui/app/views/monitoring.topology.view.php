@@ -139,6 +139,12 @@ span.topology-neighbor{color:inherit;cursor:default}
 .topology-back{margin:0 0 6px}
 .topology-back-button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-fit{position:absolute;left:8px;top:8px;z-index:2;padding:2px 12px}
+.topology-create-device{position:absolute;left:62px;top:8px;z-index:2;padding:2px 12px}
+.topology-dialog-error{display:block;margin:0 0 8px;padding:6px 8px;color:#fff;background:#e45959;border-radius:2px}
+.topology-dialog-error[hidden]{display:none}
+.topology-port-table th{text-align:left;font-weight:normal;color:#768d99;padding:0 4px 2px 0}
+.topology-port-table td{padding:0 4px 4px 0}
+.topology-port-table input{width:150px}
 .topology-tooltip{position:fixed;z-index:1000;max-width:420px;padding:5px 8px;font-size:12px;line-height:1.35;color:#fff;background:rgba(31,41,55,.95);border-radius:3px;white-space:pre-line;pointer-events:none}
 .topology-tooltip[hidden]{display:none}
 .topology-group-row{cursor:pointer}

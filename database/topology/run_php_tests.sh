@@ -224,6 +224,8 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
 	# the Fold / Unfold toggle in the group and parent panels, Back in a panel opened from another panel (098)
 	page_test "page: Fold / Unfold toggle and Back in the panel" /tmp/topo_t_stack.log python3 "$here/ui_check_040/stack_check.py"
+	# a manual Device: the create dialog, the panel, a manual port, a link, edit, delete (099; the database login of the harness, `mysql -uzabbix zabbix`)
+	page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
 	# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
 	page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
 	page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
