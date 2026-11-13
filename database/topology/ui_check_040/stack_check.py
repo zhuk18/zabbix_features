@@ -145,6 +145,75 @@ try:
     js("document.getElementById('topology-filter-apply').click()")
     time.sleep(4)
     check(js(BACK) is None, 'Apply: a new stack, the first panel has no Back', js(BACK))
+
+    print('=== Selection (model 2.83) ===')
+    RING = """(() => { const r = document.querySelector('#topology-canvas rect.topology-selection'); if (!r) return null; const b = r.getBoundingClientRect(); return {left: b.left, right: b.right, top: b.top, bottom: b.bottom, count: document.querySelectorAll('#topology-canvas rect.topology-selection').length}; })()"""
+    BOX = "(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label)); const b = g.getBoundingClientRect(); return {left: b.left, right: b.right, top: b.top, bottom: b.bottom}; })(%s)"
+    OUTLINE = "(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label)); const s = getComputedStyle(g.querySelector('rect.topology-shape')); return [s.stroke, s.fill, s.strokeDasharray, s.strokeWidth, s.opacity, getComputedStyle(g).opacity]; })(%s)"
+
+    def ring_on(label):
+        ring, box = js(RING), js(BOX % json.dumps(label))
+        if ring is None:
+            return False
+        k = js("view.zoom_transform.k")
+        m = 4.5 * k
+        return all(abs(a - b) < 2.5 for a, b in [(ring['left'], box['left'] - m), (ring['right'], box['right'] + m), (ring['top'], box['top'] - m), (ring['bottom'], box['bottom'] + m)]) and ring['count'] == 1
+
+    def click_node(label):
+        js("""(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label));
+            g.querySelector('rect.topology-shape').dispatchEvent(new MouseEvent('click', {bubbles: true})); })(%s)""" % json.dumps(label))
+        time.sleep(3.5)
+
+    js("(() => { view.unfolded.clear(); view.render(); })()")
+    time.sleep(1)
+    before = js(OUTLINE % json.dumps('SW12'))
+    click_node('SW12')
+    check(ring_on('SW12') and js(TITLE).startswith('SW12'), 'a click on SW12: a ring around its box (gap 3 px + 3 px stroke), one ring', [js(RING), js(BOX % json.dumps('SW12'))])
+    check(js(OUTLINE % json.dumps('SW12')) == before, 'the outline, fill, dash and opacity of SW12 are the same as before the selection', [before, js(OUTLINE % json.dumps('SW12'))])
+    check(js("getComputedStyle(document.querySelector('#topology-canvas rect.topology-selection')).stroke") == 'rgb(2, 117, 184)' and js("getComputedStyle(document.querySelector('#topology-canvas rect.topology-selection')).strokeWidth") == '3px', 'the ring is 3 px in the accent colour')
+    shot = os.environ.get('SELECTION_SHOT')
+    if shot:
+        import base64
+        with open(shot, 'wb') as f:
+            f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+    js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
+    time.sleep(3.5)
+    check(ring_on('SW18'), 'a neighbor in Links: the ring moves to SW18', js(RING))
+    js("document.querySelector('#topology-details .topology-back-button').click()")
+    time.sleep(3.5)
+    check(ring_on('SW12'), 'Back: the ring is on SW12 again', js(RING))
+    # a panel opened from a list: SW12 is out of the window, the view pans to it, the zoom stays
+    click_node('SW18')
+    k0 = js("view.zoom_transform.k")
+    js("(() => { const t = view.zoom_transform; view.canvas.call(view.zoom.transform, d3.zoomIdentity.translate(t.x + 4000, t.y).scale(t.k)); })()")
+    time.sleep(0.5)
+    out = js(BOX % json.dumps('SW12'))
+    check(out['left'] > 1500, 'SW12 is out of the window after the pan', out)
+    js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
+    time.sleep(3.5)
+    box = js(BOX % json.dumps('SW12'))
+    inside = js("(() => { const b = document.getElementById('topology-canvas').getBoundingClientRect(); return [b.left, b.right, b.top, b.bottom]; })()")
+    check(js(TITLE).startswith('SW12') and inside[0] <= box['left'] and box['right'] <= inside[1] and inside[2] <= box['top'] and box['bottom'] <= inside[3] and ring_on('SW12') and abs(js("view.zoom_transform.k") - k0) < 1e-9,
+          'opened from a list: the view panned to SW12 (the zoom is the same) and the ring is on it', [box, inside])
+    # a click on the empty area removes the selection
+    js("document.getElementById('topology-canvas').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+    time.sleep(0.5)
+    check(js(RING) is None, 'a click on the empty area: no ring')
+    # a bundle line: the band under it; a member opened from the bundle panel: the bundle line
+    BAND = "Array.from(document.querySelectorAll('#topology-canvas path.topology-link-selected')).map(e => parseFloat(e.style.strokeWidth))"
+    js("(() => { const e = view.line_entries.find(x => x.link && x.link.type === 'lag_bundle'); e.open(); })()")
+    time.sleep(1)
+    band = js(BAND)
+    hover = js("(() => { const e = view.line_entries.find(x => x.link && x.link.type === 'lag_bundle'); return parseFloat(e.glow().__width); })()")
+    check(len(band) == 1 and band[0] > hover and js(RING) is None, 'a click on a bundle line: a band under it, wider than the hover band', [band, hover])
+    js("document.querySelector('#topology-details [data-member]').click()")
+    time.sleep(1)
+    check(len(js(BAND)) == 1 and js("document.querySelector('#topology-details h2').textContent").count('↔') == 1 and js(BACK) is not None, 'a member opened from the bundle panel: the bundle line stays selected', js(BAND))
+    js("document.querySelector('#topology-details .topology-back-button').click()")
+    time.sleep(1)
+    check(len(js(BAND)) == 1 and 'LAG' in js("document.getElementById('topology-details').textContent"), 'Back: the bundle panel and its band')
+    click_node('SW13')
+    check(js(BAND) == [] and ring_on('SW13'), 'a node after a line: the band is gone, the ring is on the node')
 finally:
     chrome.kill()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All toggle and Back checks passed.'))

@@ -97,6 +97,8 @@ $page_styles = '
 .topology-node.topology-hover .topology-shape{stroke:#0b6fb8!important;stroke-width:4!important}
 .topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
 .topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
+.topology-link-glow.topology-link-selected{stroke:#0275b8;stroke-opacity:.8}
+.topology-not-in-view{margin:0 0 6px;color:#6b7280;font-style:italic}
 .topology-node-head{margin-bottom:10px}
 .topology-node-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:16px;font-weight:bold;padding-right:30px}
 .topology-node-icon{flex:0 0 auto}

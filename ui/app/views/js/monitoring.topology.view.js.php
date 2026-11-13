@@ -645,7 +645,7 @@ const view = new class {
 		const other = this.nodes.get(String(candidate.device_id));
 		this.details.innerHTML = `<h2>${this.escape(this.deviceLabel(device))} ↔ ${this.escape(other ? this.deviceLabel(other) : candidate.name ?? candidate.device_id)}</h2>` +
 			this.duplicatesFragment(device, candidate.device_id);
-		this.registerPanel('pair:' + device.id + ':' + candidate.device_id, this.deviceLabel(device), () => this.selectPair(device, candidate));
+		this.registerPanel('pair:' + device.id + ':' + candidate.device_id, this.deviceLabel(device), () => this.selectPair(device, candidate), {kind: 'pair', key: 'pair:' + device.id + ':' + candidate.device_id});
 	}
 
 	// A Device named so that two Devices with one name can be told apart: name, chassis or address, id.
@@ -700,6 +700,8 @@ const view = new class {
 			this.details.innerHTML = '';
 			this.current_panel = null;
 			this.panel_stack = [];
+			this.selection = null;
+			this.applySelection(false);
 			await this.loadDevices();
 			return;
 		}
@@ -709,7 +711,7 @@ const view = new class {
 	// The stack of panels (§12.5 "Back", 2.82). Every panel that is shown calls registerPanel(key, title, reopen). A panel that is opened from a list or a link of another panel is opened
 	// with openFromPanel(): the panel before is put on the stack (with its state) and the new one gets "← Back to <title>". A click on the graph or Apply sets panel_from = null: a new stack.
 	// A panel shown again with the same key (a refresh) keeps the stack.
-	registerPanel(key, title, reopen) {
+	registerPanel(key, title, reopen, selection = null) {
 		const previous = this.current_panel;
 		if (this.panel_going_back) {
 			// the stack was popped by back()
@@ -722,6 +724,13 @@ const view = new class {
 		}
 		this.panel_from = undefined;
 		this.current_panel = {key, title, reopen};
+		// the graph selection follows the panel shown (§12.1 "Selection", 2.83); an object that is not drawn has none, and its panel says so
+		this.selection = selection;
+		const drawn = selection === null || this.selectionDrawn(selection);
+		if (!drawn) {
+			this.details.insertAdjacentHTML('afterbegin', `<p class="topology-not-in-view">${this.escape(<?= json_encode(_('Not in this view')) ?>)}</p>`);
+		}
+		this.applySelection(true);
 		const entry = this.panel_stack[this.panel_stack.length - 1];
 		if (entry) {
 			this.details.insertAdjacentHTML('afterbegin', `<div class="topology-back"><button type="button" class="btn-link topology-back-button" title="${this.escape(entry.title)}">` +
@@ -799,7 +808,7 @@ const view = new class {
 		}
 		this.selected_node = node;
 		this.showNodePanel(node, {device, problems, groups, addresses});
-		this.registerPanel('node:' + node.id, node.label ?? node.name, () => this.selectNode(this.nodes.get(String(node.id)) ?? node));
+		this.registerPanel('node:' + node.id, node.label ?? node.name, () => this.selectNode(this.nodes.get(String(node.id)) ?? node), {kind: 'node', id: String(node.id)});
 	}
 
 	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
@@ -975,7 +984,7 @@ const view = new class {
 			`${link.source.label ?? link.source.name} ↔ ${link.target.label ?? link.target.name}`, () => {
 				const stored = link.edge_id ? this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(link.edge_id)) : null;
 				return this.selectLink(stored ? this.resolvedLink(stored) : link);
-			});
+			}, link.edge_id ? {kind: 'line', edge_ids: [String(link.edge_id)]} : null);
 		this.details.querySelectorAll('[data-topology-keep-port]').forEach(keep => keep.addEventListener('click', () => this.guard(async () => {
 			await this.request('topology.link.convert', {
 				method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2038,7 +2047,7 @@ const view = new class {
 		this.registerPanel('group:' + group.parent, group_title, () => {
 			const current = this.group_nodes.get(String(group.parent));
 			return current ? this.showGroup(current) : undefined;
-		});
+		}, {kind: 'group', id: String(group.id ?? 'group:' + group.parent), parent: String(group.parent)});
 	}
 
 	// "Fold <N> devices" in a panel (the parent's, and the group's): one delegated lookup after the panel is built.
@@ -2550,7 +2559,7 @@ const view = new class {
 						return;
 					}
 					pair_seen.add(key);
-					pair_data.push({from, to, a: device, candidate});
+					pair_data.push({from, to, a: device, candidate, key: 'pair:' + device.id + ':' + candidate.device_id});
 				});
 			});
 		}
@@ -2616,7 +2625,7 @@ const view = new class {
 		pair_data.forEach(pair => {
 			const d = () => straight(pair.from, pair.to);
 			const glow = glow_of(8, d);
-			line_entries.push({d, glow: () => glow, tooltip: () => this.pairReason(pair.candidate), open: () => {
+			line_entries.push({d, key: pair.key, glow: () => glow, tooltip: () => this.pairReason(pair.candidate), open: () => {
 				this.panel_from = null;
 				this.selectPair(pair.a, pair.candidate);
 			}});
@@ -2854,12 +2863,99 @@ const view = new class {
 			});
 			bundle_labels.attr('x', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.x)
 				.attr('y', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).mid.y - 6);
+			this.positionSelection();
 		};
 		draw_positions();
 		this.drawn_nodes = nodes;
 		this.drawn_links = simulation_links;
 		this.link_selection = links;
 		this.glow_selection = glows;
+		// the selection (§12.1, 2.83): its own layer above the nodes (a ring does not enlarge the box of a node); a click on the empty area removes it
+		this.selection_layer = scene.append('g').attr('class', 'topology-selection-layer').style('pointer-events', 'none');
+		this.canvas.on('click.selection', event => {
+			if (this.selection && !event.target.closest?.('.topology-node, .topology-hit, .topology-contradiction-badge')) {
+				this.selection = null;
+				this.applySelection(false);
+			}
+		});
+		this.applySelection(false);
+	}
+
+	// Is the selected object drawn? (a node or a line of the drawn graph)
+	selectionDrawn(selection) {
+		return this.selectionTarget(selection) !== null;
+	}
+
+	selectionTarget(selection) {
+		if (!selection) {
+			return null;
+		}
+		if (selection.kind === 'node' || selection.kind === 'group') {
+			let node = (this.drawn_nodes ?? []).find(candidate => String(candidate.id) === selection.id);
+			if (!node && selection.kind === 'group') {
+				node = (this.drawn_nodes ?? []).find(candidate => String(candidate.id) === selection.parent);
+			}
+			return node ? {node} : null;
+		}
+		const entries = (this.line_entries ?? []).filter(entry => selection.kind === 'pair' ? entry.key === selection.key
+			: entry.link && this.lineEdgeIds(entry.link).some(id => selection.edge_ids.includes(id)));
+		return entries.length ? {entries} : null;
+	}
+
+	// Marks the object of the open panel (§12.1 "Selection", 2.83): a node by a ring of 3 px with a gap of 3 px, a line by a band under it (wider than the hover band), both in the accent colour; nothing of
+	// the object changes. `pan`: the view moves to the object when it is not in the visible part of the graph (the zoom stays).
+	applySelection(pan) {
+		(this.line_entries ?? []).forEach(entry => {
+			const glow = entry.glow();
+			if (glow?.classList.contains('topology-link-selected')) {
+				glow.classList.remove('topology-link-selected');
+				glow.style.strokeWidth = glow.__width + 'px';
+			}
+		});
+		this.selection_layer?.selectAll('*').remove();
+		this.selection_node = null;
+		const target = this.selectionTarget(this.selection);
+		if (!target) {
+			return;
+		}
+		let point;
+		if (target.node) {
+			this.selection_node = target.node;
+			this.selection_layer.append('rect').attr('class', 'topology-selection').attr('rx', 8).style('fill', 'none').style('stroke', '#0275b8').style('stroke-width', '3px');
+			this.positionSelection();
+			point = [target.node.x, target.node.y];
+		}
+		else {
+			target.entries.forEach(entry => {
+				const glow = entry.glow();
+				glow.__width = glow.__width ?? parseFloat(glow.style.strokeWidth);
+				glow.classList.add('topology-link-selected');
+				glow.style.strokeWidth = (glow.__width + 6) + 'px';
+			});
+			const hit = target.entries[0].hit;
+			const middle = hit.getPointAtLength(hit.getTotalLength() / 2);
+			point = [middle.x, middle.y];
+		}
+		if (pan && this.zoom_transform) {
+			const bounds = this.canvas.node().getBoundingClientRect();
+			const k = this.zoom_transform.k;
+			const x = point[0] * k + this.zoom_transform.x, y = point[1] * k + this.zoom_transform.y;
+			if (x < 20 || y < 20 || x > bounds.width - 20 || y > bounds.height - 20) {
+				this.user_moved = true;
+				this.canvas.call(this.zoom.transform, d3.zoomIdentity.translate(bounds.width / 2 - k * point[0], bounds.height / 2 - k * point[1]).scale(k));
+			}
+		}
+	}
+
+	positionSelection() {
+		const node = this.selection_node;
+		if (!node || !this.selection_layer) {
+			return;
+		}
+		// the box of the node (the shape and the label) and 3 px gap + half of the 3 px stroke
+		const margin = 4.5;
+		this.selection_layer.select('rect.topology-selection').attr('x', node.x - node.box.w / 2 - margin).attr('y', node.y + node.box.top - margin)
+			.attr('width', node.box.w + 2 * margin).attr('height', node.box.bottom - node.box.top + 2 * margin);
 	}
 
 	// A line of a LAG bundle in the tooltip and the panel: its two ports, its status and its load (§4.8). The names come from the network; the callers write them with text().
@@ -2882,7 +2978,7 @@ const view = new class {
 		this.registerPanel('bundle:' + edge_ids.join(','), `${bundle.source.name} ↔ ${bundle.target.name}`, () => {
 			const drawn = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => edge_ids.includes(String(member.edge_id))));
 			return this.selectBundle(drawn ?? bundle);
-		});
+		}, {kind: 'line', edge_ids});
 	}
 
 	// The tooltip of a line (§12.3 "Hit area of a line"): the line nearest to the pointer; plain text.
