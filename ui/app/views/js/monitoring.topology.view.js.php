@@ -2237,27 +2237,29 @@ const view = new class {
 				node.temp_fixed = false;
 			}
 		});
-		// the collision step may have put a node back into the sector of an arc: a node that a line to a leaf crosses is turned out of the way, where there is room (§12.8, "nodes in it move out")
-		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
-		// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched, after
-		// every change of the layout: the first drawing, a new filter, an unfold, a fold (here) and a drag (below)
-		{
-			const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
-			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
-			const placement = G.parallelIndex(lines);
-			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
-				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
-			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
-			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
-			held.forEach(node => {
-				node.fx = node.x;
-				node.fy = node.y;
-			});
-			G.makeLabelRoom(nodes, bundles, {width, height, padding});
-			held.forEach(node => {
-				node.fx = undefined;
-				node.fy = undefined;
-			});
+		// a node turned out of the way of a leaf line can stand on the line of a bundle, and a node moved off a bundle line can stand on a leaf line: the two steps are repeated (at most 4 times)
+		for (let pass = 0; pass < 4; pass++) {
+			new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
+			// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched, after
+			// every change of the layout: the first drawing, a new filter, an unfold, a fold (here) and a drag (below)
+			{
+				const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
+				const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
+				const placement = G.parallelIndex(lines);
+				const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
+					.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
+				// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
+				const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
+				held.forEach(node => {
+					node.fx = node.x;
+					node.fy = node.y;
+				});
+				G.makeLabelRoom(nodes, bundles, {width, height, padding});
+				held.forEach(node => {
+					node.fx = undefined;
+					node.fy = undefined;
+				});
+			}
 		}
 		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 		this.view_size = {width, height, keep: true};
