@@ -472,4 +472,33 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	lines = G.linkTooltip(link({source_port: null, target_port: null, source_load: null, target_load: null}), words).split('\n');
 	ok(lines[0] === 'SW12 ? ↔ SW15 ?', 'an unknown port is "?" (a device-level end)', lines[0]);
 }
+// ---- one width of a bundle label for the place and the room (2.79, task 097) ----
+{
+	const wide = (text, font) => String(text).length * font * 0.9;      // a real font that is wider than the estimate of 0.6
+	ok(G.labelWidth('Trk1 ×2') === 'Trk1 ×2'.length * 6 && G.labelWidth('Trk1 ×2', wide) > G.labelWidth('Trk1 ×2'), 'labelWidth: the estimate without a measure, the measured width with one');
+	const make = () => {
+		const a = G.layoutNode({id: 'A', x: 300, y: 300, label: 'SW12-10-CORE-6000-48G'}, 'large');
+		// the line between the boxes has room for the estimated label (42 px) but not for the measured one (63 px)
+		const b = G.layoutNode({id: 'B', x: 300 + a.box.w / 2 + 8 + 56 + 75, y: 300, label: 'SW18-09-ACC-2530-48G'}, 'large');
+		return [a, b];
+	};
+	const boxes = nodes => nodes.map(n => ({left: n.x - n.box.w / 2, right: n.x + n.box.w / 2, top: n.y + n.box.top, bottom: n.y + n.box.bottom}));
+	let [a, b] = make();
+	ok(G.placeLabel(G.curve(a, b, 0, 1).at, G.labelWidth('Trk1 ×2'), boxes([a, b])).free, 'start: the estimated width fits between the boxes');
+	ok(!G.placeLabel(G.curve(a, b, 0, 1).at, G.labelWidth('Trk1 ×2', wide), boxes([a, b])).free, 'start: the measured (larger) width does not');
+	const width = G.labelWidth('Trk1 ×2', wide);
+	ok(G.makeLabelRoom([a, b], [{a, b, width, index: 0, count: 1}], {width: 1200, height: 900, padding: 10}), 'makeLabelRoom with the measured width makes room');
+	ok(G.placeLabel(G.curve(a, b, 0, 1).at, width, boxes([a, b])).free, 'and placeLabel with the same width finds a free point: the same answer');
+	// the ring room uses the same width
+	const mk = measure => {
+		const focus = G.layoutNode({id: 'F', label: 'SW12-10-CORE-6000-48G'}, 'large');
+		const near = G.layoutNode({id: 'N', label: 'SW18-09-ACC-2530-48G'}, 'large');
+		G.placeRadial([focus, near], [{type: 'physical_link', source: 'F', target: 'N', source_lag_id: null, source_lag: null, target_lag_id: '9', target_lag: 'a-long-lag-name-0123456789'}], 'F', {x: 0, y: 0}, measure);
+		const label = G.labelWidth('a-long-lag-name-0123456789 ×2', measure);
+		return [G.placeLabel(u => ({x: focus.x + (near.x - focus.x) * u, y: focus.y + (near.y - focus.y) * u}), label, boxes([focus, near])).free, Math.hypot(near.x, near.y)];
+	};
+	const [free_wide, radius_wide] = mk(wide);
+	const [free_est, radius_est] = mk(undefined);
+	ok(free_wide && free_est && radius_wide >= radius_est, 'placeRadial: the ring leaves room for the measured width of the label, larger than for the estimate', [radius_wide, radius_est]);
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

@@ -208,7 +208,7 @@
 	 * outer rings (a few passes of the barycentre in both directions). A ring is as large as its boxes need: its radius grows until they fit. Returns the radius of the outer ring.
 	 * nodes need .id and .box (layoutNode); links need .source and .target (ids).
 	 */
-	function placeRadial(nodes, links, focus_id, center) {
+	function placeRadial(nodes, links, focus_id, center, measure = approxMeasure) {
 		const ids = nodes.map(node => node.id);
 		const dist = distances(ids, links, focus_id);
 		const max_known = Math.max(0, ...dist.values());
@@ -235,7 +235,7 @@
 		links.forEach(link => {
 			if (link.type === 'physical_link' && (link.source_lag_id || link.target_lag_id) && by_id.has(link.source) && by_id.has(link.target)) {
 				const names = [link.source_lag, link.target_lag].filter(name => name !== null && name !== undefined && name !== '');
-				const width = ((names.length ? names.join(' ↔ ') + ' ' : '') + '×2').length * 6 + 4;
+				const width = labelWidth((names.length ? names.join(' ↔ ') + ' ' : '') + '×2', measure);
 				[[link.source, link.target], [link.target, link.source]].forEach(([from, to]) => {
 					if (by_id.get(to).ring < by_id.get(from).ring) {
 						lag_widths.get(from).push({other: by_id.get(to), width});
@@ -673,6 +673,14 @@
 	}
 
 	/**
+	 * The width of the label of a LAG bundle (10 px font): ONE function for the place of the label (`placeLabel`), the room that a layout makes for it (`makeLabelRoom`) and the room of a ring
+	 * (`placeRadial`) (§12.3, 2.79). `measure(text, font)` is the real measure of the page (the same canvas font as the node labels); without it the estimate of `approxMeasure`.
+	 */
+	function labelWidth(text, measure = approxMeasure) {
+		return measure(String(text), 10);
+	}
+
+	/**
 	 * The place of the label of a LAG bundle on its line (§12.3, 2.73): the point between 30 % and 70 % of the line where the box of the label touches no obstacle (the box of a node with its
 	 * label, a label placed before), the one nearest to the middle; the middle when it is free, and also when no point is free (`free` is false then, and the overlap check lists it).
 	 *
@@ -972,5 +980,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

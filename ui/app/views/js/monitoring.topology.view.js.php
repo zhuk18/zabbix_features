@@ -151,6 +151,12 @@ const view = new class {
 			this.show_unlinked = false;
 			await this.loadDevices({reset_layout: true});
 		}));
+		// the first layout waits for the fonts (the widths of the labels are measured with the real font, §12.3, 2.79)
+		try {
+			await document.fonts.ready;
+		}
+		catch (error) {
+		}
 		await this.loadDevices();
 	}
 
@@ -2068,6 +2074,8 @@ const view = new class {
 		nodes.forEach(node => G.layoutNode(node, G.sizeOf(node, link_count.get(String(node.id)) ?? 0), (text, font) => this.measureText(text, font)));
 
 		// ---- placement (§12.1 "Node placement") ----
+		// ONE width of a bundle label for the place, the room of a layout and the room of a ring (§12.3, 2.79): the real font of the page
+		const label_measure = (text, font) => this.measureText(text, font);
 		const relayout = this.relayout || !this.view_size;
 		this.relayout = false;
 		const area = nodes.reduce((sum, node) => sum + (node.box.w + 24) * (node.box.h + 24), 0) * 2.4;
@@ -2097,11 +2105,11 @@ const view = new class {
 			});
 			if (focus_id !== null) {
 				// radial: the focus host in the centre, a node at distance d on ring d, a node with no path on the outer ring
-				let radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2});
+				let radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2}, label_measure);
 				const extent = Math.max(...nodes.map(node => Math.max(node.box.w, node.box.h))) + padding;
 				width = Math.max(width, 2 * (radius + extent));
 				height = Math.max(height, 2 * (radius + extent));
-				radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2});
+				radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2}, label_measure);
 			}
 			else {
 				nodes.forEach((node, index) => {
@@ -2238,7 +2246,7 @@ const view = new class {
 			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
 			const placement = G.parallelIndex(lines);
 			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
-				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: line.label.length * 6 + 4, index, count}));
+				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
 			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
 			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
 			held.forEach(node => {
@@ -2585,7 +2593,7 @@ const view = new class {
 						}
 						// 2.76: the labels of the bundles get their room again (the dragged node and the other fixed nodes stay)
 						G.makeLabelRoom(nodes, simulation_links.filter(link => link.type === 'lag_bundle')
-							.map(link => ({a: link.source, b: link.target, width: link.label.length * 6 + 4, index: link.parallel.index, count: link.parallel.count})), {width, height, padding});
+							.map(link => ({a: link.source, b: link.target, width: G.labelWidth(link.label, label_measure), index: link.parallel.index, count: link.parallel.count})), {width, height, padding});
 						draw_positions();
 					}
 				}));
@@ -2715,7 +2723,7 @@ const view = new class {
 			const view_places = [];
 			lag_labels.each(function (link) {
 				const line = G.curve(link.source, link.target, link.parallel.index, link.parallel.count);
-				const place = G.placeLabel(line.at, this.getComputedTextLength(), [...node_boxes, ...placed]);
+				const place = G.placeLabel(line.at, G.labelWidth(link.label, label_measure), [...node_boxes, ...placed]);
 				placed.push(place.box);
 				d3.select(this).attr('x', place.x).attr('y', place.y);
 				view_places.push({label: link.label, source: link.source.name, target: link.target.name, u: Math.round(place.u * 100), free: place.free});
