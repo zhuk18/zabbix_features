@@ -134,6 +134,8 @@ span.topology-neighbor{color:inherit;cursor:default}
 .topology-problems-all{margin-top:4px;font-size:12px}
 .topology-identity>summary~table{margin-top:4px}
 .topology-group-fold{margin:8px 0}
+.topology-back{margin:0 0 6px}
+.topology-back-button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-fit{position:absolute;left:8px;top:8px;z-index:2;padding:2px 12px}
 .topology-tooltip{position:fixed;z-index:1000;max-width:420px;padding:5px 8px;font-size:12px;line-height:1.35;color:#fff;background:rgba(31,41,55,.95);border-radius:3px;white-space:pre-line;pointer-events:none}
 .topology-tooltip[hidden]{display:none}

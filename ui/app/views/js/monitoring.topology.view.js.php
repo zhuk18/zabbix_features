@@ -55,6 +55,8 @@ const view = new class {
 		this.links = [];
 		this.link_pick = null;
 		this.unfolded = new Set();
+		this.panel_stack = [];
+		this.current_panel = null;
 		this.leaf_groups = [];
 		this.relayout = true;
 		this.show_unlinked = false;
@@ -339,6 +341,9 @@ const view = new class {
 		const {devices = [], relations = [], contradictions = [], leaf_groups = []} = await this.request(`topology.devices.get${query}`);
 		this.contradictions = contradictions;
 		this.leaf_groups = leaf_groups;
+		if (reselect_edge === null && reselect_device === null) {
+			this.panel_from = null;
+		}
 		// the focus host of the radial placement (§12.1): the Host chosen in the filter when this view was loaded
 		this.applied_hostid = jQuery('#hostid').multiSelect('getData')[0]?.id ?? null;
 		// positions: a dragged node stays until the page is loaded again or the filter is applied (§12.1); other reloads (after an action) keep every position
@@ -539,7 +544,7 @@ const view = new class {
 		if (action === 'open') {
 			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(edge_id));
 			if (link) {
-				this.selectLink(this.resolvedLink(link));
+				this.openFromPanel(() => this.selectLink(this.resolvedLink(link)));
 			}
 			return;
 		}
@@ -640,6 +645,7 @@ const view = new class {
 		const other = this.nodes.get(String(candidate.device_id));
 		this.details.innerHTML = `<h2>${this.escape(this.deviceLabel(device))} ↔ ${this.escape(other ? this.deviceLabel(other) : candidate.name ?? candidate.device_id)}</h2>` +
 			this.duplicatesFragment(device, candidate.device_id);
+		this.registerPanel('pair:' + device.id + ':' + candidate.device_id, this.deviceLabel(device), () => this.selectPair(device, candidate));
 	}
 
 	// A Device named so that two Devices with one name can be told apart: name, chassis or address, id.
@@ -692,10 +698,80 @@ const view = new class {
 			}
 			await post('topology.devices.delete', {id: data.device});
 			this.details.innerHTML = '';
+			this.current_panel = null;
+			this.panel_stack = [];
 			await this.loadDevices();
 			return;
 		}
 		await this.loadDevices({reselect_device: stay});
+	}
+
+	// The stack of panels (§12.5 "Back", 2.82). Every panel that is shown calls registerPanel(key, title, reopen). A panel that is opened from a list or a link of another panel is opened
+	// with openFromPanel(): the panel before is put on the stack (with its state) and the new one gets "← Back to <title>". A click on the graph or Apply sets panel_from = null: a new stack.
+	// A panel shown again with the same key (a refresh) keeps the stack.
+	registerPanel(key, title, reopen) {
+		const previous = this.current_panel;
+		if (this.panel_going_back) {
+			// the stack was popped by back()
+		}
+		else if (this.panel_from) {
+			this.panel_stack.push(this.panel_from);
+		}
+		else if (this.panel_from === null || !previous || previous.key !== key) {
+			this.panel_stack = [];
+		}
+		this.panel_from = undefined;
+		this.current_panel = {key, title, reopen};
+		const entry = this.panel_stack[this.panel_stack.length - 1];
+		if (entry) {
+			this.details.insertAdjacentHTML('afterbegin', `<div class="topology-back"><button type="button" class="btn-link topology-back-button" title="${this.escape(entry.title)}">` +
+				`← ${this.escape(<?= json_encode(_('Back to %1$s')) ?>.replace('%1$s', entry.title))}</button></div>`);
+			this.details.querySelector('.topology-back-button').addEventListener('click', () => this.guard(() => this.back()));
+		}
+	}
+
+	// Runs `open` (a function that shows another panel) as a step from the panel that is shown now.
+	openFromPanel(open) {
+		this.panel_from = this.current_panel ? {...this.current_panel, state: this.capturePanelState()} : null;
+		return open();
+	}
+
+	capturePanelState() {
+		return {
+			sections: Array.from(this.details.querySelectorAll('details')).map(element => element.open),
+			bundles: Array.from(this.details.querySelectorAll('.topology-bundle-toggle')).map(button => button.getAttribute('aria-expanded') === 'true'),
+			scroll: this.details.scrollTop
+		};
+	}
+
+	restorePanelState(state) {
+		const sections = this.details.querySelectorAll('details');
+		state.sections.forEach((open, i) => {
+			if (sections[i]) {
+				sections[i].open = open;
+			}
+		});
+		this.details.querySelectorAll('.topology-bundle-toggle').forEach((button, i) => {
+			if (state.bundles[i] && button.getAttribute('aria-expanded') !== 'true') {
+				button.click();
+			}
+		});
+		this.details.scrollTop = state.scroll;
+	}
+
+	async back() {
+		const entry = this.panel_stack.pop();
+		if (!entry) {
+			return;
+		}
+		this.panel_going_back = true;
+		try {
+			await entry.reopen();
+		}
+		finally {
+			this.panel_going_back = false;
+		}
+		this.restorePanelState(entry.state);
 	}
 
 	// The panel of a node (§12.5 "Structure of a node panel", 2.75): a header, then the sections of the node kind. A Host or a Proxy shows the data of the Device that it represents
@@ -723,6 +799,7 @@ const view = new class {
 		}
 		this.selected_node = node;
 		this.showNodePanel(node, {device, problems, groups, addresses});
+		this.registerPanel('node:' + node.id, node.label ?? node.name, () => this.selectNode(this.nodes.get(String(node.id)) ?? node));
 	}
 
 	// Fetches /neighbors for `device` and folds the link facts (severity, ports, load) into the links of this view — shared by a
@@ -894,6 +971,11 @@ const view = new class {
 			: '';
 		this.details.innerHTML = `<h2>${this.escape(link.source.label ?? link.source.name)} ↔ ${this.escape(link.target.label ?? link.target.name)}</h2>${table}${device_link_actions}${delete_button}${to_device_buttons}`;
 		this.wireDeviceLinkActions();
+		this.registerPanel(link.edge_id ? 'link:' + link.edge_id : 'link:' + link.source.id + ':' + link.target.id,
+			`${link.source.label ?? link.source.name} ↔ ${link.target.label ?? link.target.name}`, () => {
+				const stored = link.edge_id ? this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(link.edge_id)) : null;
+				return this.selectLink(stored ? this.resolvedLink(stored) : link);
+			});
 		this.details.querySelectorAll('[data-topology-keep-port]').forEach(keep => keep.addEventListener('click', () => this.guard(async () => {
 			await this.request('topology.link.convert', {
 				method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1552,20 +1634,20 @@ const view = new class {
 		on('.topology-neighbor[data-node]', event => {
 			const target = this.nodes.get(event.currentTarget.dataset.node);
 			if (target) {
-				this.guard(() => this.selectNode(target));
+				this.guard(() => this.openFromPanel(() => this.selectNode(target)));
 			}
 		});
 		on('.topology-link-details', event => {
 			const link = this.links.find(candidate => candidate.edge_id !== null && String(candidate.edge_id) === String(event.currentTarget.dataset.edge));
 			if (link) {
-				this.selectLink(this.resolvedLink(link));
+				this.openFromPanel(() => this.selectLink(this.resolvedLink(link)));
 			}
 		});
 		on('.topology-bundle-details', event => {
 			const ids = event.currentTarget.dataset.edges.split(',');
 			const bundle = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => ids.includes(String(member.edge_id))));
 			if (bundle) {
-				this.selectBundle(bundle);
+				this.openFromPanel(() => this.selectBundle(bundle));
 			}
 		});
 		on('.topology-bundle-toggle', event => {
@@ -1938,10 +2020,11 @@ const view = new class {
 		}).join('');
 		const parent = this.nodes.get(String(group.parent));
 		// 2.72: the title is "<N> devices at <parent>", not "Device details"
-		this.setDetailsTitle(<?= json_encode(_('%1$s devices at %2$s')) ?>.replace('%1$s', String(group.count)).replace('%2$s', parent?.label ?? parent?.name ?? ''));
+		const group_title = <?= json_encode(_('%1$s devices at %2$s')) ?>.replace('%1$s', String(group.count)).replace('%2$s', parent?.label ?? parent?.name ?? '');
+		this.setDetailsTitle(group_title);
 		// 2.73: no second line with "<N> devices" under the title
 		this.details.innerHTML = `<div class="topology-group-fold"><button type="button" class="btn-alt" id="topology-fold" data-parent="${this.escape(group.parent)}">${this.escape(
-				<?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.count)))}</button></div>` +
+				this.groupToggleText(group.parent, group.count))}</button></div>` +
 			`<p class="topology-group-help">${this.escape(<?= json_encode(_('Devices with one link each, at')) ?>)} ${this.escape(parent?.label ?? parent?.name ?? '')}</p>` +
 			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Device')) ?>)}</th><th>${this.escape(<?= json_encode(_('Local port')) ?>)}</th>` +
 			`<th>${this.escape(<?= json_encode(_('Remote port')) ?>)}</th></tr></thead><tbody>${rows}</tbody></table></section>`;
@@ -1949,19 +2032,44 @@ const view = new class {
 		this.details.querySelectorAll('.topology-group-row').forEach(row => row.addEventListener('click', () => {
 			const device = this.nodes.get(row.dataset.deviceId);
 			if (device) {
-				this.guard(() => this.selectNode(device));
+				this.guard(() => this.openFromPanel(() => this.selectNode(device)));
 			}
 		}));
+		this.registerPanel('group:' + group.parent, group_title, () => {
+			const current = this.group_nodes.get(String(group.parent));
+			return current ? this.showGroup(current) : undefined;
+		});
 	}
 
 	// "Fold <N> devices" in a panel (the parent's, and the group's): one delegated lookup after the panel is built.
 	wireFoldButtons() {
-		this.details.querySelectorAll('[data-parent]').forEach(button => button.addEventListener('click', () => this.foldGroup(button.dataset.parent)));
+		this.details.querySelectorAll('[data-parent]').forEach(button => button.addEventListener('click', () => this.guard(() => this.toggleGroup(button.dataset.parent))));
+	}
+
+	// The text of the one control (§12.8, 2.81): "Unfold <N> devices" while the group is folded, "Fold <N> devices" while it is unfolded.
+	groupToggleText(parent_id, count) {
+		return (this.unfolded.has(String(parent_id)) ? <?= json_encode(_('Fold %1$s devices')) ?> : <?= json_encode(_('Unfold %1$s devices')) ?>).replace('%1$s', String(count));
+	}
+
+	// The control folds or unfolds the group and shows the panel again (same panel, same state, same stack) with the other text.
+	async toggleGroup(parent_id) {
+		const panel = this.current_panel;
+		const state = this.capturePanelState();
+		if (this.unfolded.has(String(parent_id))) {
+			this.foldGroup(parent_id);
+		}
+		else {
+			this.unfoldGroup(parent_id);
+		}
+		if (panel) {
+			await panel.reopen();
+			this.restorePanelState(state);
+		}
 	}
 
 	// The parent of an unfolded group gets the control "Fold <N> devices" at the top of its panel.
 	addFoldControl(node) {
-		const group = (this.leaf_groups ?? []).find(candidate => String(candidate.parent) === String(node.id) && this.unfolded.has(String(candidate.parent)));
+		const group = (this.leaf_groups ?? []).find(candidate => String(candidate.parent) === String(node.id));
 		const actions = this.details.querySelector('.topology-node-actions');
 		if (!group || !actions) {
 			return;
@@ -1970,7 +2078,7 @@ const view = new class {
 		button.type = 'button';
 		button.className = 'btn-alt';
 		button.dataset.parent = String(group.parent);
-		button.textContent = <?= json_encode(_('Fold %1$s devices')) ?>.replace('%1$s', String(group.devices.length));
+		button.textContent = this.groupToggleText(group.parent, group.devices.length);
 		actions.prepend(button);
 		this.wireFoldButtons();
 	}
@@ -2456,7 +2564,10 @@ const view = new class {
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
 		const link_badges = scene.append('g').selectAll('g').data(contradicted_links).join('g')
 			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
-			.on('click', (event, link) => this.selectLink(link));
+			.on('click', (event, link) => {
+				this.panel_from = null;
+				this.selectLink(link);
+			});
 		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
 			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
@@ -2479,6 +2590,7 @@ const view = new class {
 				glow: () => glows.nodes()[i],
 				tooltip: () => group_node ? describeSubject(group_node) : link_tooltip(link),
 				open: () => {
+					this.panel_from = null;
 					if (group_node) {
 						this.showGroup(group_node);
 					}
@@ -2504,7 +2616,10 @@ const view = new class {
 		pair_data.forEach(pair => {
 			const d = () => straight(pair.from, pair.to);
 			const glow = glow_of(8, d);
-			line_entries.push({d, glow: () => glow, tooltip: () => this.pairReason(pair.candidate), open: () => this.selectPair(pair.a, pair.candidate)});
+			line_entries.push({d, glow: () => glow, tooltip: () => this.pairReason(pair.candidate), open: () => {
+				this.panel_from = null;
+				this.selectPair(pair.a, pair.candidate);
+			}});
 		});
 		const hit_layer = scene.append('g').attr('class', 'topology-hit-layer');
 		const hits = hit_layer.selectAll('path').data(line_entries).join('path').attr('class', 'topology-hit')
@@ -2569,6 +2684,7 @@ const view = new class {
 					this.foldGroup(group.parent);
 					// 091 (§12.8): the side panel then shows the group, not a leaf that is no longer drawn
 					const group_node = this.group_nodes.get(String(group.parent));
+					this.panel_from = null;
 					if (group_node) {
 						this.showGroup(group_node);
 					}
@@ -2616,6 +2732,7 @@ const view = new class {
 					node.drag_moved = false;
 					return;
 				}
+				this.panel_from = null;
 				if (node.type === 'group') {
 					this.unfoldGroup(node.parent);
 					this.showGroup(node);
@@ -2760,7 +2877,12 @@ const view = new class {
 		this.details.innerHTML = `<h2>${this.escape(`${bundle.source.name} ↔ ${bundle.target.name}`)}</h2><p class="topology-device-class">LAG ${this.escape(bundle.label)}</p>` +
 			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Members')) ?>)}</th></tr></thead><tbody>` +
 			bundle.members.map((member, i) => `<tr class="topology-group-row" data-member="${i}"><td title="${this.escape(this.memberLine(member))}">${this.escape(this.memberLine(member))}</td></tr>`).join('') + '</tbody></table></section>';
-		this.details.querySelectorAll('[data-member]').forEach(row => row.addEventListener('click', () => this.selectLink(bundle.members[Number(row.dataset.member)])));
+		this.details.querySelectorAll('[data-member]').forEach(row => row.addEventListener('click', () => this.openFromPanel(() => this.selectLink(bundle.members[Number(row.dataset.member)]))));
+		const edge_ids = bundle.members.map(member => String(member.edge_id));
+		this.registerPanel('bundle:' + edge_ids.join(','), `${bundle.source.name} ↔ ${bundle.target.name}`, () => {
+			const drawn = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => edge_ids.includes(String(member.edge_id))));
+			return this.selectBundle(drawn ?? bundle);
+		});
 	}
 
 	// The tooltip of a line (§12.3 "Hit area of a line"): the line nearest to the pointer; plain text.
