@@ -125,6 +125,7 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(G.isDrawn({type: 'host', device: null}, {...none, is_focus: true}) === true, 'a Host without a Device and without a link: drawn as the focus host');
 	ok(G.isDrawn({type: 'host', device: null}, {...none, only_duplicates: true}) === true, 'a node without a link: drawn with "Possible duplicates only"');
 	ok(G.isDrawn({type: 'host', device: {}}, none) === false && G.isDrawn({type: 'device'}, none) === false, 'a Host with a Device and a Device without a drawn link: not drawn');
+	ok(G.isDrawn({type: 'device', manual: true}, none) === true && G.isDrawn({type: 'device', manual: false}, none) === false, 'a manual Device is drawn without a link (§12.1, 2.80); a discovered one is not');
 	ok(G.isDrawn({type: 'host'}, {...none, has_link: true}) === true && G.isDrawn({type: 'device'}, {...none, has_link: true}) === true, 'a node with a drawn link: drawn');
 	ok(G.isDrawn({type: 'proxy'}, none) === true && G.isDrawn({type: 'group'}, none) === true, 'a Proxy (by the view scope) and a group node: drawn');
 }

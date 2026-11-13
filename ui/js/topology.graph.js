@@ -784,7 +784,8 @@
 		if (node.type !== 'host' && node.type !== 'device') {
 			return true;
 		}
-		return ctx.has_link || ctx.show_unlinked || ctx.only_duplicates || ctx.is_focus;
+		// 2.80 (§9.7, §12.1): a manual Device is drawn also without a link
+		return ctx.has_link || ctx.show_unlinked || ctx.only_duplicates || ctx.is_focus || node.manual === true;
 	}
 
 	// ---- LAG bundle (§12.3, 2.72; FR-C V-6) ----

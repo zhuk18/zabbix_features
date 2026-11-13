@@ -12,7 +12,9 @@ class CControllerTopologyDevicesGet extends CController {
 			'groupids' => 'array_id',
 			'hostid' => 'id',
 			'hops' => 'int32',
-			'duplicates' => 'in 0,1'
+			'duplicates' => 'in 0,1',
+			// 2.80 (§12.1): the manual Devices that the operator created in this view stay in a scoped view until the filter is applied
+			'include' => 'array_id'
 		]);
 	}
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
@@ -23,7 +25,7 @@ class CControllerTopologyDevicesGet extends CController {
 		$hops = $this->hasInput('hops') ? min(6, max(1, (int) $this->getInput('hops'))) : null;
 
 		$this->setResponse(new CControllerResponseData(['main_block' => json_encode(
-			CTopologyPrototype::getView($groupids, $hostid, $hops, (int) $this->getInput('duplicates', 0) === 1),
+			CTopologyPrototype::getView($groupids, $hostid, $hops, (int) $this->getInput('duplicates', 0) === 1, $this->getInput('include', [])),
 			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE
 		)]));
 	}

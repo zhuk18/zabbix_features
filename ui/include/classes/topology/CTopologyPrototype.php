@@ -144,6 +144,11 @@ class CTopologyPrototype {
 					$node['mgmt_ip'] = $attrs['mgmt_ip'] ?? null;
 					$node['label'] = self::nodeLabel('device', null, $attrs['sysname'] ?? null, $attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null);
 					$node['created_at'] = (int) $row['created_at'];
+					// 2.80 (§9.7): a manual Device (the operator created it); its class is the operator's choice (§12.2), it wins over rem_sys_cap
+					if (($attrs['source'] ?? null) === 'manual') {
+						$node['manual'] = true;
+						$node['chosen_class'] = $attrs['device_class'] ?? 'other';
+					}
 					// topology-1-model.md §6.7.5: possible duplicates (the evidence ingest wrote); resolved below, in one query
 					$node['duplicates'] = $attrs['duplicate_candidates'] ?? [];
 					$node['dismissed'] = $attrs['duplicate_dismissed'] ?? [];
@@ -220,6 +225,15 @@ class CTopologyPrototype {
 				if ($node['type'] === 'device' && isset($classes[(string) $node['id']])) {
 					$node['device_class'] = $classes[(string) $node['id']]['class'];
 					$node['device_class_bits'] = $classes[(string) $node['id']]['bits'];
+				}
+				// §12.2 (2.80): the chosen class of a manual Device wins, also when neighbors report it later; "other" is the generic icon
+				if ($node['type'] === 'device' && !empty($node['manual'])) {
+					if ($node['chosen_class'] === 'other') {
+						unset($node['device_class']);
+					}
+					else {
+						$node['device_class'] = $node['chosen_class'];
+					}
 				}
 			}
 			unset($node);
@@ -675,7 +689,7 @@ class CTopologyPrototype {
 			return null;
 		}
 
-		return ($port_attrs['admin_status'] ?? 'up') === 'down' ? 'disabled' : $port_attrs['oper_status'];
+		return ($port_attrs['admin_status'] ?? 'up') === 'down' ? 'disabled' : ($port_attrs['oper_status'] ?? null);
 	}
 
 	/**
@@ -751,8 +765,18 @@ class CTopologyPrototype {
 	 * The answer of topology.devices.get (the view page, topology-1-model.md §12.1): the nodes and relations of the view scope and the contradictions.
 	 * $hops null: no limit. Nothing selected: every node.
 	 */
-	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false): array {
+	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false, array $include = []): array {
 		$node_ids = self::resolveScope($groupids, $hostid, $hops);
+		// 2.80 (§12.1): a manual Device that the operator just created is in the view until the filter is applied (only manual Devices can be added this way)
+		if ($node_ids !== null && $include) {
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $include));
+			while ($row = DBfetch($result, false)) {
+				if ((self::attrs($row)['source'] ?? null) === 'manual') {
+					$node_ids[] = (string) $row['id'];
+				}
+			}
+			$node_ids = array_values(array_unique($node_ids));
+		}
 		if ($duplicates) {
 			$node_ids = self::duplicatesScope($node_ids);
 		}
@@ -1247,8 +1271,10 @@ class CTopologyPrototype {
 				$learned_mac_count);
 
 			$groups[$group][] = [
-				'id' => $row['id'], 'port' => $attrs['name'], 'group' => $group,
-				'status' => $attrs['oper_status'], 'admin_status' => $attrs['admin_status'] ?? null,
+				'id' => $row['id'], 'port' => $attrs['name'] ?? '', 'group' => $group,
+				// 2.80 (§9.7): a manual port has no oper_status; `manual` and `description` are for its menu and the edit dialog
+				'manual' => ($attrs['source'] ?? null) === 'manual', 'description' => $attrs['description'] ?? null,
+				'status' => $attrs['oper_status'] ?? null, 'admin_status' => $attrs['admin_status'] ?? null,
 				// a LAG member shows the name of its LAG (§12.5)
 				'lag' => $row['lag_id'] !== null ? ($lag_names[$row['lag_id']] ?? null) : null,
 				'connected_to' => $linked_names[$row['id']] ?? $device_link['device'] ?? null,
@@ -2662,6 +2688,7 @@ class CTopologyPrototype {
 			throw new Exception('The Device is associated with a host or proxy: remove the association first (Depromote).');
 		}
 
+		$manual = (self::attrs($device)['source'] ?? null) === 'manual';
 		$ports = [];
 		$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id));
 		while ($row = DBfetch($result, false)) {
@@ -2674,7 +2701,8 @@ class CTopologyPrototype {
 		$result = DBselect('SELECT id,type,attrs FROM topo_edges WHERE type IN ('.zbx_dbstr('physical_link').','.zbx_dbstr('device_link').') AND ('.
 			dbConditionInt('src_id', $ends).' OR '.dbConditionInt('dst_id', $ends).')');
 		while ($edge = DBfetch($result, false)) {
-			if (!self::isDiscovered($edge)) {
+			// a manual Device (§9.7) takes its manual links with it; the manual link of a discovered Device must be deleted first
+			if (!self::isDiscovered($edge) && !$manual) {
 				throw new Exception('The Device has a manual link: delete the link first.');
 			}
 			$links[] = (string) $edge['id'];
@@ -2749,6 +2777,304 @@ class CTopologyPrototype {
 		DBend(true);
 
 		return ['deleted' => (int) $device_id, 'ports' => count($ports), 'links' => count($links)];
+	}
+
+	// ---- Manual Device (topology-1-model.md §9.7, 2.80; FR-C O-15). Every method below runs under the run lock (the controllers wrap it in CTopologyRun::guard). ----
+
+	public const MANUAL_DEVICE_CLASSES = ['router', 'switch', 'access_point', 'phone', 'station', 'other'];
+
+	/**
+	 * The hardware ID of a manual Device (§9.7): a MAC in one of the forms of normalization §4.1, in normal form; an all-zero or all-ff MAC is refused (§6.7.0). '' is no hardware ID.
+	 */
+	private static function manualHardwareId(string $value): string {
+		$value = trim($value);
+		if ($value === '') {
+			return '';
+		}
+		$octets = CTopologyAddress::macOctets($value);
+		if ($octets === null || count($octets) !== 6) {
+			throw new Exception('The hardware ID is not a MAC address.');
+		}
+		$mac = CTopologyAddress::macFormId($value);
+		if ($mac === null) {
+			throw new Exception('The hardware ID is a placeholder MAC (all zero or all ff) and can not identify a Device.');
+		}
+
+		return $mac;
+	}
+
+	/** The management address of a manual Device: IPv4 or IPv6 in the text of normalization §4.3; unspecified, loopback and multicast are refused (§4.4). '' is none. */
+	private static function manualAddress(string $value): string {
+		$value = trim($value);
+		if ($value === '') {
+			return '';
+		}
+		$text = CTopologyAddress::ipText($value);
+		if ($text === null || CTopologyAddress::isHidden($text)) {
+			throw new Exception('The management address is not a usable IPv4 or IPv6 address.');
+		}
+
+		return $text;
+	}
+
+	/** The hardware ID is an identity key (§9.7): another Device that holds the key refuses it. */
+	private static function assertHardwareIdFree(string $mac, ?string $device_id): void {
+		$result = DBselect('SELECT k.device_id FROM topo_identity_keys k JOIN topo_nodes d ON d.id=k.device_id'.
+			' WHERE k.'.self::keyColumn().'='.zbx_dbstr('chassis:mac:'.$mac).' AND k.replaced=0'.
+			($device_id !== null ? ' AND k.device_id<>'.zbx_dbstr($device_id) : '').' ORDER BY k.device_id', 1);
+		if ($other = DBfetch($result, false)) {
+			throw new Exception(self::deviceLabel((string) $other['device_id']).' has this hardware ID (Device '.$other['device_id'].').');
+		}
+	}
+
+	private static function manualDeviceRow(string $device_id): array {
+		$row = self::getDeviceRow($device_id);
+		if ((self::attrs($row)['source'] ?? null) !== 'manual') {
+			throw new Exception('A discovered Device is not edited by hand.');
+		}
+
+		return $row;
+	}
+
+	private static function manualClass(string $class): string {
+		if (!in_array($class, self::MANUAL_DEVICE_CLASSES, true)) {
+			throw new Exception('The device class is not one of: '.implode(', ', self::MANUAL_DEVICE_CLASSES).'.');
+		}
+
+		return $class;
+	}
+
+	private static function manualPortName($value): string {
+		$name = trim((string) $value);
+		if ($name === '') {
+			throw new Exception('The port name is empty.');
+		}
+		if (strlen($name) > 255) {
+			throw new Exception('The port name is longer than 255 characters.');
+		}
+
+		return $name;
+	}
+
+	/** @return string[]  the names of the ports of a Device (as stored) */
+	private static function portNamesOf(string $device_id, ?string $except_port_id = null): array {
+		$names = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id));
+		while ($row = DBfetch($result, false)) {
+			if ($except_port_id === null || (string) $row['id'] !== $except_port_id) {
+				$names[] = (string) (self::attrs($row)['name'] ?? '');
+			}
+		}
+
+		return $names;
+	}
+
+	private static function insertManualPort(string $device_id, string $name, string $description, string $userid): string {
+		$attrs = ['name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'source' => 'manual', 'created_by' => $userid, 'created_at' => time()];
+		if ($description !== '') {
+			$attrs['description'] = $description;
+		}
+		DBexecute('INSERT INTO topo_nodes (type,device_id,attrs,created_at,updated_at) VALUES ('.zbx_dbstr('port').','.zbx_dbstr($device_id).','.
+			zbx_dbstr(json_encode($attrs)).','.time().','.time().')');
+
+		return (string) DBfetch(DBselect('SELECT MAX(id) AS id FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id)), false)['id'];
+	}
+
+	/**
+	 * Create a manual Device (§9.7). `$input`: name (required), device_class (required), chassis_id, mgmt_ip, ports: [{name, description?}].
+	 *
+	 * @return array  ['id' => Device id, 'ports' => [{id, name}]]
+	 */
+	public static function createDevice(array $input, string $userid): array {
+		$name = trim((string) ($input['name'] ?? ''));
+		if ($name === '') {
+			throw new Exception('The name is empty.');
+		}
+		$class = self::manualClass((string) ($input['device_class'] ?? ''));
+		$mac = self::manualHardwareId((string) ($input['chassis_id'] ?? ''));
+		$address = self::manualAddress((string) ($input['mgmt_ip'] ?? ''));
+		$ports = [];
+		$seen = [];
+		foreach ($input['ports'] ?? [] as $port) {
+			$port_name = self::manualPortName(is_array($port) ? ($port['name'] ?? '') : $port);
+			if (isset($seen[$port_name])) {
+				throw new Exception('The port name '.$port_name.' is used twice.');
+			}
+			$seen[$port_name] = true;
+			$ports[] = [$port_name, is_array($port) ? trim((string) ($port['description'] ?? '')) : ''];
+		}
+		if ($mac !== '') {
+			self::assertHardwareIdFree($mac, null);
+		}
+
+		$attrs = ['sysname' => $name, 'source' => 'manual', 'device_class' => $class, 'created_by' => $userid, 'created_at' => time()];
+		if ($mac !== '') {
+			$attrs['mac'] = $mac;
+			$attrs['chassis_id'] = $mac;
+		}
+		if ($address !== '') {
+			$attrs['mgmt_ip'] = $address;
+		}
+
+		DBstart();
+		try {
+			DBexecute('INSERT INTO topo_nodes (type,attrs,created_at,updated_at) VALUES ('.zbx_dbstr('device').','.zbx_dbstr(json_encode($attrs)).','.time().','.time().')');
+			$device_id = (string) DBfetch(DBselect('SELECT MAX(id) AS id FROM topo_nodes WHERE type='.zbx_dbstr('device')), false)['id'];
+			if ($mac !== '') {
+				DBexecute('INSERT INTO topo_identity_keys (device_id,'.self::keyColumn().',kind,first_seen,replaced) VALUES ('.zbx_dbstr($device_id).','.
+					zbx_dbstr('chassis:mac:'.$mac).','.zbx_dbstr('chassis').','.time().',0)');
+			}
+			$created = [];
+			foreach ($ports as [$port_name, $description]) {
+				$created[] = ['id' => self::insertManualPort($device_id, $port_name, $description, $userid), 'name' => $port_name];
+			}
+		}
+		catch (Throwable $exception) {
+			DBend(false);
+
+			throw $exception;
+		}
+		DBend(true);
+
+		return ['id' => $device_id, 'ports' => $created];
+	}
+
+	/** Edit a manual Device (§9.7): any of name, device_class, chassis_id (empty: none), mgmt_ip (empty: none). A discovered Device is refused. */
+	public static function updateDevice(string $device_id, array $input, string $userid): array {
+		$row = self::manualDeviceRow($device_id);
+		$attrs = self::attrs($row);
+		$old_mac = (string) ($attrs['chassis_id'] ?? '');
+		if (array_key_exists('name', $input)) {
+			$name = trim((string) $input['name']);
+			if ($name === '') {
+				throw new Exception('The name is empty.');
+			}
+			$attrs['sysname'] = $name;
+		}
+		if (array_key_exists('device_class', $input)) {
+			$attrs['device_class'] = self::manualClass((string) $input['device_class']);
+		}
+		if (array_key_exists('mgmt_ip', $input)) {
+			$address = self::manualAddress((string) $input['mgmt_ip']);
+			if ($address === '') {
+				unset($attrs['mgmt_ip']);
+			}
+			else {
+				$attrs['mgmt_ip'] = $address;
+			}
+		}
+		$new_mac = $old_mac;
+		if (array_key_exists('chassis_id', $input)) {
+			$new_mac = self::manualHardwareId((string) $input['chassis_id']);
+			if ($new_mac !== '') {
+				self::assertHardwareIdFree($new_mac, $device_id);
+			}
+			if ($new_mac === '') {
+				unset($attrs['mac'], $attrs['chassis_id']);
+			}
+			else {
+				$attrs['mac'] = $new_mac;
+				$attrs['chassis_id'] = $new_mac;
+			}
+		}
+		$attrs['updated_by'] = $userid;
+		$attrs['updated_at'] = time();
+
+		DBstart();
+		try {
+			if ($new_mac !== $old_mac) {
+				if ($old_mac !== '') {
+					DBexecute('DELETE FROM topo_identity_keys WHERE device_id='.zbx_dbstr($device_id).' AND '.self::keyColumn().'='.zbx_dbstr('chassis:mac:'.$old_mac));
+				}
+				if ($new_mac !== '') {
+					DBexecute('INSERT INTO topo_identity_keys (device_id,'.self::keyColumn().',kind,first_seen,replaced) VALUES ('.zbx_dbstr($device_id).','.
+						zbx_dbstr('chassis:mac:'.$new_mac).','.zbx_dbstr('chassis').','.time().',0)');
+				}
+			}
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($device_id));
+		}
+		catch (Throwable $exception) {
+			DBend(false);
+
+			throw $exception;
+		}
+		DBend(true);
+
+		return ['id' => $device_id];
+	}
+
+	/** Add a port to a manual Device (§9.7): a name that is not used in the Device, an optional description. */
+	public static function createPort(string $device_id, array $input, string $userid): array {
+		self::manualDeviceRow($device_id);
+		$name = self::manualPortName($input['name'] ?? '');
+		if (in_array($name, self::portNamesOf($device_id), true)) {
+			throw new Exception('The port name '.$name.' is used twice.');
+		}
+		$port_id = self::insertManualPort($device_id, $name, trim((string) ($input['description'] ?? '')), $userid);
+		self::touchManualDevice($device_id, $userid);
+
+		return ['id' => $port_id, 'name' => $name];
+	}
+
+	/** The port of a manual Device that the operator may change: a manual port, without a link ("Unlink the port first"). */
+	private static function manualPortRow(string $port_id): array {
+		$row = DBfetch(DBselect('SELECT id,device_id,attrs FROM topo_nodes WHERE id='.zbx_dbstr($port_id).' AND type='.zbx_dbstr('port')), false);
+		if (!$row || $row['device_id'] === null) {
+			throw new Exception('Port '.$port_id.' does not exist.');
+		}
+		if ((self::attrs($row)['source'] ?? null) !== 'manual') {
+			throw new Exception('A discovered port is not changed by hand.');
+		}
+		self::manualDeviceRow((string) $row['device_id']);
+		if (DBfetch(DBselect('SELECT id FROM topo_edges WHERE type IN ('.zbx_dbstr('physical_link').','.zbx_dbstr('device_link').') AND (src_id='.zbx_dbstr($port_id).
+				' OR dst_id='.zbx_dbstr($port_id).')', 1), false)) {
+			throw new Exception('The port has a link: unlink the port first.');
+		}
+
+		return $row;
+	}
+
+	/** Rename a manual port and change its description (§9.7). */
+	public static function updatePort(string $port_id, array $input, string $userid): array {
+		$row = self::manualPortRow($port_id);
+		$attrs = self::attrs($row);
+		if (array_key_exists('name', $input)) {
+			$name = self::manualPortName($input['name']);
+			if (in_array($name, self::portNamesOf((string) $row['device_id'], $port_id), true)) {
+				throw new Exception('The port name '.$name.' is used twice.');
+			}
+			$attrs['name'] = $name;
+		}
+		if (array_key_exists('description', $input)) {
+			$description = trim((string) $input['description']);
+			if ($description === '') {
+				unset($attrs['description']);
+			}
+			else {
+				$attrs['description'] = $description;
+			}
+		}
+		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
+		self::touchManualDevice((string) $row['device_id'], $userid);
+
+		return ['id' => $port_id];
+	}
+
+	public static function deletePort(string $port_id, string $userid): array {
+		$row = self::manualPortRow($port_id);
+		DBexecute('DELETE FROM topo_nodes WHERE id='.zbx_dbstr($port_id));
+		self::touchManualDevice((string) $row['device_id'], $userid);
+
+		return ['deleted' => (int) $port_id];
+	}
+
+	/** Who changed the manual Device last (the prototype has no audit store yet, §18). */
+	private static function touchManualDevice(string $device_id, string $userid): void {
+		$row = self::getDeviceRow($device_id);
+		$attrs = self::attrs($row);
+		$attrs['updated_by'] = $userid;
+		$attrs['updated_at'] = time();
+		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($device_id));
 	}
 
 	/** Not the same device: the other Device's id goes to attrs.duplicate_dismissed of both (with at and by), and out of both candidate lists. */
