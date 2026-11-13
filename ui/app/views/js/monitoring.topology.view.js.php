@@ -1372,10 +1372,8 @@ const view = new class {
 		if (drawn) {
 			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-bundle-details', attrs: `data-edges="${esc(edge_ids.join(','))}"`});
 		}
-		const local = members.map(member => member.port).join(', ');
-		const remote = members.map(member => member.remote_port ?? '?').join(', ');
-		const ports_text = `${row.label} · ${local} ↔ ${remote}`;
-		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(row.label)} · ${esc(this.cutText(local, 90))} ↔ ${esc(this.cutText(remote, 90))}</span>`,
+		// line 2 of a bundle row (§12.5, 2.78): "<LAG name> ×<N> · <status> · <source> · <load>"; the ports are in the member rows
+		const line2 = [`<span class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(row.label)}</span>`,
 			`<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>`,
 			`<span class="topology-link-source">${esc(first.source_text ?? '')}</span>`, `<span class="topology-link-load">${esc(load)}</span>`];
 		const toggle = `<button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
@@ -1455,7 +1453,8 @@ const view = new class {
 		}
 		// actions: Focus (Host only), Neighbor reports (the node's), and the menu of the node actions that apply
 		const actions = [];
-		if (node.type === 'host' && node.hostid) {
+		// Focus: not shown when this host is already the Focus host (§12.5, 2.78)
+		if (node.type === 'host' && node.hostid && String(this.applied_hostid ?? '') !== String(node.hostid)) {
 			actions.push(`<button type="button" class="btn-alt topology-focus-button" data-hostid="${esc(node.hostid)}">${esc(<?= json_encode(_('Focus')) ?>)}</button>`);
 		}
 		if (device) {
