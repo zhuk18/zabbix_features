@@ -990,6 +990,29 @@ if (!$zabbix_host_filter) {
 			}
 		}
 	}
+	// 2.80 (§9.7, task 099): a manual Device without a hardware ID (no chassis key) is marked "same name" with any other Device that has an equal name key, also one that has a chassis:
+	// the operator named it by hand and the device reports under that name later. Both sides get the mark; nothing is merged (the operator merges, O-5).
+	$manual_names = [];    // name key => [manual Device id => true]
+	foreach ($by_name as $name_key => $ids) {
+		foreach (array_keys($ids) as $id) {
+			$attrs_row = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+			$attrs_row->execute([$id]);
+			if ((json_decode((string) $attrs_row->fetchColumn(), true)['source'] ?? null) === 'manual') {
+				$manual_names[$name_key][$id] = true;
+			}
+		}
+	}
+	if ($manual_names) {
+		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			$name_key = CTopologyAddress::nameKey((string) (json_decode($row['attrs'], true)['sysname'] ?? ''));
+			foreach (array_keys($manual_names[$name_key] ?? []) as $manual_id) {
+				if ((int) $row['id'] !== $manual_id && !isset($by_name[$name_key][(int) $row['id']])) {
+					$note_duplicate($manual_id, (int) $row['id'], 'same_name', 'sysname', $name_key);
+					$note_duplicate((int) $row['id'], $manual_id, 'same_name', 'sysname', $name_key);
+				}
+			}
+		}
+	}
 	foreach ($chassis_changes as $s_id => [$chassis, $chassis_key_y]) {
 		$found_c = array_values(array_diff($key_holders($chassis_key_y), [$s_id]));
 		if (!$found_c) {
