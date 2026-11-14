@@ -2672,6 +2672,27 @@ const view = new class {
 					});
 					G.makeLabelRoom(nodes, bundles, {width, height, padding});
 				}
+				// the room for the labels can bring a crossing back: one search more, that keeps off the labels; it stays only when every label still has its free point
+				if (G.linesThrough(nodes, drawn_lines, 2).length > 0) {
+					const label_places = () => {
+						const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
+						const placed = [];
+						bundles.forEach(({a, b, width: label_width, index, count}) => {
+							const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...placed.map(item => item.box)]);
+							placed.push({box: place.box, owners: [a, b], free: place.free});
+						});
+
+						return placed;
+					};
+					const saved = nodes.map(node => [node.x, node.y]);
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_places(), 4, 91);
+					if (!label_places().every(item => item.free)) {
+						nodes.forEach((node, i) => {
+							node.x = saved[i][0];
+							node.y = saved[i][1];
+						});
+					}
+				}
 				held.forEach(node => {
 					node.fx = undefined;
 					node.fy = undefined;
