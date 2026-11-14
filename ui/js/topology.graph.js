@@ -1290,6 +1290,13 @@
 	}
 
 	/**
+	 * Line 2 of a Links row (§12.5, 2.84): a part with no value (null, undefined or empty text) is left out together with its separator ("lan0 ↔ 1/1/3 · manual").
+	 */
+	function joinParts(parts, separator = ' · ') {
+		return parts.filter(part => part !== null && part !== undefined && part !== '').join(separator);
+	}
+
+	/**
 	 * The problems of a Host for the panel: the count by severity (the highest first) and the 5 newest (the smallest age first). `problems` = [{severity_name, severity, color, name, age}].
 	 *
 	 * @return object  {total, by_severity: [{severity_name, severity, color, count}], newest}
@@ -1333,5 +1340,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

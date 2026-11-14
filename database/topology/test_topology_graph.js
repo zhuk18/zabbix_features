@@ -542,4 +542,9 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	G.clearThroughLines([a3, b3, c3, d3], lines3, bounds);
 	ok(G.linesThrough([a3, b3, c3, d3], lines3, 2).length === 0, 'clearThroughLines: the moved node\'s own line crosses no other node either');
 }
+// ---- task 100 §3: line 2 of a Links row without the empty parts (§12.5, 2.84) ----
+{
+	ok(G.joinParts(['lan0 ↔ 1/1/3', null, 'manual', undefined]) === 'lan0 ↔ 1/1/3 · manual', 'joinParts: a part with no value is left out with its separator ("lan0 ↔ 1/1/3 · manual")');
+	ok(G.joinParts(['a', 'b', 'c']) === 'a · b · c' && G.joinParts([null, '', null]) === '' && G.joinParts(['x', ''], '|') === 'x', 'joinParts: all parts, none, and another separator');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

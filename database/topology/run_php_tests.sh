@@ -19,7 +19,17 @@ failed=0
 labpy=${LABPY:-$HOME/work/labenv/bin/python}
 phpunit=${PHPUNIT:-$HOME/work/tools/phpunit-8.5.phar}
 results=$(mktemp)
-trap 'rm -f "$results"' EXIT
+# the legend state of Admin (the page checks toggle it): saved at the start, put back at the end, also after a failure (task 100 §4)
+legend_row="idx = 'web.topology.legend.collapsed' AND userid = (SELECT userid FROM users WHERE username = 'Admin')"
+legend_saved=$(mysql -N -u"$user" zabbix -e "SELECT value_int FROM profiles WHERE $legend_row" 2>/dev/null)
+restore_legend() {
+	if [ -n "$legend_saved" ]; then
+		mysql -u"$user" zabbix -e "UPDATE profiles SET value_int = $legend_saved WHERE $legend_row" 2>/dev/null
+	else
+		mysql -u"$user" zabbix -e "DELETE FROM profiles WHERE $legend_row" 2>/dev/null
+	fi
+}
+trap 'rm -f "$results"; restore_legend' EXIT
 start_all=$(date +%s)
 
 fresh() {

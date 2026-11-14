@@ -57,6 +57,8 @@ const view = new class {
 		this.unfolded = new Set();
 		this.panel_stack = [];
 		this.current_panel = null;
+		this.new_manual = new Set();      // manual Devices created in this page and not dragged: when one gets its first link it is placed next to the linked node (§9.7, 2.84)
+		this.replace_ids = new Set();      // the Devices that lose their place at the next reload
 		this.include_ids = new Set();      // manual Devices created in this view stay in a scoped view until the filter is applied (§12.1, 2.80)
 		this.leaf_groups = [];
 		this.relayout = true;
@@ -375,11 +377,12 @@ const view = new class {
 		});
 		this.nodes = new Map(devices.map(node => {
 			const before = old_nodes.get(String(node.id));
-			if (before) {
+			if (before && !this.replace_ids.has(String(node.id))) {
 				Object.assign(node, {x: before.x, y: before.y, fx: before.fx, fy: before.fy});
 			}
 			return [String(node.id), node];
 		}));
+		this.replace_ids.clear();
 		// discovered_via/source_port/target_port/source_status/target_status/source_speed/
 		// target_speed ride along for physical_link relations (dash-pattern provenance,
 		// connectivity color, and the "Link details" panel — see render()/selectLink()) —
@@ -1430,7 +1433,7 @@ const view = new class {
 			: `<span class="topology-neighbor" title="${esc(neighbor_text ?? '?')}">${cut}</span>`;
 		return `<tr class="topology-link-row ${cls}" data-edges="${esc(edges)}"${hidden ? ' hidden' : ''}><td class="topology-link-main">` +
 			`<div class="topology-link-line1"><span class="topology-link-name">${toggle}${neighbor}</span>${this.menuHtml(items, <?= json_encode(_('Link actions')) ?>)}</div>` +
-			`<div class="topology-link-line2">${line2.join('<span class="topology-sep"> · </span>')}</div></td></tr>`;
+			`<div class="topology-link-line2">${TopologyGraph.joinParts(line2, '<span class="topology-sep"> · </span>')}</div></td></tr>`;
 	}
 
 	linkEntryHtml(entry, {member = false} = {}) {
@@ -1462,8 +1465,9 @@ const view = new class {
 		}
 		const ports_text = `${entry.port ?? '?'} ↔ ${entry.remote_port ?? '?'}`;
 		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(entry.port ?? '?', 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
-			`<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>`,
-			`<span class="topology-link-source">${esc(entry.source_text ?? '')}</span>`, `<span class="topology-link-load">${esc(load)}</span>`];
+			// a part with no value is left out with its separator (§12.5, 2.84)
+			status !== '' ? `<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>` : null,
+			entry.source_text ? `<span class="topology-link-source">${esc(entry.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
 		if (marks.length) {
 			line2.push(`<span class="topology-link-mark">${esc(marks.join(' · '))}</span>`);
 		}
@@ -1489,8 +1493,8 @@ const view = new class {
 		}
 		// line 2 of a bundle row (§12.5, 2.78): "<LAG name> ×<N> · <status> · <source> · <load>"; the ports are in the member rows
 		const line2 = [`<span class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(row.label)}</span>`,
-			`<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>`,
-			`<span class="topology-link-source">${esc(first.source_text ?? '')}</span>`, `<span class="topology-link-load">${esc(load)}</span>`];
+			statuses.filter(status => status).length ? `<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.filter(status => status).map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>` : null,
+			first.source_text ? `<span class="topology-link-source">${esc(first.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
 		const toggle = `<button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
 		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, items, line2}) +
 			members.map(member => this.linkEntryHtml(member, {member: true})).join('');
@@ -1905,10 +1909,12 @@ const view = new class {
 					this.link_pick = null;
 					this.renderLinkPick();
 					// the line is drawn at once (2.80): the view is read again, and this Device's panel is shown again
+					this.forgetPlaceOfNewManual([device.id, this.link_pick_from_device ?? '']);
 					await this.loadDevices({reselect_device: device.id});
 				}
 				else {
 					this.link_pick = {id: port_id, device_id: device.id, label: `${device.name} / ${link_button.dataset.portName}`};
+					this.link_pick_from_device = String(device.id);
 					this.renderLinkPick();
 				}
 			}));
@@ -2154,6 +2160,16 @@ const view = new class {
 		};
 	}
 
+	// A manual Device that was created in this page and not dragged gets its place again when it is linked (§9.7, 2.84): next to the node it is linked to, as a leaf.
+	forgetPlaceOfNewManual(device_ids) {
+		device_ids.map(String).forEach(id => {
+			const node = this.nodes.get(id);
+			if (node?.manual && this.new_manual.has(id) && (node.fx === undefined || node.fx === null)) {
+				this.replace_ids.add(id);
+			}
+		});
+	}
+
 	// ---- Manual Device (§9.7, 2.80): the dialogs ----
 
 	// The create / edit dialog: a Zabbix form dialog with the name, the class, the hardware ID, the management address and the ports (rows: name, description). `device` is the node of a manual Device
@@ -2245,6 +2261,9 @@ const view = new class {
 				overlayDialogueDestroy(overlay.dialogueid);
 				// the Device is drawn and selected in the current view, also in a scoped one, until the filter is applied (§12.1)
 				this.include_ids.add(device_id);
+				if (!device) {
+					this.new_manual.add(device_id);
+				}
 				await this.loadDevices({reselect_device: device_id});
 			}
 			catch (exception) {
@@ -2256,7 +2275,7 @@ const view = new class {
 		overlayDialogue({
 			title: device ? <?= json_encode(_('Edit device')) ?> : <?= json_encode(_('Create device')) ?>,
 			content: form,
-			class: 'modal-popup',
+			class: 'modal-popup modal-popup-medium',
 			buttons: [
 				{title: device ? <?= json_encode(_('Update')) ?> : <?= json_encode(_('Create')) ?>, class: 'dialogue-widget-save', isSubmit: true, focused: true, action: overlay => { submit(overlay); return false; }},
 				{title: <?= json_encode(_('Cancel')) ?>, class: 'btn-alt', cancel: true, action: () => {}}
@@ -2278,7 +2297,7 @@ const view = new class {
 		overlayDialogue({
 			title: port ? <?= json_encode(_('Rename port')) ?> : <?= json_encode(_('Add port')) ?>,
 			content: form,
-			class: 'modal-popup',
+			class: 'modal-popup modal-popup-medium',
 			buttons: [
 				{title: port ? <?= json_encode(_('Update')) ?> : <?= json_encode(_('Add')) ?>, class: 'dialogue-widget-save', isSubmit: true, focused: true, action: overlay => {
 					const output = form.querySelector('.topology-dialog-error');
@@ -2483,9 +2502,29 @@ const view = new class {
 			});
 			by_parent.forEach(({parent, leaves}) => {
 				if (parent === null) {
+					// no link: a free place in the visible part of the graph (§9.7, 2.84), never on a line; else the middle
+					const transform = this.zoom_transform ?? d3.zoomIdentity;
+					const placed = nodes.filter(other => Number.isFinite(other.x) && Number.isFinite(other.y));
+					const chords = simulation_links.map(link => ({a: node_by_id.get(link.source), b: node_by_id.get(link.target), index: 0, count: 1}))
+						.filter(line => line.a && line.b && Number.isFinite(line.a.x) && Number.isFinite(line.b.x));
 					leaves.forEach(({node}, i) => {
-						node.x = width / 2 + 40 * i;
-						node.y = height / 2;
+						const k = transform.k || 1;
+						const left = Math.max(padding, (0 - transform.x) / k), right = Math.min(width - padding, (view_width - transform.x) / k);
+						const top = Math.max(padding, (0 - transform.y) / k), bottom = Math.min(height - padding, (view_height - transform.y) / k);
+						const spots = [];
+						for (let x = left + node.box.w / 2; x <= right - node.box.w / 2; x += 20) {
+							for (let y = top - node.box.top; y <= bottom - node.box.bottom; y += 20) {
+								spots.push([x, y, Math.hypot(x - (left + right) / 2, y - (top + bottom) / 2)]);
+							}
+						}
+						spots.sort((p, q) => p[2] - q[2]);
+						const spot = spots.find(([x, y]) => {
+							const probe = {x, y, box: node.box};
+							return !placed.some(other => G.overlappingPairs([probe, other], G.BOX_GAP).length) && !chords.some(line => G.lineCrossesNode(line, probe, 10));
+						});
+						node.x = spot ? spot[0] : width / 2 + 40 * i;
+						node.y = spot ? spot[1] : height / 2;
+						placed.push(node);
 					});
 					return;
 				}

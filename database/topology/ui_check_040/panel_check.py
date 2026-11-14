@@ -131,13 +131,33 @@ try:
     mouse(ws, 700, 700)
     time.sleep(0.3)
     check(js("!view.hover_entry"), 'the pointer leaves the row: no hover on the line')
-    # a hover on a line marks its row: the pointer on the middle of the line of a row
-    point = js("""(() => { const e = view.line_entries.find(x => x.link && x.link.type === 'physical_link'); const p = e.hit.getPointAtLength(e.hit.getTotalLength() * 0.5);
-        const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y, edge: String(e.link.edge_id)}; })()""")
-    mouse(ws, point['x'], point['y'])
-    time.sleep(0.4)
-    marked = js("Array.from(document.querySelectorAll('tr.topology-row-hover')).map(r => r.dataset.edges)")
-    check(point['edge'] in ','.join(marked), 'a hover on a line marks its row in the panel of one of its ends', [point, marked])
+    # a hover on a line marks its row: the pointer on the line of a row of the open panel (the middle of the line, then other points of it when a node or another line is there)
+    ok_hover = False
+    tried = []
+    for u in (0.5, 0.4, 0.6, 0.3, 0.7):
+        point = js("""(u => { const rows = Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(r => !r.hidden && r.dataset.edges.indexOf(',') < 0).map(r => r.dataset.edges);
+            const e = view.line_entries.find(x => x.link && x.link.type === 'physical_link' && rows.includes(String(x.link.edge_id))); const p = e.hit.getPointAtLength(e.hit.getTotalLength() * u);
+            const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y, edge: String(e.link.edge_id), u}; })(%s)""" % u)
+        mouse(ws, point['x'], point['y'])
+        time.sleep(0.4)
+        marked = js("Array.from(document.querySelectorAll('tr.topology-row-hover')).map(r => r.dataset.edges)")
+        tried.append([point, marked])
+        if point['edge'] in ','.join(marked):
+            ok_hover = True
+            break
+    if not ok_hover:
+        # task 100 §4: the evidence of a failure: the screenshot at the moment of the hover and the hovered element, in a folder of the evidence of the overlap checks
+        folder = os.path.join(os.environ.get('TOPO_EVIDENCE_DIR', '/tmp/topo_evidence'), '%s-%d-linehover' % (time.strftime('%Y%m%d-%H%M%S'), os.getpid()))
+        os.makedirs(folder, exist_ok=True)
+        import base64
+        with open(os.path.join(folder, 'screenshot.png'), 'wb') as f:
+            f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+        element = js("""(p => { const e = document.elementFromPoint(p.x, p.y); const h = view.hover_entry; return {element: e ? {tag: e.tagName, class: String(e.getAttribute('class')), id: e.id} : null, hover_entry_edge: h && h.link ? String(h.link.edge_id) : null,
+            panel_rows: Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).map(r => [r.dataset.edges, r.hidden, r.className])}; })(%s)""" % json.dumps(point))
+        with open(os.path.join(folder, 'evidence.json'), 'w') as f:
+            json.dump({'tried': tried, 'hovered': element}, f, indent=1)
+        print('evidence: %s' % folder)
+    check(ok_hover, 'a hover on a line marks its row in the panel of one of its ends', tried)
     mouse(ws, 700, 700)
 
     print('=== Unlink asks for a confirmation ===')

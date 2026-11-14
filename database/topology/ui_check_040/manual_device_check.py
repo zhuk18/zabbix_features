@@ -116,7 +116,7 @@ def shot(name):
     folder = os.environ.get('SHOTS_DIR')
     if folder:
         import base64
-        with open(os.path.join(folder, name), 'wb') as f:
+        with open(os.path.join(folder, os.environ.get('SHOTS_PREFIX', '099') + name[3:]), 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
 
 
@@ -124,6 +124,12 @@ TITLE = "(() => { const t = document.querySelector('#topology-details .topology-
 KIND = "(() => { const t = document.querySelector('#topology-details .topology-node-kind'); return t ? t.textContent.trim() : null; })()"
 RING = "document.querySelectorAll('#topology-canvas rect.topology-selection').length"
 NODE = "(label => view.drawn_nodes.find(n => n.label === label))"
+
+
+def layout_clean(text):
+    # task 100 §2: the checks of the overlap check of page_shot.py (no node box overlaps, no label touches a node or a label, no line passes through a node that is not its end)
+    r = js(P.CHECKS['overlap'])
+    check(r['overlaps'] == 0 and r['bundle_label_overlaps'] == [] and r['lines_through_nodes'] == [], text, [r['overlapping_pairs'], r['bundle_label_overlaps'], r['lines_through_nodes']])
 
 try:
     time.sleep(2)
@@ -153,6 +159,7 @@ try:
     wait("(%s) === 'ISP-Router'" % TITLE)
     check(js(TITLE) == 'ISP-Router' and js(KIND) == 'Not a Zabbix host · manual', 'the Device is selected, its panel is open: "ISP-Router", kind mark "Not a Zabbix host · manual"', [js(TITLE), js(KIND)])
     check(js("(n => !!n && !!n.element)(view.drawn_nodes.find(n => n.label === 'ISP-Router'))") and js(RING) == 1, 'the Device is drawn (no link) and the selection ring is on it')
+    layout_clean('the new Device without a link is at a free place: no overlap, no label on a node, no line through a node')
     check(js("document.querySelector('#topology-canvas g.topology-icon-router') !== null && view.drawn_nodes.find(n => n.label === 'ISP-Router').device_class === 'router'"), 'its icon is the class Router (§12.2)')
     check(db("select count(*) from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.source')) = 'manual'") == '2', 'two manual ports in the database')
     names = js("Array.from(document.querySelectorAll('#topology-details .topology-port-name')).map(e => e.textContent.trim())")
@@ -184,6 +191,9 @@ try:
     dash = js("(() => { const i = view.drawn_links.findIndex(l => String(l.edge_id) === '%s'); return i < 0 ? null : getComputedStyle(view.link_selection.nodes()[i]).strokeDasharray; })()" % edge)
     check(dash not in (None, '', 'none'), 'the manual link is drawn dashed (manual channel, §12.3)', [dash, edge, js("view.drawn_links.map(l => [l.edge_id, l.type, l.discovered_via])")])
     check(js("document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row').length") == 1, 'the Links section of ISP-Router has the link')
+    layout_clean('after create and Link the new Device is next to SW12 and the layout is clean: no overlap, no label on a node, no line through a node')
+    near = js("(() => { const a = view.drawn_nodes.find(n => n.label === 'ISP-Router'), b = view.drawn_nodes.find(n => n.label.startsWith('SW12')); return Math.round(Math.hypot(a.x - b.x, a.y - b.y)); })()")
+    check(near < 330, 'the new Device is placed next to the node it is linked to (%s px)' % near, near)
     shot('099-manual-device-linked.png')
 
     print('=== rename, refuse, edit, delete ===')
