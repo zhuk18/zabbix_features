@@ -649,6 +649,358 @@
 	}
 
 	/**
+	 * No line through a node (§12.1, 2.84). `lines`: [{a, b, index, count}], the drawn lines (a, b: node objects with x, y, box; index and count give the parallel curve, §12.3).
+	 * A line crosses a node that is not one of its ends when the line (as a polyline of 16 pieces) enters the box of the node (the box grown by `margin`).
+	 */
+	function segmentHitsBox(p, q, left, right, top, bottom) {
+		let t0 = 0;
+		let t1 = 1;
+		const dx = q.x - p.x;
+		const dy = q.y - p.y;
+		for (const [d, r] of [[-dx, p.x - left], [dx, right - p.x], [-dy, p.y - top], [dy, bottom - p.y]]) {
+			if (d === 0) {
+				if (r < 0) {
+					return false;
+				}
+			}
+			else {
+				const t = r / d;
+				if (d < 0) {
+					t0 = Math.max(t0, t);
+				}
+				else {
+					t1 = Math.min(t1, t);
+				}
+			}
+		}
+		return t0 <= t1;
+	}
+
+	function lineCrossesNode(line, node, margin = 2, points = null) {
+		if (node === line.a || node === line.b) {
+			return false;
+		}
+		const left = node.x - node.box.w / 2 - margin;
+		const right = node.x + node.box.w / 2 + margin;
+		const top = node.y + node.box.top - margin;
+		const bottom = node.y + node.box.bottom + margin;
+		// a quick reject: the distance of the middle of the box to the chord is more than half of the box diagonal plus the bend of a parallel line (the curve is `offset` off the chord, 16 px a step)
+		const bend = Math.abs(line.index - (line.count - 1) / 2) * 16 + 1;
+		const cx = node.x;
+		const cy = node.y + (node.box.top + node.box.bottom) / 2;
+		const dx = line.b.x - line.a.x;
+		const dy = line.b.y - line.a.y;
+		const length2 = dx * dx + dy * dy;
+		const t = length2 > 0 ? Math.max(0, Math.min(1, ((cx - line.a.x) * dx + (cy - line.a.y) * dy) / length2)) : 0;
+		if (Math.hypot(cx - (line.a.x + t * dx), cy - (line.a.y + t * dy)) > Math.hypot(node.box.w, node.box.bottom - node.box.top) / 2 + margin + bend + 2) {
+			return false;
+		}
+		const c = curve(line.a, line.b, line.index, line.count);
+		let previous = c.at(0);
+		for (let i = 1; i <= 16; i++) {
+			const point = c.at(i / 16);
+			if (segmentHitsBox(previous, point, left, right, top, bottom)) {
+				return true;
+			}
+			previous = point;
+		}
+		return false;
+	}
+
+	/** The (line, node) pairs where a line passes through a node that is not its end: [{line, node}] */
+	function linesThrough(nodes, lines, margin = 0) {
+		const out = [];
+		lines.forEach(line => nodes.forEach(node => {
+			if (lineCrossesNode(line, node, margin)) {
+				out.push({line, node});
+			}
+		}));
+
+		return out;
+	}
+
+	/**
+	 * A node that a line crosses is moved off the line (§12.1 "No line through a node", 2.84): turned about the nearer end of the line (1 to 2.2 times as far), else moved across the line, to
+	 * the nearest place where its box is free of every other box, it is crossed by no line, and its own lines cross no other node. When the node can not be moved (fixed, or no such place),
+	 * an end of the line is turned about the other end instead, with the same conditions. A node that is fixed (`fx`) stays. When no place is free of every crossing, the place with fewer
+	 * crossings than now is taken (for the crossed node), else nothing moves. The pairs are taken again after each move.
+	 *
+	 * @return {number}  the number of nodes that were moved
+	 */
+	function clearThroughLines(nodes, lines, bounds, limit = 40) {
+		const fixed = node => node.fx !== undefined && node.fx !== null;
+		const own = new Map();
+		lines.forEach(line => {
+			[line.a, line.b].forEach(node => own.set(node, [...(own.get(node) ?? []), line]));
+		});
+		// the group node of a folded leaf group is a satellite of its parent: it moves with the parent (the parent's group line keeps its length)
+		const satellites = new Map();
+		nodes.forEach(node => {
+			if (node.type !== 'group') {
+				return;
+			}
+			const neighbors = new Set((own.get(node) ?? []).map(line => (line.a === node ? line.b : line.a)));
+			if (neighbors.size === 1) {
+				const [parent] = neighbors;
+				satellites.set(parent, [...(satellites.get(parent) ?? []), node]);
+			}
+		});
+		const members = mover => [mover, ...(satellites.get(mover) ?? [])];
+		let budget = 3000;      // the number of places that are tried in one call: the call ends in a few tens of milliseconds also when nothing can be solved
+		const scoreOne = node => {
+			let count = 0;
+			lines.forEach(line => {
+				if (lineCrossesNode(line, node)) {
+					count++;
+				}
+			});
+			(own.get(node) ?? []).forEach(line => nodes.forEach(other => {
+				if (lineCrossesNode(line, other)) {
+					count++;
+				}
+			}));
+
+			return count;
+		};
+		const score = node => {
+			budget--;
+
+			return members(node).reduce((sum, member) => sum + scoreOne(member), 0);
+		};
+		const insideOne = node => node.x >= bounds.padding + node.box.w / 2 && node.x <= bounds.width - bounds.padding - node.box.w / 2
+			&& node.y >= bounds.padding - node.box.top && node.y <= bounds.height - bounds.padding - node.box.bottom;
+		const inside = node => members(node).every(insideOne);
+		// the places of a mover and its satellites are set together
+		const place = (mover, x, y, origin) => {
+			const dx = x - origin[0][0];
+			const dy = y - origin[0][1];
+			members(mover).forEach((member, i) => {
+				member.x = origin[i][0] + dx;
+				member.y = origin[i][1] + dy;
+			});
+		};
+		const freeOne = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP));
+		const free = node => members(node).every(freeOne);
+		const moved = new Set();
+		const gave_up = new Set();      // "line index|node": the pairs that could not be solved in this call
+		// Moves `mover` (turned about `pivot`, then across `across`'s line) to a place with no crossing at all; `ok` is the extra condition of the pair. Returns true when it moved.
+		const relocate = (mover, pivot, line, ok, allow_better) => {
+			const now = score(mover);
+			const origin = members(mover).map(member => [member.x, member.y]);
+			const x0 = mover.x;
+			const y0 = mover.y;
+			const distance = Math.hypot(x0 - pivot.x, y0 - pivot.y);
+			const angle = Math.atan2(y0 - pivot.y, x0 - pivot.x);
+			let best = null;
+			const candidate = (x, y) => {
+				place(mover, x, y, origin);
+				if (!inside(mover) || !free(mover) || !ok()) {
+					return false;
+				}
+				const value = score(mover);
+				if (value === 0) {
+					return true;
+				}
+				if (allow_better && value < now && (best === null || value < best.value)) {
+					best = {x, y, value};
+				}
+
+				return false;
+			};
+			for (const scale of [1, 1.15, 1.3, 1.5, 1.8, 2.2]) {
+				for (let k = 1; k <= 90; k++) {
+					for (const sign of [1, -1]) {
+						const turned = angle + sign * k * 2 * Math.PI / 180;
+						if (candidate(pivot.x + distance * scale * Math.cos(turned), pivot.y + distance * scale * Math.sin(turned))) {
+							return true;
+						}
+					}
+				}
+			}
+			const length = Math.hypot(line.b.x - line.a.x, line.b.y - line.a.y) || 1;
+			const nx = -(line.b.y - line.a.y) / length;
+			const ny = (line.b.x - line.a.x) / length;
+			for (let offset = 16; offset <= 240; offset += 16) {
+				for (const sign of [1, -1]) {
+					if (candidate(x0 + nx * offset * sign, y0 + ny * offset * sign)) {
+						return true;
+					}
+				}
+			}
+			// the last resort: any free place of the area, the nearest first
+			const spots = [];
+			for (let x = bounds.padding + mover.box.w / 2; x <= bounds.width - bounds.padding - mover.box.w / 2; x += 20) {
+				for (let y = bounds.padding - mover.box.top; y <= bounds.height - bounds.padding - mover.box.bottom; y += 20) {
+					spots.push([x, y, (x - x0) ** 2 + (y - y0) ** 2]);
+				}
+			}
+			spots.sort((p, q) => p[2] - q[2]);
+			// the nearest 400 places, then every n-th of the others (the whole area is looked at)
+			const rest = spots.slice(400);
+			const stride = Math.max(1, Math.ceil(rest.length / 300));
+			for (const [x, y] of [...spots.slice(0, 400), ...rest.filter((spot, i) => i % stride === 0)]) {
+				if (budget <= 0) {
+					break;
+				}
+				if (candidate(x, y)) {
+					return true;
+				}
+			}
+			if (best !== null) {
+				place(mover, best.x, best.y, origin);
+
+				return true;
+			}
+			place(mover, x0, y0, origin);
+
+			return false;
+		};
+		for (let step = 0; step < limit; step++) {
+			const pair = linesThrough(nodes, lines, 2).find(({line, node}) => !gave_up.has(lines.indexOf(line) + '|' + nodes.indexOf(node)));
+			if (!pair) {
+				break;
+			}
+			if (budget <= 0) {
+				break;
+			}
+			const {line, node} = pair;
+			const key = lines.indexOf(line) + '|' + nodes.indexOf(node);
+			const end = Math.hypot(node.x - line.a.x, node.y - line.a.y) <= Math.hypot(node.x - line.b.x, node.y - line.b.y) ? line.a : line.b;
+			const clear = () => !lineCrossesNode(line, node, 2);
+			if (!fixed(node) && relocate(node, end, line, () => true, true)) {
+				moved.add(node);
+			}
+			else if (!fixed(line.a) && relocate(line.a, line.b, line, clear, true)) {
+				moved.add(line.a);
+			}
+			else if (!fixed(line.b) && relocate(line.b, line.a, line, clear, true)) {
+				moved.add(line.b);
+			}
+			else {
+				gave_up.add(key);
+			}
+		}
+
+		// what the search could not solve: the nodes are pushed off the lines a little at a time (the node away from the line, or, when it is fixed, the two ends of the line away from it), the
+		// collision step runs after each push; the result is kept only when it has fewer crossings than before
+		if (linesThrough(nodes, lines, 2).length > 0) {
+			const saved = nodes.map(node => [node.x, node.y]);
+			const before = linesThrough(nodes, lines, 2).length;
+			for (let round = 0; round < 30; round++) {
+				const pairs = linesThrough(nodes, lines, 2);
+				if (!pairs.length) {
+					break;
+				}
+				pairs.forEach(({line, node}) => {
+					// the point of the line nearest to the middle of the box, and the push away from it
+					const c = curve(line.a, line.b, line.index, line.count);
+					const cy = node.y + (node.box.top + node.box.bottom) / 2;
+					let nearest = c.at(0);
+					let distance = Infinity;
+					for (let i = 0; i <= 24; i++) {
+						const point = c.at(i / 24);
+						const d = Math.hypot(node.x - point.x, cy - point.y);
+						if (d < distance) {
+							distance = d;
+							nearest = point;
+						}
+					}
+					let ux = node.x - nearest.x;
+					let uy = cy - nearest.y;
+					const norm = Math.hypot(ux, uy);
+					if (norm < 1) {
+						const length = Math.hypot(line.b.x - line.a.x, line.b.y - line.a.y) || 1;
+						ux = -(line.b.y - line.a.y) / length;
+						uy = (line.b.x - line.a.x) / length;
+					}
+					else {
+						ux /= norm;
+						uy /= norm;
+					}
+					const reach = Math.abs(ux) * node.box.w / 2 + Math.abs(uy) * (node.box.bottom - node.box.top) / 2 + 6;
+					const push = Math.max(6, Math.min(40, reach - distance + 4));
+					if (!fixed(node)) {
+						members(node).forEach(member => {
+							member.x += ux * push;
+							member.y += uy * push;
+						});
+						moved.add(node);
+					}
+					else {
+						[line.a, line.b].forEach(end => {
+							if (!fixed(end)) {
+								end.x -= ux * push / 2;
+								end.y -= uy * push / 2;
+								moved.add(end);
+							}
+						});
+					}
+				});
+				nodes.forEach(node => {
+					if (!fixed(node)) {
+						node.x = Math.max(bounds.padding + node.box.w / 2, Math.min(bounds.width - bounds.padding - node.box.w / 2, node.x));
+						node.y = Math.max(bounds.padding - node.box.top, Math.min(bounds.height - bounds.padding - node.box.bottom, node.y));
+					}
+				});
+				resolveOverlaps(nodes, bounds);
+			}
+			if (linesThrough(nodes, lines, 2).length >= before) {
+				nodes.forEach((node, i) => {
+					node.x = saved[i][0];
+					node.y = saved[i][1];
+				});
+			}
+		}
+
+		// the last step: a random walk with a fixed seed (the same layout gives the same result): a crossed node, or an end of its line, is moved by a random step; the step is kept when the crossings
+		// of the moved node do not grow (a step that changes nothing is kept too, so that the nodes can move round each other)
+		if (linesThrough(nodes, lines, 2).length > 0) {
+			let seed = 20840;
+			const random = () => {
+				seed = (seed + 0x6D2B79F5) | 0;
+				let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+				t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
+				return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+			};
+			const saved = nodes.map(node => [node.x, node.y]);
+			const before = linesThrough(nodes, lines, 2).length;
+			budget = 4000;
+			for (let step = 0; step < 600 && budget > 0; step++) {
+				const pairs = linesThrough(nodes, lines, 2);
+				if (!pairs.length) {
+					break;
+				}
+				const {line, node} = pairs[Math.floor(random() * pairs.length)];
+				const movers = [node, line.a, line.b].filter(candidate => !fixed(candidate));
+				if (!movers.length) {
+					continue;
+				}
+				const mover = movers[Math.floor(random() * movers.length)];
+				const now = score(mover);
+				const origin = members(mover).map(member => [member.x, member.y]);
+				const angle = random() * 2 * Math.PI;
+				const radius = 12 + random() * 110;
+				place(mover, origin[0][0] + Math.cos(angle) * radius, origin[0][1] + Math.sin(angle) * radius, origin);
+				if (!inside(mover) || !free(mover) || score(mover) > now) {
+					place(mover, origin[0][0], origin[0][1], origin);
+				}
+				else {
+					moved.add(mover);
+				}
+			}
+			if (linesThrough(nodes, lines, 2).length >= before) {
+				nodes.forEach((node, i) => {
+					node.x = saved[i][0];
+					node.y = saved[i][1];
+				});
+			}
+		}
+
+		return moved.size;
+	}
+
+	/**
 	 * A set of parallel links between the same two nodes (§12.3 "Parallel links"): separate curved lines at a fixed distance from each other. For link i of count: the path from s to t
 	 * (quadratic curve) and the middle point of the line (for a badge). A single link is a straight line.
 	 */
@@ -981,5 +1333,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

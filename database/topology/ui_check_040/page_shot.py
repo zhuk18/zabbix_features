@@ -107,6 +107,27 @@ class WebSocket:
 # task 098 §2: the evidence of an overlap failure (the boxes with coordinates, the overlapping pairs and by how many px, the label places, the node positions); the page script of the checks
 # `overlap` and `arc` has it as `collect(tag)`, main() writes it into a folder with a screenshot
 COLLECT_JS = '''
+        // task 100 (model §12.1 "No line through a node", 2.84): the drawn lines (the hit path of each line entry, in the coordinates of the scene) that pass through the box of a node that is not
+        // one of their ends; one entry per (line, node)
+        const linesThrough = () => {
+            const out = [];
+            (view.line_entries || []).forEach(entry => {
+                if (!entry.link || !entry.hit) { return; }
+                const a = entry.link.source, b = entry.link.target;
+                const length = entry.hit.getTotalLength();
+                const points = [];
+                for (let at = 0; at <= length; at += 3) { points.push(entry.hit.getPointAtLength(at)); }
+                view.drawn_nodes.forEach(n => {
+                    if (n === a || n === b || String(n.id) === String(a.id) || String(n.id) === String(b.id)) { return; }
+                    const left = n.x - n.box.w / 2, right = n.x + n.box.w / 2, top = n.y + n.box.top, bottom = n.y + n.box.bottom;
+                    const inside = points.filter(p => p.x > left && p.x < right && p.y > top && p.y < bottom).length;
+                    if (inside > 0) {
+                        out.push({line: (a.label || a.name) + ' - ' + (b.label || b.name) + (entry.link.type === 'lag_bundle' ? ' (' + entry.link.label + ')' : ''), node: n.label || n.name, px: inside * 3});
+                    }
+                });
+            });
+            return out;
+        };
         const collect = tag => {
             const box = (name, e) => { const b = e.getBoundingClientRect(); return {name, left: b.left, right: b.right, top: b.top, bottom: b.bottom}; };
             const nodes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(g => box((g.querySelector('text.topology-label') || {textContent: '?'}).textContent, g));
@@ -117,7 +138,7 @@ COLLECT_JS = '''
             nodes.forEach((a, i) => { nodes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'node-node', a: a.name, b: c.name, ...px(a, c)}); }); });
             lag_boxes.forEach((a, i) => { nodes.forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-node', a: a.name, b: c.name, ...px(a, c)}); });
                 lag_boxes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-label', a: a.name, b: c.name, ...px(a, c)}); }); });
-            return {tag, window: [innerWidth, innerHeight], zoom: view.zoom_transform ? {k: view.zoom_transform.k, x: view.zoom_transform.x, y: view.zoom_transform.y} : null,
+            return {tag, lines_through_nodes: linesThrough(), window: [innerWidth, innerHeight], zoom: view.zoom_transform ? {k: view.zoom_transform.k, x: view.zoom_transform.x, y: view.zoom_transform.y} : null,
                 overlaps, node_boxes: nodes, label_boxes: lag_boxes,
                 label_places: (view.lag_label_places || []).map(p => ({source: String(p.source), target: String(p.target), label: p.label, u: p.u, free: p.free})),
                 node_positions: view.drawn_nodes.map(n => ({id: String(n.id), label: n.label, x: Math.round(n.x * 10) / 10, y: Math.round(n.y * 10) / 10, fixed: n.fx !== undefined && n.fx !== null}))};
@@ -305,7 +326,8 @@ CHECKS = {
         r.bundle_label_overlaps = [];
         lag.forEach((a, i) => { boxes.forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); lag.slice(i + 1).forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); });
         r.bundle_label_places = (view.lag_label_places || []).map(p => p.source.slice(0, 4) + '-' + p.target.slice(0, 4) + ' ' + p.label + ': ' + p.u + ' %' + (p.free ? '' : ' (no free point)'));
-        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        r.lines_through_nodes = linesThrough();
+        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         if (!r.ok) {
             r.evidence = collect('overlap');
         }
@@ -362,7 +384,7 @@ CHECKS = {
             const info = view.arc_info.get(g.parent) || {};
             rows.push({parent: parent.label.slice(0, 8), leaves: leaves.length, expected: g.devices.length, free_deg: Math.round(info.free_angle * 180 / Math.PI), rows: info.rows,
                 final_deg: Math.round((Math.max(...rel) - Math.min(...rel)) * 180 / Math.PI), radius_max: Math.round(Math.max(...leaves.map(radius))), box_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
-                lines_through_other_nodes: through.length, node_overlaps: node_pairs, label_overlaps: label_hits,
+                lines_through_other_nodes: through.length, lines_through_nodes: linesThrough().length, node_overlaps: node_pairs, label_overlaps: label_hits,
                 ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)});
             if (evidence) {
                 break;      // the page stays in the state of the failing group, so that the screenshot shows it
@@ -511,6 +533,8 @@ def main():
                     json.dump(evidence, f, indent=1)
                 with open(os.path.join(folder, 'screenshot.png'), 'wb') as f:
                     f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+                for t in evidence.get('lines_through_nodes', []):
+                    print('line through a node: "%s" passes through "%s" (%s px of the line inside the box)' % (t['line'], t['node'], t['px']))
                 for o in evidence['overlaps']:
                     print('overlap: %s "%s" and "%s": %s px wide, %s px high' % (o['kind'], o['a'], o['b'], o['dx'], o['dy']))
                 for p in evidence['label_places']:

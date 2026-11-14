@@ -2550,24 +2550,60 @@ const view = new class {
 				node.temp_fixed = false;
 			}
 		});
-		// a node turned out of the way of a leaf line can stand on the line of a bundle, and a node moved off a bundle line can stand on a leaf line: the two steps are repeated (at most 4 times)
-		for (let pass = 0; pass < 4; pass++) {
-			new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
-			// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none (two nodes of a bundle too close, or a node on its line) is stretched, after
-			// every change of the layout: the first drawing, a new filter, an unfold, a fold (here) and a drag (below)
+		// a node turned out of the way of a leaf line can stand on the line of a bundle, and a node moved off a bundle line can stand on a leaf line: the steps are repeated. 2.84 (§12.1 "No line
+		// through a node"): a node that a drawn line crosses is moved off the line, then the collision step and the label room run again, until all hold (at most 8 passes)
+		{
+			const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
+			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
+			const placement = G.parallelIndex(lines);
+			const drawn_lines = lines.map((line, i) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), ...placement[i]})).filter(line => line.a && line.b);
+			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
+				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
+			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
+			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
+			const before_solver = nodes.map(node => [node.x, node.y]);
+			// the passes end when all hold, or when two passes in a row took away no crossing (the area does not grow for this: a crossing that stays is shown by --check overlap)
 			{
-				const keep = link => !this.contradictionOf(link.edge_id)?.contradicted;
-				const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
-				const placement = G.parallelIndex(lines);
-				const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
-					.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
-				// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
-				const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
+				let clean = false;
+				let crossings = Infinity;
+				let stuck = 0;
+				for (let pass = 0; pass < 8 && !clean; pass++) {
+					new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
+					held.forEach(node => {
+						node.fx = node.x;
+						node.fy = node.y;
+					});
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding});
+					// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none is stretched, after every change of the layout
+					const room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+					held.forEach(node => {
+						node.fx = undefined;
+						node.fy = undefined;
+					});
+					const now = G.linesThrough(nodes, drawn_lines, 2).length;
+					clean = room && now === 0;
+					if (now < crossings) {
+						stuck = 0;
+					}
+					else if (++stuck >= 2 && !clean) {
+						break;
+					}
+					crossings = now;
+				}
+				// the room for the labels comes last: a label with no free point is a failure of the layout, a line through a node that no pass could move is only shown by the check
 				held.forEach(node => {
 					node.fx = node.x;
 					node.fy = node.y;
 				});
-				G.makeLabelRoom(nodes, bundles, {width, height, padding});
+				const final_room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+				if (!final_room) {
+					// the moves for the lines left a label without a free point: the layout from before them stays (its room is made as before)
+					nodes.forEach((node, i) => {
+						node.x = before_solver[i][0];
+						node.y = before_solver[i][1];
+					});
+					G.makeLabelRoom(nodes, bundles, {width, height, padding});
+				}
 				held.forEach(node => {
 					node.fx = undefined;
 					node.fy = undefined;
@@ -2915,8 +2951,17 @@ const view = new class {
 							// the area is full; the nodes stay as they are
 						}
 						// 2.76: the labels of the bundles get their room again (the dragged node and the other fixed nodes stay)
-						G.makeLabelRoom(nodes, simulation_links.filter(link => link.type === 'lag_bundle')
-							.map(link => ({a: link.source, b: link.target, width: G.labelWidth(link.label, label_measure), index: link.parallel.index, count: link.parallel.count})), {width, height, padding});
+						const bundle_lines = simulation_links.filter(link => link.type === 'lag_bundle')
+							.map(link => ({a: link.source, b: link.target, width: G.labelWidth(link.label, label_measure), index: link.parallel.index, count: link.parallel.count}));
+						const all_lines = simulation_links.map(link => ({a: link.source, b: link.target, index: link.parallel.index, count: link.parallel.count}));
+						// 2.84 (§12.1 "No line through a node"): after a drag the nodes that a line crosses are moved off it (the dragged node and the other fixed nodes stay)
+						for (let pass = 0; pass < 8; pass++) {
+							G.clearThroughLines(nodes, all_lines, {width, height, padding});
+							const room = G.makeLabelRoom(nodes, bundle_lines, {width, height, padding});
+							if (room && G.linesThrough(nodes, all_lines, 2).length === 0) {
+								break;
+							}
+						}
 						draw_positions();
 					}
 				}));

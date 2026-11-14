@@ -502,4 +502,44 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const [free_est, radius_est] = mk(undefined);
 	ok(free_wide && free_est && radius_wide >= radius_est, 'placeRadial: the ring leaves room for the measured width of the label, larger than for the estimate', [radius_wide, radius_est]);
 }
+// ---- task 100: no line through a node (§12.1, 2.84) ----
+{
+	const nd = (id, x, y) => ({...G.layoutNode({id, label: id}, 'small'), x, y});
+	const bounds = {width: 600, height: 400, padding: 20};
+	const a = nd('A', 100, 200);
+	const b = nd('B', 400, 200);
+	const c = nd('C', 250, 200);      // on the line A-B
+	const line = {a, b, index: 0, count: 1};
+	ok(G.linesThrough([a, b, c], [line]).length === 1 && G.linesThrough([a, b, c], [line])[0].node === c, 'linesThrough: a node on the line is found, the two ends are not');
+	ok(G.linesThrough([a, b, nd('D', 250, 120)], [line]).length === 0, 'linesThrough: a node beside the line is not crossed');
+	ok(G.linesThrough([a, b, nd('E', 250, 224)], [line], 0).length === 0 && G.linesThrough([a, b, nd('E', 250, 224)], [line], 40).length === 1, 'linesThrough: the margin grows the box');
+	const curved = {a, b, index: 0, count: 2};
+	const middle = G.curve(a, b, 0, 2).at(0.5);
+	const on_curve = nd('F', middle.x, middle.y);
+	ok(G.linesThrough([a, b, on_curve], [curved]).length === 1, 'linesThrough: a parallel (curved) line is followed along its curve');
+	// the move: the node leaves the line, nothing else is crossed, no overlap
+	const nodes = [a, b, c];
+	const moved = G.clearThroughLines(nodes, [line], bounds);
+	ok(moved === 1 && G.linesThrough(nodes, [line], 2).length === 0 && !G.overlappingPairs(nodes).length && a.x === 100 && b.x === 400, 'clearThroughLines: the crossed node is moved off the line, the ends stay');
+	// a fixed node stays: the end of the line is moved instead
+	const a2 = nd('A', 100, 200);
+	const b2 = nd('B', 400, 200);
+	const c2 = {...nd('C', 250, 200), fx: 250, fy: 200};
+	const nodes2 = [a2, b2, c2];
+	const moved2 = G.clearThroughLines(nodes2, [{a: a2, b: b2, index: 0, count: 1}], bounds);
+	ok(c2.x === 250 && c2.y === 200 && moved2 === 1 && G.linesThrough(nodes2, [{a: a2, b: b2, index: 0, count: 1}], 2).length === 0, 'clearThroughLines: a node that was dragged (fixed) stays; an end of the line moves');
+	// all fixed: nothing moves, the crossing stays (the drag rule)
+	const fa = {...nd('A', 100, 200), fx: 100, fy: 200};
+	const fb = {...nd('B', 400, 200), fx: 400, fy: 200};
+	const fc = {...nd('C', 250, 200), fx: 250, fy: 200};
+	ok(G.clearThroughLines([fa, fb, fc], [{a: fa, b: fb, index: 0, count: 1}], bounds) === 0 && G.linesThrough([fa, fb, fc], [{a: fa, b: fb, index: 0, count: 1}]).length === 1, 'clearThroughLines: when every node is fixed, nothing moves');
+	// the moved node's own lines must not cross another node
+	const a3 = nd('A', 100, 200);
+	const b3 = nd('B', 400, 200);
+	const c3 = nd('C', 250, 200);
+	const d3 = nd('D', 250, 60);
+	const lines3 = [{a: a3, b: b3, index: 0, count: 1}, {a: c3, b: d3, index: 0, count: 1}];
+	G.clearThroughLines([a3, b3, c3, d3], lines3, bounds);
+	ok(G.linesThrough([a3, b3, c3, d3], lines3, 2).length === 0, 'clearThroughLines: the moved node\'s own line crosses no other node either');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');
