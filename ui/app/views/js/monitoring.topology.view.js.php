@@ -2601,6 +2601,7 @@ const view = new class {
 			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
 			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
 			const before_solver = nodes.map(node => [node.x, node.y]);
+			let best = {crossings: Infinity, positions: before_solver};      // the layout with the fewest crossings among those that have room for every label
 			// the passes end when all hold, or when two passes in a row took away no crossing (the area does not grow for this: a crossing that stays is shown by --check overlap)
 			{
 				let clean = false;
@@ -2612,7 +2613,14 @@ const view = new class {
 						node.fx = node.x;
 						node.fy = node.y;
 					});
-					G.clearThroughLines(nodes, drawn_lines, {width, height, padding});
+					// the places of the bundle labels now: the nodes that are moved off a line do not go onto a label (else the room for the label takes the node back across the line)
+					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
+					const label_boxes = [];
+					bundles.forEach(({a, b, width: label_width, index, count}) => {
+						const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...label_boxes.map(item => item.box)]);
+						label_boxes.push({box: place.box, owners: [a, b]});
+					});
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 40, label_boxes);
 					// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none is stretched, after every change of the layout
 					const room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
 					held.forEach(node => {
@@ -2621,6 +2629,9 @@ const view = new class {
 					});
 					const now = G.linesThrough(nodes, drawn_lines, 2).length;
 					clean = room && now === 0;
+					if (room && now < best.crossings) {
+						best = {crossings: now, positions: nodes.map(node => [node.x, node.y])};
+					}
 					if (now < crossings) {
 						stuck = 0;
 					}
@@ -2629,6 +2640,24 @@ const view = new class {
 					}
 					crossings = now;
 				}
+				// a crossing that the passes could not take away: one more search, with four times the effort and another seed (the passes before are cheap, this one is made only when they failed)
+				if (G.linesThrough(nodes, drawn_lines, 2).length > 0) {
+					held.forEach(node => {
+						node.fx = node.x;
+						node.fy = node.y;
+					});
+					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
+					const label_boxes = [];
+					bundles.forEach(({a, b, width: label_width, index, count}) => {
+						const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...label_boxes.map(item => item.box)]);
+						label_boxes.push({box: place.box, owners: [a, b]});
+					});
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_boxes, 4, 77);
+					held.forEach(node => {
+						node.fx = undefined;
+						node.fy = undefined;
+					});
+				}
 				// the room for the labels comes last: a label with no free point is a failure of the layout, a line through a node that no pass could move is only shown by the check
 				held.forEach(node => {
 					node.fx = node.x;
@@ -2636,10 +2665,10 @@ const view = new class {
 				});
 				const final_room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
 				if (!final_room) {
-					// the moves for the lines left a label without a free point: the layout from before them stays (its room is made as before)
+					// the moves for the lines left a label without a free point: the best layout that had room for every label stays (before the moves, if none had)
 					nodes.forEach((node, i) => {
-						node.x = before_solver[i][0];
-						node.y = before_solver[i][1];
+						node.x = best.positions[i][0];
+						node.y = best.positions[i][1];
 					});
 					G.makeLabelRoom(nodes, bundles, {width, height, padding});
 				}

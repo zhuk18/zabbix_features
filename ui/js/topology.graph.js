@@ -727,7 +727,7 @@
 	 *
 	 * @return {number}  the number of nodes that were moved
 	 */
-	function clearThroughLines(nodes, lines, bounds, limit = 40) {
+	function clearThroughLines(nodes, lines, bounds, limit = 40, obstacles = [], effort = 1, seed_start = 20840) {
 		const fixed = node => node.fx !== undefined && node.fx !== null;
 		const own = new Map();
 		lines.forEach(line => {
@@ -746,7 +746,7 @@
 			}
 		});
 		const members = mover => [mover, ...(satellites.get(mover) ?? [])];
-		let budget = 3000;      // the number of places that are tried in one call: the call ends in a few tens of milliseconds also when nothing can be solved
+		let budget = 3000 * effort;      // the number of places that are tried in one call: the call ends in a few tens of milliseconds also when nothing can be solved
 		const scoreOne = node => {
 			let count = 0;
 			lines.forEach(line => {
@@ -779,7 +779,10 @@
 				member.y = origin[i][1] + dy;
 			});
 		};
-		const freeOne = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP));
+		// the labels of the LAG bundles (`obstacles`: [{box: {left, right, top, bottom}, owners: [a, b]}]) are in the way too: a node is not moved onto a label (the ends of a bundle carry their label with them)
+		const freeOne = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP))
+			&& !obstacles.some(({box, owners}) => !owners.includes(node) && node.x - node.box.w / 2 < box.right + 2 && box.left - 2 < node.x + node.box.w / 2
+				&& node.y + node.box.top < box.bottom + 2 && box.top - 2 < node.y + node.box.bottom);
 		const free = node => members(node).every(freeOne);
 		const moved = new Set();
 		const gave_up = new Set();      // "line index|node": the pairs that could not be solved in this call
@@ -955,7 +958,7 @@
 		// the last step: a random walk with a fixed seed (the same layout gives the same result): a crossed node, or an end of its line, is moved by a random step; the step is kept when the crossings
 		// of the moved node do not grow (a step that changes nothing is kept too, so that the nodes can move round each other)
 		if (linesThrough(nodes, lines, 2).length > 0) {
-			let seed = 20840;
+			let seed = seed_start;
 			const random = () => {
 				seed = (seed + 0x6D2B79F5) | 0;
 				let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -965,8 +968,8 @@
 			};
 			const saved = nodes.map(node => [node.x, node.y]);
 			const before = linesThrough(nodes, lines, 2).length;
-			budget = 4000;
-			for (let step = 0; step < 600 && budget > 0; step++) {
+			budget = 4000 * effort;
+			for (let step = 0; step < 600 * effort && budget > 0; step++) {
 				const pairs = linesThrough(nodes, lines, 2);
 				if (!pairs.length) {
 					break;
