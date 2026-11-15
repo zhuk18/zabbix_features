@@ -118,10 +118,14 @@ class API {
 	public static array $items = [];
 	public static int $item_calls = 0;
 
+	/** @var string[][] the item ids of each call of item.get (task 102: the load is read only for the ports of links) */
+	public static array $item_ids_asked = [];
+
 	public static function Item() {
 		return new class {
 			public function get($options) {
 				API::$item_calls++;
+				API::$item_ids_asked[] = array_map('strval', $options['itemids']);
 				$out = [];
 				foreach ($options['itemids'] as $id) {
 					if (isset(API::$items[$id])) {
@@ -732,6 +736,46 @@ check(count($devices[$Da]['duplicates']) === 2 && $devices[$Da]['duplicates'][0]
 check($devices[$Db]['dismissed'][0]['name'] === 'Dev <A>' && $devices[$Db]['dismissed'][0]['by'] === 'Admin' && isset($devices[$Da]['created_at']), 'dismissed pairs with the other name, and created_at (for the proposed K)');
 
 // ============================================================================================================
+echo "\n=== task 102 (model §11, 2.87): topology.ports.get reads the load only for the ports of the Links section ===\n";
+reset_topology($pdo);
+$Dl = device($pdo, 'Dev L');
+$Dm = device($pdo, 'Dev M');
+$mk = static function (PDO $pdo, int $device, int $if, string $name, array $itemids): int {
+	return node($pdo, 'port', ['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => $itemids], $device);
+};
+$pa = $mk($pdo, $Dl, 1, 'Gi0/1', [1001, 1002, 1003]);      // a link
+$pb = $mk($pdo, $Dl, 2, 'Gi0/2', [2001, 2002, 2003]);      // no link
+$pc = $mk($pdo, $Dl, 3, 'Gi0/3', [3001, 3002, 3003]);      // a superseded link only
+$pd = $mk($pdo, $Dl, 4, 'Gi0/4', [4001, 4002, 4003]);      // a device-level link
+$pm1 = $mk($pdo, $Dm, 1, 'Gi0/1', []);
+$pm3 = $mk($pdo, $Dm, 3, 'Gi0/3', []);
+edge($pdo, 'physical_link', $pa, $pm1, ['discovered_via' => 'lldp', 'last_seen' => time()]);
+edge($pdo, 'physical_link', $pc, $pm3, ['discovered_via' => 'lldp', 'last_seen' => time(), 'superseded_at' => time() - 10]);
+edge($pdo, 'device_link', $pd, $Dm, ['discovered_via' => 'lldp', 'last_seen' => time(), 'far_port_reason' => 'port_unmatched']);
+API::$items = [];
+foreach ([1001 => ['net.if.in[ifHCInOctets.1]', 1000], 1002 => ['net.if.out[ifHCOutOctets.1]', 2000], 1003 => ['net.if.speed[ifHighSpeed.1]', 10000],
+		2001 => ['net.if.in[ifHCInOctets.2]', 5], 2002 => ['net.if.out[ifHCOutOctets.2]', 6], 2003 => ['net.if.speed[ifHighSpeed.2]', 10000],
+		3001 => ['net.if.in[ifHCInOctets.3]', 5], 3002 => ['net.if.out[ifHCOutOctets.3]', 6], 3003 => ['net.if.speed[ifHighSpeed.3]', 10000],
+		4001 => ['net.if.in[ifHCInOctets.4]', 7], 4002 => ['net.if.out[ifHCOutOctets.4]', 8], 4003 => ['net.if.speed[ifHighSpeed.4]', 10000]] as $itemid => [$key, $value]) {
+	API::$items[$itemid] = ['key_' => $key, 'lastvalue' => (string) $value, 'lastclock' => (string) time()];
+}
+API::$item_ids_asked = [];
+$by_name = [];
+foreach (CTopologyPrototype::getPorts((string) $Dl) as $ports) {
+	foreach ($ports as $port) {
+		$by_name[$port['port']] = $port;
+	}
+}
+check(isset($by_name['Gi0/1']['load']) && $by_name['Gi0/1']['load']['in'] === 1000.0 && $by_name['Gi0/1']['load']['out'] === 2000.0 && $by_name['Gi0/1']['load']['speed'] === 10000.0,
+	'a port of a link has its load fields', $by_name['Gi0/1']['load'] ?? null);
+check(isset($by_name['Gi0/4']['load']) && $by_name['Gi0/4']['load']['in'] === 7.0, 'a port of a device-level link has its load fields');
+check(!array_key_exists('load', $by_name['Gi0/2']), 'a port without a link has no load field');
+check(!array_key_exists('load', $by_name['Gi0/3']), 'a port that has only a superseded link has no load field');
+$asked = array_merge(...API::$item_ids_asked);
+sort($asked);
+check($asked === ['1001', '1002', '1003', '4001', '4002', '4003'], 'the items of the ports of links are the only ones that are read (item.get is not asked for the other ports)', $asked);
+
+// ============================================================================================================
 echo "\n=== step 12: the port table groups virtual ports apart (topology-1-model.md §6.6, §11) ===\n";
 reset_topology($pdo);
 $Dv = device($pdo, 'Dev V');
@@ -809,7 +853,7 @@ check($by_name['Gi0/1']['remote_port'] === 'f1' && $by_name['Gi0/1']['remote_dev
 	'a connected port gives its link id, the far port name and the far Device: '.json_encode([$by_name['Gi0/1']['remote_port'], $by_name['Gi0/1']['remote_device_id']]));
 check($by_name['Gi0/1']['stale'] === true && $by_name['mgmt0']['stale'] === false && $by_name['Gi0/1']['last_seen'] === 1, 'stale and the time of the last confirmation: the old last_seen is stale, the new one is not');
 check($by_name['Vlan10']['remote_port'] === null && $by_name['Vlan10']['remote_device_id'] === (string) $F && $by_name['Vlan10']['edge_id'] !== null, 'a device-level link: no far port, the far Device and the link id: '.json_encode([$by_name['Vlan10']['remote_port'], $by_name['Vlan10']['remote_device_id'], $by_name['Vlan10']['edge_id'], (string) $F]));
-check($by_name['Gi0/11']['edge_id'] === null && $by_name['Gi0/11']['remote_port'] === null && $by_name['Gi0/11']['load'] === null, 'a port without a link has no link fields and no load');
+check($by_name['Gi0/11']['edge_id'] === null && $by_name['Gi0/11']['remote_port'] === null && !array_key_exists('load', $by_name['Gi0/11']), 'a port without a link has no link fields and no load field');
 check($by_name['Gi0/6']['lag_id'] === (string) $lag && $by_name['Gi0/1']['lag_id'] === null, 'the LAG id of a member port');
 
 // no group without ports

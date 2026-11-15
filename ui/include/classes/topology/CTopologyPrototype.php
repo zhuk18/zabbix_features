@@ -1220,11 +1220,6 @@ class CTopologyPrototype {
 				$far_devices[$far['id']] = (string) $far['device_id'];
 			}
 		}
-		$itemids_by_port = [];
-		foreach ($rows as $row) {
-			$itemids_by_port[$row['id']] = array_map('strval', self::attrs($row)['zabbix_itemids'] ?? []);
-		}
-		$port_loads = self::getPortLoads($itemids_by_port);
 		// (DBfetchArray turns a NULL lag_id into '0')
 		$lag_names = [];
 		$lag_ids = array_values(array_unique(array_filter(array_column($rows, 'lag_id'), static fn ($id): bool => $id !== null)));
@@ -1257,6 +1252,16 @@ class CTopologyPrototype {
 			}
 		}
 
+		// 2.87 (§11, task 102): the load (§4.8) is read only for the ports of the Links section, an end of a link that is not superseded (the rows of a superseded link have no linkid here) or of a
+		// device-level link; the other ports have no load fields. The read of the last values of the items of a port (two values of each item, one query for each item) was the time of the call.
+		$itemids_by_port = [];
+		foreach ($rows as $row) {
+			if ($row['linkid'] !== null || isset($device_level[$row['id']])) {
+				$itemids_by_port[$row['id']] = array_map('strval', self::attrs($row)['zabbix_itemids'] ?? []);
+			}
+		}
+		$port_loads = self::getPortLoads($itemids_by_port);
+
 		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
 			$discovered_via = $row['linkid'] !== null
@@ -1270,7 +1275,7 @@ class CTopologyPrototype {
 			$group = self::portGroup($row['linkid'] !== null || $device_link !== null, (string) ($attrs['if_type'] ?? 'physical'), $learned_macs,
 				$learned_mac_count);
 
-			$groups[$group][] = [
+			$entry = [
 				'id' => $row['id'], 'port' => $attrs['name'] ?? '', 'group' => $group,
 				// 2.80 (§9.7): a manual port has no oper_status; `manual` and `description` are for its menu and the edit dialog
 				'manual' => ($attrs['source'] ?? null) === 'manual', 'description' => $attrs['description'] ?? null,
@@ -1289,7 +1294,7 @@ class CTopologyPrototype {
 				'last_seen' => $row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null),
 				'stale' => self::isLinkStale($row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null)),
 				'speed' => $attrs['speed'] ?? null,
-				'load' => $port_loads[$row['id']] ?? null,
+				// (no `load` key on a port that is not in the Links section, set below)
 				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
 				'device_link_id' => $device_link['id'] ?? null,
 				'far_port_reason' => $device_link['reason'] ?? null,
@@ -1300,6 +1305,10 @@ class CTopologyPrototype {
 					: ($discovered_via === 'manual' ? 'Manual' : ($row['linkid'] !== null ? 'LLDP'
 					: ($group === 'mac_only' ? 'FDB' : '-')))
 			];
+			if (array_key_exists($row['id'], $itemids_by_port)) {
+				$entry['load'] = $port_loads[$row['id']] ?? null;
+			}
+			$groups[$group][] = $entry;
 		}
 
 		// Order in a group (§12.5): ports with oper_status up first, then the others; in each part the natural order of the port name (1/1/2 before 1/1/10)
