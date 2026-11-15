@@ -7,6 +7,7 @@ import urllib.request
 from .model import LabError
 
 TAG = 'lab.managed'
+STAND_TAG = 'lab.stand'          # lab spec 2 (2.27): the stand that provisioned the host; a tagged host without it belongs to the stand `lab`
 
 
 class Api:
@@ -36,6 +37,17 @@ def _has_tag(h):
     return any(t['tag'] == TAG and t['value'] == '1' for t in h.get('tags', []))
 
 
+def stand_of(h):
+    """The stand of a lab host (lab spec 2): the value of `lab.stand`; a host with `lab.managed=1` and no `lab.stand` belongs to the stand `lab`."""
+    return next((t['value'] for t in h.get('tags', []) if t['tag'] == STAND_TAG), 'lab')
+
+
+def with_stand(tags, stand):
+    """The tags of a host with `lab.managed=1` and `lab.stand=<stand>` (other tags stay)."""
+    out = [t for t in tags if t['tag'] not in (TAG, STAND_TAG)]
+    return out + [{'tag': TAG, 'value': '1'}, {'tag': STAND_TAG, 'value': stand}]
+
+
 def _check_ports_type(api, templateid, name):
     """The topology type PORTS is a property of the template (FR-B D-49: `topology_type: PORTS` on the interface discovery rule in the template file), so that the ports of
     the hosts get items (model §3.2). The tool does not set it any more: a rule of a host that inherits it is read-only. A template without the topology type is an error."""
@@ -49,6 +61,7 @@ def _check_ports_type(api, templateid, name):
 
 def provision(api, scenario, prune=False, log=print):
     lab = scenario.states[0]
+    stand = getattr(lab, 'stand', 'lab')
     s = lab.settings
     z = s['zabbix']
     export_dir = os.path.expanduser(s.get('export_dir', '~/work/lab-backup'))
@@ -110,15 +123,16 @@ def provision(api, scenario, prune=False, log=print):
             raise LabError('proxy %r does not exist' % w['proxy'])
         if kind == 'create':
             r = api.call('host.create', dict({'host': w['host'], 'groups': [{'groupid': groupid}],
-                                              'tags': [{'tag': TAG, 'value': '1'}],
+                                              'tags': with_stand([], stand),
                                               'templates': [{'templateid': t} for t in [tmpl[tkey]] + ([tmpl['template_interfaces']] if tmpl.get('template_interfaces') else [])],
                                               'interfaces': [want_if]}, **proxy_params))
             log('  created host %s (%s)' % (name, r['hostids'][0]))
             changed = True
             continue
         changes = {}
-        if kind == 'adopt':
-            changes['tags'] = h['tags'] + [{'tag': TAG, 'value': '1'}]
+        # lab spec 2, 6.4a (2.27): the stand that starts owns the host; the tag moves to it (the same host name in two stands is one Zabbix host), nothing else of another stand is touched
+        if kind == 'adopt' or stand_of(h) != stand or not any(t['tag'] == STAND_TAG for t in h['tags']):
+            changes['tags'] = with_stand(h['tags'], stand)
         linked = {t['templateid'] for t in h['parentTemplates']}
         # one transport per host: the other lab template is unlinked (and cleared), so a transport override moves the host over
         other = tmpl['template_push' if tkey == 'template_lld' else 'template_lld']
@@ -150,9 +164,10 @@ def provision(api, scenario, prune=False, log=print):
         log('  waiting for the server to pick up the configuration')
         time.sleep(CONFIG_SYNC_WAIT)        # values sent to a trapper item before that are rejected ("item not found")
     if prune:
+        # lab spec 7 (2.27): only the hosts of this stand; a host of another stand is never pruned
         for h in api.call('host.get', {'tags': [{'tag': TAG, 'value': '1', 'operator': 1}], 'output': ['hostid', 'host'],
                                        'selectTags': 'extend'}):
-            if h['host'] not in wanted and _has_tag(h):
+            if h['host'] not in wanted and _has_tag(h) and stand_of(h) == stand:
                 api.call('host.delete', [h['hostid']])
                 log('  pruned host %s' % h['host'])
 

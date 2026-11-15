@@ -28,6 +28,9 @@ python -m labsim step 3                 # snmpset every control OID to 3, read e
 python -m labsim fault AP1 unreachable  # unreachable | none
 ZBX_TOKEN=... python -m labsim provision S3 [--prune]
 ZBX_TOKEN=... python -m labsim run S1 --reset [--timeout 120] [--report path]
+ZBX_TOKEN=... python -m labsim show D1 --step 3 --reset   # a stand that stays up for a person (lab spec 6.4a): steps 0..3, no assertions
+python -m labsim show --ingest-only     # ingest and the summary again for the show that is up
+python -m labsim status / down          # which stand is up (name, scenario, step); down also puts the freshness macro back after a show
 python -m labsim compare-reports a.json b.json    # equal except clocks and ids
 python -m labsim compare-transports lld.json push.json   # one scenario run on each transport: state by natural keys, identity bytes
 ZBX_TOKEN=... python -m labsim provision S1 --transport push   # every monitored host on one transport (or settings.transport in the scenario)
@@ -93,6 +96,10 @@ Files that share a chassis id (local or remote) never run in one batch; the topo
 
 `stands/<name>/` holds a lab file, scenarios, tools and a README for a set of **replay devices** (lab spec §4.1a): devices whose SNMP data is a snmprec file.
 Run it with the lab file of the stand: `python -m labsim --lab stands/office/lab-office.yaml run R1 --reset`; the scenarios next to the lab file are found first.
+
+`stands/office-demo/` is the office stand with a few synthetic LLDP rows and the scenario D1 for the product owners (task 104; README.md and DEMO.md there). Both office stands use the same
+addresses and host names: one is up at a time. `show` of one while the other is up refuses with the name of the stand that is up; switch with `labsim down` and then `show` of the other. The tag
+`lab.stand` of a host (the lab file name without `.yaml`: `lab-office`, `lab-office-demo`; none = `lab`) says which stand provisioned it; `provision --prune` deletes only the hosts of its own stand.
 
 `stands/office/` is the office network (12 real switches, 2 synthetic gateways). **Not in git:** `stands/office/data/` (the 14 snmprec files and `manifest.json`;
 `data/` is in `.gitignore`). They contain real host names, MACs and serial numbers of the Zabbix office network. The files come from the handoff folder

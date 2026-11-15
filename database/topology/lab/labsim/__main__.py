@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from . import corpus, ctl, db, gen, model, runner, zbx
+from . import corpus, ctl, db, gen, model, runner, show as show_mode, zbx
 from .model import LabError
 
 
@@ -20,8 +20,15 @@ def main(argv=None):
     p.add_argument('step', type=int)
     p.add_argument('--out', default='walks')
     p = sub.add_parser('up'); p.add_argument('scenario', nargs='?', default='S0')
-    sub.add_parser('down')
-    sub.add_parser('status')
+    sub.add_parser('down', help='stop the stand that is up (after a show: also put the freshness macro back)')
+    sub.add_parser('status', help='the stand that is up, its scenario and step, and its processes')
+    p = sub.add_parser('show', help='put a stand into Zabbix and leave it there for a person to look at (lab spec 6.4a); no assertions, no report')
+    p.add_argument('scenario', nargs='?')
+    p.add_argument('--step', type=int, default=None, help='run the steps 0 to n (default: step 0) and stay at step n')
+    p.add_argument('--reset', action='store_true', help='clear the topo_* state first (lab spec 8.2)')
+    p.add_argument('--ingest-only', action='store_true', help='run the ingest and the summary again for the show that is up')
+    p.add_argument('--lab', dest='show_lab', help='the lab file: a path, or a file name of a stand (stands/*/lab-office.yaml); default: the lab file of the scenario')
+    p.add_argument('--timeout', type=int, default=None, help='seconds to wait for the snapshots of one master item (default: settings.timeout, else 60)')
     p = sub.add_parser('step'); p.add_argument('n', type=int)
     p = sub.add_parser('fault'); p.add_argument('device'); p.add_argument('fault')
     p = sub.add_parser('provision'); p.add_argument('scenario'); p.add_argument('--prune', action='store_true')
@@ -43,9 +50,21 @@ def main(argv=None):
     p.add_argument('lld'); p.add_argument('push')
     a = ap.parse_args(argv)
     try:
+        a.lab = (getattr(a, 'show_lab', None) or a.lab)
+        if a.cmd in ('down', 'status', 'restore') and not a.lab:
+            st = ctl.load_state()
+            if st and st.get('lab') and os.path.exists(st['lab']):
+                a.lab = st['lab']              # the settings of the stand that is up (its lab file is in the state)
+        if a.cmd == 'show' and not a.ingest_only:
+            if not a.scenario:
+                raise LabError('show needs a scenario (labsim show D1 --step 3), or --ingest-only')
+            # the lab file: --lab (a path, or a file name of a stand), else the lab file of the scenario (a stand's scenario names its base)
+            a.lab = model.find_lab_file(a.lab) if a.lab else model.lab_file_of_scenario(a.scenario)
+        elif a.lab:
+            a.lab = model.find_lab_file(a.lab)
         lab = model.load_lab(a.lab)
         settings = lab.settings
-        if a.cmd in ('provision', 'run'):
+        if a.cmd in ('provision', 'run', 'show'):
             db.connect(settings).close()          # refuses unless the database is `zabbix` (topology-4-lab-simulator.md "Constraints")
         if a.cmd == 'gen':
             sc = model.load_scenario(a.scenario, lab)
@@ -78,7 +97,12 @@ def main(argv=None):
             db.connect(settings).close()
             api = zbx.Api(settings['zabbix']['url'])
             schedule = zbx.restore_schedule(api, runner.SCHEDULE_FILE)
-            macro = zbx.restore_fresh_macro(api, runner.FRESH_FILE)
+            st = ctl.load_state()
+            if st and st.get('mode') == 'show' and any(ctl.alive(d['pid']) for d in st['devices'].values()):
+                macro = None       # the freshness macro of a show that is up stays until `labsim down` (lab spec 6.4a)
+                print('note: the freshness macro of the show of %s stays; labsim down restores it' % st['scenario'])
+            else:
+                macro = zbx.restore_fresh_macro(api, runner.FRESH_FILE)
             sources = zbx.restore_sources(api, runner.SOURCES_FILE)
             if not schedule and macro is None and not sources:
                 print('nothing to restore')
@@ -106,9 +130,21 @@ def main(argv=None):
         elif a.cmd == 'up':
             ctl.up(model.load_scenario(a.scenario, lab), settings)
         elif a.cmd == 'down':
-            ctl.down()
+            show_mode.stop(settings, lambda: zbx.Api(settings['zabbix']['url']))
         elif a.cmd == 'status':
-            print(json.dumps(ctl.status(), indent=1))
+            st = ctl.status()
+            if st is None:
+                print('no stand is up')
+            else:
+                print('stand %s%s, scenario %s, step %s: %d device(s), %d alive' % (st['stand'], ' [show]' if st['mode'] == 'show' else '', st['scenario'], st['step'], len(st['devices']),
+                                                                              sum(1 for d in st['devices'] if d['alive'])))
+                for d in st['devices']:
+                    print('  %-28s %-15s pid %-7s %s%s' % (d['device'], d['ip'], d['pid'], 'alive' if d['alive'] else 'DEAD', ('  fault: ' + d['fault']) if d['fault'] else ''))
+        elif a.cmd == 'show':
+            if a.ingest_only:
+                return show_mode.ingest_only(settings, db.connect(settings))
+            sc = model.load_scenario(a.scenario, lab)
+            return show_mode.show(sc, a.step, settings, zbx.Api(settings['zabbix']['url']), db.connect(settings), reset=a.reset, timeout=a.timeout)
         elif a.cmd == 'step':
             ctl.step(a.n)
         elif a.cmd == 'fault':

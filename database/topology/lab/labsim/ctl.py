@@ -71,10 +71,15 @@ def _not_local(ips):
     return bad
 
 
-def up(scenario, settings, log=print):
+def up_message(st):
+    """Why a start is refused while a lab is up (lab spec 6.4a): the stand that is up, its scenario and step, and the command that stops it."""
+    return 'the stand %s is up (%s%s, step %s); stop it first with: labsim down' % (st.get('stand', 'lab'), 'show of ' if st.get('mode') == 'show' else 'scenario ', st['scenario'], st['step'])
+
+
+def up(scenario, settings, log=print, mode='run'):
     st = load_state()
     if st and any(alive(p['pid']) for p in st['devices'].values()):
-        raise LabError('the lab is already up (scenario %s); run "down" first' % st['scenario'])
+        raise LabError(up_message(st))
     out = os.path.join(DATA_DIR, scenario.id)
     manifest = gen.generate(scenario, out)
     port = settings.get('snmp_port', 161)
@@ -85,7 +90,8 @@ def up(scenario, settings, log=print):
         raise LabError('the lab address(es) %s are not local on this VM. The lab uses 192.0.2.0/24 through one route that is added once, as root, '
                        'and kept across reboots: ip route add local 192.0.2.0/24 dev lo' % ', '.join(bad))
     os.makedirs(RUN_DIR, exist_ok=True)
-    st = {'scenario': scenario.id, 'step': 0, 'devices': {}}
+    # `stand` and `mode` (lab spec 6.4a): which stand is up and whether a person looks at it (`show`: detached, it stays after the shell ends) or a test run owns it
+    st = {'scenario': scenario.id, 'step': 0, 'devices': {}, 'stand': getattr(scenario.states[0], 'stand', 'lab'), 'lab': getattr(scenario.states[0], 'file', None), 'mode': mode}
     stock = stock_variation_dir(settings)
     for name, d in sorted(manifest['devices'].items()):
         logf = open(os.path.join(RUN_DIR, '%s.log' % name), 'w')
@@ -140,7 +146,7 @@ def status():
     for name, d in sorted(st['devices'].items()):
         rows.append({'device': name, 'ip': d['ip'], 'pid': d['pid'], 'alive': alive(d['pid']), 'step': st['step'],
                      'fault': d['fault']})
-    return {'scenario': st['scenario'], 'step': st['step'], 'devices': rows}
+    return {'stand': st.get('stand', 'lab'), 'mode': st.get('mode', 'run'), 'scenario': st['scenario'], 'step': st['step'], 'devices': rows}
 
 
 def _stopped(pid):

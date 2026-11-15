@@ -1,7 +1,9 @@
 """Lab description, scenarios and per-step state (topology-4-lab-simulator.md "Lab description")."""
 import copy
 import ipaddress
+import glob
 import os
+import re
 
 import yaml
 
@@ -44,6 +46,8 @@ class Lab:
             self.add_deviation(d)
         self.active = set()          # enabled deviation ids
         self.faults = {}             # device -> fault name
+        self.stand = 'lab'           # the stand name (lab spec 2): the lab file name without .yaml; load_lab() sets it
+        self.file = None
 
     # -- construction ------------------------------------------------------------------------------------------------
     def _device(self, name, d):
@@ -292,7 +296,7 @@ def check_cdp_keys(name, d):
         raise LabError('device %s: cdp_address is true, false or an IPv4 address, got %r' % (name, address))
 
 
-OPERATOR_ACTIONS = ('merge', 'merge_group', 'dismiss', 'dismiss_group', 'delete')
+OPERATOR_ACTIONS = ('merge', 'merge_group', 'dismiss', 'dismiss_group', 'delete', 'create_device', 'link')
 
 
 def operator_actions(scenario_id, i, operator):
@@ -312,6 +316,15 @@ def operator_actions(scenario_id, i, operator):
         extra = set(a) - {kind} - ({'keep'} if kind in ('merge', 'merge_group') else set())
         if extra:
             raise LabError('%s: unknown key(s) %s in %s' % (where, sorted(extra), kind))
+        if kind == 'create_device':
+            body = a[kind]
+            if not isinstance(body, dict) or not isinstance(body.get('name'), str) or not body['name'].strip() or not isinstance(body.get('class'), str):
+                raise LabError('%s: create_device is {name, class, ports: [<name>, ...], chassis?, mgmt_ip?}, got %r' % (where, body))
+            unknown = set(body) - {'name', 'class', 'ports', 'chassis', 'mgmt_ip'}
+            if unknown or not all(isinstance(x, str) for x in body.get('ports') or []):
+                raise LabError('%s: create_device: unknown key(s) %s or a port that is not a name' % (where, sorted(unknown)))
+        if kind == 'link' and (not isinstance(a[kind], list) or len(a[kind]) != 2 or not all(isinstance(x, str) and ':' in x for x in a[kind])):
+            raise LabError('%s: link takes a list of two <Device:port> ends, got %r' % (where, a[kind]))
         if kind in ('merge', 'dismiss') and (not isinstance(a[kind], list) or len(a[kind]) != 2):
             raise LabError('%s: %s takes a list of two Device keys, got %r' % (where, kind, a[kind]))
         if kind in ('merge', 'merge_group') and a.get('keep') is None:
@@ -346,6 +359,7 @@ ASSERTION_FORMS = {
     'observation_count': (set(), {'outcome', 'edge', 'equals'}),
     'contradiction': (set(), {'link', 'hidden_neighbors'}),
     'badge': (set(), {'node', 'present'}),
+    'junction': (set(), {'port', 'devices', 'present'}),          # 2.27: the Junction projection of model 12.6 on a reporter Port, by the names of the Devices behind it
     'link_items': (set(), {'link'}),
     'link_load': (set(), {'link', 'percent', 'tolerance'}),
     'link_severity': (set(), {'link', 'present'}),
@@ -389,9 +403,42 @@ def load_yaml(path):
         return yaml.safe_load(f)
 
 
+def stand_name(path):
+    """The name of the stand of a lab file (lab spec 2): the file name without `.yaml`, for example `lab`, `lab-office`, `lab-office-demo`. A tagged host without `lab.stand` belongs to the stand `lab`."""
+    return re.sub(r'\.ya?ml$', '', os.path.basename(path))
+
+
+def find_lab_file(name):
+    """A lab file given to `--lab`: a path that exists, else a bare file name (with or without `.yaml`) looked up in `stands/*/` (lab spec 6.4a: `--lab lab-office.yaml`)."""
+    if os.path.exists(name):
+        return name
+    for stem in (name, name + '.yaml'):
+        hits = sorted(glob.glob(os.path.join(HERE, 'stands', '*', stem)))
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            raise LabError('lab file %s is in several stands: %s' % (name, ', '.join(hits)))
+    raise LabError('no lab file %s (a path, or a file name in stands/*/)' % name)
+
+
+def lab_file_of_scenario(sid):
+    """The lab file of a scenario that was not given a `--lab`: `lab.yaml` for the scenarios of the lab tool, else the `base:` of the scenario of a stand (`stands/*/scenarios/<id>.yaml`)."""
+    if os.path.exists(os.path.join(HERE, 'scenarios', '%s.yaml' % sid)):
+        return os.path.join(HERE, 'lab.yaml')
+    hits = sorted(glob.glob(os.path.join(HERE, 'stands', '*', 'scenarios', '%s.yaml' % sid)))
+    if not hits:
+        raise LabError('no scenario %s (scenarios/ and stands/*/scenarios/)' % sid)
+    if len(hits) > 1:
+        raise LabError('scenario %s is in several stands (%s): name the stand with --lab' % (sid, ', '.join(hits)))
+    return os.path.join(os.path.dirname(os.path.dirname(hits[0])), load_yaml(hits[0])['base'])
+
+
 def load_lab(path=None):
     path = path or os.path.join(HERE, 'lab.yaml')
-    return Lab(load_yaml(path), os.path.dirname(os.path.abspath(path)))
+    lab = Lab(load_yaml(path), os.path.dirname(os.path.abspath(path)))
+    lab.stand = stand_name(path)
+    lab.file = os.path.abspath(path)
+    return lab
 
 
 TRANSPORTS = ('lld', 'push')

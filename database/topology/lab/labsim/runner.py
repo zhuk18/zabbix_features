@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 
 from . import ctl, db, gen, zbx
@@ -299,6 +300,19 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         has = l.get('severity') is not None
         ok = has == bool(r.get('present', True))
         return Result(kind, a, 'pass' if ok else 'fail', '' if ok else 'severity %s, expected %s' % (l.get('severity'), 'present' if r.get('present', True) else 'none'))
+    if 'junction' in a:
+        # the Junction projection the UI draws (model 12.6; php/derived.php: CTopologyPrototype::getJunctions): on the Port `Device:port`, with exactly these Devices behind it (their labels:
+        # the name, else the chassis id), or, with `present: false`, none on that Port
+        r = a['junction']
+        device, port = split_end(r['port'])
+        found = [j for j in derived().get('junctions', []) if j['device'] == device and j['port'] in (port, gen.long_name(port))]
+        want = sorted(str(x) for x in r.get('devices') or [])
+        if not r.get('present', True):
+            return Result('junction', a, 'pass' if not found else 'fail', '' if not found else 'a Junction on %s with %s, expected none' % (r['port'], sorted(found[0]['devices'])))
+        if not found:
+            return Result('junction', a, 'fail', 'no Junction on %s; the page draws: %s' % (r['port'], [(j['device'], j['port']) for j in derived().get('junctions', [])]))
+        got = sorted(found[0]['devices'])
+        return Result('junction', a, 'pass' if got == want else 'fail', '' if got == want else 'Junction on %s has %s, expected %s' % (r['port'], got, want))
     if 'badge' in a:
         r = a['badge']
         present = r['node'] in derived()['badges']
@@ -419,7 +433,7 @@ def _sub(a, b):
     return [x for x in a if x not in b]
 
 
-def operator_commands(state, actions):
+def operator_commands(state, actions, port_id=None):
     """The calls of php/operator.php for the actions of a step key `operator` (lab spec 4.5, 2.21), by the Device ids of `state` (the state after the ingest of the
     previous step): [(action, args)]. A key that gives no Device, or a `merge`/`delete`/`dismiss` key that gives several, is a LabError."""
     def one(key):
@@ -431,19 +445,35 @@ def operator_commands(state, actions):
     out = []
     for a in actions:
         kind = next(k for k in OPERATOR_ACTIONS if k in a)
-        if kind == 'merge':
+        if kind == 'create_device':
+            # lab spec 2.27: a manual Device through CTopologyPrototype::createDevice (the endpoint topology.devices.create); the class is written as the UI shows it
+            body = a['create_device']
+            args = {'name': body['name'], 'device_class': body['class'].strip().lower().replace(' ', '_'), 'ports': list(body.get('ports') or [])}
+            for key, field in (('chassis', 'chassis_id'), ('mgmt_ip', 'mgmt_ip')):
+                if body.get(key):
+                    args[field] = str(body[key])
+            out.append(('create_device', args))
+        elif kind == 'link':
+            # a Device is named by its name (sysname), a reporter's Device by its host name: the same key as in an assertion
+            # the ends are resolved when the action runs (a Device created by an earlier action of the same step has its ports then)
+            out.append(('link', {'ends': list(a['link'])}))
+        elif kind == 'merge':
             ids = {str(k): one(k) for k in a['merge']}
             keep = ids[str(a['keep'])]
             out.append(('merge', {'keep': keep, 'remove': next(v for v in ids.values() if v != keep)}))
         elif kind == 'merge_group':
             ids = device_ids(state, a['merge_group'])
-            keep_key, keep_port = split_end(a['keep'])
-            keeps = set()
-            for l in state['links']:
-                for idx in (0, 1):
-                    if l['end_ports'][idx] == keep_port and l['end_devices'][idx] in resolve_device(state, keep_key):
-                        keeps.add(l['end_devices'][1 - idx])
-            keeps &= set(ids)
+            if isinstance(a['keep'], dict):
+                # 2.27: the Device that stays is named by its own key ({chassis: <mac>} or {sysname: <name>}), for a group whose Devices have no link (an ambiguous port)
+                keeps = set(resolve_device(state, a['keep'])) & set(ids)
+            else:
+                keep_key, keep_port = split_end(a['keep'])
+                keeps = set()
+                for l in state['links']:
+                    for idx in (0, 1):
+                        if l['end_ports'][idx] == keep_port and l['end_devices'][idx] in resolve_device(state, keep_key):
+                            keeps.add(l['end_devices'][1 - idx])
+                keeps &= set(ids)
             if len(keeps) != 1:
                 raise LabError('operator: keep %s names %d Devices of the group %s, one is needed' % (a['keep'], len(keeps), a['merge_group']))
             keep = next(iter(keeps))
@@ -458,7 +488,7 @@ def operator_commands(state, actions):
     return out
 
 
-def run_operator(scenario, i, state, log):
+def run_operator(scenario, i, state, log, conn=None):
     """The step key `operator`: the actions run through CTopologyPrototype (php/operator.php), the code path of the UI endpoints, on the state left by the previous
     step's ingest and before this step's collection (lab spec 4.5, 2.21)."""
     actions = operator_actions(scenario.id, i, scenario.steps[i].get('operator'))
@@ -466,7 +496,17 @@ def run_operator(scenario, i, state, log):
         return
     if state is None:
         raise LabError('step %d: operator needs the state of a previous step' % i)
-    for action, args in operator_commands(state, actions):
+    port_id = (lambda device, port: db.port_node_id(conn, device, port) or db.port_node_id(conn, device, gen.long_name(port))) if conn is not None else None
+    for action, args in operator_commands(state, actions, port_id):
+        if action == 'link':
+            ids = []
+            for ref in args['ends']:
+                device, port = ref.split(':', 1)
+                nid = port_id(device, port) if port_id else None
+                if nid is None:
+                    raise LabError('operator: link end %s has no port in topo_nodes (ingest it first, or create the Device before)' % ref)
+                ids.append(nid)
+            args = {'a': str(ids[0]), 'b': str(ids[1])}
         p = subprocess.run(['php', os.path.join(HERE, 'php', 'operator.php'), action, json.dumps(args)], capture_output=True, text=True, timeout=120)
         try:
             answer = json.loads(p.stdout.strip().splitlines()[-1])
@@ -596,13 +636,20 @@ def reset_report(conn, mon, report, reset, log=print):
     log('reset: topo_* cleared')
 
 
-def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log=print, argv=None):
+def sys_exc_info_failed():
+    return sys.exc_info()[0] is not None
+
+
+def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log=print, argv=None, show_step=None):
+    """`show_step` (lab spec 6.4a, 2.26): steps 0 to n run as in a test, but no assertion is evaluated for the report, the stand is not stopped at the end, the item intervals of the hosts stay as the
+    templates have them and the freshness macro of the scenario stays set (`labsim down` restores it)."""
+    show = show_step is not None
     if not server_running():
         raise LabError('zabbix_server is not running; the runner polls through it')
     report = {'scenario': scenario.id, 'title': scenario.title, 'steps': []}
     if argv is not None:
         report['command_line'] = list(argv)          # all arguments of the runner (lab spec 8.4)
-    ctl.up(scenario, settings, log)
+    ctl.up(scenario, settings, log, mode='show' if show else 'run')
     manifest = json.load(open(os.path.join(ctl.DATA_DIR, scenario.id, 'manifest.json')))
     mon = sorted(manifest['devices'])
     history, clocks_hist = {}, {}
@@ -621,8 +668,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             zbx.set_sources(api, ms, scenario.sources, SOURCES_FILE, log)
             report['sources'] = scenario.sources
         report['transport'] = scenario.transport or 'per lab.yaml'
-        zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
-        report['schedule_suspended'] = True
+        if not show:
+            zbx.suspend_schedule(api, ms, SCHEDULE_FILE, log)
+            report['schedule_suspended'] = True
         if scenario.freshness_seconds is not None:
             before, during = zbx.set_fresh_macro(api, scenario.freshness_seconds, FRESH_FILE, log)
             report['freshness_macro'] = {'before': before, 'during': during, 'after': None}
@@ -632,17 +680,37 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
             reset_report(conn, mon, report, reset, log)
             report['problems_closed'] = zbx.close_problems(api, log)
         for i, step in enumerate(scenario.steps):
+            if show and i > show_step:
+                break
             log('step %d: %s' % (i, step.get('note', '')))
             sr = {'step': i, 'note': step.get('note', ''), 'assertions': [], 'errors': []}
             report['steps'].append(sr)
             try:
-                run_operator(scenario, i, history.get(i - 1), log)          # lab spec 4.5 (2.21): after the ingest of the previous step, before this step's collection
+                run_operator(scenario, i, history.get(i - 1), log, conn)          # lab spec 4.5 (2.21): after the ingest of the previous step, before this step's collection
             except LabError as e:
                 sr['errors'].append(str(e))
             faults = step.get('faults') or {}
             for dev, f in faults.items():
                 if f in (None, 'none'):
                     ctl.fault(dev, 'none', settings, log)
+            # a trigger on a change of value ("Link down") needs the old value: the status items of the links that a later `link_severity` assertion of this step looks at are polled once now,
+            # before the data changes (task 104)
+            pre = [a['link_severity']['link'] for a in step.get('assert') or [] if 'link_severity' in a and history.get(i - 1)]
+            status_ids = set()
+            if pre:
+                try:
+                    ids = status_ids
+                    ends = run_derived()['links']
+                    for ref in pre:
+                        wanted = {str(y['id']) for y in find_links(history[i - 1], ref[0], ref[1], 'physical_link')}
+                        for l in [x for x in ends if x['edge_id'] in wanted][:1]:
+                            ids.update(str(x) for x in l.get('status_items') or [])
+                    if ids:
+                        zbx.check_now(api, sorted(ids))
+                        time.sleep(6)
+                        log('  polled %d status item(s) before the data changes' % len(ids))
+                except LabError as e:
+                    sr['errors'].append('status items: %s' % e)
             ctl.step(i, log)
             for dev, f in faults.items():
                 if f not in (None, 'none'):
@@ -828,6 +896,11 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                             ids.update(str(side[k]) for k in ('in', 'out') if side and side.get(k))
                 return ids
 
+            if status_ids:
+                # the second value of the status items, after the data changed: ONE poll, so that the last two values differ (a third equal value would close the problem again)
+                zbx.check_now(api, sorted(status_ids))
+                time.sleep(8)
+                log('  polled %d status item(s) after the data changed' % len(status_ids))
             if until and counter_links:
                 # poll-until (lab spec 9 S6): every round reads a fresh counter pair (which also polls the items the template triggers use) and evaluates the
                 # link assertions; the step ends when all hold or after `seconds`. The result below is the evaluation after the last round.
@@ -862,7 +935,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                 except LabError as e:
                     load_error = str(e)
                 derived_cache.clear()
-            for a in step.get('assert') or []:
+            for a in [] if show else step.get('assert') or []:          # a show evaluates no assertion (lab spec 6.4a); the `until` rounds above only decide how long the step waits
                 if load_error and 'link_load' in a:
                     res = Result('link_load', a, 'fail', load_error)
                     sr['assertions'].append(res.as_dict())
@@ -875,7 +948,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                 sr['assertions'].append(res.as_dict())
                 log('  %-7s %s' % (res.status.upper(), (res.message if res.status == 'pending' else
                                                           '%s %s %s' % (res.kind, json.dumps(a, default=str)[:110], res.message))[:300]))
-            if load_asserts:
+            if load_asserts and not show:
                 # the values behind link_load (bit/s, speed and %: what the UI reads from the items of the two ends), in the report
                 sr['load_measured'] = []
                 try:
@@ -891,13 +964,19 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                     sr['load_measured'].append({'error': str(e)})
             for e in sr['errors']:
                 log('  ERROR   ' + e)
+    except BaseException:
+        if show:
+            ctl.down(log)           # a show that failed on the way leaves no half stand; the macro is restored below
+        raise
     finally:
-        ctl.down(log)
+        if not show:
+            ctl.down(log)
         zbx.restore_schedule(api, SCHEDULE_FILE, log)
         zbx.restore_sources(api, SOURCES_FILE, log)
-        after = zbx.restore_fresh_macro(api, FRESH_FILE, log)
-        if after is not None and 'freshness_macro' in report:
-            report['freshness_macro']['after'] = after
+        if not show or sys_exc_info_failed():
+            after = zbx.restore_fresh_macro(api, FRESH_FILE, log)
+            if after is not None and 'freshness_macro' in report:
+                report['freshness_macro']['after'] = after
     return report
 
 
