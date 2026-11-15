@@ -5,7 +5,7 @@
  *
  * A leaf is a Device without association that has exactly one link that is not superseded, counted in the whole topology (not only in the view). A leaf in a group is a leaf whose link is
  * discovered (not manual), not stale and has no severity colour, and that has no badge (§12.2). A node of the view with LEAF_GROUP_MIN or more leaves in a group gets a group: the
- * leaves are not drawn, one group node is. With "Possible duplicates only" there are no groups. The Junction projection (§12.6) is not implemented, so no Device is in one.
+ * leaves are not drawn, one group node is. With "Possible duplicates only" there are no groups. A Device in a Junction projection (§12.6) is in no group.
  */
 class CTopologyLeafGroups {
 
@@ -19,13 +19,15 @@ class CTopologyLeafGroups {
 	 * @param array $badge_device_ids  Device ids that carry a badge other than "possible duplicate" (an unacknowledged hidden neighbor of a contradicted manual link)
 	 * @param bool  $only_duplicates   the filter "Possible duplicates only": no groups
 	 * @param array $visible           Device ids the user can see; null = every Device (access control of a Device without association is not implemented yet: the caller passes null)
+	 * @param array $junction_device_ids  Device ids that are in a Junction projection (§12.6): not in a group
 	 *
 	 * @return array  list of ['parent' => node id (as drawn: the Host or Proxy of an associated Device), 'devices' => [Device ids]], sorted by parent
 	 */
-	public static function compute(array $devices, array $relations, array $topology_links, array $badge_device_ids, bool $only_duplicates, ?array $visible = null): array {
+	public static function compute(array $devices, array $relations, array $topology_links, array $badge_device_ids, bool $only_duplicates, ?array $visible = null, array $junction_device_ids = []): array {
 		if ($only_duplicates) {
 			return [];
 		}
+		$in_junction = array_flip(array_map('strval', $junction_device_ids));
 		$by_id = [];
 		$display_of = [];       // a Device with an association is drawn as its Host or Proxy
 		foreach ($devices as $device) {
@@ -53,6 +55,9 @@ class CTopologyLeafGroups {
 			}
 			if ($visible !== null && !in_array($id, array_map('strval', $visible), true)) {
 				continue;
+			}
+			if (isset($in_junction[$id])) {
+				continue;       // a Device in a Junction projection is in no group (§12.8)
 			}
 			// a leaf: one link not superseded in the whole topology, and that link is in the view
 			if (($topology_links[$id] ?? 0) !== 1 || count($links_of[$id] ?? []) !== 1) {

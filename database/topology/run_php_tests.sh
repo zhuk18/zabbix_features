@@ -118,7 +118,7 @@ skip() {   # skip <name> <reason>
 # ---- 1. PHP tests with a database of their own ----
 for t in discovery/test_device_links.php discovery/test_device_link_validation.php discovery/test_identity_normalization.php \
 		discovery/test_link_replacement.php discovery/test_manual_contradiction.php \
-		discovery/test_topology_model.php discovery/test_manual_device.php test_contradiction_rule.php test_lazy_host_nodes.php \
+		discovery/test_topology_model.php discovery/test_manual_device.php discovery/test_junction.php test_contradiction_rule.php test_lazy_host_nodes.php \
 		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_run_summary.php discovery/test_old_snapshot.php discovery/test_port_limit.php discovery/test_port_follows_name.php discovery/test_run_input.php discovery/test_two_ports_rules.php discovery/test_remote_attrs_cap.php discovery/test_chassis_subtypes.php discovery/test_claim_key.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
 	db=topo_t_$(basename "$t" .php | cut -c6-40)
 	fresh "$db"
@@ -234,6 +234,8 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
 	# the Fold / Unfold toggle in the group and parent panels, Back in a panel opened from another panel (098)
 	page_test "page: Fold / Unfold toggle and Back in the panel" /tmp/topo_t_stack.log python3 "$here/ui_check_040/stack_check.py"
+	# the Junction projection (§12.6, 104): one node on the anchor Port, lines to the Devices behind it, its read-only panel, Back, the selection ring
+	page_test "page: Junction projection (node, lines, panel, Back)" /tmp/topo_t_junction_page.log python3 "$here/ui_check_040/junction_check.py"
 	# a manual Device: the create dialog, the panel, a manual port, a link, edit, delete (099; the database login of the harness, `mysql -uzabbix zabbix`)
 	page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
 	# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)

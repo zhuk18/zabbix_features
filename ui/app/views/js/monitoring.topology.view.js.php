@@ -341,9 +341,10 @@ const view = new class {
 
 	async loadDevices({reselect_edge = null, reselect_device = null, reset_layout = false} = {}) {
 		const query = this.filterQuery();
-		const {devices = [], relations = [], contradictions = [], leaf_groups = []} = await this.request(`topology.devices.get${query}`);
+		const {devices = [], relations = [], contradictions = [], leaf_groups = [], junctions = []} = await this.request(`topology.devices.get${query}`);
 		this.contradictions = contradictions;
 		this.leaf_groups = leaf_groups;
+		this.junctions = junctions;       // the Junction projections (§12.6): a UI projection, nothing is stored
 		if (reselect_edge === null && reselect_device === null) {
 			this.panel_from = null;
 		}
@@ -2112,6 +2113,38 @@ const view = new class {
 		}, {kind: 'group', id: String(group.id ?? 'group:' + group.parent), parent: String(group.parent)});
 	}
 
+	// The title of a Junction projection (§12.6): "Junction at <Device>, port <port>"
+	junctionTitle(junction_node) {
+		const reporter = this.nodes.get(String(junction_node.junction.device_id));
+		return <?= json_encode(_('Junction at %1$s, port %2$s')) ?>.replace('%1$s', reporter?.label ?? junction_node.junction.device_name ?? '').replace('%2$s', junction_node.junction.port_name ?? '');
+	}
+
+	// The side panel of a Junction projection (§12.6): the anchor Port and the Devices behind it, read only. A click on a line opens the panel of that Device. It has no id, no name of its own and no action.
+	showJunction(junction_node) {
+		this.select_token = (this.select_token ?? 0) + 1;
+		const junction = junction_node.junction;
+		const title = this.junctionTitle(junction_node);
+		this.setDetailsTitle(title);
+		const rows = junction.devices.map(device => {
+			const known = this.nodes.get(String(device.id));
+			const label = known?.label ?? known?.name ?? device.name ?? device.id;
+			return `<tr class="topology-group-row" data-device-id="${this.escape(device.id)}"><td title="${this.escape(label)}">${this.escape(label)}</td></tr>`;
+		}).join('');
+		this.details.innerHTML = `<p class="topology-group-help">${this.escape(<?= json_encode(_('Several devices are seen on one port: a switch or a hub that is not monitored sits between them and this device. Nothing here is stored.')) ?>)}</p>` +
+			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Port')) ?>)}</th></tr></thead><tbody><tr class="topology-junction-port"><td>${this.escape(junction.port_name ?? '–')}</td></tr></tbody></table></section>` +
+			`<section class="topology-group"><table><thead><tr><th>${this.escape(<?= json_encode(_('Devices behind the port')) ?>)} (${junction.devices.length})</th></tr></thead><tbody>${rows}</tbody></table></section>`;
+		this.details.querySelectorAll('.topology-group-row').forEach(row => row.addEventListener('click', () => {
+			const device = this.nodes.get(row.dataset.deviceId);
+			if (device) {
+				this.guard(() => this.openFromPanel(() => this.selectNode(device)));
+			}
+		}));
+		this.registerPanel('junction:' + junction.port_id, title, () => {
+			const current = (this.drawn_nodes ?? []).find(candidate => candidate.id === `junction:${junction.port_id}`);
+			return current ? this.showJunction(current) : undefined;
+		}, {kind: 'junction', id: `junction:${junction.port_id}`, parent: String(junction_node.parent)});
+	}
+
 	// "Fold <N> devices" in a panel (the parent's, and the group's): one delegated lookup after the panel is built.
 	wireFoldButtons() {
 		this.details.querySelectorAll('[data-parent]').forEach(button => button.addEventListener('click', () => this.guard(() => this.toggleGroup(button.dataset.parent))));
@@ -2364,10 +2397,42 @@ const view = new class {
 			.map(link => ({...link, source: resolve_display_id(link.source), target: resolve_display_id(link.target)}))
 			.filter(link => rendered_ids.has(link.source) && rendered_ids.has(link.target));
 
+		// Junction projections (§12.6): one small node on the anchor Port, a line from the reporter to it and a line from it to each Device; the direct lines of the Ports to those Devices are not
+		// drawn, the line of the projection to the Device takes their channels (severity, stale, superseded, manual). Only Devices that are in the view are members; fewer than two: no projection.
+		const junction_nodes = [];
+		const junction_lines = [];
+		(this.junctions ?? []).forEach(junction => {
+			const reporter = resolve_display_id(String(junction.device_id));
+			const members = [...new Set(junction.devices.map(device => resolve_display_id(String(device.id))).filter(id => rendered_ids.has(id)))];
+			if (!rendered_ids.has(reporter) || members.length < 2) {
+				return;
+			}
+			const port_id = String(junction.port_id);
+			const junction_node = {id: `junction:${port_id}`, type: 'junction', parent: reporter, name: junction.port_name ?? '', label: junction.port_name ?? '', devices: members, junction};
+			junction_nodes.push(junction_node);
+			junction_lines.push({type: 'junction_link', source: reporter, target: junction_node.id});
+			const carried = new Map();
+			simulation_links = simulation_links.filter(link => {
+				if (link.type !== 'physical_link' || ![String(link.source_port_id), String(link.target_port_id)].includes(port_id)) {
+					return true;
+				}
+				const far = String(link.source_port_id) === port_id ? link.target : link.source;
+				if (!members.includes(far)) {
+					return true;
+				}
+				carried.set(far, [...(carried.get(far) ?? []), link]);
+				return false;
+			});
+			members.forEach(member => {
+				const own = (carried.get(member) ?? []).find(link => !link.superseded_at) ?? (carried.get(member) ?? [])[0] ?? {};
+				junction_lines.push({...own, type: 'junction_member', source: junction_node.id, target: member, junction_id: junction_node.id});
+			});
+		});
+
 		// Size (§12.2): large = Host, Proxy, a Device without association with two or more links; small = a leaf, a Device without a link, a group node. The count is by the drawn
 		// links before the leaves are folded into groups, so a fold does not change the size of its parent.
 		const link_count = new Map();
-		simulation_links.filter(link => ['physical_link', 'device_link'].includes(link.type)).forEach(link => {
+		[...simulation_links, ...junction_lines.filter(link => link.type === 'junction_member')].filter(link => ['physical_link', 'device_link', 'junction_member'].includes(link.type)).forEach(link => {
 			link_count.set(link.source, (link_count.get(link.source) ?? 0) + 1);
 			link_count.set(link.target, (link_count.get(link.target) ?? 0) + 1);
 		});
@@ -2403,6 +2468,12 @@ const view = new class {
 		nodes = nodes.filter(node => G.isDrawn(node, {has_link: link_count.has(String(node.id)), show_unlinked: this.show_unlinked, only_duplicates: this.only_duplicates,
 			is_focus: String(node.id) === focus_id}));
 		nodes.push(...group_nodes.filter(group_node => nodes.some(node => String(node.id) === group_node.parent)));
+		// a projection is drawn with its reporter and at least two of its Devices (the others of the view may be folded into a group or hidden)
+		const drawn_before = new Set(nodes.map(node => String(node.id)));
+		junction_nodes.filter(junction_node => drawn_before.has(junction_node.parent) && junction_node.devices.filter(id => drawn_before.has(id)).length >= 2).forEach(junction_node => {
+			nodes.push(junction_node);
+			simulation_links.push(...junction_lines.filter(link => link.junction_id === junction_node.id || (link.type === 'junction_link' && link.target === junction_node.id)));
+		});
 		rendered_ids = new Set(nodes.map(node => String(node.id)));
 		group_nodes.forEach(group_node => {
 			if (rendered_ids.has(group_node.id)) {
@@ -2796,16 +2867,16 @@ const view = new class {
 				if (link.type === 'monitored_by') {
 					return '#6b46c1';
 				}
-				if (link.type === 'group_link') {
+				if (link.type === 'group_link' || link.type === 'junction_link') {
 					return '#64748b';
 				}
 				if (link.type === 'device_link') {
 					return link.discovered_via === 'manual' ? '#334155' : '#64748b';
 				}
-				return ['physical_link', 'lag_bundle'].includes(link.type) && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
+				return ['physical_link', 'lag_bundle', 'junction_member'].includes(link.type) && link.severity !== null && link.severity !== undefined ? this.cssColor(link.color) : '#64748b';
 			},
 			width: link => {
-				const severe = ['physical_link', 'lag_bundle'].includes(link.type) && link.severity !== null && link.severity !== undefined;
+				const severe = ['physical_link', 'lag_bundle', 'junction_member'].includes(link.type) && link.severity !== null && link.severity !== undefined;
 				return link.type === 'device_link' ? 3 : (severe ? 4 : 2);
 			}
 		};
@@ -2828,10 +2899,10 @@ const view = new class {
 				if (link.type === 'device_link') {
 					return '1 4';
 				}
-				return (['physical_link', 'lag_bundle'].includes(link.type) && link.discovered_via === 'manual') ? '5 3' : null;
+				return (['physical_link', 'lag_bundle', 'junction_member'].includes(link.type) && link.discovered_via === 'manual') ? '5 3' : null;
 			})
 			// staleness (§12.3): a third independent channel; never collapse it into the dash pattern or the colour
-			.style('opacity', link => (['physical_link', 'lag_bundle', 'device_link'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
+			.style('opacity', link => (['physical_link', 'lag_bundle', 'device_link', 'junction_member'].includes(link.type) && (link.stale || link.superseded_at)) ? 0.45 : 1);
 		const link_tooltip = link => {
 			if (link.type === 'lag_bundle') {
 				// 2.73: "LAG <name> ×<N>: <A> ↔ <B>", then a line per member: its two ports, its status and the load of side A (§4.8); the link panel has both sides
@@ -2939,14 +3010,18 @@ const view = new class {
 				return;
 			}
 			const group_node = link.type === 'group_link' ? (link.source.type === 'group' ? link.source : link.target) : null;
+			const junction_node = ['junction_link', 'junction_member'].includes(link.type) ? (link.source.type === 'junction' ? link.source : link.target) : null;
 			line_entries.push({
 				link,
 				d: () => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d,
 				glow: () => glows.nodes()[i],
-				tooltip: () => group_node ? describeSubject(group_node) : link_tooltip(link),
+				tooltip: () => group_node ? describeSubject(group_node) : (junction_node ? describeSubject(junction_node) : link_tooltip(link)),
 				open: () => {
 					this.panel_from = null;
-					if (group_node) {
+					if (junction_node) {
+						this.showJunction(junction_node);
+					}
+					else if (group_node) {
 						this.showGroup(group_node);
 					}
 					else if (link.type === 'lag_bundle') {
@@ -3016,7 +3091,7 @@ const view = new class {
 			}
 			return subject.type === 'proxy' ? '#ffffff' : '#f3f4f6';
 		};
-		const stroke_for = subject => subject.type === 'device' || subject.type === 'group' ? '#697386' : '#1f2937';
+		const stroke_for = subject => subject.type === 'device' || subject.type === 'group' || subject.type === 'junction' ? '#697386' : '#1f2937';
 		const icon_stroke_for = subject => {
 			if (subject.type === 'host' && !subject.disabled && subject.severity !== null && subject.severity !== undefined) {
 				return this.readableTextOn(this.cssColor(subject.color));
@@ -3085,7 +3160,7 @@ const view = new class {
 		// the shape: no text inside it (§12.2 "Label placement")
 		node_selection.append('rect').attr('class', 'topology-shape')
 			.attr('x', node => -node.shape_w / 2).attr('y', node => -node.shape_h / 2).attr('width', node => node.shape_w).attr('height', node => node.shape_h)
-			.attr('rx', node => node.size === 'small' ? 3 : 5)
+			.attr('rx', node => node.type === 'junction' ? node.shape_w / 2 : (node.size === 'small' ? 3 : 5))
 			.style('fill', fill_for)
 			.style('stroke', stroke_for)
 			.style('stroke-width', node => (node.type === 'proxy' && node.unreachable) ? 3 : 2)
@@ -3097,6 +3172,10 @@ const view = new class {
 					return;
 				}
 				this.panel_from = null;
+				if (node.type === 'junction') {
+					this.showJunction(node);
+					return;
+				}
 				if (node.type === 'group') {
 					this.unfoldGroup(node.parent);
 					this.showGroup(node);
@@ -3161,6 +3240,9 @@ const view = new class {
 
 		const describeSubject = subject => {
 			const full = subject.label ?? subject.name;
+			if (subject.type === 'junction') {
+				return this.junctionTitle(subject);
+			}
 			if (subject.type === 'group') {
 				// the tooltip counts the Devices of the group by class (§12.8): "9 access points, 6 stations"
 				const counts = TopologyGraph.classCounts(subject.devices.map(id => this.nodes.get(String(id))).filter(Boolean));
@@ -3245,7 +3327,7 @@ const view = new class {
 		if (!selection) {
 			return null;
 		}
-		if (selection.kind === 'node' || selection.kind === 'group') {
+		if (selection.kind === 'node' || selection.kind === 'group' || selection.kind === 'junction') {
 			let node = (this.drawn_nodes ?? []).find(candidate => String(candidate.id) === selection.id);
 			if (!node && selection.kind === 'group') {
 				node = (this.drawn_nodes ?? []).find(candidate => String(candidate.id) === selection.parent);

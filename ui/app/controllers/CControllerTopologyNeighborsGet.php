@@ -8,5 +8,5 @@ class CControllerTopologyNeighborsGet extends CController {
 	}	    
 	protected function checkInput(): bool { return $this->validateJsonInput(['id' => 'required|id']); }
 	protected function checkPermissions(): bool { return !CWebUser::isGuest(); }
-	protected function doAction() { $this->setResponse(new CControllerResponseData(['main_block' => json_encode(['neighbors' => CTopologyPrototype::getNeighbors($this->getInput('id'))])])); }
+	protected function doAction() { $this->setResponse(new CControllerResponseData(['main_block' => json_encode(['neighbors' => CTopologyPrototype::getNeighbors($this->getInput('id')), 'junctions' => CTopologyPrototype::getJunctions([$this->getInput('id')])])])); }
 }

@@ -80,4 +80,11 @@ check(count($g) === 1 && $g[0]['devices'] === ['11', '12', '13', '14'], 'a leaf 
 $g = CTopologyLeafGroups::compute($devices, $relations, $totals, [], false, ['11', '12', '13']);
 check($g === [], 'with 3 visible leaves there is no group');
 
+echo "\n=== a Device in a Junction projection (§12.6, 104) is in no group ===\n";
+[$devices, $relations, $totals] = view(5);
+$g = CTopologyLeafGroups::compute($devices, $relations, $totals, [], false, null, ['12']);       // 12 is behind a Junction: 4 leaves are left, it is no leaf of a group
+check(count($g) === 1 && $g[0]['devices'] === ['11', '13', '14', '15'], 'a leaf that is in a Junction projection is left out of the group', $g);
+$g = CTopologyLeafGroups::compute($devices, $relations, $totals, [], false, null, ['12', '13']);
+check($g === [], 'with two of five leaves in a projection there are 3 left: no group');
+
 echo "\nAll leaf group checks passed.\n";

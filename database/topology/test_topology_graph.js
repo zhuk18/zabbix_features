@@ -33,6 +33,15 @@ ok(G.cutMiddle('SW19-09-POE-6000-24G', 90, 12).includes('…'), 'the cut follows
 ok(G.sizeOf({type: 'host'}, 1) === 'large' && G.sizeOf({type: 'proxy'}, 0) === 'large', 'Host and Proxy: large');
 ok(G.sizeOf({type: 'device'}, 2) === 'large' && G.sizeOf({type: 'device'}, 1) === 'small' && G.sizeOf({type: 'device'}, 0) === 'small', 'Device: large with two or more links, else small');
 ok(G.sizeOf({type: 'group'}, 1) === 'small', 'a leaf group node: small');
+{
+	// a Junction projection (§12.6, task 104): small, a circle of 14 px on the anchor Port, labelled with the name of the Port
+	const junction = {type: 'junction', name: '16', label: '16'};
+	ok(G.sizeOf(junction, 3) === 'small', 'a Junction node: small whatever its number of lines');
+	G.layoutNode(junction, G.sizeOf(junction, 3));
+	ok(junction.shape_w === 14 && junction.shape_h === 14 && junction.label_text === '16' && junction.box.w >= 14 && junction.box.h > 14, 'a Junction node: a 14 px circle with the label of its Port under it', junction);
+	ok(G.isDrawn(junction, {has_link: false}) === true, 'a Junction node is always drawn (it exists only with its Devices)');
+	ok(G.iconOf(junction) === null, 'a Junction node has no icon');
+}
 const big = G.layoutNode({label: 'SW12'}, 'large');
 const small = G.layoutNode({label: 'SW12'}, 'small');
 ok(big.shape_w > small.shape_w && big.font > small.font, 'two sizes: the small node has a smaller shape and font');

@@ -14,6 +14,7 @@
 
 	const MAX_LABEL_PX = 160;
 	const LABEL_GAP = 3;
+	const JUNCTION_SIZE = 14;
 	const SIZES = {
 		large: {w: 64, h: 34, font: 12},
 		small: {w: 26, h: 18, font: 10}
@@ -72,7 +73,7 @@
 
 	/** Large = Host, Proxy, or a Device without association with two or more links; small = a leaf, a Device without a link, a leaf group node (§12.2 "Size"). */
 	function sizeOf(node, link_count) {
-		if (node.type === 'group') {
+		if (node.type === 'group' || node.type === 'junction') {
 			return 'small';
 		}
 		if (node.type === 'host' || node.type === 'proxy') {
@@ -86,7 +87,8 @@
 	 * Sets node.size, node.shape_w, node.shape_h, node.font, node.label_text, node.box = {w, h, top, bottom} (top/bottom relative to y).
 	 */
 	function layoutNode(node, size, measure = approxMeasure) {
-		const s = SIZES[size];
+		// a Junction projection (§12.6): a small circle on the anchor Port; its label is the name of the Port
+		const s = node.type === 'junction' ? {...SIZES.small, w: JUNCTION_SIZE, h: JUNCTION_SIZE} : SIZES[size];
 		const label = node.label ?? node.name ?? '?';
 		node.size = size;
 		node.shape_w = s.w;

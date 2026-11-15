@@ -781,6 +781,13 @@ class CTopologyPrototype {
 			$node_ids = self::duplicatesScope($node_ids);
 		}
 
+		// §12.6 (task 104): the Junction projections of the Ports of the view; the Devices behind a projection are in the view with it (they have no link of their own). The filter
+		// "Possible duplicates only" draws no projection.
+		$junctions = $duplicates ? [] : self::getJunctions($node_ids);
+		if ($node_ids !== null && $junctions) {
+			$node_ids = array_values(array_unique(array_merge($node_ids, ...array_map(static fn (array $junction): array => array_column($junction['devices'], 'id'), $junctions))));
+		}
+
 		$devices = self::getDevices($node_ids);
 		$relations = self::getRelations($node_ids);
 		$contradictions = self::getContradictions();
@@ -799,7 +806,9 @@ class CTopologyPrototype {
 			'relations' => $relations,
 			// §12.8 (2.70, FR-C V-22): the leaves that the graph draws as one group node of their node; a UI projection, nothing is stored. Access: the Devices without association are
 			// not filtered by access yet (access spec §3.4 is not implemented), so every leaf counts.
-			'leaf_groups' => CTopologyLeafGroups::compute($devices, $relations, self::getTopologyLinkCounts(), $badge_device_ids, $duplicates),
+			'leaf_groups' => CTopologyLeafGroups::compute($devices, $relations, self::getTopologyLinkCounts(), $badge_device_ids, $duplicates, null, self::junctionDeviceIds($junctions)),
+			// §12.6: one projection per anchor Port (a UI projection, nothing is stored)
+			'junctions' => $junctions,
 			// Manual links hidden-behind by discovery (topology-1-model.md "Contradiction"): badges, ghost links
 			// and details. Strings inside come from the network and are escaped where they are rendered.
 			'contradictions' => $contradictions
@@ -905,6 +914,139 @@ class CTopologyPrototype {
 		return CTopologyHopScope::neighborhood($seed_ids, $hops ?? PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs());
 	}
 
+
+	/**
+	 * The Junction projections (topology-1-model.md §12.6, task 104): computed on read from the observations of the latest snapshots, never stored (the rule: CTopologyJunction).
+	 *
+	 * @param array|null $reporter_ids  the Devices whose Ports anchor the projections; null = every Device
+	 *
+	 * @return array  list of ['port_id', 'port_name', 'device_id' (the reporter), 'devices' => [['id', 'name']], 'links' => [Device id => the ids of the links on the anchor Port to it]]
+	 */
+	/** The Device ids of the members of the projections: they are not leaves (§12.8). */
+	private static function junctionDeviceIds(array $junctions): array {
+		$ids = [];
+		foreach ($junctions as $junction) {
+			foreach ($junction['devices'] as $device) {
+				$ids[(string) $device['id']] = true;
+			}
+		}
+
+		return array_keys($ids);
+	}
+
+	public static function getJunctions(?array $reporter_ids = null): array {
+		if ($reporter_ids !== null && !$reporter_ids) {
+			return [];
+		}
+		// the Ports with rows of one rule that resolve to two or more Devices: one grouped query, then the rows of those Ports only
+		$candidates = DBselect(
+			'SELECT o.itemid,o.local_port_id FROM topo_observations o'.
+			' WHERE o.device_id IS NOT NULL AND o.local_port_id IS NOT NULL AND '.dbConditionString('o.outcome', ['old_snapshot', 'port_limit'], true).
+			' GROUP BY o.itemid,o.local_port_id HAVING COUNT(DISTINCT o.device_id)>1'
+		);
+		$port_ids = [];
+		while ($row = DBfetch($candidates, false)) {
+			$port_ids[(string) $row['local_port_id']] = true;
+		}
+		if (!$port_ids) {
+			return [];
+		}
+		$port_ids = array_keys($port_ids);
+		$reporters = [];
+		$cursor = DBselect('SELECT id,device_id FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND '.dbConditionId('id', $port_ids));
+		while ($row = DBfetch($cursor, false)) {
+			$reporters[(string) $row['id']] = (string) $row['device_id'];
+		}
+		if ($reporter_ids !== null) {
+			$wanted = array_flip(array_map('strval', $reporter_ids));
+			$reporters = array_filter($reporters, static fn (string $device_id): bool => isset($wanted[$device_id]));
+			$port_ids = array_keys($reporters);
+			if (!$port_ids) {
+				return [];
+			}
+		}
+
+		$rows = DBfetchArray(DBselect(
+			'SELECT o.itemid,o.local_port_id AS port_id,o.device_id FROM topo_observations o'.
+			' WHERE o.device_id IS NOT NULL AND '.dbConditionId('o.local_port_id', $port_ids).' AND '.dbConditionString('o.outcome', ['old_snapshot', 'port_limit'], true)
+		));
+		// an active manual link on the Port suppresses the projection (§12.6); a superseded one does not
+		$suppressed = [];
+		$links_on_port = [];
+		$cursor = DBselect('SELECT id,src_id,dst_id,attrs FROM topo_edges WHERE type='.zbx_dbstr('physical_link').
+			' AND ('.dbConditionId('src_id', $port_ids).' OR '.dbConditionId('dst_id', $port_ids).')');
+		while ($row = DBfetch($cursor, false)) {
+			$attrs = self::attrs($row);
+			$active = self::supersededAt($attrs) === null;
+			foreach ([(string) $row['src_id'], (string) $row['dst_id']] as $end) {
+				if (isset($reporters[$end])) {
+					if ($active && ($attrs['discovered_via'] ?? null) === 'manual') {
+						$suppressed[$end] = true;
+					}
+					$links_on_port[$end][] = ['id' => (string) $row['id'], 'far' => (string) ($end === (string) $row['src_id'] ? $row['dst_id'] : $row['src_id'])];
+				}
+			}
+		}
+
+		// access (§12.6): the Devices the user can see; a Device without association is visible, a Device of a Host is visible with its Host (access spec §3.4 is not implemented for the rest)
+		$device_ids = array_unique(array_column($rows, 'device_id'));
+		$visible_hostids = self::getVisibleHostIds();
+		$represented = self::getRepresentedIds($device_ids);
+		$visible_represented = self::getRepresentingHostIds($device_ids, $visible_hostids);
+		$visible = [];
+		foreach ($device_ids as $id) {
+			if (!isset($represented[$id]) || isset($visible_represented[$id])) {
+				$visible[(string) $id] = true;
+			}
+		}
+
+		$projections = CTopologyJunction::project($rows, $suppressed, $visible, $reporters);
+		if (!$projections) {
+			return [];
+		}
+		$names = [];
+		$wanted_names = array_unique(array_merge(array_values($reporters), ...array_column($projections, 'device_ids')));
+		$cursor = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $wanted_names));
+		while ($row = DBfetch($cursor, false)) {
+			$attrs = self::attrs($row);
+			$names[(string) $row['id']] = self::nodeLabel('device', null, $attrs['sysname'] ?? null, $attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null);
+		}
+		$port_names = [];
+		foreach (self::getPortDetails(array_column($projections, 'port_id')) as $id => $details) {
+			$port_names[(string) $id] = $details['name'] ?? null;
+		}
+		$far_device = [];
+		$far_ports = [];
+		foreach ($projections as $projection) {
+			$far_ports = array_merge($far_ports, array_column($links_on_port[$projection['port_id']] ?? [], 'far'));
+		}
+		$far_ports = array_unique($far_ports);
+		if ($far_ports) {
+			$cursor = DBselect('SELECT id,device_id FROM topo_nodes WHERE '.dbConditionId('id', $far_ports));
+			while ($row = DBfetch($cursor, false)) {
+				$far_device[(string) $row['id']] = (string) $row['device_id'];
+			}
+		}
+
+		$out = [];
+		foreach ($projections as $projection) {
+			$port = $projection['port_id'];
+			$links = [];
+			foreach ($links_on_port[$port] ?? [] as $link) {
+				$device = $far_device[$link['far']] ?? null;
+				if ($device !== null && in_array($device, $projection['device_ids'], true)) {
+					$links[$device][] = $link['id'];
+				}
+			}
+			$out[] = [
+				'port_id' => $port, 'port_name' => $port_names[$port] ?? null, 'device_id' => $reporters[$port], 'device_name' => $names[$reporters[$port]] ?? null,
+				'devices' => array_map(static fn (string $id): array => ['id' => $id, 'name' => $names[$id] ?? $id], $projection['device_ids']),
+				'links' => $links
+			];
+		}
+
+		return $out;
+	}
 
 	public static function getNeighbors(string $deviceid): array {
 		// No DISTINCT here (unlike before the severity field existed): a neighbor reached via more than one
