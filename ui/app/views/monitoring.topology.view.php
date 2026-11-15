@@ -50,6 +50,8 @@ $page_styles = '
 .topology-address{padding:6px 0;border-bottom:1px solid #e5e7eb}
 .topology-address-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .topology-address-value{font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;word-break:break-all}
+.topology-address-value.topology-class-value{word-break:normal;overflow-wrap:normal}
+.topology-nowrap{white-space:nowrap}
 .topology-address-count{font-size:11px;color:#55606b;cursor:pointer}
 .topology-address-source{font-size:11px;color:#55606b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;font-size:11.5px;margin-bottom:6px}

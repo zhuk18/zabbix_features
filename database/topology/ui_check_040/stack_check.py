@@ -262,6 +262,19 @@ try:
     host_panel('after an Unlink (the view is read again): the Host panel of SW13', 'SW13')
     check(db_count("select count(*) from topo_edges where json_unquote(json_extract(attrs, '$.discovered_via')) = 'manual'") == 0, 'no manual link is left in the database')
 
+    print('=== Identity: the list of bits wraps only after a comma (task 101 §5) ===')
+    found = None
+    for label in ('SW12', 'SW18', 'SW20', 'SW13', 'SW14'):
+        click_node(label)
+        js("Array.from(document.querySelectorAll('#topology-details details.topology-identity')).forEach(d => { d.open = true; })")
+        r = js("""(() => { const v = document.querySelector('#topology-details .topology-class-value'); if (!v) return null; const spans = Array.from(v.querySelectorAll('.topology-nowrap'));
+            return {text: v.textContent, spans: spans.length, broken: spans.filter(s => s.getClientRects().length > 1).map(s => s.textContent), lines: new Set(spans.map(s => Math.round(s.getBoundingClientRect().top))).size}; })()""")
+        if r and r['spans'] >= 2:
+            found = r
+            break
+    check(found is not None, 'a node with a list of two or more bits is on the stand', found)
+    if found:
+        check(found['broken'] == [], 'no bit is broken across two lines: the list wraps only after a comma (%s; %d line(s))' % (found['text'], found['lines']), found)
     print('=== The graph toolbar: the legend opens over the graph and closes again (task 101 §2) ===')
     LEG = "(() => { const l = document.getElementById('topology-legend'), c = document.getElementById('topology-canvas').getBoundingClientRect(); const b = l.getBoundingClientRect(); return {hidden: l.hidden, over_graph: !l.hidden && b.left >= c.left && b.top >= c.top && b.right <= c.right && b.bottom <= c.bottom + 1, pressed: document.getElementById('topology-legend-button').getAttribute('aria-pressed')}; })()"
     if not js("document.getElementById('topology-legend').hidden"):

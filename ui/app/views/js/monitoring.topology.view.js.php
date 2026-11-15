@@ -1531,8 +1531,12 @@ const view = new class {
 		// a manual Device: the class that the operator chose (§12.2, 2.80)
 		const class_text = device.manual ? `${this.classLabel(device.chosen_class)} (${<?= json_encode(_('chosen')) ?>})` : `${this.classLabel(name)}${bits !== '' ? ` (${bits})` : ''}`;
 		// Copy for the name and the hardware id; the class has none (§12.5, 2.77)
-		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname, true], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id, true], [<?= json_encode(_('Device class')) ?>, class_text, false]]
-			.filter(([, value]) => value).map(([label, value, can_copy]) => `<tr><th>${esc(label)}</th><td class="topology-address-value" title="${esc(value)}">${esc(value)}</td><td>${can_copy ? copy(value, label) : ''}</td></tr>`).join('');
+		// the list of bits wraps only after a comma (§12.5, 2.85): each bit with its comma is one unit that does not break
+		const class_bits = device.manual ? [] : (device.device_class_bits ?? []);
+		const class_html = device.manual || !class_bits.length ? esc(class_text)
+			: `${esc(this.classLabel(name))} (${class_bits.map((bit, i) => `<span class="topology-nowrap">${esc(bit)}${i < class_bits.length - 1 ? ',' : ''}</span>`).join(' ')})`;
+		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname, true], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id, true], [<?= json_encode(_('Device class')) ?>, class_text, false, class_html]]
+			.filter(([, value]) => value).map(([label, value, can_copy, html]) => `<tr><th>${esc(label)}</th><td class="topology-address-value${html ? ' topology-class-value' : ''}" title="${esc(value)}">${html ?? esc(value)}</td><td>${can_copy ? copy(value, label) : ''}</td></tr>`).join('');
 		// the Addresses are part of it: open for a Device without association, folded for a Host or a Proxy (§12.5)
 		const addresses_html = addresses ? this.buildAddressesFragment(addresses, node.type === 'device') : '';
 		return `<details class="topology-section topology-identity" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Identity')) ?>)}</summary>` +
