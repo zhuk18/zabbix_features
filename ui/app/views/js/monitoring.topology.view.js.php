@@ -2326,8 +2326,10 @@ const view = new class {
 		const G = TopologyGraph;
 		const element = this.canvas.node();
 		const bounds = element.getBoundingClientRect();
-		const view_width = bounds.width || 800;
-		const view_height = bounds.height || 500;
+		// §12.1 "Deterministic layout" (2.85): the size of the graph area is taken in whole pixels: it differs at the fourth decimal between two loads of the same window (the layout of the page settles in
+		// a different order), and the layout area, the start of the force and so the first layout followed it (task 101: two layouts in 1 of 5 loads at 1500 × 900)
+		const view_width = Math.round(bounds.width) || 800;
+		const view_height = Math.round(bounds.height) || 500;
 		const padding = 24;
 
 		// topology-1-model.md "UI" (graph): a Device with an active represented_by has no on-screen position of its own at all — only its Host/Proxy shows, styled exactly as any
@@ -2442,7 +2444,15 @@ const view = new class {
 				radius = G.placeRadial(nodes, simulation_links, focus_id, {x: width / 2, y: height / 2}, label_measure);
 			}
 			else {
-				nodes.forEach((node, index) => {
+				// §12.1 "Deterministic layout" (2.85): the same data and the same window give the same first layout: the start positions come from the nodes in the order of their id (a group node:
+				// after the numbers, by its text), and the simulation has a fixed seed and a fixed number of steps (a node of the list that came in another order does not change it)
+				const id_key = node => (/^\d+$/.test(String(node.id)) ? [0, Number(node.id), ''] : [1, 0, String(node.id)]);
+				const ordered = [...nodes].sort((a, b) => {
+					const x = id_key(a);
+					const y = id_key(b);
+					return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
+				});
+				ordered.forEach((node, index) => {
 					if (!Number.isFinite(node.x)) {
 						const angle = index * 2.399963;
 						const r = 18 * Math.sqrt(index + 1);
@@ -2450,12 +2460,20 @@ const view = new class {
 						node.y = height / 2 + Math.sin(angle) * r;
 					}
 				});
+				let seed = 20851;
+				const seeded = () => {
+					seed = (seed + 0x6D2B79F5) | 0;
+					let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+					t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
+					return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+				};
 				const force_links = simulation_links.map(link => ({source: node_by_id.get(link.source), target: node_by_id.get(link.target)}));
 				const collide = () => {
-					for (let i = 0; i < nodes.length; i++) {
-						for (let j = i + 1; j < nodes.length; j++) {
-							const a = nodes[i];
-							const b = nodes[j];
+					for (let i = 0; i < ordered.length; i++) {
+						for (let j = i + 1; j < ordered.length; j++) {
+							const a = ordered[i];
+							const b = ordered[j];
 							if (G.overlappingPairs([a, b], G.BOX_GAP).length) {
 								const dx = (a.x - b.x) || 0.01;
 								const dy = (a.y - b.y) || 0.01;
@@ -2468,7 +2486,7 @@ const view = new class {
 						}
 					}
 				};
-				const simulation = d3.forceSimulation(nodes)
+				const simulation = d3.forceSimulation(ordered).randomSource(seeded)
 					.force('link', d3.forceLink(force_links).distance(130).strength(0.6))
 					.force('charge', d3.forceManyBody().strength(-380))
 					.force('center', d3.forceCenter(width / 2, height / 2))
