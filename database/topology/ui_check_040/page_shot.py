@@ -171,7 +171,10 @@ CHECKS = {
             filter_one_row: (() => { const c = Array.from(document.querySelectorAll('.topology-filter-bar > *')).map(e => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; }); return c.length > 5 && Math.max(...c) - Math.min(...c) < 6; })(),
             removed_controls: ['topology-link-filter', 'topology-clean-all'].filter(id => document.getElementById(id)),
             panel_tables: panel.querySelectorAll('table').length,
-            workspace_bottom: Math.round(ws.bottom), below: Math.round((document.querySelector('footer') || {getBoundingClientRect: () => ({top: H})}).getBoundingClientRect().top), canvas_h: Math.round(canvas.height), panel_h: panel.clientHeight, panel_content_h: panel.scrollHeight};
+            workspace_bottom: Math.round(ws.bottom), below: Math.round((document.querySelector('footer') || {getBoundingClientRect: () => ({top: H})}).getBoundingClientRect().top), canvas_h: Math.round(canvas.height), toolbar_h: Math.round(document.getElementById('topology-toolbar').getBoundingClientRect().height), panel_h: panel.clientHeight,
+            // task 101 §2 (model §12.1 "Graph toolbar", 2.85): Fit, Create device and Legend are one row above the graph area; the graph area starts under it
+            toolbar: (() => { const t = document.getElementById('topology-toolbar').getBoundingClientRect(); const ids = ['topology-fit', 'topology-create-device', 'topology-legend-button']; const b = ids.map(id => document.getElementById(id).getBoundingClientRect());
+                return {buttons_in_row: Math.max(...b.map(x => x.top + x.height / 2)) - Math.min(...b.map(x => x.top + x.height / 2)) < 3, buttons_in_toolbar: b.every(x => x.top >= t.top - 1 && x.bottom <= t.bottom + 1), canvas_under: canvas.top >= t.bottom - 1, order: b[0].left < b[1].left && b[1].left < b[2].left}; })(), panel_content_h: panel.scrollHeight};
         // model §12.1 "Width" (2.38): the page keeps the Zabbix minimum width of main (1200 px). When the content area is narrower (for example a
         // 1280 px window with the menu open), the page scrolls horizontally like every Zabbix page: that is said, not a failure; the other checks are
         // made against the width of the page instead of the window.
@@ -194,7 +197,8 @@ CHECKS = {
         }
         r.ok = (d.scrollWidth <= W || r.zabbix_min_width_scroll) && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
             && r.filter_one_row && !r.removed_controls.length && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
-            && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && r.canvas_h === r.panel_h;
+            && r.workspace_bottom <= H && r.workspace_bottom >= Math.min(H, r.below) - 40 && Math.abs(r.canvas_h + r.toolbar_h - r.panel_h) <= 2
+            && Object.values(r.toolbar).every(Boolean);
         return r;
     })()''',
     # model §12.7 (task 076): the last run view (--action topology.lastrun): the run summary, the list "Needs attention", the filter and the observation list are there;

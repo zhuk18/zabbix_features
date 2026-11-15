@@ -11,7 +11,7 @@ class CControllerTopologyView extends CController {
 	// release 1 (model §12.7): the page is for Super admin; anyone else gets the standard "no permissions" page
 	protected function checkPermissions(): bool { return CWebUser::getType() == USER_TYPE_SUPER_ADMIN; }
 	protected function doAction() {
-		$response = new CControllerResponseData(['legend_collapsed' => (int) CProfile::get(self::PROFILE_LEGEND_COLLAPSED, 0)]);
+		$response = new CControllerResponseData(['legend_collapsed' => (int) CProfile::get(self::PROFILE_LEGEND_COLLAPSED, 1)]);
 		$response->setTitle(_('Topology prototype'));
 		$this->setResponse($response);
 	}
