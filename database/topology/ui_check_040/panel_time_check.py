@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""task 102 §2 (model §11 `topology.ports.get`, 2.87): the time budget of the node panel: the panel of SW12 (58 ports, 11 links) is complete within 300 ms on the quiet VM. Five clicks on the node
+"""task 102 §2 (model §11 `topology.ports.get`, 2.87): the time budget of the node panel: the panel of SW12 (58 ports, 11 links) is complete within 200 ms on the quiet VM (model §11, 2.88; 300 ms in 2.87). Five clicks on the node
 in the graph (each after a click on SW13, so that the panel really changes), measured in the page from the click to the moment the panel of that node is registered (its last section is drawn);
-the median is checked. On a loaded VM (the 1-minute load average of the VM is 8 or more) the numbers are printed as a note and do not fail the check. Needs ZBX_UI_USER, ZBX_UI_PASSWORD,
+the median is checked. On a loaded VM (the 1-minute load average of the VM is 4 or more; the stand and the server alone give 2 to 3.5) the numbers are printed as a note and do not fail the check. Needs ZBX_UI_USER, ZBX_UI_PASSWORD,
 google-chrome and the office stand data. Exit code 1 when a check fails.
 """
 import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.request
@@ -66,12 +66,12 @@ def select(js, label, kind=None):
 
 
 
-BUDGET_MS = 300
+BUDGET_MS = 200
 chrome, ws, js = session()
 try:
     time.sleep(2)
     load1 = float(open('/proc/loadavg').read().split()[0])
-    quiet = load1 < 8
+    quiet = load1 < 4
 
     def click_and_time(label):
         return js("""(async label => {
@@ -84,7 +84,9 @@ try:
             return performance.now() - t0;
         })(%s)""" % json.dumps(label))
 
+    # one click on each, not timed (the first requests of the page and of the PHP workers are slower than the ones after them)
     click_and_time('SW13')
+    click_and_time('SW12')
     times = []
     for _ in range(5):
         click_and_time('SW13')

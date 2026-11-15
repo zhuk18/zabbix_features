@@ -10,6 +10,7 @@ import page_shot as P
 ap = argparse.ArgumentParser()
 ap.add_argument('--calls', type=int, default=10)
 ap.add_argument('--device-like', action='append', default=None)
+ap.add_argument('--action', default='topology.ports.get', help='topology.ports.get or topology.neighbors.get')
 a = ap.parse_args()
 if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     print('ZBX_UI_USER and ZBX_UI_PASSWORD are needed')
@@ -24,9 +25,9 @@ for like in a.device_like or ['SW12%', 'FortiAP%']:
     times = []
     size = 0
     for _ in range(a.calls):
-        request = urllib.request.Request(P.BASE + 'zabbix.php?action=topology.ports.get&id=%s' % row[0], headers={'Cookie': '%s=%s' % (cookie.name, cookie.value)})
+        request = urllib.request.Request(P.BASE + 'zabbix.php?action=%s&id=%s' % (a.action, row[0]), headers={'Cookie': '%s=%s' % (cookie.name, cookie.value)})
         start = time.perf_counter()
         body = urllib.request.urlopen(request).read()
         times.append((time.perf_counter() - start) * 1000)
         size = len(body)
-    print('%s (device %s): %d calls, median %.0f ms, largest %.0f ms, smallest %.0f ms, answer %d bytes' % (row[1], row[0], len(times), statistics.median(times), max(times), min(times), size))
+    print('%s %s (device %s): %d calls, median %.0f ms, largest %.0f ms, smallest %.0f ms, answer %d bytes' % (a.action, row[1], row[0], len(times), statistics.median(times), max(times), min(times), size))

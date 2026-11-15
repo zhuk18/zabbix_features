@@ -1068,12 +1068,10 @@ class CTopologyPrototype {
 				$port_details[$ends['remote']]['zabbix_itemids'] ?? []);
 		}
 		$link_severity = self::getMaxActiveSeverityByItemIds($link_itemids);
-		// Load of each side (§4.8): one item lookup for the ports of every shown link
+		// Load of the far side of each shown link (§4.8, 2.88): one read for the far ports; the near side is in `ports.get` (the page puts the two together)
 		$port_itemids = [];
 		foreach ($link_ports as $ends) {
-			foreach ([$ends['local'], $ends['remote']] as $port_id) {
-				$port_itemids[$port_id] = $port_details[$port_id]['zabbix_itemids'] ?? [];
-			}
+			$port_itemids[$ends['remote']] = $port_details[$ends['remote']]['zabbix_itemids'] ?? [];
 		}
 		$port_loads = self::getPortLoads($port_itemids);
 
@@ -1092,7 +1090,7 @@ class CTopologyPrototype {
 			$link_attrs = $link['attrs'];
 			$neighbor['edge_id'] = $link['edge_id'];
 			$neighbor = array_merge($neighbor, self::describeSeverity($link_severity[$id] ?? null));
-			$neighbor['load'] = ['local' => $port_loads[$link_ports[$id]['local']] ?? null, 'remote' => $port_loads[$link_ports[$id]['remote']] ?? null];
+			$neighbor['load'] = ['remote' => $port_loads[$link_ports[$id]['remote']] ?? null];
 			$neighbor['last_seen'] = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
 				: $neighbor['last_seen'];
@@ -3542,9 +3540,15 @@ class CTopologyPrototype {
 			return [];
 		}
 
+		// 2.88 (§4.8): the items as the user may read them (without the last values), then the last value of all of them in one query per history table (CTopologyLoad); `item.get` with `lastvalue` read
+		// the last two values of each item, one query for each item, in the whole HISTORY_PERIOD
 		$items = [];
-		foreach (API::Item()->get(['output' => ['itemid', 'key_', 'lastvalue', 'lastclock'], 'itemids' => $all]) as $item) {
+		foreach (API::Item()->get(['output' => ['itemid', 'hostid', 'key_', 'value_type', 'type', 'delay', 'master_itemid'], 'itemids' => $all]) as $item) {
 			$items[$item['itemid']] = $item;
+		}
+		foreach (CTopologyLoad::lastValues($items) as $itemid => $last) {
+			$items[$itemid]['lastvalue'] = $last['value'];
+			$items[$itemid]['lastclock'] = $last['clock'];
 		}
 
 		$result = [];
@@ -3558,7 +3562,7 @@ class CTopologyPrototype {
 				foreach (['in' => 'net.if.in[', 'out' => 'net.if.out[', 'speed' => 'net.if.speed['] as $name => $prefix) {
 					if (str_starts_with($item['key_'], $prefix)) {
 						$load['items'][$name] = $item['itemid'];
-						if ((int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
+						if (isset($item['lastclock'], $item['lastvalue']) && (int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
 							$load[$name] = (float) $item['lastvalue'];
 						}
 					}

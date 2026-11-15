@@ -544,4 +544,24 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(G.joinParts(['lan0 ↔ 1/1/3', null, 'manual', undefined]) === 'lan0 ↔ 1/1/3 · manual', 'joinParts: a part with no value is left out with its separator ("lan0 ↔ 1/1/3 · manual")');
 	ok(G.joinParts(['a', 'b', 'c']) === 'a · b · c' && G.joinParts([null, '', null]) === '' && G.joinParts(['x', ''], '|') === 'x', 'joinParts: all parts, none, and another separator');
 }
+// ---- task 103 §2: the near side of the load comes from ports.get, the far side from neighbors.get (§4.8, 2.88) ----
+{
+	const words = {in: 'in', out: 'out', of: 'of', status: {up: 'Up', down: 'DOWN', disabled: 'Disabled'}, speed: bps => (bps >= 1e9 ? bps / 1e9 + ' Gbps' : bps / 1e6 + ' Mbps')};
+	const near = {in: 2e6, out: 5e5, speed: 1e9, percent: 0.2};
+	const far = {in: 0, out: 0, speed: 1e9, percent: 0};
+	// the link object of the page: the nodes are ids until the layout; the tooltip takes the two Devices as objects
+	const mk = extra => ({type: 'physical_link', source: 'A', target: 'B', edge_id: '7', source_port: '1/1/41', target_port: '1/1/21', source_status: 'up', target_status: 'up', source_text: 'LLDP',
+		source_load: null, target_load: far, marks: [], ...extra});
+	const links = [mk(), mk({edge_id: '8', source: 'C', target: 'A'}), {type: 'monitored_by', source: 'A', target: 'P'}];
+	G.applyNearLoads(links, [{edge_id: '7', load: near}, {edge_id: '8', load: far}, {edge_id: null}, {edge_id: '9', load: near}], 'A');
+	ok(links[0].source_load === near && links[0].target_load === far, 'applyNearLoads: the Device is the source: its port gives the source side, the far side stays');
+	ok(links[1].target_load === far && links[1].source_load === null, 'applyNearLoads: the Device is the target: its port gives the target side');
+	ok(links[2].source_load === undefined, 'applyNearLoads: a link that is not a physical link, and a port that is on no link, change nothing');
+	const text = link => G.linkTooltip({...link, source: {name: 'SW12'}, target: {name: 'SW15'}}, words);
+	const as_before = mk({source_load: near});      // the page when neighbors.get gave both sides
+	ok(text(links[0]) === text(as_before) && text(links[0]).includes('SW12: in 2 Mbps / out 0.5 Mbps of 1 Gbps (0.2 %)') && text(links[0]).includes('SW15: in 0 bps / out 0 bps of 1 Gbps (0 %)'),
+		'the tooltip of a link has both sides and is the same text as when neighbors.get gave both sides', text(links[0]));
+	G.applyNearLoads(links, [{edge_id: '7', load: null}], 'A');
+	ok(links[0].source_load === null, 'a port of a link with no load gives null (no load line for that side)');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');

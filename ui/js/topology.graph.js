@@ -1236,6 +1236,30 @@
 	}
 
 	/**
+	 * The near side of the load of the links of a Device (§4.8, 2.88): `neighbors.get` gives only the far side; the near side is on the ports of `ports.get` (a port of a link has `edge_id` and `load`).
+	 * Puts it into the link (its source side when the Device is the source of the link, else the target side), so that the tooltip and the panel of a link have both sides as before.
+	 */
+	function applyNearLoads(links, ports, node_id) {
+		const by_edge = new Map();
+		ports.forEach(port => {
+			if (port.edge_id !== null && port.edge_id !== undefined && Object.prototype.hasOwnProperty.call(port, 'load')) {
+				by_edge.set(String(port.edge_id), port.load ?? null);
+			}
+		});
+		links.forEach(link => {
+			if (link.type !== 'physical_link' || link.edge_id === null || link.edge_id === undefined || !by_edge.has(String(link.edge_id))) {
+				return;
+			}
+			if (String(link.source) === String(node_id)) {
+				link.source_load = by_edge.get(String(link.edge_id));
+			}
+			else if (String(link.target) === String(node_id)) {
+				link.target_load = by_edge.get(String(link.edge_id));
+			}
+		});
+	}
+
+	/**
 	 * Line 2 of a Links row (§12.5, 2.84): a part with no value (null, undefined or empty text) is left out together with its separator ("lan0 ↔ 1/1/3 · manual").
 	 */
 	function joinParts(parts, separator = ' · ') {
@@ -1286,5 +1310,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

@@ -57,6 +57,12 @@ $pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, 
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
 	' rows_valid INT NOT NULL DEFAULT 0)');
 
+// task 103 (model §4.8, 2.88): the load is read from the history tables in one query for all the items
+$pdo->exec('DROP TABLE IF EXISTS history');
+$pdo->exec('DROP TABLE IF EXISTS history_uint');
+$pdo->exec('CREATE TABLE history (itemid BIGINT UNSIGNED NOT NULL, clock INT NOT NULL DEFAULT 0, value DOUBLE NOT NULL DEFAULT 0, ns INT NOT NULL DEFAULT 0, PRIMARY KEY (itemid, clock, ns))');
+$pdo->exec('CREATE TABLE history_uint (itemid BIGINT UNSIGNED NOT NULL, clock INT NOT NULL DEFAULT 0, value BIGINT UNSIGNED NOT NULL DEFAULT 0, ns INT NOT NULL DEFAULT 0, PRIMARY KEY (itemid, clock, ns))');
+
 // ---- the Zabbix PHP layer against the test database ----
 $ui = realpath(__DIR__.'/../../../ui');
 chdir($ui);
@@ -127,9 +133,16 @@ class API {
 				API::$item_calls++;
 				API::$item_ids_asked[] = array_map('strval', $options['itemids']);
 				$out = [];
+				global $pdo;
 				foreach ($options['itemids'] as $id) {
 					if (isset(API::$items[$id])) {
-						$out[] = ['itemid' => (string) $id] + API::$items[$id];
+						$item = API::$items[$id];
+						// task 103: the last value of an item is read from the history tables (one query for all the items), so the stub writes the value that a test gives into them (the items of a test are of the
+						// type unsigned integer, polled every minute, unless the test says another)
+						if (isset($item['lastvalue']) && $pdo !== null) {
+							$pdo->prepare('REPLACE INTO history_uint (itemid, clock, ns, value) VALUES (?, ?, 0, ?)')->execute([$id, (int) ($item['lastclock'] ?? time()), (int) $item['lastvalue']]);
+						}
+						$out[] = ['itemid' => (string) $id] + $item + ['hostid' => '1', 'value_type' => '3', 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
 					}
 				}
 				return $out;
@@ -168,6 +181,7 @@ if ($backend->getError()) {
 	fail_test('cannot connect: '.$backend->getError());
 }
 $backend->init();
+CTopologyLoad::$history_period = 86400;      // the setting HISTORY_PERIOD (the test database has no config table)
 
 // ---- helpers ----
 
@@ -703,14 +717,26 @@ $pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JS
 $pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JSON_ARRAY(3000, 3001)) WHERE device_id = ".(int) $far['Switch A']." AND type = 'port'");
 API::$items[1102] = ['key_' => 'net.if.speed[ifSpeed.10]', 'lastvalue' => '1000000000', 'lastclock' => (string) $now];
 API::$item_calls = 0;
+API::$item_ids_asked = [];
 $n = CTopologyPrototype::getNeighbors((string) $R);
 $load = neighbor($n, $far['Switch A'])['load'];
 check(API::$item_calls === 1, 'four neighbors, ONE item lookup for the whole response');
-check($load['local']['in'] === 300000000.0 && $load['local']['out'] === 100000000.0 && $load['local']['speed'] === 1000000000.0 && $load['local']['percent'] === 30.0,
-	'load of the near side: in, out, speed and max(in, out) / speed in percent: '.json_encode($load['local']));
-check($load['local']['items']['in'] === '1000' && $load['local']['items']['out'] === '1100', 'the item ids of in and out ride along (the links to the graphs)');
+// task 103 (§4.8, 2.88): neighbors.get reads the far side only; the near side is in ports.get
+$asked = array_merge(...API::$item_ids_asked);
+check(!array_key_exists('local', $load) && !array_intersect(['1000', '1100', '1102'], $asked), 'neighbors.get reads the far side only: no near side in the load, the items of the near port are not read', [$load, $asked]);
 check($load['remote']['in'] === null && $load['remote']['speed'] === 1000000000.0 && $load['remote']['percent'] === null, 'a value older than 15 minutes is no load; no in/out, no percent: '.json_encode($load['remote']));
-check(neighbor($n, $far['Switch B'])['load'] === ['local' => null, 'remote' => null], 'a port without items has no load: '.json_encode(neighbor($n, $far['Switch B'])['load']));
+check(neighbor($n, $far['Switch B'])['load'] === ['remote' => null], 'a port without items has no load: '.json_encode(neighbor($n, $far['Switch B'])['load']));
+$near = null;
+foreach (CTopologyPrototype::getPorts((string) $R) as $ports) {
+	foreach ($ports as $port) {
+		if ((string) $port['id'] === (string) $near_ports['Switch A']) {
+			$near = $port['load'] ?? null;
+		}
+	}
+}
+check($near !== null && $near['in'] === 300000000.0 && $near['out'] === 100000000.0 && $near['speed'] === 1000000000.0 && $near['percent'] === 30.0,
+	'the near side is in ports.get: in, out, speed and max(in, out) / speed in percent: '.json_encode($near));
+check($near['items']['in'] === '1000' && $near['items']['out'] === '1100', 'the item ids of in and out ride along (the links to the graphs)');
 API::$items = [];
 
 // ============================================================================================================
@@ -774,6 +800,71 @@ check(!array_key_exists('load', $by_name['Gi0/3']), 'a port that has only a supe
 $asked = array_merge(...API::$item_ids_asked);
 sort($asked);
 check($asked === ['1001', '1002', '1003', '4001', '4002', '4003'], 'the items of the ports of links are the only ones that are read (item.get is not asked for the other ports)', $asked);
+
+// ============================================================================================================
+echo "\n=== task 103 (model §4.8, 2.88): the last values of the load in one query per history table ===\n";
+$now = time();
+$pdo->exec('DELETE FROM history');
+$pdo->exec('DELETE FROM history_uint');
+$ins = static function (PDO $pdo, string $table, int $itemid, int $clock, $value, int $ns = 0): void {
+	$pdo->prepare("INSERT INTO {$table} (itemid, clock, ns, value) VALUES (?, ?, ?, ?)")->execute([$itemid, $clock, $ns, $value]);
+};
+// item 7001: float, two values in the window (the last one counts); 7002: unsigned, one value; 7003: unsigned, its only value is older than the window (3 x 1m); 7004: unsigned, two values of one second (ns decides)
+$ins($pdo, 'history', 7001, $now - 100, 1.5);
+$ins($pdo, 'history', 7001, $now - 20, 2.5);
+$ins($pdo, 'history_uint', 7002, $now - 30, 42);
+$ins($pdo, 'history_uint', 7003, $now - 600, 99);
+$ins($pdo, 'history_uint', 7004, $now - 10, 5, 100);
+$ins($pdo, 'history_uint', 7004, $now - 10, 6, 900);
+$item = static fn (int $id, int $type, array $extra = []): array => $extra + ['itemid' => (string) $id, 'hostid' => '1', 'value_type' => (string) $type, 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
+$before = (int) ($DB['SELECT_COUNT'] ?? 0);
+$last = CTopologyLoad::lastValues([$item(7001, ITEM_VALUE_TYPE_FLOAT), $item(7002, ITEM_VALUE_TYPE_UINT64), $item(7003, ITEM_VALUE_TYPE_UINT64), $item(7004, ITEM_VALUE_TYPE_UINT64), $item(7005, ITEM_VALUE_TYPE_UINT64)], $now);
+$queries = (int) ($DB['SELECT_COUNT'] ?? 0) - $before;
+check(isset($last['7001']) && $last['7001']['value'] === '2.5' && $last['7001']['clock'] === $now - 20, 'a float item: the last value of its two (history)', $last['7001'] ?? null);
+check(isset($last['7002']) && $last['7002']['value'] === '42', 'an unsigned item: its value (history_uint)');
+check(!isset($last['7003']), 'an item whose only value is older than the window (three times its 1m interval) has no entry');
+check(isset($last['7004']) && $last['7004']['value'] === '6', 'two values of one second: the one with the larger ns');
+check(!isset($last['7005']), 'an item with no value at all has no entry');
+check($queries === 2, 'one query per history table for all the items: 2 queries for 5 items in two tables', $queries);
+check(CTopologyLoad::lastValues([]) === [], 'no item: no query, no value');
+// the window: three times the longest interval, at most HISTORY_PERIOD; a flexible interval counts; an interval that can not be known takes the whole period
+check(CTopologyLoad::window([$item(1, ITEM_VALUE_TYPE_UINT64, ['delay' => '1m']), $item(2, ITEM_VALUE_TYPE_UINT64, ['delay' => '5m'])]) === 900, 'the window: three times the longest interval (5m: 900 s)');
+check(CTopologyLoad::window([$item(1, ITEM_VALUE_TYPE_UINT64, ['delay' => '1m;10m/1-7,00:00-24:00'])]) === 1800, 'a flexible interval counts (10m: 1800 s)');
+check(CTopologyLoad::window([$item(1, ITEM_VALUE_TYPE_UINT64, ['delay' => '1d'])]) === 86400, 'the window is at most HISTORY_PERIOD (24h)');
+check(CTopologyLoad::window([$item(1, ITEM_VALUE_TYPE_UINT64, ['type' => (string) ITEM_TYPE_TRAPPER, 'delay' => '0'])]) === 86400, 'an item with no known interval (a trapper) takes the whole HISTORY_PERIOD');
+// through the port table: an item that the user may not read (item.get does not give it) and an item with no value in the window give no load
+reset_topology($pdo);
+$Dr = device($pdo, 'Dev R');
+$Ds = device($pdo, 'Dev S');
+$p1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7101, 7102, 7103]], $Dr);
+$p2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7201, 7202]], $Dr);
+$p3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7301, 7302, 7303]], $Dr);
+$q1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
+$q2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
+$q3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
+foreach ([[$p1, $q1], [$p2, $q2], [$p3, $q3]] as [$x, $y]) {
+	edge($pdo, 'physical_link', $x, $y, ['discovered_via' => 'lldp', 'last_seen' => time()]);
+}
+API::$items = [];
+// Gi0/1: three items in two tables with a value; Gi0/2: the items are not readable by the user (item.get does not give them); Gi0/3: items with no value in the window
+foreach ([7101 => ['net.if.in[ifHCInOctets.1]', 1000], 7102 => ['net.if.out[ifHCOutOctets.1]', 2000], 7103 => ['net.if.speed[ifHighSpeed.1]', 10000]] as $itemid => [$key, $value]) {
+	API::$items[$itemid] = ['key_' => $key, 'lastvalue' => (string) $value, 'lastclock' => (string) $now];
+}
+foreach ([7301 => 'net.if.in[ifHCInOctets.3]', 7302 => 'net.if.out[ifHCOutOctets.3]', 7303 => 'net.if.speed[ifHighSpeed.3]'] as $itemid => $key) {
+	API::$items[$itemid] = ['key_' => $key];      // no last value: no row in the history tables
+}
+$pdo->exec('DELETE FROM history_uint WHERE itemid > 7100');
+$by_name = [];
+foreach (CTopologyPrototype::getPorts((string) $Dr) as $ports) {
+	foreach ($ports as $port) {
+		$by_name[$port['port']] = $port;
+	}
+}
+check($by_name['Gi0/1']['load'] !== null && $by_name['Gi0/1']['load']['in'] === 1000.0 && $by_name['Gi0/1']['load']['out'] === 2000.0 && $by_name['Gi0/1']['load']['speed'] === 10000.0,
+	'items with values: the load of the port', $by_name['Gi0/1']['load'] ?? null);
+check($by_name['Gi0/2']['load'] === null, 'items that the user may not read: no load');
+check($by_name['Gi0/3']['load'] !== null && $by_name['Gi0/3']['load']['in'] === null && $by_name['Gi0/3']['load']['out'] === null && $by_name['Gi0/3']['load']['percent'] === null,
+	'items with no value in the window: the items are known, no values, no percent', $by_name['Gi0/3']['load'] ?? null);
 
 // ============================================================================================================
 echo "\n=== step 12: the port table groups virtual ports apart (topology-1-model.md §6.6, §11) ===\n";

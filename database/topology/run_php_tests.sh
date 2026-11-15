@@ -239,7 +239,7 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)
 	page_test "page: deterministic first layout (10 + 10 loads)" /tmp/topo_t_determinism.log python3 "$here/ui_check_040/determinism_check.py"
 	# the time budget of the node panel: SW12 is complete within 300 ms on the quiet VM (a note on a loaded one) (102)
-	page_test "page: the panel of SW12 is complete within 300 ms (median of 5 clicks)" /tmp/topo_t_panel_time.log python3 "$here/ui_check_040/panel_time_check.py"
+	page_test "page: the panel of SW12 is complete within 200 ms (median of 5 clicks)" /tmp/topo_t_panel_time.log python3 "$here/ui_check_040/panel_time_check.py"
 	# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
 	page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
 	page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png

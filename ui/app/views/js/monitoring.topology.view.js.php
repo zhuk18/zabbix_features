@@ -813,6 +813,10 @@ const view = new class {
 			device ? this.request(`topology.addresses.get&id=${id(device.id)}`) : null,
 			device ? this.mergeNeighbors(device) : null
 		]);
+		// the near side of the load of the links comes from ports.get, the far side from neighbors.get (§4.8, 2.88)
+		if (device && groups) {
+			TopologyGraph.applyNearLoads(this.links, Object.values(groups).flat(), device.id);
+		}
 		if (device) {
 			this.render();
 		}
