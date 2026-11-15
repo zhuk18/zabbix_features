@@ -4,7 +4,7 @@ parent SW18 and on one unfolded leaf folds the group; the side panel then shows 
 changes nothing (it did nothing before the zoom was there, and `dblclick.zoom` is off). Needs ZBX_UI_USER, ZBX_UI_PASSWORD and google-chrome. Exit code 1 when a check fails.
     python3 dblclick_check.py [--width 1500 --height 900]
 """
-import argparse, json, os, subprocess, sys, tempfile, time, urllib.request
+import argparse, atexit, json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
@@ -18,6 +18,7 @@ if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     sys.exit(2)
 cookie = P.login()
 profile = tempfile.mkdtemp(prefix='dbl-')
+atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
 port = 9400 + os.getpid() % 500
 chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                            '--window-size=%d,%d' % (a.width, a.height), 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

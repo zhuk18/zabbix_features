@@ -3,7 +3,7 @@ The toggle: the panel of the parent SW18 and the group panel read "Unfold <N> de
 Back: SW18 group panel (unfolded) -> a Device of the list -> Back -> the group panel with the same list; SW12 (a bundle unfolded) -> SW18 (neighbor) -> Link details of a member -> Back -> SW18 -> Back -> SW12 with
 the bundle still unfolded; a click on a node (the graph) starts a new stack: no Back. Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome and the office stand data. Exit code 1 when a check fails.
 """
-import json, math, os, subprocess, sys, tempfile, time, urllib.request
+import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
@@ -22,6 +22,7 @@ def check(condition, text, detail=None):
 
 def session():
     profile = tempfile.mkdtemp(prefix='panel-')
+    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
     port = 9700 + os.getpid() % 200
     chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                                '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

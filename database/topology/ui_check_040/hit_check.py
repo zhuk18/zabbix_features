@@ -3,7 +3,7 @@
 lines meet, the line nearest to the pointer. Pairs SW12 - SW18 / SW20 / zbx-office-gw1 / zbx-office-gw2 (each is a LAG bundle after §2), then two parallel lines that §2 does not bundle: a manual link is made
 between SW12 and SW18 for the test (bundle + manual link), the pointer 5 px beside each of them and at a point between them 2 px nearer to one; the manual link is removed again.
 Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome and the office stand data. Exit code 1 when a check fails."""
-import json, math, os, re, subprocess, sys, tempfile, time, urllib.request
+import atexit, shutil, json, math, os, re, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
@@ -36,6 +36,7 @@ def check(condition, text, detail=None):
 
 def session(host_label='SW12-10-CORE-6000-48G'):
     profile = tempfile.mkdtemp(prefix='hit-')
+    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
     port = 9600 + os.getpid() % 300
     chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                                '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

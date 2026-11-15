@@ -4,7 +4,7 @@ dashed: manual); wan0 renamed wan1; lan0 can not be deleted while linked (the se
 database. Screenshots when SHOTS_DIR is set: 099-create-dialog.png, 099-manual-device-linked.png. Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome, the office stand data and the database login of
 the harness (`mysql -uzabbix zabbix`). Exit code 1 when a check fails.
 """
-import json, math, os, subprocess, sys, tempfile, time, urllib.request
+import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
@@ -23,6 +23,7 @@ def check(condition, text, detail=None):
 
 def session():
     profile = tempfile.mkdtemp(prefix='panel-')
+    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
     port = 9700 + os.getpid() % 200
     chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                                '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

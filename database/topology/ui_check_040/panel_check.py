@@ -7,7 +7,7 @@ the standard Zabbix host menu; Focus sets the filter; a hover on a row highlight
 A FortiAP Device without association: Identity (Addresses open), Links, Ports. A Proxy with a Device: the stand has none, the order is covered by the node tests.
 Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome and the office stand data. Exit code 1 when a check fails.
 """
-import json, math, os, subprocess, sys, tempfile, time, urllib.request
+import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
@@ -26,6 +26,7 @@ def check(condition, text, detail=None):
 
 def session():
     profile = tempfile.mkdtemp(prefix='panel-')
+    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
     port = 9700 + os.getpid() % 200
     chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                                '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
