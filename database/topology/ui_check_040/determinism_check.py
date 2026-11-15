@@ -116,6 +116,8 @@ def load(width, height, menu):
         return positions, result
     finally:
         chrome.kill()
+        chrome.wait(timeout=10)
+        time.sleep(2)      # the helper processes of Chrome write into the profile until they are gone
         shutil.rmtree(profile, ignore_errors=True)
 
 

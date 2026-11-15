@@ -23,7 +23,7 @@ def check(condition, text, detail=None):
 
 def session():
     profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
+    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
     port = 9700 + os.getpid() % 200
     chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                                '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

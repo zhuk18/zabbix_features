@@ -18,7 +18,7 @@ if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     sys.exit(2)
 cookie = P.login()
 profile = tempfile.mkdtemp(prefix='dbl-')
-atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
+atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
 port = 9400 + os.getpid() % 500
 chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
                            '--window-size=%d,%d' % (a.width, a.height), 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
