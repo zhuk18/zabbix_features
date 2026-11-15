@@ -1,0 +1,122 @@
+# Lab stand "office-demo" (lab spec 9 D1, task 104): the stand "office" plus the synthetic LLDP rows of two PCs and a printer on SW17 port 16 (tools/add_demo_rows.py).
+# The data is built by `python3 tools/add_demo_rows.py` from ../office/data. Same host names as the stand "office": the same Zabbix hosts. See README.md and DEMO.md.
+settings:
+  database: zabbix
+  db_socket: /run/mysqld/mysqld.sock   # mariadb binds only to the LAN address (99-heidisql-listen.cnf), not localhost
+  network: 192.0.2.0/24          # last octet = last octet of the captured address (192.168.17.N -> 192.0.2.N); AnyIP route, lab spec 6.1
+  snmp_port: 1611
+  community: zbxlab
+  zabbix:                        # as in lab.yaml
+    url: http://localhost/zabbix/ui/api_jsonrpc.php
+    group: Test
+    template_lld: Topology by SNMP
+    template_push: Topology by push
+    template_interfaces: Network Generic Device by SNMP
+devices:
+  SW12-10-CORE-6000-48G:
+    ip: 192.0.2.2
+    replay: data/SW12-10-CORE-6000-48G/zbxlab.snmprec   # from SW12-10-CORE-6000-48G CORE.walk, 192.168.17.2
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW13-10-ACC-6000-48G:
+    ip: 192.0.2.3
+    replay: data/SW13-10-ACC-6000-48G/zbxlab.snmprec   # from SW13-10-ACC-6000-48G.walk, 192.168.17.3
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW14-10-ACC-6000-48G:
+    ip: 192.0.2.4
+    replay: data/SW14-10-ACC-6000-48G/zbxlab.snmprec   # from SW14-10-ACC-6000-48G.walk, 192.168.17.4
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW15-10-POE-6000-24G:
+    ip: 192.0.2.5
+    replay: data/SW15-10-POE-6000-24G/zbxlab.snmprec   # from SW15-10-POE-6000-24G PoE.walk, 192.168.17.5
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW16-09-ACC-2530-48G:
+    ip: 192.0.2.6
+    replay: data/SW16-09-ACC-2530-48G/zbxlab.snmprec   # from SW16-09-ACC-2530-48G Access.walk, 192.168.17.6
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW17-09-ACC-2530-48G:
+    ip: 192.0.2.7
+    replay: data/SW17-09-ACC-2530-48G/zbxlab.snmprec   # from SW17-09-ACC-2530-48G Access.walk, 192.168.17.7
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW18-09-ACC-2530-48G:
+    ip: 192.0.2.8
+    replay: data/SW18-09-ACC-2530-48G/zbxlab.snmprec   # from SW18-09-ACC-2530-48G Access.walk, 192.168.17.8
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW19-09-POE-6000-24G:
+    ip: 192.0.2.9
+    replay: data/SW19-09-POE-6000-24G/zbxlab.snmprec   # from SW19-09-POE-6000-24G PoE.walk, 192.168.17.9
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW20-07-ACC-2530-48G:
+    ip: 192.0.2.10
+    replay: data/SW20-07-ACC-2530-48G/zbxlab.snmprec   # from SW20-07-ACC-2530-48G Access.walk, 192.168.17.10
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW21-07-ACC-2530-48G:
+    ip: 192.0.2.11
+    replay: data/SW21-07-ACC-2530-48G/zbxlab.snmprec   # from SW21-07-ACC-2530-48G Access.walk, 192.168.17.11
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW22-07-ACC-2530-48G:
+    ip: 192.0.2.12
+    replay: data/SW22-07-ACC-2530-48G/zbxlab.snmprec   # from SW22-07-ACC-2530-48G Access.walk, 192.168.17.12
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  SW23-07-POE-6000-24G:
+    ip: 192.0.2.13
+    replay: data/SW23-07-POE-6000-24G/zbxlab.snmprec   # from SW23-07-POE-6000-24G PoE.walk, 192.168.17.13
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  zbx-office-gw1:
+    ip: 192.0.2.251
+    replay: data/zbx-office-gw1/zbxlab.snmprec   # SYNTHETIC, tools/gen_gateways.py
+    zabbix: {monitored: true, transport: lld, proxy: null}
+  zbx-office-gw2:
+    ip: 192.0.2.252
+    replay: data/zbx-office-gw2/zbxlab.snmprec   # SYNTHETIC, tools/gen_gateways.py
+    zabbix: {monitored: true, transport: lld, proxy: null}
+cables: []                     # replay devices: neighbors come from the capture
+deviations:
+  - id: no-cdp-sw16
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW16-09-ACC-2530-48G
+    mib: cdp
+  - id: no-cdp-sw17
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW17-09-ACC-2530-48G
+    mib: cdp
+  - id: no-cdp-sw18
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW18-09-ACC-2530-48G
+    mib: cdp
+  - id: no-cdp-sw20
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW20-07-ACC-2530-48G
+    mib: cdp
+  - id: no-cdp-sw21
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW21-07-ACC-2530-48G
+    mib: cdp
+  - id: no-cdp-sw22
+    reason: "report F-1: the HP 2530 CDP table is a copy of LLDP; without it each Windows host on an HP port gets one link"
+    type: omit_mib
+    device: SW22-07-ACC-2530-48G
+    mib: cdp
+  - id: na-reboot-sw15-1-1-1
+    reason: "report F-7: NA device restarts with a new random (locally administered) chassis MAC; model §6.7.1 new Device, §8.4 supersede, §6.7.0 address key moves"
+    type: override_oid
+    device: SW15-10-POE-6000-24G
+    oid: lldpRemChassisId
+    row: 1/1/1
+    value_hex: "3a5c91e2074b"        # invented; old value 12bfb8b96af5
+  - id: link-down-sw12-42
+    reason: "D1 step 1: the link goes down; ifOperStatus = down(2) on the SW12 end (the template trigger needs a change of value, so the deviation is enabled at step 1, not in the base lab)"
+    type: override_oid
+    device: SW12-10-CORE-6000-48G
+    oid: 1.3.6.1.2.1.2.2.1.8.42          # ifOperStatus.42 = port 1/1/42, was up(1)
+    value: 2
+  - id: link-down-sw13-48
+    reason: "D1 step 1: the same link, the SW13 end (port 1/1/48, ifIndex 48)"
+    type: override_oid
+    device: SW13-10-ACC-6000-48G
+    oid: 1.3.6.1.2.1.2.2.1.8.48          # ifOperStatus.48 = port 1/1/48, was up(1)
+    value: 2

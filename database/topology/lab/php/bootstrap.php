@@ -57,11 +57,10 @@ class API {
 					return [];
 				}
 				$out = [];
-				foreach (DBselect('SELECT itemid,key_,value_type FROM items WHERE itemid IN ('.implode(',', $ids).')') as $item) {
-					// the last value as the value cache has it: the newest row of the history table of the item's value type (0 float, 3 unsigned)
-					$table = [0 => 'history', 3 => 'history_uint'][(int) $item['value_type']] ?? null;
-					$last = $table === null ? false : DBfetch(DBselect('SELECT clock,value FROM '.$table.' WHERE itemid='.(int) $item['itemid'].' ORDER BY clock DESC', 1), false);
-					$out[] = ['itemid' => (string) $item['itemid'], 'key_' => $item['key_'], 'lastvalue' => $last ? (string) $last['value'] : '', 'lastclock' => $last ? (string) $last['clock'] : '0'];
+				// task 103: the load is read by CTopologyLoad::lastValues(), which needs the fields of the item that decide its window (value type, type, delay, master item); the stub gives them from the table
+				foreach (DBselect('SELECT itemid,hostid,key_,value_type,type,delay,master_itemid FROM items WHERE itemid IN ('.implode(',', $ids).')') as $item) {
+					$out[] = ['itemid' => (string) $item['itemid'], 'hostid' => (string) $item['hostid'], 'key_' => $item['key_'], 'value_type' => (string) $item['value_type'], 'type' => (string) $item['type'],
+						'delay' => (string) $item['delay'], 'master_itemid' => (string) $item['master_itemid']];
 				}
 				return $out;
 			}

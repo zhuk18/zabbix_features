@@ -11,6 +11,7 @@ SYS_NAME = (1, 3, 6, 1, 2, 1, 1, 5, 0)
 ALLOWED_KEYS = {'ip', 'replay', 'zabbix'}
 FORBIDDEN_KEYS = ('chassis', 'ports', 'lldp', 'cdp', 'fdb', 'port_mac_prefix', 'lldp_local_port_subtype', 'lldp_loc_port_num')
 REPLAY_DEVIATIONS = ('omit_mib', 'override_oid')
+NUMERIC_TAGS = ('2', '65', '66', '67', '70')          # snmprec tags: Integer32, Counter32, Gauge32, TimeTicks, Counter64
 
 # the subtrees that `omit_mib` removes (§4.4); each root is a labmultiplex subtree when a step changes it (§5.3)
 MIB_ROOTS = {
@@ -18,6 +19,10 @@ MIB_ROOTS = {
     'cdp': [(1, 3, 6, 1, 4, 1, 9, 9, 23)],
     'fdb': [(1, 3, 6, 1, 2, 1, 17, 4), (1, 3, 6, 1, 2, 1, 17, 7, 1, 2)],
     'lag': [(1, 2, 840, 10006, 300, 43)],
+}
+# a column that an `override_oid` of a step can change (lab spec 4.4, 2.27): its own labmultiplex subtree when a step changes it; not a MIB that `omit_mib` can remove
+STEP_ROOTS = {
+    'ifoper': [(1, 3, 6, 1, 2, 1, 2, 2, 1, 8)],            # ifOperStatus.<ifIndex>
 }
 LLDP_LOC_PORT_ID = (1, 0, 8802, 1, 1, 2, 1, 3, 7, 1, 3)       # lldpLocPortId.<lldpLocPortNum>
 LLDP_REM_ENTRY = (1, 0, 8802, 1, 1, 2, 1, 4, 1, 1)             # lldpRemEntry.<column>.<timeMark>.<lldpRemLocalPortNum>.<lldpRemIndex>
@@ -151,7 +156,12 @@ def override(records, dev, d):
             raise LabError('deviation %s: no OID of device %s matches %s' % (d['id'], dev, oid_name))
     out = dict(records)
     for o in hit:
-        out[o] = (tag, value)
+        # lab spec 4.4 (2.27, task 104): a number given as `value` keeps the numeric type of the record it replaces (ifOperStatus = 2 stays an INTEGER); text and hex are octet strings
+        old = records[o][0]
+        if 'value_hex' not in d and old in NUMERIC_TAGS and re.fullmatch(r'-?[0-9]+', str(d['value'])):
+            out[o] = (old, str(d['value']))
+        else:
+            out[o] = (tag, value)
     return out
 
 
@@ -189,7 +199,7 @@ def check_deviation(d, devices):
 def subtree_roots(prev_records, cur_records_list):
     """The MIB roots that differ between the steps of a replay device: {key: root} for every root with a different record set in any step."""
     changing = {}
-    for mib, roots in MIB_ROOTS.items():
+    for mib, roots in {**MIB_ROOTS, **STEP_ROOTS}.items():
         for i, root in enumerate(roots):
             key = mib if len(roots) == 1 else '%s%d' % (mib, i)
             base = {o: v for o, v in prev_records.items() if o[:len(root)] == root}

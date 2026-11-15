@@ -12,6 +12,7 @@ declare(strict_types=1);
  *                   the freshness macro) and `superseded_at`
  *   contradictions: every manual link with shadowing observations or acknowledgments: `contradicted` and the
  *                   unacknowledged / acknowledged hidden neighbors by Device name
+ *   junctions:      the Junction projections (model §12.6): the reporter Device, its Port and the Devices behind it
  *   badges:         Device name -> the manual links (edge ids) whose unacknowledged hidden neighbor it is, the
  *                   condition of the UI's "Link hidden by manual link" badge (topology-1-model.md "Contradicted manual links")
  *
@@ -38,25 +39,50 @@ try {
 
 	$pick = static fn (?array $side): ?array => $side === null ? null : ['in' => $side['in'] ?? null, 'out' => $side['out'] ?? null, 'speed' => $side['speed'] ?? null, 'percent' => $side['percent'] ?? null];
 	// per physical link (by edge id): the items of the end ports, the severity and the load that the UI shows (model §4.8, getNeighbors() of both ends)
+	// task 103 (model §4.8, 2.88): neighbors.get gives the load of the FAR port only (the near side is in ports.get), so the load of a port is read from the entry of the neighbor that has it as its far
+	// port: both ends of a link are there, because every Device is asked.
 	$detail = [];
+	$port_load = [];
+	$entries = [];
 	$devices = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('device'));
 	while ($device = DBfetch($devices, false)) {
 		foreach (CTopologyPrototype::getNeighbors((string) $device['id']) as $neighbor) {
-			if (($neighbor['link_type'] ?? '') !== 'physical_link' || isset($detail[$neighbor['edge_id']])) {
+			if (($neighbor['link_type'] ?? '') !== 'physical_link') {
 				continue;
 			}
-			$items = [];
-			foreach (['local_port_id', 'remote_port_id'] as $end) {
-				$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE id='.zbx_dbstr($neighbor[$end])), false);
-				$attrs = $row ? json_decode($row['attrs'], true) : [];
-				$items[$end] = count($attrs['zabbix_itemids'] ?? []);
+			$port_load[$neighbor['remote_port_id']] = $neighbor['load']['remote'] ?? null;
+			if (!isset($detail[$neighbor['edge_id']])) {
+				$detail[$neighbor['edge_id']] = true;
+				$entries[$neighbor['edge_id']] = $neighbor;
 			}
-			$detail[$neighbor['edge_id']] = ['items_local' => $items['local_port_id'], 'items_remote' => $items['remote_port_id'],
-				'severity' => $neighbor['severity'], 'load_local' => $neighbor['load']['local']['percent'] ?? null,
-				'load_remote' => $neighbor['load']['remote']['percent'] ?? null,
-				'load_items' => ['local' => $neighbor['load']['local']['items'] ?? null, 'remote' => $neighbor['load']['remote']['items'] ?? null],
-				'load_detail' => ['local' => $pick($neighbor['load']['local'] ?? null), 'remote' => $pick($neighbor['load']['remote'] ?? null)]];
 		}
+	}
+	$detail = [];
+	foreach ($entries as $edge_id => $neighbor) {
+		$items = [];
+		foreach (['local_port_id', 'remote_port_id'] as $end) {
+			$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE id='.zbx_dbstr($neighbor[$end])), false);
+			$attrs = $row ? json_decode($row['attrs'], true) : [];
+			$items[$end] = count($attrs['zabbix_itemids'] ?? []);
+		}
+		// the status items of the end ports (net.if.status[...]): the trigger "Link down" needs a value before the change and one after it, so the runner polls them around a step (task 104)
+		$status_items = [];
+		foreach (['local_port_id', 'remote_port_id'] as $end) {
+			$row = DBfetch(DBselect('SELECT attrs FROM topo_nodes WHERE id='.zbx_dbstr($neighbor[$end])), false);
+			$ids = array_map('intval', (json_decode($row['attrs'] ?? '{}', true)['zabbix_itemids'] ?? []));
+			if ($ids) {
+				foreach (DBselect('SELECT itemid FROM items WHERE itemid IN ('.implode(',', $ids).') AND key_ LIKE '.zbx_dbstr('net.if.status[%')) as $item) {
+					$status_items[] = (string) $item['itemid'];
+				}
+			}
+		}
+		$local = $port_load[$neighbor['local_port_id']] ?? null;
+		$remote = $port_load[$neighbor['remote_port_id']] ?? null;
+		$detail[$edge_id] = ['status_items' => $status_items, 'items_local' => $items['local_port_id'], 'items_remote' => $items['remote_port_id'],
+			'severity' => $neighbor['severity'], 'load_local' => $local['percent'] ?? null,
+			'load_remote' => $remote['percent'] ?? null,
+			'load_items' => ['local' => $local['items'] ?? null, 'remote' => $remote['items'] ?? null],
+			'load_detail' => ['local' => $pick($local), 'remote' => $pick($remote)]];
 	}
 	foreach ($links as &$link) {
 		$link += $detail[$link['edge_id']] ?? [];
@@ -87,7 +113,13 @@ try {
 		$badges[$name] = array_keys($edges);
 	}
 
-	echo json_encode(['links' => $links, 'contradictions' => $contradictions, 'badges' => (object) $badges]), "\n";
+	// §12.6 (task 104): the Junction projections the page draws, by the names of the reporter Device, its Port and the Devices behind it
+	$junctions = [];
+	foreach (CTopologyPrototype::getJunctions(null) as $junction) {
+		$junctions[] = ['device' => $junction['device_name'], 'port' => $junction['port_name'], 'devices' => array_column($junction['devices'], 'name'), 'port_id' => $junction['port_id']];
+	}
+
+	echo json_encode(['links' => $links, 'contradictions' => $contradictions, 'badges' => (object) $badges, 'junctions' => $junctions]), "\n";
 	exit(0);
 }
 catch (Throwable $exception) {

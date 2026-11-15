@@ -104,6 +104,15 @@ class OperatorForms(unittest.TestCase):
         self.assertEqual(len(model.operator_actions('S', 1, {'merge': ['A', 'B'], 'keep': 'A'})), 1)
         self.assertEqual(len(model.operator_actions('S', 1, [{'merge_group': 'SRV2', 'keep': 'Switch2:Gi0/12'}, {'dismiss': ['A', 'B']}, {'dismiss_group': 'SRV2'}, {'delete': 'A'}])), 4)
 
+    def test_the_actions_of_2_27(self):
+        got = model.operator_actions('S', 1, [{'create_device': {'name': 'ISP-Router', 'class': 'Router', 'ports': ['wan0', 'lan0']}}, {'link': ['SW22:41', 'ISP-Router:lan0']},
+                                              {'merge_group': {'sysname': 'MikroTik'}, 'keep': {'chassis': '64:d1:54:69:9f:cf'}}])
+        self.assertEqual(len(got), 3)
+        for bad in [{'create_device': {'name': '', 'class': 'Router'}}, {'create_device': {'name': 'X'}}, {'create_device': {'name': 'X', 'class': 'Router', 'colour': 'red'}},
+                    {'create_device': 'X'}, {'link': ['A:1']}, {'link': ['A', 'B:1']}, {'create_device': {'name': 'X', 'class': 'Router'}, 'keep': 'X'}]:
+            with self.assertRaises(model.LabError, msg=repr(bad)):
+                model.operator_actions('S', 1, bad)
+
     def test_wrong_forms(self):
         for bad in [{'merge': ['A'], 'keep': 'A'}, {'merge': ['A', 'B']}, {'merge': ['A', 'B'], 'keep': 'C'}, {'merge_group': 'X'}, {'dismiss': 'A'}, {'delete': 'A', 'keep': 'A'},
                     {'frobnicate': 'A'}, {'merge': ['A', 'B'], 'dismiss': ['A', 'B'], 'keep': 'A'}, 'merge', {'dismiss_group': 'X', 'extra': 1}]:
@@ -140,6 +149,22 @@ class OperatorCommands(unittest.TestCase):
     def test_merge_a_pair_and_dismiss_a_pair_and_delete(self):
         got = runner.operator_commands(self.s, [{'merge': ['Switch1', 'Switch2'], 'keep': 'Switch2'}, {'dismiss': ['Switch1', 'Switch2']}, {'delete': 'AP-7'}])
         self.assertEqual(got, [('merge', {'keep': 2, 'remove': 1}), ('dismiss', {'a': 1, 'b': 2}), ('delete', {'id': 21})])
+
+    def test_create_device_and_link_become_the_php_calls(self):
+        ports = {('SW22', '41'): 7041, ('ISP-Router', 'lan0'): 9001}
+        got = runner.operator_commands(self.s, [{'create_device': {'name': 'ISP-Router', 'class': 'Access point', 'ports': ['wan0', 'lan0'], 'mgmt_ip': '10.0.0.1'}},
+                                                {'link': ['SW22:41', 'ISP-Router:lan0']}], lambda d, p: ports.get((d, p)))
+        # the ends of a link are resolved when the action runs: the Device of the same step does not exist yet when the commands are made
+        self.assertEqual(got, [('create_device', {'name': 'ISP-Router', 'device_class': 'access_point', 'ports': ['wan0', 'lan0'], 'mgmt_ip': '10.0.0.1'}), ('link', {'ends': ['SW22:41', 'ISP-Router:lan0']})])
+
+    def test_merge_group_keep_by_the_key_of_the_device(self):
+        # lab spec 2.27: the Devices of a group with no link (an ambiguous port) are kept by their own key
+        s = state([(31, 'MikroTik', []), (32, 'MikroTik', []), (33, 'MikroTik', [])])
+        s['device_nodes'][1]['chassis_id'] = '64:d1:54:69:9f:cf'
+        got = runner.operator_commands(s, [{'merge_group': {'sysname': 'MikroTik'}, 'keep': {'chassis': '64:D1:54:69:9F:CF'}}])
+        self.assertEqual(got, [('merge_group', {'keep': 32, 'remove': [31, 33]})])
+        with self.assertRaisesRegex(model.LabError, 'no device'):
+            runner.operator_commands(s, [{'merge_group': {'sysname': 'MikroTik'}, 'keep': {'chassis': 'aa:bb:cc:dd:ee:ff'}}])
 
     def test_dismiss_group_takes_every_device_of_the_key(self):
         self.assertEqual(runner.operator_commands(self.s, [{'dismiss_group': 'SRV2'}]), [('dismiss_group', {'ids': [11, 12, 13]})])

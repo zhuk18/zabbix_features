@@ -148,6 +148,17 @@ class Deviations(Base):
         sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'deviations': [dv]})
         self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 0, 8802, 1, 1, 2, 1, 4, 1, 1, 9, 0, 1, 1)], ('4', 'renamed'))
 
+    def test_override_a_number_keeps_the_numeric_type(self):
+        # lab spec 4.4 (2.27): ifOperStatus.1 = 1 (INTEGER) becomes 2 and stays an INTEGER; a text value of a text record is still an octet string
+        text = VALID.replace(FDB, '1.3.6.1.2.1.2.2.1.8.1|2|1\n' + FDB)
+        dv = self.dv(type='override_oid', oid='1.3.6.1.2.1.2.2.1.8.1', value=2)
+        sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
+        self.assertEqual(gen.device_records(sc.states[0], 'R1')[(1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1)], ('2', '1'))
+        self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1)], ('2', '2'))
+        dv = self.dv(type='override_oid', oid='1.3.6.1.2.1.31.1.1.1.1.1', value=2)
+        sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'deviations': [dv]})
+        self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 3, 6, 1, 2, 1, 31, 1, 1, 1, 1, 1)], ('4', '2'))
+
     def test_other_deviation_type_name_check_for_omit_mib(self):
         with self.assertRaisesRegex(LabError, 'omit_mib'):
             self.lab(deviations=[self.dv(type='omit_mib', mib='nothing')])
@@ -184,3 +195,18 @@ class Files(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StepRoots(Base):
+    def test_a_status_override_of_a_step_goes_through_a_subtree_and_flags_the_core_master(self):
+        # lab spec 4.4 (2.27): ifOperStatus is changed by a step: its column is a labmultiplex subtree, so the step really changes the data the device serves
+        text = VALID.replace(FDB, '1.3.6.1.2.1.2.2.1.8.1|2|1\n' + FDB)
+        dv = {'id': 'd', 'reason': 'r', 'type': 'override_oid', 'device': 'R1', 'oid': '1.3.6.1.2.1.2.2.1.8.1', 'value': 2}
+        sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
+        out = os.path.join(self.tmp.name, 'out')
+        manifest = gen.generate(sc, out)
+        dev = manifest['devices']['R1']
+        self.assertIn('ifoper', dev['mux'])
+        self.assertEqual(open(os.path.join(dev['mux']['ifoper']['dir'], '00000.snmprec')).read().strip(), '1.3.6.1.2.1.2.2.1.8.1|2|1')
+        self.assertEqual(open(os.path.join(dev['mux']['ifoper']['dir'], '00001.snmprec')).read().strip(), '1.3.6.1.2.1.2.2.1.8.1|2|2')
+        self.assertEqual(dev['step_masters'][1], ['core'])

@@ -1,0 +1,76 @@
+id: D1
+title: Office demo for the product owners — six typical network situations on the real office stand
+base: lab-office-demo.yaml
+# Lab spec 9 D1 (2.26, 2.27), task 104. Shown step by step with `labsim show D1 --step <n> --reset` (stands/office-demo/DEMO.md); `labsim run D1 --reset` checks every step.
+# Ports of the demo (task 104 section 0):
+#   step 1  SW12-10-CORE-6000-48G:1/1/42 - SW13-10-ACC-6000-48G:1/1/48   a switch-to-switch LLDP link, both ends confirmed, not on the core-gateway LAG
+#   step 2  SW17-09-ACC-2530-48G:16                                       an HP 2530 port that is up and has no neighbor row in the capture (rows added by tools/add_demo_rows.py)
+#   step 3  SW18-09-ACC-2530-48G:6                                        the MikroTik: three Devices until the operator merges them
+#   step 4  SW15-10-POE-6000-24G:1/1/1                                    the R1 step 3 deviation (new chassis of NA12501003431)
+#   step 5  SW21-07-ACC-2530-48G                                          an access switch with one uplink (SW20:42) and two endpoints: its links are easy to see
+#   step 6  SW22-07-ACC-2530-48G:41                                       a port that is up and has no neighbor row in the capture (real, not changed)
+# `poll_all: true` in every step: with a short freshness threshold every reporter that a step does not poll becomes old (task 078); the show then ends with all fresh.
+settings: {freshness_seconds: 180, transport: null, sources: null}
+steps:
+  - id: 0
+    note: the office as it is
+    poll_all: true
+    assert:
+      - status: {field: devices_created, equals: 97}
+      - status: {field: links_created, equals: 95}
+      - junction: {port: "SW17-09-ACC-2530-48G:16", devices: [DEMO-PC1, DEMO-PC2, DEMO-PRN1]}
+      - observation: {reporter: SW17-09-ACC-2530-48G, port: "16", remote: {chassis: "DEMO-PC1"}}
+        outcome: ambiguous
+      - observation: {reporter: SW17-09-ACC-2530-48G, port: "16", remote: {chassis: "DEMO-PC2"}}
+        outcome: ambiguous
+      - observation: {reporter: SW17-09-ACC-2530-48G, port: "16", remote: {sysname: "DEMO-PRN1"}}
+        outcome: ambiguous
+      - link_severity: {link: [SW12-10-CORE-6000-48G:1/1/42, SW13-10-ACC-6000-48G:1/1/48], present: false}
+  - id: 1
+    note: a link goes down (SW12 1/1/42 - SW13 1/1/48)
+    deviations: {enable: [link-down-sw12-42, link-down-sw13-48], disable: []}
+    poll_all: true
+    wait: {seconds: 300, until: true}
+    assert:
+      - {link: [SW12-10-CORE-6000-48G:1/1/42, SW13-10-ACC-6000-48G:1/1/48], state: active, type: physical_link}
+      - link_severity: {link: [SW12-10-CORE-6000-48G:1/1/42, SW13-10-ACC-6000-48G:1/1/48], present: true}
+  - id: 2
+    note: an unmanaged switch under a desk (SW17 port 16, rows are in the data since step 0)
+    poll_all: true
+    assert:
+      - status: {field: devices_created, equals: 0}
+      - junction: {port: "SW17-09-ACC-2530-48G:16", devices: [DEMO-PC1, DEMO-PC2, DEMO-PRN1]}
+      - junction: {port: "SW18-09-ACC-2530-48G:6", devices: [MikroTik, MikroTik, MikroTik]}
+  - id: 3
+    note: one device looks like three (the MikroTik on SW18 port 6)
+    poll_all: true
+    operator: {merge_group: {sysname: MikroTik}, keep: {chassis: "64:d1:54:69:9f:cf"}}
+    assert:
+      - device_count: {key: {sysname: MikroTik}, equals: 1}
+      - junction: {port: "SW18-09-ACC-2530-48G:6", present: false}
+      - junction: {port: "SW17-09-ACC-2530-48G:16", devices: [DEMO-PC1, DEMO-PC2, DEMO-PRN1]}
+  - id: 4
+    note: a device was replaced (NA12501003431 on SW15 1/1/1, new chassis)
+    deviations: {enable: [na-reboot-sw15-1-1-1], disable: []}
+    poll_all: true
+    assert:
+      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: {chassis: "3a:5c:91:e2:07:4b"}, port: "eth0"}], state: active, type: physical_link}
+      - {link: [SW15-10-POE-6000-24G:1/1/1, {device: {chassis: "12:bf:b8:b9:6a:f5"}, port: "eth0"}], state: superseded}
+      - status: {field: devices_created, equals: 1}
+  - id: 5
+    note: a switch stops answering (SW21)
+    faults: {SW21-07-ACC-2530-48G: unreachable}
+    delay: 190
+    poll_all: true
+    assert:
+      - observation: {reporter: SW21-07-ACC-2530-48G, port: "17"}
+        outcome: old_snapshot
+      - {link: [SW20-07-ACC-2530-48G:42, SW21-07-ACC-2530-48G:48], state: active, type: physical_link}
+  - id: 6
+    note: a router without LLDP or CDP is created by hand (release 2) and linked to SW22 port 41
+    operator:
+      - create_device: {name: ISP-Router, class: Router, ports: [wan0, lan0]}
+      - link: ["SW22-07-ACC-2530-48G:41", "ISP-Router:lan0"]
+    poll_all: true
+    assert:
+      - {link: ["SW22-07-ACC-2530-48G:41", "ISP-Router:lan0"], state: active, type: physical_link}
