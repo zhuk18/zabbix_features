@@ -93,22 +93,9 @@ const view = new class {
 			setTimeout(() => this.render(), 160);
 		});
 		this.buildLegend(<?= json_encode((bool) ($data['legend_collapsed'] ?? 0)) ?>);
-		// "Fit" (§12.1, 2.72): the whole graph in the window
-		const fit_button = document.createElement('button');
-		fit_button.type = 'button';
-		fit_button.id = 'topology-fit';
-		fit_button.className = 'btn-alt topology-fit';
-		fit_button.textContent = <?= json_encode(_('Fit')) ?>;
-		fit_button.addEventListener('click', () => this.fit());
-		document.querySelector('.topology-workspace').appendChild(fit_button);
-		// "Create device" (§9.7, 2.80): next to Fit
-		const create_button = document.createElement('button');
-		create_button.type = 'button';
-		create_button.id = 'topology-create-device';
-		create_button.className = 'btn-alt topology-create-device';
-		create_button.textContent = <?= json_encode(_('Create device')) ?>;
-		create_button.addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
-		document.querySelector('.topology-workspace').appendChild(create_button);
+		// the graph toolbar (§12.1, 2.85): "Fit" puts the whole graph in the window (2.72), "Create device" opens the dialog (§9.7), "Legend" opens and closes the legend over the graph
+		document.getElementById('topology-fit').addEventListener('click', () => this.fit());
+		document.getElementById('topology-create-device').addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -812,6 +799,11 @@ const view = new class {
 		if (!['host', 'proxy', 'device'].includes(node.type)) {
 			return;
 		}
+		// §12.5 (2.85): the panel of a Device that a Host or a Proxy represents is the panel of that Host or Proxy, the node that is drawn; whatever opens a panel gets it (the first selection of a
+		// page, a link, Back, a refresh). Task 101: the first selection of the page took the first Device of the list, which was the Device of SW12, not drawn: "Not in this view", "Not a Zabbix host".
+		if (node.type === 'device' && node.represented) {
+			node = this.nodeOfDevice(node.id) ?? node;
+		}
 		const device = node.type === 'device' ? node : node.device;
 		const id = value => encodeURIComponent(value);
 		// Problems: a Host only (Zabbix has no clean "this problem belongs to this proxy" semantics, so a Proxy never shows them), read live
@@ -1290,16 +1282,22 @@ const view = new class {
 			]]
 		];
 		const legend = document.createElement('div');
-		legend.className = 'topology-legend' + (collapsed ? ' topology-legend-collapsed' : '');
+		legend.className = 'topology-legend';
 		legend.id = 'topology-legend';
-		legend.innerHTML = `<div class="topology-legend-head" id="topology-legend-head"><span>${this.escape(<?= json_encode(_('Legend')) ?>)}</span><span id="topology-legend-arrow">${collapsed ? '▸' : '▾'}</span></div>` +
+		legend.hidden = collapsed;
+		legend.innerHTML = `<div class="topology-legend-head" id="topology-legend-head"><span>${this.escape(<?= json_encode(_('Legend')) ?>)}</span><span id="topology-legend-arrow" title="${this.escape(<?= json_encode(_('Close')) ?>)}">×</span></div>` +
 			`<div class="topology-legend-body">${sections.map(([title, rows]) => `<h4>${this.escape(title)}</h4>` + rows.map(([swatch, text]) => row(swatch, this.escape(text))).join('')).join('')}</div>`;
 		workspace.appendChild(legend);
-		document.getElementById('topology-legend-head').addEventListener('click', () => {
-			const now_collapsed = legend.classList.toggle('topology-legend-collapsed');
-			document.getElementById('topology-legend-arrow').textContent = now_collapsed ? '▸' : '▾';
-			this.guard(() => this.request('topology.legend.state', {method: 'POST', body: JSON.stringify({collapsed: now_collapsed ? 1 : 0})}));
-		});
+		// the Legend button of the toolbar opens the legend as a panel over the graph and closes it again (the state is kept for the user, as before)
+		const button = document.getElementById('topology-legend-button');
+		const toggle = open => {
+			legend.hidden = !open;
+			button.setAttribute('aria-pressed', String(open));
+			this.guard(() => this.request('topology.legend.state', {method: 'POST', body: JSON.stringify({collapsed: open ? 0 : 1})}));
+		};
+		button.setAttribute('aria-pressed', String(!collapsed));
+		button.addEventListener('click', () => toggle(legend.hidden));
+		document.getElementById('topology-legend-head').addEventListener('click', () => toggle(false));
 	}
 
 	// The page (filter bar, graph area and side panel) ends at the bottom of the window: the graph area has the height that is left, and the side panel

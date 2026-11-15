@@ -7,6 +7,10 @@ import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.r
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
 
+
+def db_count(statement):
+    return int(subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip() or '-1')
+
 if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     print('ZBX_UI_USER and ZBX_UI_PASSWORD are needed')
     sys.exit(2)
@@ -215,6 +219,67 @@ try:
     check(len(js(BAND)) == 1 and 'LAG' in js("document.getElementById('topology-details').textContent"), 'Back: the bundle panel and its band')
     click_node('SW13')
     check(js(BAND) == [] and ring_on('SW13'), 'a node after a line: the band is gone, the ring is on the node')
+
+    print('=== The panel of a host is the Host panel, however it is opened (task 101 §1, model §12.5 2.85) ===')
+    HOSTPANEL = """(() => { const d = document.getElementById('topology-details'); const k = d.querySelector('.topology-node-kind'); return {kind: k ? k.textContent.trim() : null, title: (d.querySelector('.topology-host-name, .topology-node-title') || {}).textContent,
+        problems: !!d.querySelector('details.topology-problems'), focus: !!d.querySelector('.topology-focus-button'), not_in_view: !!d.querySelector('.topology-not-in-view'), ring: document.querySelectorAll('#topology-canvas rect.topology-selection').length}; })()"""
+
+    def host_panel(text, label, focus=True):
+        p = js(HOSTPANEL)
+        check(p['kind'] == 'Zabbix host' and (p['title'] or '').startswith(label) and p['problems'] and p['focus'] == focus and not p['not_in_view'] and p['ring'] == 1, text, p)
+
+    js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
+    # the first selection of the page (nothing clicked): the Host panel of the first Device of the list (before 101 it was the Device of SW12: "Not in this view")
+    js("document.getElementById('topology-filter-apply').click()")
+    time.sleep(4)
+    p = js(HOSTPANEL)
+    check(p['kind'] == 'Zabbix host' and not p['not_in_view'] and p['ring'] == 1, 'the first panel of the page is a Host panel, drawn and selected (no "Not in this view")', p)
+    js("(() => { view.unfolded.clear(); view.render(); })()")
+    click_node('SW12')
+    host_panel('a click on SW12: Host panel, Problems, Focus, selection on the drawn node', 'SW12')
+    click_node('SW13')
+    js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
+    time.sleep(3.5)
+    host_panel("SW12 opened from SW13's Links: Host panel", 'SW12')
+    js("document.querySelector('#topology-details .topology-back-button').click()")
+    time.sleep(3.5)
+    host_panel('Back to SW13: Host panel', 'SW13')
+    js("document.querySelector('#topology-details .topology-back-button')") if False else None
+    # a refresh after Link and Unlink: a manual link between a free port of SW12 and one of SW13 (the picker of the Ports section), then Unlink; the panel is the Host panel each time
+    click_node('SW12')
+    js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).forEach(d => { d.open = true; })")
+    free12 = js("(() => { const r = document.querySelector('#topology-details details[data-group=\"no_neighbor\"] tbody tr'); return r ? r.querySelector('.topology-port-name').textContent.trim() : null; })()")
+    js("document.querySelector('#topology-details details[data-group=\"no_neighbor\"] tbody tr .topology-link-button').click()")
+    click_node('SW13')
+    js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).forEach(d => { d.open = true; })")
+    js("document.querySelector('#topology-details details[data-group=\"no_neighbor\"] tbody tr .topology-link-button').click()")
+    time.sleep(4)
+    host_panel('after a Link (the view is read again): the Host panel of SW13', 'SW13')
+    n_links = js("document.querySelectorAll('#topology-details .topology-link-row').length")
+    # only the manual link that this check made: the row whose source is "manual"
+    js("(() => { const row = Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => { const x = r.querySelector('.topology-link-source'); return x && x.textContent.trim().toLowerCase() === 'manual'; }); row.querySelector('.topology-unlink-button').click(); })()")
+    time.sleep(4)
+    host_panel('after an Unlink (the view is read again): the Host panel of SW13', 'SW13')
+    check(db_count("select count(*) from topo_edges where json_unquote(json_extract(attrs, '$.discovered_via')) = 'manual'") == 0, 'no manual link is left in the database')
+
+    print('=== The graph toolbar: the legend opens over the graph and closes again (task 101 §2) ===')
+    LEG = "(() => { const l = document.getElementById('topology-legend'), c = document.getElementById('topology-canvas').getBoundingClientRect(); const b = l.getBoundingClientRect(); return {hidden: l.hidden, over_graph: !l.hidden && b.left >= c.left && b.top >= c.top && b.right <= c.right && b.bottom <= c.bottom + 1, pressed: document.getElementById('topology-legend-button').getAttribute('aria-pressed')}; })()"
+    if not js("document.getElementById('topology-legend').hidden"):
+        click_legend = js("document.getElementById('topology-legend-button').click()")
+        time.sleep(1)
+    check(js(LEG)['hidden'], 'the legend starts closed')
+    js("document.getElementById('topology-legend-button').click()")
+    time.sleep(1)
+    st = js(LEG)
+    check(not st['hidden'] and st['over_graph'] and st['pressed'] == 'true', 'the Legend button opens the legend as a panel over the graph', st)
+    shot_dir = os.environ.get('SHOTS_DIR')
+    if shot_dir:
+        import base64
+        with open(os.path.join(shot_dir, os.environ.get('SHOTS_PREFIX', '101') + '-legend-open.png'), 'wb') as f:
+            f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+    js("document.getElementById('topology-legend-button').click()")
+    time.sleep(1)
+    check(js(LEG)['hidden'], 'the Legend button closes it again')
 finally:
     chrome.kill()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All toggle and Back checks passed.'))
