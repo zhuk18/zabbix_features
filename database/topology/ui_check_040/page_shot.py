@@ -487,6 +487,15 @@ def main():
             except RuntimeError:
                 pass
             time.sleep(0.5)
+        # task 101 §3: the page has made its first panel (the first selection reads four requests and draws again); the menu and the filter are set after it, as a user does, so that two loads of the page
+        # do not run into each other (under load the second answer could come last and the layout was not the same each time)
+        for _ in range(60):
+            try:
+                if js("!!(window.view && view.current_panel)") or a.action != 'topology.view':
+                    break
+            except RuntimeError:
+                pass
+            time.sleep(0.5)
         time.sleep(1)
 
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids come from the page's API
