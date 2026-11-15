@@ -445,9 +445,13 @@
 		const span = Math.min(gap * 0.9, TWO * 0.9);
 		const biggest = Math.max(...leaves.map(node => Math.max(node.box.w, node.box.h)));
 		const minimum = Math.max(parent.box.w, parent.box.h) / 2 + biggest / 2 + 36;
-		// for a radius, a number of rows (1; 2: the leaves alternate between the radius and the radius + ROW_STEP) and a start angle: the leaves one after the other along the arc, each at the
-		// first angle where its box (shape and label) is clear of the parent and of every leaf placed before; returns the angle that they use. The test is made at the angles where the
-		// leaves really are, so that the result has no overlap.
+		// §12.8 "Angle slots" (2.85): each leaf has its own slot of the arc, in the order of the leaves. For a radius, a number of rows (1; 2: the leaves alternate between the radius and the radius
+		// + ROW_STEP) and the start angle: the leaves one after the other along the arc, each at the first angle where its box (the shape and the label) is clear of the parent and of every leaf
+		// placed before, the line from the parent to it does not touch the box of a leaf placed before, and the line to a leaf placed before does not touch its box. So the slot of a leaf is as
+		// wide as its box needs at its radius, and the line to an outer-row leaf passes between two inner-row leaves; no leaf line crosses another leaf of the arc. Returns the angle that they use.
+		const LINE_GAP = 3;
+		const grown = (node, gap) => ({left: node.x - node.box.w / 2 - gap, right: node.x + node.box.w / 2 + gap, top: node.y + node.box.top - gap, bottom: node.y + node.box.bottom + gap});
+		const touches = (leaf, box) => segmentHitsBox(parent, leaf, box.left, box.right, box.top, box.bottom);
 		const layout = (radius, start, rows) => {
 			let angle = start;
 			leaves.forEach((node, i) => {
@@ -455,10 +459,11 @@
 				for (let guard = 0; guard < 4000; guard++) {
 					node.x = parent.x + Math.cos(angle) * r;
 					node.y = parent.y + Math.sin(angle) * r;
-					if (!leaves.slice(0, i).some(before => overlaps(node, before, BOX_GAP)) && !overlaps(node, parent, BOX_GAP)) {
+					const mine = grown(node, LINE_GAP);
+					if (!leaves.slice(0, i).some(before => overlaps(node, before, BOX_GAP) || touches(node, grown(before, LINE_GAP)) || touches(before, mine)) && !overlaps(node, parent, BOX_GAP)) {
 						break;
 					}
-					angle += 0.5 / r;
+					angle += 1.5 / r;
 				}
 			});
 			return angle - start;
@@ -487,8 +492,8 @@
 			width = Math.min(TWO * 0.95, width + 0.05);
 			used = layout(radius, centre - width / 2, rows);
 		}
-		while (used > width && radius < 4000) {
-			radius += 12;
+		while (used > width && radius < 1500) {
+			radius += 24;
 			used = layout(radius, centre - width / 2, rows);
 		}
 		// centred in the angle: a second layout from the middle of what they use (the final layout is the one that is returned)
@@ -584,68 +589,6 @@
 		}
 
 		return false;
-	}
-
-	/**
-	 * After the collision step: a node (not a leaf, not the parent, not fixed) that a line from the parent to a leaf crosses is turned about the parent to the nearest angle, at the same
-	 * distance (then 1.25 to 3 times as far), where its box is clear of every other box and of every leaf line. A node that has no such place stays. Returns the nodes that were moved.
-	 */
-	function clearLines(parent, leaves, nodes) {
-		const crosses = (node, ends) => ends.some(leaf => {
-			const left = node.x - node.box.w / 2 - 2;
-			const right = node.x + node.box.w / 2 + 2;
-			const top = node.y + node.box.top - 2;
-			const bottom = node.y + node.box.bottom + 2;
-			let t0 = 0;
-			let t1 = 1;
-			const dx = leaf.x - parent.x;
-			const dy = leaf.y - parent.y;
-			for (const [p, q] of [[-dx, parent.x - left], [dx, right - parent.x], [-dy, parent.y - top], [dy, bottom - parent.y]]) {
-				if (p === 0) {
-					if (q < 0) {
-						return false;
-					}
-				}
-				else {
-					const r = q / p;
-					if (p < 0) {
-						t0 = Math.max(t0, r);
-					}
-					else {
-						t1 = Math.min(t1, r);
-					}
-				}
-			}
-			return t0 <= t1;
-		});
-		const moved = [];
-		const free = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP));
-		nodes.forEach(node => {
-			if (node === parent || leaves.includes(node) || (node.fx !== undefined && node.fx !== null) || !crosses(node, leaves)) {
-				return;
-			}
-			const distance = Math.hypot(node.x - parent.x, node.y - parent.y);
-			const angle = Math.atan2(node.y - parent.y, node.x - parent.x);
-			const x0 = node.x;
-			const y0 = node.y;
-			for (const scale of [1, 1.25, 1.5, 2, 2.5, 3]) {
-				for (let k = 1; k <= 90; k++) {
-					for (const sign of [1, -1]) {
-						const turned = angle + sign * k * 2 * Math.PI / 180;
-						node.x = parent.x + distance * scale * Math.cos(turned);
-						node.y = parent.y + distance * scale * Math.sin(turned);
-						if (free(node) && !crosses(node, leaves)) {
-							moved.push(node);
-							return;
-						}
-					}
-				}
-			}
-			node.x = x0;
-			node.y = y0;
-		});
-
-		return moved;
 	}
 
 	/**
@@ -1343,5 +1286,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, clearLines, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

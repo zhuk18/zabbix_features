@@ -2624,7 +2624,6 @@ const view = new class {
 				let crossings = Infinity;
 				let stuck = 0;
 				for (let pass = 0; pass < 8 && !clean; pass++) {
-					new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 					held.forEach(node => {
 						node.fx = node.x;
 						node.fy = node.y;
@@ -2668,7 +2667,7 @@ const view = new class {
 						const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...label_boxes.map(item => item.box)]);
 						label_boxes.push({box: place.box, owners: [a, b]});
 					});
-					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_boxes, 4, 77);
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_boxes, 8, 5);
 					held.forEach(node => {
 						node.fx = undefined;
 						node.fy = undefined;
@@ -2701,8 +2700,11 @@ const view = new class {
 						return placed;
 					};
 					const saved = nodes.map(node => [node.x, node.y]);
-					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_places(), 4, 91);
-					if (!label_places().every(item => item.free)) {
+					const crossings_before = G.linesThrough(nodes, drawn_lines, 2).length;
+					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_places(), 8, 5);
+					// the room for a label that the move took is made again; the result stays when every label has its point and there are fewer crossings than before
+					const room_again = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+					if (!(room_again && label_places().every(item => item.free) && G.linesThrough(nodes, drawn_lines, 2).length < crossings_before)) {
 						nodes.forEach((node, i) => {
 							node.x = saved[i][0];
 							node.y = saved[i][1];
@@ -2715,7 +2717,6 @@ const view = new class {
 				});
 			}
 		}
-		new_arcs.forEach(({parent, leaves}) => G.clearLines(parent, leaves, nodes));
 		this.view_size = {width, height, keep: true};
 		// 091 (§12.1 "Scale"): the view is the size of the window and the graph is drawn at scale 1 or more; the user pans (drag on the empty area) and zooms out (wheel). The double click
 		// does not zoom (it folds a group, §12.8); a double click on the empty area does nothing, as before the zoom was there.

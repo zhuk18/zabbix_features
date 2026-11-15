@@ -388,7 +388,9 @@ CHECKS = {
             const info = view.arc_info.get(g.parent) || {};
             rows.push({parent: parent.label.slice(0, 8), leaves: leaves.length, expected: g.devices.length, free_deg: Math.round(info.free_angle * 180 / Math.PI), rows: info.rows,
                 final_deg: Math.round((Math.max(...rel) - Math.min(...rel)) * 180 / Math.PI), radius_max: Math.round(Math.max(...leaves.map(radius))), box_overlaps: leaves.some(a => view.drawn_nodes.some(b => a !== b && overlap(a, b))),
-                lines_through_other_nodes: through.length, lines_through_nodes: linesThrough().length, node_overlaps: node_pairs, label_overlaps: label_hits,
+                lines_through_other_nodes: through.length, lines_through_nodes: linesThrough().length,
+                // task 101 §4 (model §12.8 "Angle slots"): the lines of the arc (parent - leaf) through any node: must be 0; the other lines through nodes are counted above and reported (the solver of §12.1)
+                arc_lines_through_nodes: linesThrough().filter(t => leaves.some(l => t.line.includes(l.label)) || t.line.includes(parent.label)).filter(t => leaves.some(l => t.line === parent.label + ' - ' + l.label || t.line === l.label + ' - ' + parent.label)).length, node_overlaps: node_pairs, label_overlaps: label_hits,
                 ordered_by_port: by_port.every((a, i) => i === 0 || a > by_port[i - 1] - 1e-9) || by_port.every((a, i) => i === 0 || a < by_port[i - 1] + 1e-9)});
             if (evidence) {
                 break;      // the page stays in the state of the failing group, so that the screenshot shows it
@@ -398,7 +400,7 @@ CHECKS = {
         if (evidence) {
             r.evidence = evidence;
         }
-        r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port && x.lines_through_other_nodes === 0 && x.node_overlaps === 0 && x.label_overlaps === 0);
+        r.ok = rows.length > 0 && rows.every(x => x.leaves === x.expected && x.radius_max <= 250.5 && !x.box_overlaps && x.ordered_by_port && x.lines_through_other_nodes === 0 && x.arc_lines_through_nodes === 0 && x.node_overlaps === 0 && x.label_overlaps === 0);
         return r;
     })()''',
     # a cut text shows the full text in a tooltip, and a value with HTML stays text (§13): a node label and the cells of the port table

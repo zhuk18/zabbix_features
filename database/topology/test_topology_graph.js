@@ -214,7 +214,18 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(angles.every((a, i) => i === 0 || a > angles[i - 1]), 'in the given order (by the local port): the angles grow along the arc', angles);
 	ok(G.overlappingPairs(leaves, 0).length === 0 && !leaves.some(n => G.overlappingPairs([parent, n], 0).length), 'no leaf overlaps another or the parent');
 	const radius = n => Math.hypot(n.x, n.y);
-	ok(Math.max(...leaves.map(radius)) - Math.min(...leaves.map(radius)) < 1e-6, 'all leaves are at one radius (an arc)');
+	const radii = [...new Set(leaves.map(n => Math.round(radius(n))))];
+	ok(radii.length <= 2 && Math.max(...radii) - Math.min(...radii) <= 51, 'the leaves are on one arc or on two staggered arcs (r and r + 50)', radii);
+	// task 101 (§12.8 "Angle slots", 2.85): no leaf line crosses another leaf of the arc, for 1 to 15 leaves in one and in two rows
+	for (const count of [1, 2, 3, 5, 6, 9, 12, 15]) {
+		const set = Array.from({length: count}, (_, i) => G.layoutNode({id: 'S' + i, label: i % 3 === 0 ? 'FortiAP-231K-long-name' : 'ZBX-5CD' + i}, 'small'));
+		const pp = G.layoutNode({id: 'P', x: 0, y: 0, label: 'SW19-09-POE-6000-24G'}, 'large');
+		const out = G.arcPlace(pp, set, [Math.PI / 2]);
+		out.forEach(({node, x, y}) => { node.x = x; node.y = y; });
+		const crossed = set.flatMap(a => set.filter(b => b !== a && G.lineCrossesNode({a: pp, b: a, index: 0, count: 1}, b, 0)));
+		ok(crossed.length === 0 && G.overlappingPairs(set, 0).length === 0 && !set.some(n => G.overlappingPairs([pp, n], 0).length), count + ' leaves: no leaf line crosses another leaf, no box overlaps', crossed.length);
+		ok(Math.max(...set.map(n => Math.hypot(n.x, n.y))) <= 250.5 || count > 15, count + ' leaves: the radius is at most 250 px (200 + one row step)', Math.max(...set.map(n => Math.hypot(n.x, n.y))));
+	}
 	const many = Array.from({length: 15}, (_, i) => G.layoutNode({id: 'M' + i, label: 'ZBX-5CD' + i + 'AAAA'}, 'small'));
 	const placed_many = G.arcPlace(parent, many, [0]);
 	placed_many.forEach(({node, x, y}) => {
@@ -378,20 +389,6 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const angles = place(12, lines).leaves.map(n => Math.atan2(n.y, n.x));
 	const unwrapped = angles.map(a => (a - angles[0] + 3 * Math.PI) % (2 * Math.PI) - Math.PI);
 	ok(unwrapped.every((a, i) => i === 0 || a > unwrapped[i - 1] - 1e-9), 'the order along the arc is the given order', unwrapped);
-}
-// ---- a node on the line to a leaf is turned out (2.74) ----
-{
-	const parent = G.layoutNode({id: 'P', x: 0, y: 0, label: 'SW18'}, 'large');
-	const leaf = G.layoutNode({id: 'L', x: 300, y: 0, label: 'leaf'}, 'small');
-	const crosses = n => { for (let t = 0.03; t < 0.98; t += 0.02) { const x = 300 * t; if (x > n.x - n.box.w / 2 && x < n.x + n.box.w / 2 && 0 > n.y + n.box.top && 0 < n.y + n.box.bottom) { return true; } } return false; };
-	const on_line = G.layoutNode({id: 'N', x: 150, y: 0, label: 'in the way'}, 'large');
-	const aside = G.layoutNode({id: 'A', x: 150, y: 200, label: 'aside'}, 'large');
-	const pinned = G.layoutNode({id: 'D', x: 220, y: 5, fx: 220, fy: 5, label: 'dragged'}, 'large');
-	const moved = G.clearLines(parent, [leaf], [parent, leaf, on_line, aside, pinned]);
-	ok(moved.length === 1 && moved[0] === on_line && !crosses(on_line), 'a node on the line is turned out of it', [on_line.x, on_line.y]);
-	ok(aside.x === 150 && aside.y === 200, 'a node that the line does not cross stays');
-	ok(pinned.x === 220 && pinned.y === 5, 'a fixed (dragged) node stays');
-	ok(![parent, leaf, aside].some(n => G.overlappingPairs([on_line, n], G.BOX_GAP).length), 'it is clear of the other boxes');
 }
 // ---- room for the label of a LAG bundle in a finished layout (2.73) ----
 {
