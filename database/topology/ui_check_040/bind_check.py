@@ -261,6 +261,18 @@ try:
     menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
     check('Bind to interface' in menu and 'Unbind' not in menu, 'after Unbind the menu offers "Bind to interface" again', menu)
 
+    print('=== a Port that a PORTS row took is a reported port (task 108) ===')
+    js("""(async () => { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', if_index: 2})}); return 1; })()""" % db("select id from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'"))
+    # the ingest step of the same change is tested on the server (test_bind_interface.php); here the page gets the data of such a Port: source reported, no binding
+    db("update topo_nodes set attrs = json_set(json_remove(attrs, '$.interface_name'), '$.source', 'reported', '$.name', 'Gi0/1') where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
+    js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
+    time.sleep(2.5)
+    wait("(%s)('Gi0/1')" % LINKS_ROW, 15)
+    text = js("(%s)('Gi0/1').textContent" % LINKS_ROW)
+    menu = js("Array.from((%s)('Gi0/1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
+    check('Gi0/1' in text and '→ Gi' not in text and 'p1' not in text, 'the reported Port shows its reported name only (no "→")', text)
+    check(not [m for m in menu if m in ('Rename', 'Delete', 'Bind to interface', 'Unbind')], 'it has no Rename, Delete, Bind or Unbind', menu)
+
     print('=== Depromote, delete the Device ===')
     click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
     click("document.querySelector('#topology-details .topology-depromote-button')")
