@@ -356,6 +356,7 @@ const view = new class {
 			this.relayout = true;
 			this.unfolded.clear();
 			this.group_nodes?.clear();
+			this.junction_cache?.clear();
 			this.view_size = null;
 		}
 		devices.forEach(node => {
@@ -2408,7 +2409,11 @@ const view = new class {
 				return;
 			}
 			const port_id = String(junction.port_id);
-			const junction_node = {id: `junction:${port_id}`, type: 'junction', parent: reporter, name: junction.port_name ?? '', label: junction.port_name ?? '', devices: members, junction};
+			// the node object is kept between drawings (as a group node is), so that its place is kept: an unfold of another group does not place it again (task 106)
+			this.junction_cache ??= new Map();
+			const junction_node = this.junction_cache.get(port_id) ?? {id: `junction:${port_id}`, type: 'junction'};
+			Object.assign(junction_node, {parent: reporter, name: junction.port_name ?? '', label: junction.port_name ?? '', devices: members, junction});
+			this.junction_cache.set(port_id, junction_node);
 			junction_nodes.push(junction_node);
 			junction_lines.push({type: 'junction_link', source: reporter, target: junction_node.id});
 			const carried = new Map();
@@ -2478,6 +2483,11 @@ const view = new class {
 			simulation_links.push(...junction_lines.filter(link => link.junction_id === junction_node.id || (link.type === 'junction_link' && link.target === junction_node.id)));
 		});
 		rendered_ids = new Set(nodes.map(node => String(node.id)));
+		{
+			// 2.90 (§12.1): the list is in the start order too (the collision step and the arcs walk it): by the label, the hardware ID and the kind, not by the id
+			const by_id = new Map(nodes.map(node => [String(node.id), node]));
+			nodes.sort((a, b) => G.compareNodes(a, b, by_id));
+		}
 		group_nodes.forEach(group_node => {
 			if (rendered_ids.has(group_node.id)) {
 				simulation_links.push({type: 'group_link', source: group_node.parent, target: group_node.id});
@@ -2591,12 +2601,8 @@ const view = new class {
 			else {
 				// §12.1 "Deterministic layout" (2.85): the same data and the same window give the same first layout: the start positions come from the nodes in the order of their id (a group node:
 				// after the numbers, by its text), and the simulation has a fixed seed and a fixed number of steps (a node of the list that came in another order does not change it)
-				const id_key = node => (/^\d+$/.test(String(node.id)) ? [0, Number(node.id), ''] : [1, 0, String(node.id)]);
-				const ordered = [...nodes].sort((a, b) => {
-					const x = id_key(a);
-					const y = id_key(b);
-					return x[0] - y[0] || x[1] - y[1] || x[2].localeCompare(y[2]);
-				});
+				// 2.90: by the label, the hardware ID and the kind (G.compareNodes), not by the id
+				const ordered = [...nodes].sort((a, b) => G.compareNodes(a, b, node_by_id));
 				ordered.forEach((node, index) => {
 					if (!Number.isFinite(node.x)) {
 						const angle = index * 2.399963;
@@ -2863,6 +2869,30 @@ const view = new class {
 					node.fy = undefined;
 				});
 			}
+		}
+		// 2.90 (task 106): the nodes that were held for the repair passes are free again, whatever branch the passes took (a Junction that stayed fixed made the leaf of the next unfold overlap it)
+		new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.temp_fixed !== true).forEach(node => {
+			if (node.drag_moved !== true && node.fixed_by_user !== true && node.fx !== undefined && node.fx !== null) {
+				node.fx = undefined;
+				node.fy = undefined;
+			}
+		});
+		// the moves for the lines can leave two boxes on each other (a node moved off a line onto a leaf of the arc): a last collision step, the leaves of the arcs and their parents stay
+		{
+			const keep_placed = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
+			keep_placed.forEach(node => {
+				node.fx = node.x;
+				node.fy = node.y;
+			});
+			// 2.90 (task 106): when the area has no free place left for a box, the area grows (as in the first collision step), else the overlap stays
+			for (let attempt = 0; attempt < 4 && !G.resolveOverlaps(nodes, {width, height, padding}); attempt++) {
+				width *= 1.15;
+				height *= 1.15;
+			}
+			keep_placed.forEach(node => {
+				node.fx = undefined;
+				node.fy = undefined;
+			});
 		}
 		this.view_size = {width, height, keep: true};
 		// 091 (§12.1 "Scale"): the view is the size of the window and the graph is drawn at scale 1 or more; the user pans (drag on the empty area) and zooms out (wheel). The double click

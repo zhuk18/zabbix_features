@@ -205,6 +205,30 @@
 	}
 
 	/**
+	 * The start order of the nodes (model §12.1 "Deterministic layout", 2.90): the label of the node (§12.2), then its hardware ID (`chassis_id`), then its kind (`type`). A group node or a Junction
+	 * has the key of its parent (`parent`, an id of `by_id`) and then its port (the Junction: the name of the port; a group node: none), after the parent. NOT the node id: a reset of the stand gives
+	 * the same data new ids, and the order, and with it the first layout, must not change. Returns a negative number, 0 or a positive number. Ties (the same label, hardware ID and kind) keep
+	 * the order of the list (Array.prototype.sort is stable); the ids are used last, only for that case.
+	 */
+	function compareNodes(a, b, by_id) {
+		const text = value => String(value ?? '');
+		const key = node => {
+			const parent = (node.type === 'group' || node.type === 'junction') && by_id ? by_id.get(String(node.parent)) : null;
+			const base = parent || node;
+			return [text(base.label), text(base.chassis_id), text(base.type), parent ? (node.type === 'group' ? '1' : '2') : '0', parent ? (node.type === 'junction' ? text(node.junction?.port_name ?? node.name) : '') : ''];
+		};
+		const x = key(a);
+		const y = key(b);
+		for (let i = 0; i < x.length; i++) {
+			if (x[i] !== y[i]) {
+				return x[i] < y[i] ? -1 : 1;
+			}
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Radial placement (model §12.1 "Node placement", "Order on a ring", 2.72): the focus host in the centre, a node at distance d on ring d, a node with no path to the focus host on the
 	 * outer ring. The order on a ring is the barycentre: a node of ring d+1 is placed at the mean angle of its neighbors on the inner rings, and the order of ring 1 follows its neighbors on the
 	 * outer rings (a few passes of the barycentre in both directions). A ring is as large as its boxes need: its radius grows until they fit. Returns the radius of the outer ring.
@@ -212,6 +236,7 @@
 	 */
 	function placeRadial(nodes, links, focus_id, center, measure = approxMeasure) {
 		const ids = nodes.map(node => node.id);
+		const order_ids = new Map(nodes.map(node => [String(node.id), node]));
 		const dist = distances(ids, links, focus_id);
 		const max_known = Math.max(0, ...dist.values());
 		const rings = new Map();
@@ -341,7 +366,7 @@
 			});
 			// by the wish; nodes without a wish keep their place at the end, by id
 			const key = node => (node.wish === undefined ? Infinity : ((node.wish % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI));
-			order.sort((a, b) => (key(a) - key(b)) || String(a.id).localeCompare(String(b.id)));
+			order.sort((a, b) => (key(a) - key(b)) || compareNodes(a, b, order_ids));
 			assign(ring, order);
 		};
 		nodes.forEach(node => {
@@ -355,7 +380,7 @@
 		// the first pass outwards: ring 1 by id, the others by their inner neighbors
 		outer.forEach(d => {
 			if (d === 1) {
-				const order = rings.get(1).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+				const order = rings.get(1).sort((a, b) => compareNodes(a, b, order_ids));
 				order.forEach(node => {
 					node.wish = undefined;
 				});
@@ -534,7 +559,7 @@
 				return;
 			}
 			// to the nearer edge of the sector, outside it by the angle that the box covers
-			const target = (angle - low) < (high - angle) ? low - half - 0.02 : high + half + 0.02;
+			const target = (angle - low) < (high - angle) ? low - half - 0.1 : high + half + 0.1;
 			node.x = parent.x + distance * Math.cos(mean + target);
 			node.y = parent.y + distance * Math.sin(mean + target);
 			moved.push(node);
@@ -1312,5 +1337,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

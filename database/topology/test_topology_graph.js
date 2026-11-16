@@ -573,4 +573,19 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	G.applyNearLoads(links, [{edge_id: '7', load: null}], 'A');
 	ok(links[0].source_load === null, 'a port of a link with no load gives null (no load line for that side)');
 }
+// the start order (model §12.1, 2.90, task 106): the label, then the hardware ID, then the kind; a group node and a Junction after their parent; never the node id
+{
+	const nodes = [
+		{id: '105', type: 'device', label: 'SW13', chassis_id: 'bb'}, {id: '9', type: 'device', label: 'SW12', chassis_id: 'aa'}, {id: '7', type: 'device', label: 'MikroTik', chassis_id: 'cc'},
+		{id: '8', type: 'device', label: 'MikroTik', chassis_id: 'ab'}, {id: 'group:105', type: 'group', parent: '105', label: '5 devices'}, {id: 'junction:22', type: 'junction', parent: '9', name: '6', junction: {port_name: '6'}},
+		{id: 'junction:23', type: 'junction', parent: '9', name: '10', junction: {port_name: '10'}}, {id: 'group:9', type: 'group', parent: '9', label: '3 devices'}
+	];
+	const order = list => { const by_id = new Map(list.map(node => [String(node.id), node])); return [...list].sort((a, b) => G.compareNodes(a, b, by_id)).map(node => node.id).join(' '); };
+	ok(order(nodes) === '8 7 9 group:9 junction:23 junction:22 105 group:105', 'compareNodes: by label, then hardware ID; a group node, then the Junctions (by port) after their parent', order(nodes));
+	// the same data with other ids (a reset of the stand): the same order of the data
+	const renumbered = nodes.map(node => ({...node, id: node.id.replace(/\d+/, d => String(1000 - Number(d))), parent: node.parent === undefined ? undefined : String(1000 - Number(node.parent))}));
+	const names = list => { const by_id = new Map(list.map(node => [String(node.id), node])); return [...list].sort((a, b) => G.compareNodes(a, b, by_id)).map(node => node.label ?? node.name).join('|'); };
+	ok(names(renumbered) === names(nodes), 'compareNodes: other ids, the same order', names(renumbered));
+	ok(order([...nodes].reverse()) === order(nodes), 'compareNodes: the order does not depend on the order of the list');
+}
 console.log('\nAll ' + n + ' topology graph checks passed.');
