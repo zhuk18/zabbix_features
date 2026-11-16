@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""task 102 §2 (model §11 `topology.ports.get`, 2.87): the time budget of the node panel: the panel of SW12 (58 ports, 11 links) is complete within 200 ms on the quiet VM (model §11, 2.88; 300 ms in 2.87). Five clicks on the node
+"""task 102 §2 (model §11 `topology.ports.get`, 2.87): the time budget of the node panel: the panel of SW12 (58 ports, 11 links) is complete within 300 ms on the quiet VM (the check fails above it) and the goal is 200 ms (model §11, 2.89; task 105 §4: the median and the goal are printed). Five clicks on the node
 in the graph (each after a click on SW13, so that the panel really changes), measured in the page from the click to the moment the panel of that node is registered (its last section is drawn);
 the median is checked. On a loaded VM (the 1-minute load average of the VM is 4 or more; the stand and the server alone give 2 to 3.5) the numbers are printed as a note and do not fail the check. Needs ZBX_UI_USER, ZBX_UI_PASSWORD,
 google-chrome and the office stand data. Exit code 1 when a check fails.
@@ -66,7 +66,8 @@ def select(js, label, kind=None):
 
 
 
-BUDGET_MS = 200
+FAIL_MS = 300      # the check fails above it (model 2.89 §11; 103 Q1)
+GOAL_MS = 200      # the goal: printed, not a failure
 chrome, ws, js = session()
 try:
     time.sleep(2)
@@ -92,9 +93,10 @@ try:
         click_and_time('SW13')
         times.append(click_and_time('SW12'))
     median = sorted(times)[len(times) // 2]
-    text = 'the panel of SW12 is complete in %.0f ms (median of 5 clicks; %s; budget %d ms; load average %.1f)' % (median, ', '.join('%.0f' % t for t in times), BUDGET_MS, load1)
+    text = 'the panel of SW12 is complete in %.0f ms (median of 5 clicks; %s; goal %d ms, the check fails above %d ms; load average %.1f)' % (median, ', '.join('%.0f' % t for t in times), GOAL_MS, FAIL_MS, load1)
+    print('  median %.0f ms, goal %d ms (%s)' % (median, GOAL_MS, 'goal met' if median <= GOAL_MS else 'goal not met'))
     if quiet:
-        check(median <= BUDGET_MS, text, times)
+        check(median <= FAIL_MS, text, times)
     else:
         print('  note: ' + text + ' - the VM is loaded, so this is not a failure')
 finally:
