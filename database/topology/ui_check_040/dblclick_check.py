@@ -118,6 +118,16 @@ try:
     after_parent = state()
     check(again['nodes'] > before['nodes'] and after_parent['nodes'] == before['nodes'] and parent_id not in after_parent['unfolded'], 'a double click on the parent folds the group (nodes %d → %d → %d)' % (before['nodes'], again['nodes'], after_parent['nodes']), after_parent)
     check(after_parent['k'] == before['k'] and ' devices at ' in after_parent['panel'] and after_parent['group_h2'] == 0, 'no zoom; the side panel shows the group', after_parent)
+    # task 109 (§12.8: a fold or an unfold never moves the view): the group is unfolded, the view is panned so that the parent is outside the window, the group is folded and its panel opens: the view stays
+    # (the panel of a selected object pans to it when it is outside the window; not after a fold)
+    js("""(() => { const id = '%s'; view.unfoldGroup(id); const n = view.drawn_nodes.find(d => String(d.id) === id); const t = view.zoom_transform;
+        view.canvas.call(view.zoom.transform, d3.zoomIdentity.translate(-300 - n.x * t.k, %d / 2 - n.y * t.k).scale(t.k)); })()""" % (parent_id, a.height))
+    time.sleep(0.5)
+    outside = state()
+    js("""(() => { const id = '%s'; view.foldGroup(id); view.showGroup(view.leaf_groups.find(g => String(g.parent) === id)); })()""" % parent_id)
+    time.sleep(1.5)
+    after_outside = state()
+    check((after_outside['k'], after_outside['tx'], after_outside['ty']) == (outside['k'], outside['tx'], outside['ty']) and ' devices at ' in after_outside['panel'], 'a fold with the parent outside the window does not move the view (the panel of the group does not pan to it)', [outside, after_outside])
     # a double click on the empty area: nothing (no zoom: dblclick.zoom is off)
     empty = js("(() => { const b = document.getElementById('topology-canvas').getBoundingClientRect(); return {x: b.left + 12, y: b.bottom - 12}; })()")
     pos = where("document.elementFromPoint(%f, %f)" % (empty['x'], empty['y']))

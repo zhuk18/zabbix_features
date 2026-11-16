@@ -740,7 +740,7 @@ const view = new class {
 		if (!drawn) {
 			this.details.insertAdjacentHTML('afterbegin', `<p class="topology-not-in-view">${this.escape(<?= json_encode(_('Not in this view')) ?>)}</p>`);
 		}
-		this.applySelection(true);
+		this.applySelection(!(this.keep_view_until > Date.now()));      // task 109: no pan to the object of the panel that a fold or an unfold opens
 		const entry = this.panel_stack[this.panel_stack.length - 1];
 		if (entry) {
 			this.details.insertAdjacentHTML('afterbegin', `<div class="topology-back"><button type="button" class="btn-link topology-back-button" title="${this.escape(entry.title)}">` +
@@ -2108,12 +2108,14 @@ const view = new class {
 	// Leaf group (§12.8): the click on its node unfolds it, "Fold <N> devices" folds it. The state is kept until the page is loaded or the filter applied, not stored.
 	unfoldGroup(parent_id) {
 		this.user_moved = true;      // an unfold or a fold is the user's action: the view does not jump to the centre again
+		this.keep_view_until = Date.now() + 3000;      // and the panel that follows (the group, the parent) does not pan to its object either (task 109, §12.8: a fold or an unfold never moves the view)
 		this.unfolded.add(String(parent_id));
 		this.render();
 	}
 
 	foldGroup(parent_id) {
 		this.user_moved = true;
+		this.keep_view_until = Date.now() + 3000;      // see unfoldGroup()
 		this.unfolded.delete(String(parent_id));
 		this.render();
 	}
