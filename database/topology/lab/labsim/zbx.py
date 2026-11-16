@@ -149,10 +149,10 @@ def provision(api, scenario, prune=False, log=print):
         d = main.get('details') or {}
         if (main['ip'], main['port'], main['useip'], d.get('community'), d.get('version'), d.get('bulk')) != \
                 (w['ip'], str(w['port']), '1', w['community'], '2', '1'):
-            api.call('hostinterface.update', {'interfaceid': main['interfaceid'], 'ip': w['ip'], 'port': str(w['port']),
-                                             'dns': '', 'useip': '1', 'details': snmp_details(w)})
-            log('  updated interface of %s' % name)
-            changed = True
+            # Zabbix 8.x has no hostinterface.update: the interface goes through host.update (the interface with its id is updated, the others stay), task 106
+            others = [{'interfaceid': i['interfaceid']} for i in h['interfaces'] if i['interfaceid'] != main['interfaceid']]
+            changes['interfaces'] = [{'interfaceid': main['interfaceid'], 'type': '2', 'main': '1', 'ip': w['ip'], 'port': str(w['port']), 'dns': '', 'useip': '1', 'details': snmp_details(w)}] + others
+            log('  updating the interface of %s' % name)
         if changes:
             api.call('host.update', dict({'hostid': h['hostid']}, **changes))
             changed = True
