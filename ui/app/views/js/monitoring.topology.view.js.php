@@ -2471,6 +2471,9 @@ const view = new class {
 		// a projection is drawn with its reporter and at least two of its Devices (the others of the view may be folded into a group or hidden)
 		const drawn_before = new Set(nodes.map(node => String(node.id)));
 		junction_nodes.filter(junction_node => drawn_before.has(junction_node.parent) && junction_node.devices.filter(id => drawn_before.has(id)).length >= 2).forEach(junction_node => {
+			// 2.89 (§12.2): the label of the node is "<reporter> <port>"
+			const reporter_label = nodes.find(node => String(node.id) === junction_node.parent)?.label ?? junction_node.junction.device_name ?? '';
+			junction_node.label = `${reporter_label} ${junction_node.junction.port_name ?? ''}`.trim();
 			nodes.push(junction_node);
 			simulation_links.push(...junction_lines.filter(link => link.junction_id === junction_node.id || (link.type === 'junction_link' && link.target === junction_node.id)));
 		});
@@ -2507,6 +2510,69 @@ const view = new class {
 			});
 		};
 		const new_arcs = [];      // the arcs of this drawing: {parent, leaves}
+		// 2.89 (§12.6 "Placement"): a Junction is placed like a leaf of its reporter, and its Devices that have no other line (the private members) on an arc around the Junction. The other members stay
+		// where the layout puts them
+		const junction_groups = nodes.filter(node => node.type === 'junction').map(junction_node => {
+			const degree = id => simulation_links.filter(link => link.source === id || link.target === id).length;
+			return {junction: junction_node, reporter: node_by_id.get(junction_node.parent),
+				members: junction_node.devices.filter(id => node_by_id.has(id) && degree(id) === 1).map(id => node_by_id.get(id))};
+		}).filter(group => group.reporter);
+		const junction_owned = new Set(junction_groups.flatMap(group => [String(group.junction.id), ...group.members.map(member => String(member.id))]));
+		const place_junctions = (all) => {
+			junction_groups.forEach(({junction, reporter, members}) => {
+				if (!Number.isFinite(reporter.x)) {
+					return;
+				}
+				const owned = new Set([junction, ...members]);
+				// the angles that a parent must keep free: its lines to nodes that are not in the group, and the nodes near it
+				const angles_of = parent => {
+					const result = simulation_links.filter(link => link.source === String(parent.id) || link.target === String(parent.id)).map(link => {
+						const other = node_by_id.get(link.source === String(parent.id) ? link.target : link.source);
+						return other && Number.isFinite(other.x) && !owned.has(other) ? Math.atan2(other.y - parent.y, other.x - parent.x) : null;
+					}).filter(angle => angle !== null);
+					nodes.forEach(other => {
+						if (other !== parent && !owned.has(other) && Number.isFinite(other.x) && Math.hypot(other.x - parent.x, other.y - parent.y) < 420) {
+							const distance = Math.hypot(other.x - parent.x, other.y - parent.y);
+							result.push({angle: Math.atan2(other.y - parent.y, other.x - parent.x), half: Math.asin(Math.min(0.99, (Math.hypot(other.box.w, other.box.h) / 2 + 8) / Math.max(distance, 1)))});
+						}
+					});
+					return result;
+				};
+				const fix = (placed) => placed.forEach(({node, x, y}) => {
+					node.x = x;
+					node.y = y;
+					node.fx = x;
+					node.fy = y;
+					node.temp_fixed = true;
+				});
+				const fresh_junction = all || !Number.isFinite(junction.x);
+				if (fresh_junction) {
+					junction.x = undefined;
+					junction.y = undefined;
+					if (reporter.fx === undefined || reporter.fx === null) {
+						reporter.fx = reporter.x;
+						reporter.fy = reporter.y;
+						reporter.temp_fixed = true;
+					}
+					fix(G.arcPlace(reporter, [junction], angles_of(reporter)));
+					G.clearSector(reporter, [junction], nodes.filter(other => Number.isFinite(other.x) && !owned.has(other)));
+					new_arcs.push({parent: reporter, leaves: [junction]});
+				}
+				const to_place = (fresh_junction ? members : members.filter(member => !Number.isFinite(member.x))).sort((a, b) => String(a.label).localeCompare(String(b.label), undefined, {numeric: true}));
+				if (to_place.length) {
+					if (junction.fx === undefined || junction.fx === null) {
+						junction.fx = junction.x;
+						junction.fy = junction.y;
+						junction.temp_fixed = true;
+					}
+					const arc = G.arcPlace(junction, to_place, angles_of(junction).concat([{angle: Math.atan2(reporter.y - junction.y, reporter.x - junction.x), half: 0.5}]));
+					(this.arc_info ??= new Map()).set(String(junction.id), arc.info);
+					fix(arc);
+					G.clearSector(junction, to_place, nodes.filter(other => Number.isFinite(other.x) && !owned.has(other)));
+					new_arcs.push({parent: junction, leaves: to_place});
+				}
+			});
+		};
 		if (relayout) {
 			nodes.forEach(node => {
 				if (node.fx === undefined || node.fx === null) {
@@ -2577,12 +2643,13 @@ const view = new class {
 					simulation.tick();
 				}
 			}
+			place_junctions(true);
 		}
 		else {
 			// 2.72 (§12.8): the nodes that have no place yet (the leaves of a group that was just unfolded, the group node of a fold, a node that appeared) go on an arc around the node
 			// they are linked to, in its largest free angle, in the order of the parent's local port; the radius grows to fit. The nodes that were placed stay unless they are in the
 			// way: the collision step moves them away (a dragged node does not move).
-			const fresh = nodes.filter(node => !Number.isFinite(node.x) || !Number.isFinite(node.y));
+			const fresh = nodes.filter(node => (!Number.isFinite(node.x) || !Number.isFinite(node.y)) && !junction_owned.has(String(node.id)));
 			const by_parent = new Map();
 			fresh.forEach(node => {
 				const link = simulation_links.find(candidate => (candidate.source === String(node.id) || candidate.target === String(node.id)));
@@ -2656,6 +2723,7 @@ const view = new class {
 				G.clearSector(parent, leaves.map(leaf => leaf.node), nodes.filter(other => Number.isFinite(other.x)));
 				new_arcs.push({parent, leaves: leaves.map(leaf => leaf.node)});
 			});
+			place_junctions(false);
 		}
 		// the collision step: no box (shape and label) overlaps another; too small an area → a larger one
 		// the nodes that are fixed (the leaves of an arc, a dragged node) keep their place: the area grows to hold them

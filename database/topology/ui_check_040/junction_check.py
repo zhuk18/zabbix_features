@@ -84,10 +84,17 @@ try:
     print('=== %s port %s: %d Devices %s ===' % (junction['device'], junction['port'], len(junction['devices']), junction['devices']))
     node_id = 'junction:' + junction['port_id']
     node = js("(() => { const n = view.drawn_nodes.find(n => n.id === '%s'); return n ? {type: n.type, size: n.size, w: n.shape_w, label: n.label_text, members: n.devices.length} : null; })()" % node_id)
-    check(node is not None and node['type'] == 'junction' and node['w'] == 14 and node['label'] == junction['port'], 'one node on the anchor Port, a small circle labelled with the Port', node)
+    check(node is not None and node['type'] == 'junction' and node['w'] == 14 and node['label'].endswith(' ' + junction['port']), 'one node on the anchor Port, a small circle labelled "<reporter> <port>" (2.89)', node)
     lines = js("""(() => { const own = view.drawn_links.filter(l => (l.source.id === '%s' || l.target.id === '%s')); return {junction_link: own.filter(l => l.type === 'junction_link').length,
         junction_member: own.filter(l => l.type === 'junction_member').length}; })()""" % (node_id, node_id))
     check(lines['junction_link'] == 1 and lines['junction_member'] == len(junction['devices']), 'a line from the reporter and a line to each Device', lines)
+    # 2.89 (§12.6 "Placement"): the node next to its reporter like a leaf, its Devices on an arc around it (radius at most 200 + 50 px of the second row, §12.8), no line through a node
+    near = js("""(() => { const n = view.drawn_nodes.find(n => n.id === '%s'); const r = view.drawn_nodes.find(m => m.id === n.parent);
+        const members = view.drawn_links.filter(l => l.type === 'junction_member' && (l.source.id === n.id || l.target.id === n.id)).map(l => l.source.id === n.id ? l.target : l.source);
+        const lines = view.drawn_links.filter(l => ['junction_link', 'junction_member'].includes(l.type) && (l.source.id === n.id || l.target.id === n.id));
+        return {to_reporter: Math.round(Math.hypot(n.x - r.x, n.y - r.y)), to_members: members.map(m => Math.round(Math.hypot(n.x - m.x, n.y - m.y))),
+            through: lines.flatMap(l => view.drawn_nodes.filter(o => o !== l.source && o !== l.target && TopologyGraph.lineCrossesNode({a: l.source, b: l.target, index: 0, count: 1}, o, 2)).map(o => o.label_text + ' on ' + l.type))}; })()""" % node_id)
+    check(near['to_reporter'] <= 200 and all(60 <= d <= 260 for d in near['to_members']) and not near['through'], 'the node is next to its reporter, its Devices on an arc around it, no Junction line through a node', near)
     direct = js("""(() => view.drawn_links.filter(l => l.type === 'physical_link' && [String(l.source_port_id), String(l.target_port_id)].includes('%s')).length)()""" % junction['port_id'])
     check(direct == 0, 'no direct line of the Port to a Device behind it is drawn', direct)
     stored = db_count("SELECT COUNT(*) FROM topo_nodes WHERE type NOT IN ('device','port','host','proxy')") + db_count("SELECT COUNT(*) FROM topo_edges WHERE type NOT IN ('physical_link','device_link')")
