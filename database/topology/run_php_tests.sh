@@ -242,6 +242,8 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	page_test "page: Junction projection (node, lines, panel, Back)" /tmp/topo_t_junction_page.log python3 "$here/ui_check_040/junction_check.py"
 	# a manual Device: the create dialog, the panel, a manual port, a link, edit, delete (099; the database login of the harness, `mysql -uzabbix zabbix`)
 	page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
+	# Bind to interface (107): create, link, Promote to a lab host, Bind / Unbind with real mouse events, the load of the interface, the refusal, Depromote, Delete; nothing is left
+	page_test "page: Bind to interface (dialog, bound port, load, refusal, Unbind)" /tmp/topo_t_bind_page.log python3 "$here/ui_check_040/bind_check.py"
 	# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)
 	page_test "page: deterministic first layout (10 + 10 loads)" /tmp/topo_t_determinism.log python3 "$here/ui_check_040/determinism_check.py"
 	# the time budget of the node panel: SW12 is complete within 300 ms on the quiet VM, the goal 200 ms is printed (a note on a loaded one) (102, 105)

@@ -1392,7 +1392,7 @@ const view = new class {
 				status: port.status, source: port.source === 'Manual' ? 'Manual' : 'LLDP', source_text: this.sourceText(port.source === 'Manual' ? 'manual' : relation?.discovery_source ?? 'lldp'),
 				load: port.load ?? null, stale: Boolean(port.stale), last_seen: port.last_seen ?? null, superseded_at: null, lag_id: port.lag_id ?? null, lag: port.lag ?? null,
 				remote_lag_id: port.remote_lag_id ?? null, remote_lag: port.remote_lag ?? null, device_link_id: port.device_link_id ?? null, linked_port_id: port.linked_port_id ?? null,
-				severity: relation?.severity ?? null, color: relation?.color ?? null
+				severity: relation?.severity ?? null, color: relation?.color ?? null, manual: Boolean(port.manual), binding: port.binding ?? null
 			};
 		});
 		const known = new Set(entries.map(entry => String(entry.edge_id)));
@@ -1467,8 +1467,12 @@ const view = new class {
 		else if (entry.linked_port_id) {
 			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-unlink-button', attrs: `data-port-id="${esc(entry.port_id)}" data-linked-port-id="${esc(entry.linked_port_id)}"`});
 		}
-		const ports_text = `${entry.port ?? '?'} ↔ ${entry.remote_port ?? '?'}`;
-		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(entry.port ?? '?', 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
+		if (entry.manual) {
+			items.push(...this.bindItems(entry.port_id, entry.port, entry.binding));
+		}
+		const own_port = this.boundPortText(entry.port ?? '?', entry.binding);
+		const ports_text = `${own_port} ↔ ${entry.remote_port ?? '?'}`;
+		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(own_port, 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
 			// a part with no value is left out with its separator (§12.5, 2.84)
 			status !== '' ? `<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>` : null,
 			entry.source_text ? `<span class="topology-link-source">${esc(entry.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
@@ -1630,6 +1634,7 @@ const view = new class {
 	showNodePanel(node, {device, problems, groups, addresses}) {
 		const G = TopologyGraph;
 		this.hideDetailsTitle();
+		this.panel_device = device;      // the menus of a manual port (Bind to interface) need to know whether the Device is associated with a host
 		const entries = device && groups ? this.linkEntries(device, groups) : [];
 		const rows = G.linkRows(entries);
 		const sections = G.panelSections(node.type, Boolean(device)).map(section => {
@@ -1781,6 +1786,32 @@ const view = new class {
 		});
 	}
 
+	// "Bind to interface" (§9.7, 2.91): the text of a manual port that is bound, "lan0 → Gi0/1", or "lan0 (interface not found)" when its items are gone
+	boundPortText(port, binding) {
+		if (!binding) {
+			return port;
+		}
+
+		return binding.missing ? `${port} (${<?= json_encode(_('interface not found')) ?>})` : `${port} → ${binding.name ?? binding.if_index}`;
+	}
+
+	// The menu items of a manual port of an associated Device: "Bind to interface" (also for a stale binding, whose items are gone) and "Unbind" when it is bound. A Device without an association has neither.
+	bindItems(port_id, port_name, binding) {
+		if (!this.panel_device || !this.panel_device.represented || !this.panel_device.manual) {
+			return [];
+		}
+		const attrs = `data-port-id="${this.escape(port_id)}" data-name="${this.escape(port_name)}"`;
+		const items = [];
+		if (!binding || binding.missing) {
+			items.push({label: <?= json_encode(_('Bind to interface')) ?>, cls: 'topology-port-bind', attrs});
+		}
+		if (binding) {
+			items.push({label: <?= json_encode(_('Unbind')) ?>, cls: 'topology-port-unbind', attrs});
+		}
+
+		return items;
+	}
+
 	// The Ports section (§12.5, 2.75): the port groups of the Device except Connected (that is the Links section), each folded by default with its counts in the header: "No neighbor (5 up,
 	// 30 down)", "Port-channel (4)". The rules of the groups do not change (§12.5 "Port table groups").
 	buildPortGroups(groups, open = true) {
@@ -1816,12 +1847,13 @@ const view = new class {
 			</colgroup><thead><tr>${[<?= json_encode(_('Port')) ?>, <?= json_encode(_('Status')) ?>, <?= json_encode(_('Connected to')) ?>, <?= json_encode(_('Source')) ?>]
 				.map(header => `<th title="${this.escape(header)}">${this.escape(header)}</th>`).join('')}<th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
-				<td class="topology-port-name" title="${this.escape(port.port)}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(port.port)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
+				<td class="topology-port-name" title="${this.escape(this.boundPortText(port.port, port.binding))}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(this.boundPortText(port.port, port.binding))}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
 				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
 				<td>${link_button(port)}${port.manual ? this.menuHtml([
 					{label: <?= json_encode(_('Rename')) ?>, cls: 'topology-port-rename', attrs: `data-port-id="${this.escape(port.id)}" data-name="${this.escape(port.port)}" data-description="${this.escape(port.description ?? '')}"`},
+					...this.bindItems(port.id, port.port, port.binding),
 					{label: <?= json_encode(_('Delete')) ?>, cls: 'topology-port-delete', attrs: `data-port-id="${this.escape(port.id)}" data-name="${this.escape(port.port)}"`}
 				], <?= json_encode(_('Port actions')) ?>) : ''}</td>
 			</tr>`).join('')}
@@ -1931,6 +1963,15 @@ const view = new class {
 		this.details.querySelectorAll('.topology-port-rename').forEach(item => item.addEventListener('click', () => this.guard(async () => {
 			this.closeMenus();
 			await this.portDialog(device, reselect_node, {id: item.dataset.portId, name: item.dataset.name, description: item.dataset.description});
+		})));
+		this.details.querySelectorAll('.topology-port-bind').forEach(item => item.addEventListener('click', () => this.guard(async () => {
+			this.closeMenus();
+			await this.bindDialog(device, reselect_node, {id: item.dataset.portId, name: item.dataset.name});
+		})));
+		this.details.querySelectorAll('.topology-port-unbind').forEach(item => item.addEventListener('click', () => this.guard(async () => {
+			this.closeMenus();
+			await this.request('topology.ports.unbind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: item.dataset.portId})});
+			await this.selectNode(reselect_node);
 		})));
 		this.details.querySelectorAll('.topology-port-delete').forEach(item => item.addEventListener('click', () => this.guard(async () => {
 			this.closeMenus();
@@ -2356,6 +2397,54 @@ const view = new class {
 			],
 			dialogueid: 'topology-port-dialog'
 		}, {dialogueid: 'topology-port-dialog'});
+		form.addEventListener('submit', event => event.preventDefault());
+	}
+
+	// Bind a manual port to an interface of the host of its Device (§9.7, 2.91): the list of the interfaces with the name and the index; one that another Port has is shown with that Port and not selectable.
+	async bindDialog(device, reselect_node, port) {
+		const esc = value => this.escape(value);
+		const request = (action, body) => this.request(action, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+		const answer = await request('topology.ports.interfaces', {id: port.id});
+		const interfaces = answer.interfaces ?? [];
+		const form = document.createElement('form');
+		form.setAttribute('autocomplete', 'off');
+		const rows = interfaces.map(item => {
+			const taken = item.port && String(item.port.id) !== String(port.id);
+			return `<tr class="topology-bind-row"><td><input type="radio" name="topology-bind-interface" value="${esc(item.if_index)}" id="topology-bind-${esc(item.if_index)}"${taken ? ' disabled' : ''}${item.port && !taken ? ' checked' : ''}></td>` +
+				`<td><label for="topology-bind-${esc(item.if_index)}">${esc(item.name)}</label></td><td>${esc(item.if_index)}</td>` +
+				`<td>${taken ? esc(<?= json_encode(_('used by %1$s')) ?>.replace('%1$s', item.port.name)) : ''}</td></tr>`;
+		}).join('');
+		form.innerHTML = `<output class="topology-dialog-error" hidden></output>` + (interfaces.length
+			? `<div class="topology-bind-list"><table class="list-table topology-bind-table"><thead><tr><th></th><th>${esc(<?= json_encode(_('Interface')) ?>)}</th><th>${esc(<?= json_encode(_('Index')) ?>)}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+			: `<div class="topology-empty">${esc(<?= json_encode(_('The host has no interfaces that you can read.')) ?>)}</div>`);
+		overlayDialogue({
+			title: <?= json_encode(_('Bind to interface')) ?>.concat(' – ', port.name),
+			content: form,
+			class: 'modal-popup modal-popup-medium',
+			buttons: [
+				{title: <?= json_encode(_('Bind')) ?>, class: 'dialogue-widget-save', isSubmit: true, focused: true, action: overlay => {
+					const output = form.querySelector('.topology-dialog-error');
+					const chosen = form.querySelector('input[name="topology-bind-interface"]:checked');
+					if (!chosen) {
+						output.textContent = <?= json_encode(_('Choose an interface.')) ?>;
+						output.hidden = false;
+						overlay.unsetLoading();
+						return false;
+					}
+					request('topology.ports.bind', {id: port.id, if_index: Number(chosen.value)}).then(async () => {
+						overlayDialogueDestroy(overlay.dialogueid);
+						await this.selectNode(reselect_node);
+					}).catch(exception => {
+						output.textContent = exception.message;
+						output.hidden = false;
+						overlay.unsetLoading();
+					});
+					return false;
+				}},
+				{title: <?= json_encode(_('Cancel')) ?>, class: 'btn-alt', cancel: true, action: () => {}}
+			],
+			dialogueid: 'topology-bind-dialog'
+		}, {dialogueid: 'topology-bind-dialog'});
 		form.addEventListener('submit', event => event.preventDefault());
 	}
 
