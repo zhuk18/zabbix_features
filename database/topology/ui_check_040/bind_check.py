@@ -74,7 +74,8 @@ def select(js, label, kind=None):
 
 
 def left_over():
-    return db("select count(*) from topo_nodes where (type = 'device' or type = 'port') and json_unquote(json_extract(attrs, '$.source')) = 'manual'")
+    # task 109: only the Device of this check (BIND-TEST) and its ports; a manual Device that the operator made by hand is not counted
+    return db("select count(*) from topo_nodes where (type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual' and json_unquote(json_extract(attrs, '$.sysname')) = 'BIND-TEST') or (type = 'port' and device_id in (select id from (select id from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.sysname')) = 'BIND-TEST') d))")
 
 
 chrome, ws, js = session()
@@ -289,7 +290,7 @@ finally:
         db("delete from %s where itemid = %s and clock = %d" % (table, itemid, clock))
     db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual' and json_unquote(json_extract(attrs, '$.sysname')) = 'BIND-TEST'")
     chrome.kill()
-check(left_over() == '0' and db("select count(*) from topo_edges e left join topo_nodes a on a.id = e.src_id where a.id is null") == '0', 'nothing is left: no manual Device, no manual port, no link', left_over())
+check(left_over() == '0' and db("select count(*) from topo_edges e left join topo_nodes a on a.id = e.src_id where a.id is null") == '0', 'nothing of this check is left: no BIND-TEST Device, no port of it, no dangling link', left_over())
 if host:
     check(db("select count(*) from topo_nodes where type = 'host' and host_ref = %s and represented_by_node_id is null" % host[0]) in ('0', '1') and db("select count(*) from topo_nodes where represented_by_node_id is not null and type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual'") == '0', 'the host is not represented by a manual Device any more')
     check(history_rows(host[0]) == HISTORY_BEFORE, 'no history row of the check is left (%s rows of the host before and after)' % HISTORY_BEFORE, history_rows(host[0]))

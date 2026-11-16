@@ -11,6 +11,15 @@ import page_shot as P
 def db_count(statement):
     return int(subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip() or '-1')
 
+
+def manual_edge_ids():
+    """The ids of the manual links that exist now (task 109: a check asserts only on the link it made itself; the operator may have made others by hand)."""
+    out = subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', "select id from topo_edges where json_unquote(json_extract(attrs, '$.discovered_via')) = 'manual'"], capture_output=True, text=True).stdout
+    return {int(line) for line in out.split() if line.strip().isdigit()}
+
+
+MADE_BY_THIS_CHECK = set()
+
 if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     print('ZBX_UI_USER and ZBX_UI_PASSWORD are needed')
     sys.exit(2)
@@ -249,6 +258,7 @@ try:
     click_node('SW12')
     js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).forEach(d => { d.open = true; })")
     free12 = js("(() => { const r = document.querySelector('#topology-details details[data-group=\"no_neighbor\"] tbody tr'); return r ? r.querySelector('.topology-port-name').textContent.trim() : null; })()")
+    manual_before = manual_edge_ids()
     js("document.querySelector('#topology-details details[data-group=\"no_neighbor\"] tbody tr .topology-link-button').click()")
     click_node('SW13')
     js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).forEach(d => { d.open = true; })")
@@ -256,11 +266,14 @@ try:
     time.sleep(4)
     host_panel('after a Link (the view is read again): the Host panel of SW13', 'SW13')
     n_links = js("document.querySelectorAll('#topology-details .topology-link-row').length")
-    # only the manual link that this check made: the row whose source is "manual"
-    js("(() => { const row = Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => { const x = r.querySelector('.topology-link-source'); return x && x.textContent.trim().toLowerCase() === 'manual'; }); row.querySelector('.topology-unlink-button').click(); })()")
+    # only the manual link that this check made: its id is the manual link that was not there before the Link; its row is the one whose data-edges has it
+    made = manual_edge_ids() - manual_before
+    MADE_BY_THIS_CHECK.update(made)
+    check(len(made) == 1, 'the Link made one manual link (its id is %s)' % sorted(made), [sorted(made), sorted(manual_before)])
+    js("""(() => { const id = '%s'; const row = Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => (r.dataset.edges || '').split(',').includes(id)); row.querySelector('.topology-unlink-button').click(); })()""" % (sorted(made)[0] if made else ''))
     time.sleep(4)
     host_panel('after an Unlink (the view is read again): the Host panel of SW13', 'SW13')
-    check(db_count("select count(*) from topo_edges where json_unquote(json_extract(attrs, '$.discovered_via')) = 'manual'") == 0, 'no manual link is left in the database')
+    check(not (manual_edge_ids() & MADE_BY_THIS_CHECK) and manual_before <= manual_edge_ids(), 'the link that this check made is gone; the manual links that were there before are untouched', [sorted(manual_edge_ids()), sorted(MADE_BY_THIS_CHECK), sorted(manual_before)])
 
     print('=== Identity: the list of bits wraps only after a comma (task 101 §5) ===')
     found = None
@@ -294,6 +307,9 @@ try:
     time.sleep(1)
     check(js(LEG)['hidden'], 'the Legend button closes it again')
 finally:
+    # the cleanup: the link of this check, by its own id, when the run stopped before the Unlink; nothing else
+    for edge_id in MADE_BY_THIS_CHECK:
+        subprocess.run(['mysql', '-uzabbix', 'zabbix', '-e', 'delete from topo_edges where id = %d' % edge_id], capture_output=True)
     chrome.kill()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All toggle and Back checks passed.'))
 sys.exit(1 if failed else 0)

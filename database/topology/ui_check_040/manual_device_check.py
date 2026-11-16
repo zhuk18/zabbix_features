@@ -71,10 +71,11 @@ def db(statement):
 
 
 def left_over():
-    return db("select count(*) from topo_nodes where (type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual') or (type = 'port' and json_unquote(json_extract(attrs, '$.source')) = 'manual')")
+    # task 109: only the Device of this check (ISP-Router) and its ports; a manual Device that the operator made by hand is not counted
+    return db("select count(*) from topo_nodes where (type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual' and json_unquote(json_extract(attrs, '$.sysname')) = 'ISP-Router') or (type = 'port' and device_id in (select id from (select id from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.sysname')) = 'ISP-Router') d))")
 
 
-db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual'")
+db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual' and json_unquote(json_extract(attrs, '$.sysname')) = 'ISP-Router'")
 chrome, ws, js = session()
 
 
@@ -243,7 +244,7 @@ try:
           'nothing is left in the database: no manual Device, no manual port, no link', [left_over(), db("select count(*) from topo_edges where id = %s" % edge)])
     check(db("select count(*) from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = '%s' and json_unquote(json_extract(attrs, '$.if_index')) is not null" % port) != '0', 'the port %s of SW12 stays' % port)
 finally:
-    db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual'")
+    db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual' and json_unquote(json_extract(attrs, '$.sysname')) = 'ISP-Router'")
     chrome.kill()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All manual Device checks passed.'))
 sys.exit(1 if failed else 0)
