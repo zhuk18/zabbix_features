@@ -2547,7 +2547,7 @@ const view = new class {
 
 					return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 				};
-				const force_links = simulation_links.map(link => ({source: node_by_id.get(link.source), target: node_by_id.get(link.target)}));
+				const force_links = simulation_links.map(link => ({source: node_by_id.get(link.source), target: node_by_id.get(link.target), near: ['junction_link', 'junction_member'].includes(link.type)}));
 				const collide = () => {
 					for (let i = 0; i < ordered.length; i++) {
 						for (let j = i + 1; j < ordered.length; j++) {
@@ -2566,7 +2566,7 @@ const view = new class {
 					}
 				};
 				const simulation = d3.forceSimulation(ordered).randomSource(seeded)
-					.force('link', d3.forceLink(force_links).distance(130).strength(0.6))
+					.force('link', d3.forceLink(force_links).distance(link => link.near ? 75 : 130).strength(link => link.near ? 1 : 0.6))
 					.force('charge', d3.forceManyBody().strength(-380))
 					.force('center', d3.forceCenter(width / 2, height / 2))
 					.force('x', d3.forceX(width / 2).strength(0.03))

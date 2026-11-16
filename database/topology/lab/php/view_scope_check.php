@@ -103,6 +103,18 @@ function drawn_name(string $device_id): string {
 	return 'Device '.CTopologyPrototype::nodeLabel('device', null, $a['sysname'] ?? null, $a['chassis_id'] ?? null, $a['mgmt_ip'] ?? null);
 }
 
+/** §12.6 (task 104): the Devices behind a Junction projection are drawn with the reporter of its Port (they have no link of their own), so they belong to the scope of a view that has the reporter. */
+function junction_members(array $reporter_ids): array {
+	$out = [];
+	foreach (CTopologyPrototype::getJunctions(array_values(array_unique(array_map('strval', $reporter_ids)))) as $junction) {
+		foreach ($junction['devices'] as $device) {
+			$out[] = (string) $device['id'];
+		}
+	}
+
+	return $out;
+}
+
 $d13 = device_of_host($sw13);
 $d12 = device_of_host($sw12);
 $n13 = neighbor_devices($d13);
@@ -128,7 +140,7 @@ $n2 = $n13;
 foreach ($n13 as $n) {
 	$n2 = array_merge($n2, neighbor_devices($n));
 }
-$expected = array_values(array_unique(array_map('drawn_name', array_merge([$d13], $n2))));
+$expected = array_map('drawn_name', array_values(array_unique(array_merge([$d13], $n2, junction_members(array_merge([$d13], $n2))))));
 sort($expected);
 check($d['nodes'] === $expected, 'also the direct neighbors of SW12 (and of the other neighbors of SW13), as Hosts where they have one');
 foreach (['SW14-10-ACC-6000-48G', 'SW15-10-POE-6000-24G', 'SW18-09-ACC-2530-48G', 'SW20-07-ACC-2530-48G', 'zbx-office-gw1', 'zbx-office-gw2'] as $h) {
@@ -143,7 +155,7 @@ $want = ['Host SW12-10-CORE-6000-48G', 'Host SW13-10-ACC-6000-48G', 'Host SW14-1
 	'Host SW20-07-ACC-2530-48G', 'Host zbx-office-gw1', 'Host zbx-office-gw2'];
 check(!array_diff($want, $d['nodes']), 'SW13, SW14, SW15, SW18, SW20, gw1, gw2 as Hosts');
 $extra = array_values(array_diff($d['nodes'], $want));
-$expected = array_values(array_unique(array_map('drawn_name', array_merge([$d12], $n12))));
+$expected = array_map('drawn_name', array_values(array_unique(array_merge([$d12], $n12, junction_members(array_merge([$d12], $n12))))));
 sort($expected);
 check($d['nodes'] === $expected, 'and the other direct neighbors of SW12 (Devices without a Host): '.json_encode($extra));
 check(in_array('physical_link Host zbx-office-gw1 — Host zbx-office-gw2', $d['links'], true), 'the gw1–gw2 link');

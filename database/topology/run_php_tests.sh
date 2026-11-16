@@ -220,7 +220,11 @@ if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v goog
 	page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
 	page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
 	page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
+	# the subject of the switch is a Device with no link at all: since the Junction projection (104) draws the three MikroTik Devices of SW18 port 6, the check makes one of its own for the
+	# time of the check (a Device row with a name that no scenario uses; the next reset clears it too)
+	mysql -uzabbix zabbix -e "INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '{\"sysname\":\"ZZ-NO-LINK-CHECK\",\"chassis_id\":\"ZZ-NO-LINK-CHECK\"}', 0, 0)" 2>/dev/null
 	page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
+	mysql -uzabbix zabbix -e "DELETE FROM topo_nodes WHERE type='device' AND attrs LIKE '%ZZ-NO-LINK-CHECK%'" 2>/dev/null
 	# a Host without a Device and without a link (a throwaway host through the API): not drawn, drawn with the switch, drawn as the focus host (091)
 	if [ -n "${ZBX_TOKEN:-}" ]; then
 		page_test "page: a Host without a Device and without a link" /tmp/topo_t_nolink_host.log python3 "$here/ui_check_040/nolink_host.py"

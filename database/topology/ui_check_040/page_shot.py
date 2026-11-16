@@ -280,7 +280,8 @@ CHECKS = {
     })()''',
     # model §12.1 / FR-C V-1 (task 090): the switch "Show devices without links" is part of the filter: the MikroTik Devices of SW18 (no link) are drawn only with the switch on
     'unlinked': '''(async () => {
-        const drawn = () => Array.from(document.querySelectorAll('#topology-canvas g.topology-node text.topology-label')).filter(t => t.textContent.startsWith('MikroTik')).length;
+        // the Devices drawn with no line at all (a Device in a Junction projection has a line to it, §12.6: it is not "without a link"); the R1 end state has the ghost of the replaced NA device
+        const drawn = () => view.drawn_nodes.filter(n => n.type === 'device' && !view.drawn_links.some(l => l.source === n || l.target === n)).length;
         const settle = async before => { for (let i = 0; i < 40 && drawn() === before; i++) { await new Promise(resolve => setTimeout(resolve, 500)); } await new Promise(resolve => setTimeout(resolve, 800)); };
         const sw = document.getElementById('topology-filter-unlinked');
         const r = {switch_default: sw.checked, off_at_start: drawn()};
