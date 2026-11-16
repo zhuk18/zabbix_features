@@ -737,6 +737,19 @@ foreach (CTopologyPrototype::getPorts((string) $R) as $ports) {
 check($near !== null && $near['in'] === 300000000.0 && $near['out'] === 100000000.0 && $near['speed'] === 1000000000.0 && $near['percent'] === 30.0,
 	'the near side is in ports.get: in, out, speed and max(in, out) / speed in percent: '.json_encode($near));
 check($near['items']['in'] === '1000' && $near['items']['out'] === '1100', 'the item ids of in and out ride along (the links to the graphs)');
+// task 105 (§4.8 "Speed unit", 2.89): the speed row of a port is in bit/s, like the load line. The port attribute is ifHighSpeed in Mbit/s ("1000" is 1 Gbit/s, not 1 Kbps);
+// the load speed comes from the item with its units: ifHighSpeed item (template multiplier, bit/s) and ifSpeed item (bit/s) both give 1000000000 and the same value
+$pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.speed', '1000') WHERE id = ".(int) $near_ports['Switch A']);
+$speed_row = null;
+foreach (CTopologyPrototype::getPorts((string) $R) as $ports) {
+	foreach ($ports as $port) {
+		if ((string) $port['id'] === (string) $near_ports['Switch A']) {
+			$speed_row = $port;
+		}
+	}
+}
+check($speed_row !== null && $speed_row['speed'] === 1000000000 && $speed_row['load']['speed'] === 1000000000.0, 'ports.get: the speed row (ifHighSpeed 1000 Mbit/s) and the load speed are both 1000000000 bit/s: '.json_encode([$speed_row['speed'] ?? null, $speed_row['load']['speed'] ?? null]));
+check(CTopologyPrototype::speedBps('100') === 100000000 && CTopologyPrototype::speedBps(null) === null && CTopologyPrototype::speedBps('n/a') === 'n/a', 'speedBps: 100 Mbit/s, no value, a text that is not a number');
 API::$items = [];
 
 // ============================================================================================================

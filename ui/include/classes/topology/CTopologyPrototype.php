@@ -1433,7 +1433,7 @@ class CTopologyPrototype {
 				'remote_device_id' => $row['linkid'] !== null ? ($far_devices[$row['linked_port_id']] ?? null) : ($device_link['device_id'] ?? null),
 				'last_seen' => $row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null),
 				'stale' => self::isLinkStale($row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null)),
-				'speed' => $attrs['speed'] ?? null,
+				'speed' => self::speedBps($attrs['speed'] ?? null),
 				// (no `load` key on a port that is not in the Links section, set below)
 				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
 				'device_link_id' => $device_link['id'] ?? null,
@@ -3722,6 +3722,18 @@ class CTopologyPrototype {
 		return $result;
 	}
 
+	/**
+	 * The speed of a Port in bit/s (topology-1-model.md §4.8 "Speed unit", 2.89). The port attribute `speed` is the LLD macro {#IFSPEED}, which is ifHighSpeed in Mbit/s
+	 * (template_topology_by_snmp_js.yaml, preproc_topology.c); the page formats bit/s. A value that is not a number stays as it is.
+	 *
+	 * @param mixed $value
+	 *
+	 * @return mixed
+	 */
+	public static function speedBps($value) {
+		return is_numeric($value) ? (int) round((float) $value * 1000000) : $value;
+	}
+
 	// Zabbix has no proxyid column on problem/trigger/item — a Proxy's own health problems are only reachable
 	// via the well-known internal item key convention 'zabbix.proxy.<metric>[<proxy name>]' (e.g.
 	// zabbix.proxy.last_seen[Riga proxy]), the same keys the stock "Zabbix proxy health" template uses,
@@ -3899,7 +3911,7 @@ class CTopologyPrototype {
 				'name' => $attrs['name'] ?? null,
 				'oper_status' => $attrs['oper_status'] ?? null,
 				'admin_status' => $attrs['admin_status'] ?? null,
-				'speed' => $attrs['speed'] ?? null,
+				'speed' => self::speedBps($attrs['speed'] ?? null),
 				'zabbix_itemids' => array_map('strval', $attrs['zabbix_itemids'] ?? [])
 			];
 		}
