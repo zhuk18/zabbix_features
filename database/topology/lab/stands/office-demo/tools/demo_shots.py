@@ -21,7 +21,7 @@ SHOTS = {
     '2': ['--host', 'SW17-09-ACC-2530-48G', '--depth', '1', '--eval', CLICK_JUNCTION],
     'before3': ['--host', 'SW18-09-ACC-2530-48G', '--depth', '1', '--select', 'MikroTik'],
     '3': ['--host', 'SW18-09-ACC-2530-48G', '--depth', '1', '--select', 'MikroTik'],
-    '4': ['--host', 'SW15-10-POE-6000-24G', '--depth', '1', '--select', '3a:5c:91:e2:07:4b'],
+    '4': ['--host', 'SW15-10-POE-6000-24G', '--depth', '1', '--select', 'NA12501003431'],
     '5': ['--host', 'SW21-07-ACC-2530-48G', '--depth', '1', '--select', 'SW21-07-ACC-2530-48G'],
     'before6': ['--host', 'SW22-07-ACC-2530-48G', '--depth', '1', '--select', 'SW22-07-ACC-2530-48G'],
     '6': ['--host', 'SW22-07-ACC-2530-48G', '--depth', '1', '--select', 'ISP-Router'],

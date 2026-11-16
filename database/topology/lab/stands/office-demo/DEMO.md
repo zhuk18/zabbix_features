@@ -46,7 +46,7 @@ To go back to the plain office stand (no demo rows): `labsim down`, then `labsim
 
 ### 4 — A device was replaced
 - Command: `labsim show D1 --step 4 --reset`
-- Look: *Focus host* `SW15-10-POE-6000-24G`, depth 1. Click the new device `3a:5c:91:e2:07:4b` on port 1/1/1.
+- Look: *Focus host* `SW15-10-POE-6000-24G`, depth 1. Click the new line on port 1/1/1 (the device is named NA12501003431, as before; its new hardware address is 3a:5c:91:e2:07:4b).
 - Say: a device on the same port came back with a new hardware address (it was replaced or restarted). The graph shows the new one with a new line, and the old line stays faded (grey), so the history is not lost.
 
 ### 5 — A switch stops answering
