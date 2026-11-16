@@ -460,6 +460,9 @@ class Scenario:
             validate_wait(self.id, i, step.get('wait'))
             if 'delay' in step and (isinstance(step['delay'], bool) or not isinstance(step['delay'], (int, float)) or step['delay'] < 0):
                 raise LabError('scenario %s step %d: delay must be a number of seconds >= 0, got %r' % (self.id, i, step['delay']))
+            fs = step.get('freshness_seconds')
+            if 'freshness_seconds' in step and (isinstance(fs, bool) or not isinstance(fs, int) or fs < 60):
+                raise LabError('scenario %s step %d: freshness_seconds must be a whole number of at least 60, got %r' % (self.id, i, fs))
             if 'poll_all' in step and not isinstance(step['poll_all'], bool):
                 raise LabError('scenario %s step %d: poll_all is true or false, got %r' % (self.id, i, step['poll_all']))
             pid = step.get('poll_interface_discovery')

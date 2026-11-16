@@ -10,7 +10,8 @@ base: lab-office-demo.yaml
 #   step 5  SW21-07-ACC-2530-48G                                          an access switch with one uplink (SW20:42) and two endpoints: its links are easy to see
 #   step 6  SW22-07-ACC-2530-48G:41                                       a port that is up and has no neighbor row in the capture (real, not changed)
 # `poll_all: true` in every step: with a short freshness threshold every reporter that a step does not poll becomes old (task 078); the show then ends with all fresh.
-settings: {freshness_seconds: 180, transport: null, sources: null}
+# The threshold (180 s) is the step key of step 5 (lab spec 8.5, 2.28; task 105): steps 0-4 run with the default and do not fade during a demo.
+settings: {freshness_seconds: null, transport: null, sources: null}
 steps:
   - id: 0
     note: the office as it is
@@ -59,6 +60,7 @@ steps:
       - status: {field: devices_created, equals: 1}
   - id: 5
     note: a switch stops answering (SW21)
+    freshness_seconds: 180      # lab spec 8.5 (2.28): from this step on; steps 0-4 keep the default
     faults: {SW21-07-ACC-2530-48G: unreachable}
     delay: 190
     poll_all: true

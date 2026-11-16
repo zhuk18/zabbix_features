@@ -689,6 +689,11 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                 run_operator(scenario, i, history.get(i - 1), log, conn)          # lab spec 4.5 (2.21): after the ingest of the previous step, before this step's collection
             except LabError as e:
                 sr['errors'].append(str(e))
+            if step.get('freshness_seconds') is not None:
+                # lab spec 8.5 (2.28): the threshold from this step on, with the same original-state file and restore as the scenario setting (`down` or the end of the run puts it back)
+                before, during = zbx.set_fresh_macro(api, step['freshness_seconds'], FRESH_FILE, log)
+                previous = report.get('freshness_macro')
+                report['freshness_macro'] = {'before': previous['before'] if previous else before, 'during': during, 'after': None, 'from_step': i}
             faults = step.get('faults') or {}
             for dev, f in faults.items():
                 if f in (None, 'none'):

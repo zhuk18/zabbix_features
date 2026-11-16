@@ -97,6 +97,27 @@ class ScenarioFormat(unittest.TestCase):
             with self.assertRaisesRegex(LabError, 'freshness_seconds'):
                 scenario(settings={'freshness_seconds': bad})
 
+    def test_freshness_seconds_of_a_step(self):
+        # lab spec 8.5 (2.28, task 105): a step key, a whole number of at least 60
+        scenario(steps=[{'id': 0}, {'id': 1, 'freshness_seconds': 180}])
+        for bad in (59, 0, '180', 60.5, True):
+            with self.assertRaisesRegex(LabError, 'step 1: freshness_seconds'):
+                scenario(steps=[{'id': 0}, {'id': 1, 'freshness_seconds': bad}])
+
+    def test_d1_sets_the_threshold_at_step_5_only(self):
+        s = model.load_scenario('D1', model.load_lab(model.lab_file_of_scenario('D1')))
+        self.assertIsNone(s.freshness_seconds, 'no scenario setting: steps 0-4 do not fade')
+        self.assertEqual([i for i, step in enumerate(s.steps) if 'freshness_seconds' in step], [5])
+        self.assertEqual(s.steps[5]['freshness_seconds'], 180)
+
+    def test_the_runner_sets_the_step_threshold_when_the_step_runs(self):
+        import inspect
+        from labsim import runner
+        src = inspect.getsource(runner.run)
+        self.assertIn("step.get('freshness_seconds')", src)
+        self.assertLess(src.index("step.get('freshness_seconds')"), src.index("step.get('delay')"), 'before the delay of the step')
+        self.assertIn("if show and i > show_step", src, 'show --step n runs the steps 0..n, so the key applies when step <= n')
+
     def test_wait_forms(self):
         for ok in ({'seconds': 90}, {'unsupported': ['A'], 'timeout': 120}, {'unsupported': ['A'], 'seconds': 5}):
             scenario(steps=[{'id': 0, 'wait': ok}])

@@ -15,8 +15,8 @@ labsim down                                # if another stand is up (the office 
 
 Page: `http://localhost/zabbix/ui/zabbix.php?action=topology.view`. The commands below are one `labsim show` each; `--reset` clears the topology data first, so every step starts clean.
 A step takes a few minutes (the switches are polled one after another). Steps 1 and 5 take longer, because they wait for an alarm and for old data.
-After the command, look at the page within about three minutes: the data of every switch is "fresh" for 3 minutes in this demo, then the lines start to fade (that is step 5's point, so it
-is set short on purpose).
+Steps 0 to 4 keep the default freshness threshold (7 days): the lines do not fade during a demo, whenever you look. Step 5 sets it to 3 minutes (that is its point: the switch that stopped
+answering shows "Old data" while the others are polled again); from step 5 on, the lines fade 3 minutes after the show command. `labsim down` puts the threshold back.
 
 To go back to the plain office stand (no demo rows): `labsim down`, then `labsim show R1 --lab lab-office.yaml --reset`. To come back: `labsim down`, `labsim show D1 --step <n> --reset`.
 

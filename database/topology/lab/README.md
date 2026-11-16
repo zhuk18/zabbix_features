@@ -55,6 +55,8 @@ environment variable; it is never written to a file. Exit code 0 only if every n
 - A scenario with `settings.freshness_seconds` (>= 60) sets the global macro `{$TOPOLOGY.LINK.FRESH.SECONDS}` for the run; the old value
   (or "absent") is written to `run/freshness.json` first and put back in `finally`. A killed run is restored by the next `run`
   or by `restore`. The report has `freshness_macro: {before, during, after}`.
+  A step can have the key `freshness_seconds` (>= 60, lab spec 8.5, 2.28): the macro is set when that step runs and stays for the later steps (same file, same restore;
+  `show --step n` applies it when the step is <= n). The report has `freshness_macro: {before, during, after, from_step}`.
 - No topology code is changed by the tool.
 
 ## snmpsim: why `labmultiplex`
