@@ -486,6 +486,23 @@ $with_index_2 = $pdo->query("SELECT id FROM topo_nodes WHERE type = 'port' AND d
 $at = attrs_of($pdo, $np['lan0']);
 check(array_map('intval', $with_index_2) === [$np['lan0']], 'the row with the bound index takes the bound Port: no second Port with the index 2', $with_index_2);
 check(($at['name'] ?? null) === 'Gi0/2' && $at['zabbix_itemids'] === $j2, 'the name of the row replaces the manual name; the items are those of the row', $at);
+// task 108 (§9.7 2.92): the Port that the row took is a reported port: source reported, no interface name, no binding in ports.get, no Rename / Bind / Unbind (the port data says it is not manual)
+check(($at['source'] ?? null) === 'reported' && !array_key_exists('interface_name', $at) && ($at['if_index'] ?? null) === 2, 'the Port that the row took: source reported, no interface_name, index and name of the row', $at);
+$taken_row = binding_of($np['lan0'], $ND);
+$taken_port = null;
+foreach (CTopologyPrototype::getPorts((string) $ND) as $group) {
+	foreach ($group as $row) {
+		if ((int) $row['id'] === $np['lan0']) {
+			$taken_port = $row;
+		}
+	}
+}
+check($taken_row !== null && $taken_row['binding'] === null && $taken_port !== null && $taken_port['manual'] === false, 'ports.get: no binding, not manual (so no Rename, Delete, Bind or Unbind in the panel)', $taken_port);
+$r = call(CControllerTopologyPortsUnbind::class, ['id' => (string) $np['lan0']]);
+check(failed($r), 'Unbind of the reported Port is refused', $r);
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['lan0'], 'if_index' => 1]);
+check(failed($r), 'Bind of the reported Port is refused', $r);
+check((attrs_of($pdo, $np['lan1'])['source'] ?? null) === 'manual' && !array_key_exists('if_index', attrs_of($pdo, $np['lan1'])), 'a manual port that was not bound stays manual, without an index');
 check(edge_row($pdo, $ML) !== null && edge_row($pdo, $ML)['discovered_via'] === 'manual' && (int) scalar($pdo, "SELECT src_id FROM topo_edges WHERE id = ?", [$ML]) + (int) scalar($pdo, "SELECT dst_id FROM topo_edges WHERE id = ?", [$ML]) === $np['lan0'] + $farp, 'the manual link stays on that Port', edge_row($pdo, $ML));
 $names = array_keys(ports_of($pdo, $ND));
 sort($names);

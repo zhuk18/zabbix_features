@@ -341,6 +341,15 @@ class IngestSelf {
 					}
 				}
 				$port_id = $snap_port($device_id, $if_index, $overlay);
+				// model §9.7 "Host with a PORTS rule" (2.92, task 108): a manual Port that a row takes (by its bound index, or by its name, §6.6) is a reported port from now on: `source` is
+				// reported, the binding (`interface_name`) is gone; its name, index, items and attrs are the row's, its manual links stay
+				$taken = $snap_node_attrs($port_id);
+				if (($taken['source'] ?? null) === 'manual') {
+					$became = $taken;
+					$became['source'] = 'reported';
+					unset($became['interface_name']);
+					$snap_write_attrs($port_id, $became, $taken);
+				}
 				$port_name = $snap_node_attrs($port_id)['name'] ?? '';
 				if ($port_name !== '') {
 					$merge_pseudo_port($device_id, $port_id, $port_name);
