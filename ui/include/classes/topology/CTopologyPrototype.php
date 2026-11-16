@@ -1401,6 +1401,23 @@ class CTopologyPrototype {
 			}
 		}
 		$port_loads = self::getPortLoads($itemids_by_port);
+		// 2.91 (§9.7 "Bind to interface"): a bound manual port whose items are all gone shows "interface not found"
+		$bound_items = [];
+		foreach ($rows as $row) {
+			$attrs = self::attrs($row);
+			if (($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index'])) {
+				foreach ($attrs['zabbix_itemids'] ?? [] as $itemid) {
+					$bound_items[(int) $itemid] = true;
+				}
+			}
+		}
+		$existing_items = [];
+		if ($bound_items) {
+			$result = DBselect('SELECT itemid FROM items WHERE '.dbConditionId('itemid', array_keys($bound_items)));
+			while ($item = DBfetch($result, false)) {
+				$existing_items[(int) $item['itemid']] = true;
+			}
+		}
 
 		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
@@ -1419,6 +1436,9 @@ class CTopologyPrototype {
 				'id' => $row['id'], 'port' => $attrs['name'] ?? '', 'group' => $group,
 				// 2.80 (§9.7): a manual port has no oper_status; `manual` and `description` are for its menu and the edit dialog
 				'manual' => ($attrs['source'] ?? null) === 'manual', 'description' => $attrs['description'] ?? null,
+				// 2.91: the interface a manual port is bound to ("lan0 → Gi0/1"); `missing`: its items are gone ("interface not found")
+				'binding' => ($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index']) ? ['if_index' => (int) $attrs['if_index'], 'name' => $attrs['interface_name'] ?? null,
+					'missing' => !array_filter($attrs['zabbix_itemids'] ?? [], static fn ($id): bool => isset($existing_items[(int) $id]))] : null,
 				'status' => $attrs['oper_status'] ?? null, 'admin_status' => $attrs['admin_status'] ?? null,
 				// a LAG member shows the name of its LAG (§12.5)
 				'lag' => $row['lag_id'] !== null ? ($lag_names[$row['lag_id']] ?? null) : null,
@@ -3215,6 +3235,135 @@ class CTopologyPrototype {
 		self::touchManualDevice((string) $row['device_id'], $userid);
 
 		return ['deleted' => (int) $port_id];
+	}
+
+	/** The prefixes of the item keys of an interface (topology-1-model.md §4.8, §9.7 "Bind to interface"): the load items and the status item. */
+	private const INTERFACE_KEYS = ['net.if.in[', 'net.if.out[', 'net.if.speed[', 'net.if.status['];
+
+	/**
+	 * A manual port that can be bound (§9.7 "Bind to interface"): a manual port of a manual Device that is associated with a HOST. A discovered port, a Device without an association and a Device
+	 * associated with a proxy are refused. A link on the port does not matter (the manual link stays). Returns [port row, hostid].
+	 */
+	private static function bindablePort(string $port_id): array {
+		$row = DBfetch(DBselect('SELECT id,device_id,attrs FROM topo_nodes WHERE id='.zbx_dbstr($port_id).' AND type='.zbx_dbstr('port')), false);
+		if (!$row || $row['device_id'] === null) {
+			throw new Exception('Port '.$port_id.' does not exist.');
+		}
+		if ((self::attrs($row)['source'] ?? null) !== 'manual') {
+			throw new Exception('A discovered port is not changed by hand.');
+		}
+		$device = self::manualDeviceRow((string) $row['device_id']);
+		if ($device['represented_by_node_id'] === null) {
+			throw new Exception('The Device is not associated with a host (Promote it first): there is no interface to bind to.');
+		}
+		$host = DBfetch(DBselect('SELECT host_ref FROM topo_nodes WHERE id='.zbx_dbstr($device['represented_by_node_id']).' AND type='.zbx_dbstr('host')), false);
+		if (!$host || $host['host_ref'] === null) {
+			throw new Exception('The Device is associated with a proxy, not a host: there is no interface to bind to.');
+		}
+
+		return [$row, (string) $host['host_ref']];
+	}
+
+	/**
+	 * The interfaces of a host (§9.7): the discovered items (made from item prototypes) with the key prefixes of INTERFACE_KEYS, grouped by the LLD index. The index is read from the key of the
+	 * item against the key of its prototype (`item_discovery.key_`, with {#SNMPINDEX} or {#IFINDEX} in it): `net.if.in[ifHCInOctets.{#SNMPINDEX}]` and `net.if.in[ifHCInOctets.17]` give 17. The name is
+	 * the value of the item tag `interface` (the template sets it to {#IFNAME}); without it (an unresolved macro too) the index. Only items that the user can read (item.get).
+	 *
+	 * @return array  [index => ['if_index' => int, 'name' => string, 'itemids' => [int, ...]]]
+	 */
+	private static function hostInterfaces(string $hostid): array {
+		$items = API::Item()->get([
+			'output' => ['itemid', 'key_'], 'hostids' => [$hostid], 'filter' => ['flags' => ZBX_FLAG_DISCOVERY_CREATED],
+			'search' => ['key_' => self::INTERFACE_KEYS], 'searchByAny' => true, 'startSearch' => true,
+			'selectItemDiscovery' => ['parent_itemid', 'key_'], 'selectTags' => ['tag', 'value']
+		]);
+		$interfaces = [];
+		foreach ($items as $item) {
+			if (!array_filter(self::INTERFACE_KEYS, static fn (string $prefix): bool => str_starts_with($item['key_'], $prefix))) {
+				continue;
+			}
+			$prototype_key = (string) ($item['itemDiscovery']['key_'] ?? '');
+			if ($prototype_key === '' || !preg_match('/\{#(SNMPINDEX|IFINDEX)\}/', $prototype_key)) {
+				continue;
+			}
+			$pattern = '/^'.preg_replace('/\\\\\{\\\\?#(SNMPINDEX|IFINDEX)\\\\\}/', '(\d+)', preg_quote($prototype_key, '/')).'$/';
+			if (!preg_match($pattern, $item['key_'], $match)) {
+				continue;
+			}
+			$index = (int) $match[1];
+			$interfaces[$index] ??= ['if_index' => $index, 'name' => (string) $index, 'itemids' => []];
+			$interfaces[$index]['itemids'][] = (int) $item['itemid'];
+			foreach ($item['tags'] ?? [] as $tag) {
+				if ($tag['tag'] === 'interface' && $tag['value'] !== '' && !str_contains($tag['value'], '{#')) {
+					$interfaces[$index]['name'] = $tag['value'];
+				}
+			}
+		}
+		foreach ($interfaces as &$interface) {
+			sort($interface['itemids']);
+		}
+		unset($interface);
+		uasort($interfaces, static fn (array $a, array $b): int => $a['if_index'] <=> $b['if_index']);
+
+		return $interfaces;
+	}
+
+	/** The Ports of a Device that have an `if_index`: [if_index => ['id' => id, 'name' => name]]. */
+	private static function indexedPortsOf(string $device_id): array {
+		$ports = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id));
+		while ($row = DBfetch($result, false)) {
+			$attrs = self::attrs($row);
+			if (isset($attrs['if_index'])) {
+				$ports[(int) $attrs['if_index']] = ['id' => (string) $row['id'], 'name' => (string) ($attrs['name'] ?? '')];
+			}
+		}
+
+		return $ports;
+	}
+
+	/** GET /topo/ports/{id}/interfaces (§9.7, §11): the interfaces of the host of the port's Device, with the Port of the Device that has the index, if any. */
+	public static function portInterfaces(string $port_id): array {
+		[$row, $hostid] = self::bindablePort($port_id);
+		$holders = self::indexedPortsOf((string) $row['device_id']);
+
+		return array_values(array_map(static fn (array $interface): array => $interface + ['port' => $holders[$interface['if_index']] ?? null], self::hostInterfaces($hostid)));
+	}
+
+	/**
+	 * POST /topo/ports/{id}/bind {if_index} (§9.7): the port gets the index and the items of that interface (`zabbix_itemids`, §3.2) and keeps its name and `source = manual`. Refused: an interface that
+	 * another Port of the Device already has ("<port> already has this interface"), an index that the host has no interface for (or none that the user may read), a discovered port, a Device without an association.
+	 */
+	public static function bindPort(string $port_id, int $if_index, string $userid): array {
+		[$row, $hostid] = self::bindablePort($port_id);
+		$holder = self::indexedPortsOf((string) $row['device_id'])[$if_index] ?? null;
+		if ($holder !== null && $holder['id'] !== (string) $port_id) {
+			throw new Exception('The port '.$holder['name'].' already has this interface.');
+		}
+		$interface = self::hostInterfaces($hostid)[$if_index] ?? null;
+		if ($interface === null) {
+			throw new Exception('The host has no interface with the index '.$if_index.' (or you may not read its items).');
+		}
+		$attrs = self::attrs($row);
+		$attrs['if_index'] = $interface['if_index'];
+		$attrs['zabbix_itemids'] = $interface['itemids'];
+		$attrs['interface_name'] = $interface['name'];
+		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
+		self::touchManualDevice((string) $row['device_id'], $userid);
+
+		return ['id' => $port_id, 'if_index' => $interface['if_index'], 'interface' => $interface['name']];
+	}
+
+	/** POST /topo/ports/{id}/unbind (§9.7): clears `if_index`, `zabbix_itemids` and the interface name; the port stays. */
+	public static function unbindPort(string $port_id, string $userid): array {
+		[$row] = self::bindablePort($port_id);
+		$attrs = self::attrs($row);
+		unset($attrs['if_index'], $attrs['interface_name']);
+		$attrs['zabbix_itemids'] = [];
+		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
+		self::touchManualDevice((string) $row['device_id'], $userid);
+
+		return ['id' => $port_id];
 	}
 
 	/** Who changed the manual Device last (the prototype has no audit store yet, §18). */
