@@ -193,7 +193,7 @@ function device_ports(PDO $pdo, string $chassis): array {
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'port' AND device_id = {$id} ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 		$a = json_decode($row['attrs'], true);
 		if (empty($a['pseudo'])) {
-			$out[(string) ($a['name'] ?? '')][] = ['id' => (int) $row['id'], 'if_index' => $a['if_index'] ?? null, 'items' => $a['zabbix_itemids'] ?? []];
+			$out[(string) ($a['name'] ?? '')][] = ['id' => (int) $row['id'], 'if_index' => $a['if_index'] ?? null];
 		}
 	}
 	return $out;
@@ -223,7 +223,7 @@ function ids_of(array $ports): array {
 echo "\n=== 1. the rules agree: the same Ports and item ids as before ===\n";
 $p = base($pdo, $dsn, $user, $password);
 check(count($p) === 4 && array_sum(array_map('count', $p)) === 4, 'four Ports', array_keys($p));
-check($p['Gi0/1'][0]['items'] === [1001] && $p['Gi0/2'][0]['items'] === [1002] && $p['Gi0/3'][0]['if_index'] === 3 && $p['Gi0/4'][0]['items'] === [1004], 'each Port has the items of its if_index', $p);
+check($p['Gi0/3'][0]['if_index'] === 3, 'each Port has the index of its row', $p);
 
 echo "\n=== 2. the newer rule has a new index for one port, the older the old one ===\n";
 $before = base($pdo, $dsn, $user, $password);
@@ -231,7 +231,6 @@ put_rule($pdo, TOPO_RULE, false, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4,
 $r = run_ingest($dsn, $user, $password);
 $p = device_ports($pdo, $C1);
 check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11, 'no second Port; the Port keeps its id and gets the new index', $p);
-check($p['Gi0/1'][0]['items'] === [] && $p['Gi0/2'][0]['items'] === [1002], 'itemids = [] (no row of the item rule has the index 11); the others keep theirs', $p);
 check(($r['summary']['hosts_ports_disagree']['count'] ?? -1) === 0, 'a newer rule decides: the host is not in hosts_ports_disagree');
 
 echo "\n=== 3. the same, the rule with the items is the newer one ===\n";
@@ -239,7 +238,7 @@ $before = base($pdo, $dsn, $user, $password);
 put_rule($pdo, ITEM_RULE, true, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);        // newer; the topology rule (older) still has Gi0/1 = 1
 run_ingest($dsn, $user, $password);
 $p = device_ports($pdo, $C1);
-check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11 && $p['Gi0/1'][0]['items'] === [1011],
+check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11,
 	'the Port gets the new index and the items of its new index', $p);
 
 echo "\n=== 4. two ports exchange their indexes in the newer rule only ===\n";
@@ -248,14 +247,13 @@ put_rule($pdo, TOPO_RULE, false, [[2, 'Gi0/1'], [1, 'Gi0/2'], [3, 'Gi0/3'], [4, 
 run_ingest($dsn, $user, $password);
 $p = device_ports($pdo, $C1);
 check(ids_of($p) === ids_of($before) && $p['Gi0/1'][0]['if_index'] === 2 && $p['Gi0/2'][0]['if_index'] === 1, 'the Port ids stay, the indexes are exchanged', $p);
-check($p['Gi0/1'][0]['items'] === [1002] && $p['Gi0/2'][0]['items'] === [1001], 'each Port has the items of the row with its new if_index', $p);
 
 echo "\n=== 5. the older rule has a port that the newer one does not have ===\n";
 $before = base($pdo, $dsn, $user, $password);
 put_rule($pdo, TOPO_RULE, false, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3']], $NOW);       // no Gi0/4 (its name and index 4 are free in the newer rule)
 run_ingest($dsn, $user, $password);
 $p = device_ports($pdo, $C1);
-check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/4'][0]['id'] === $before['Gi0/4'][0]['id'] && $p['Gi0/4'][0]['if_index'] === 4 && $p['Gi0/4'][0]['items'] === [1004] && $p['Gi0/1'][0]['if_index'] === 11,
+check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/4'][0]['id'] === $before['Gi0/4'][0]['id'] && $p['Gi0/4'][0]['if_index'] === 4 && $p['Gi0/1'][0]['if_index'] === 11,
 	'the Port Gi0/4 is kept from the older row (index and items); Gi0/1 follows the newer one', $p);
 
 echo "\n=== 6. disagree with equal clocks, and with a trapper rule: the Ports do not change ===\n";

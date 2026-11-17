@@ -132,9 +132,9 @@ $lines = CTopologyRunSummary::attention([
 	'reporters_failed' => ['list' => [['hostid' => 6, 'host' => 'H6', 'step' => 'neighbors', 'error' => 'boom']]],
 	'rows_local_port_unresolved' => ['by_rule' => [31 => ['no_ports' => 2, 'if_index_missing' => 0]]],
 	'rows_no_identity' => ['by_rule' => [32 => 3]],
-	'hosts_ports_without_items' => ['list' => [['hostid' => 7, 'host' => 'H7']]]
+	'hosts_ports_without_items' => ['list' => [['hostid' => 7, 'host' => 'H7']]]      // the summary of an older run: no longer a line (2.93)
 ], [31 => ['hostid' => 8, 'host' => 'H8', 'rule' => 'Rule 31'], 32 => ['hostid' => 9, 'host' => 'H9', 'rule' => 'Rule 32']]);
-check(count($lines) === 5 && $lines[2]['kind'] === 'local_port_unresolved' && $lines[2]['reason'] === 'no_ports' && $lines[2]['count'] === 2 && $lines[2]['host'] === 'H8'
+check(count($lines) === 4 && $lines[2]['kind'] === 'local_port_unresolved' && $lines[2]['reason'] === 'no_ports' && $lines[2]['count'] === 2 && $lines[2]['host'] === 'H8'
 	&& $lines[2]['rule'] === 'Rule 31' && $lines[2]['itemid'] === 31 && $lines[3]['count'] === 3 && $lines[3]['hostid'] === 9 && $lines[0]['rule'] === null && $lines[1]['reason'] === 'neighbors: boom',
 	'one line for each host and rule with a problem, with the reason and the count', $lines);
 

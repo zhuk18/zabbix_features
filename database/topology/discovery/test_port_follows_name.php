@@ -192,7 +192,7 @@ function device_ports(PDO $pdo, string $chassis): array {
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'port' AND device_id = {$id} ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 		$a = json_decode($row['attrs'], true);
 		if (empty($a['pseudo'])) {
-			$out[(string) ($a['name'] ?? '')] = ['id' => (int) $row['id'], 'if_index' => $a['if_index'] ?? null, 'items' => $a['zabbix_itemids'] ?? [], 'has_index' => array_key_exists('if_index', $a)];
+			$out[(string) ($a['name'] ?? '')] = ['id' => (int) $row['id'], 'if_index' => $a['if_index'] ?? null, 'has_index' => array_key_exists('if_index', $a)];
 		}
 	}
 	return $out;
@@ -227,7 +227,6 @@ neighbors_of_host($pdo, 102, $C2, [sees(11, $C1, 'Gi0/1')]);
 $r = run_ingest($dsn, $user, $password);
 $after = device_ports($pdo, $C2);
 check(count($after) === 4 && $after['Gi0/1']['id'] === $before['Gi0/1']['id'] && $after['Gi0/1']['if_index'] === 11, 'the same Port id has the new if_index, still 4 Ports', $after);
-check($after['Gi0/1']['items'] === [102011], 'its port items follow the row', $after['Gi0/1']['items']);
 check(active($pdo) === $link && (int) scalar($pdo, "SELECT id FROM topo_edges WHERE type = 'physical_link'") === $edge, 'the link stays (the same edge)');
 $o = obs_of($pdo, 1012);
 check(count($o) === 1 && $o[0]['outcome'] === 'applied' && $o[0]['link_precision'] === 'port' && $o[0]['far_port_reason'] === null && (int) $o[0]['precision_lower'] === 0,
@@ -247,7 +246,6 @@ run_ingest($dsn, $user, $password);
 $after = device_ports($pdo, $C2);
 check($after['Gi0/1']['id'] === $before['Gi0/1']['id'] && $after['Gi0/2']['id'] === $before['Gi0/2']['id'] && count($after) === 4, 'each Port id keeps its name, no new Port', $after);
 check($after['Gi0/1']['if_index'] === 2 && $after['Gi0/2']['if_index'] === 1, 'the indexes are exchanged');
-check($after['Gi0/1']['items'] === [777] && $after['Gi0/2']['items'] === [888], 'zabbix_itemids follow the rows', [$after['Gi0/1']['items'], $after['Gi0/2']['items']]);
 check(active($pdo) === ['a0:00:00:00:00:01/Gi0/1 - a0:00:00:00:00:02/Gi0/1'], 'the link follows the names: still Gi0/1 - Gi0/1', active($pdo));
 $o = obs_of($pdo, 1012);
 check($o[0]['outcome'] === 'applied' && $o[0]['link_precision'] === 'port' && (int) $o[0]['precision_lower'] === 0, 'the neighbor observation is applied at port level');
@@ -268,7 +266,7 @@ ports_of_host($pdo, 102, $C2, [[1, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/4']]);
 $r = run_ingest($dsn, $user, $password);
 $after = device_ports($pdo, $C2);
 check($after['Gi0/4']['id'] === $before['Gi0/4']['id'] && $after['Gi0/4']['if_index'] === 3 && count($after) === 4, 'Gi0/4 has the index 3, no new Port');
-check($after['Gi0/3']['id'] === $before['Gi0/3']['id'] && $after['Gi0/3']['has_index'] === false && $after['Gi0/3']['items'] === [], 'Gi0/3 stays (same id, same name), without if_index and without items', $after['Gi0/3']);
+check($after['Gi0/3']['id'] === $before['Gi0/3']['id'] && $after['Gi0/3']['has_index'] === false , 'Gi0/3 stays (same id, same name), without if_index', $after['Gi0/3']);
 check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE id = {$manual} AND JSON_EXTRACT(attrs, '\$.superseded_at') IS NULL") === 1
 	&& (int) scalar($pdo, "SELECT COUNT(*) FROM topo_edges WHERE id = {$manual} AND (src_id = {$before['Gi0/3']['id']} OR dst_id = {$before['Gi0/3']['id']})") === 1, 'the manual link on Gi0/3 stays on that Port');
 check(($r['summary']['ports_index_followed'] ?? 0) === 1 && ($r['summary']['ports_index_dropped'] ?? 0) === 1, 'the run summary: one Port followed its name, one lost its index');

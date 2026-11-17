@@ -2624,41 +2624,16 @@ c('X-02', 'Правило', function () {
 });
 
 // ============================================================================================================
-// K. Port items (model §3.2, handoff 019 section 2): zabbix_itemids come from `itemids` of the PORTS rows
+// K. Port items (model §3.2, 2.93, task 110): the ingest does not store the items of a port; the view finds them when it reads the graph
 // ============================================================================================================
 
 c('K-01', 'Правило', function () {
 	h_rep('R', mac(1), '10.0.0.1');
-	h_ports('R', [1 => ['Gi0/1', ['itemids' => [9003, 9001, 9002]]], 2 => ['Gi0/2', ['itemids' => []]]]);
-	$summary = h_ingest('PORTS rows with item ids');
-	ex(port_attr('R', 'Gi0/1', 'zabbix_itemids') === [9001, 9002, 9003], 'zabbix_itemids = the itemids of the row, sorted (actual: '.json_encode(port_attr('R', 'Gi0/1', 'zabbix_itemids')).')');
-	ex(port_attr('R', 'Gi0/2', 'zabbix_itemids') === [], 'a row with [] has no items');
-	ex((int) ($summary['hosts_ports_without_items']['count'] ?? -1) === 0, 'a host with items on some port is not listed (hosts_ports_without_items)');
-	h_tick();
-	h_ports('R', [1 => ['Gi0/1', ['itemids' => [9004]]], 2 => ['Gi0/2', ['itemids' => []]]]);
-	h_ingest('the item ids of the port change');
-	ex(port_attr('R', 'Gi0/1', 'zabbix_itemids') === [9004], 'every PORTS snapshot replaces the list (actual: '.json_encode(port_attr('R', 'Gi0/1', 'zabbix_itemids')).')');
-});
-
-c('K-02', 'Правило', function () {
-	h_rep('R', mac(1), '10.0.0.1');
-	h_ports('R', [1 => ['Gi0/1', ['itemids' => []]], 2 => 'Gi0/2'], h_clock(-10));                               // the topology rule: no item prototypes
-	h_snap('R', ROLE_PORTS, PR([1 => ['Gi0/1', ['itemids' => [9001, 9002]]], 2 => ['Gi0/2', ['itemids' => [9003]]]]), h_clock(-20), 'lldp', true);  // the interface rule, older
-	h_ingest('two PORTS rules on one host: their rows join by if_index');
-	ex(port_attr('R', 'Gi0/1', 'zabbix_itemids') === [9001, 9002] && port_attr('R', 'Gi0/2', 'zabbix_itemids') === [9003],
-		'the ids come from the rule with item prototypes, whichever snapshot is newer (actual: '.json_encode([port_attr('R', 'Gi0/1', 'zabbix_itemids'), port_attr('R', 'Gi0/2', 'zabbix_itemids')]).')');
-	ex(count(ports_of_dev('R')) === 2, 'two ports, no duplicates');
-});
-
-c('K-03', 'Правило', function () {
-	h_rep('R', mac(1), '10.0.0.1');
-	h_rep('B', mac(2), '10.0.0.2');
-	h_ports('R', [1 => 'Gi0/1']);                              // no itemids at all (an older snapshot, or a rule without prototypes)
-	h_ports('B', [1 => ['Gi0/1', ['itemids' => [9101]]]]);
-	$summary = h_ingest('R has no port items, B has');
-	$list = $summary['hosts_ports_without_items'] ?? [];
-	ex((int) ($list['count'] ?? 0) === 1 && ($list['list'][0]['host'] ?? null) === 'R', 'hosts_ports_without_items lists R and not B (actual: '.json_encode($list).')');
-	ex(port_attr('R', 'Gi0/1', 'zabbix_itemids') === [], 'a row without the field: no items');
+	h_ports('R', [1 => ['Gi0/1', ['itemids' => [9003, 9001, 9002]]], 2 => ['Gi0/2', ['itemids' => []]]]);      // a row of an older server still has `itemids`: it is ignored
+	$summary = h_ingest('PORTS rows with item ids (an older server)');
+	ex(port_attr('R', 'Gi0/1', 'zabbix_itemids') === null && port_attr('R', 'Gi0/2', 'zabbix_itemids') === null, 'the Ports have no zabbix_itemids (actual: '.json_encode(port_attr('R', 'Gi0/1', 'zabbix_itemids')).')');
+	ex(!array_key_exists('hosts_ports_without_items', $summary), 'the run summary has no hosts_ports_without_items');
+	ex(port_attr('R', 'Gi0/1', 'if_index') === 1 && port_attr('R', 'Gi0/2', 'if_index') === 2, 'the Ports are made from the rows as before');
 });
 
 // ============================================================================================================

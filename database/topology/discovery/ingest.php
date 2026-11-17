@@ -436,8 +436,6 @@ $summary += [
 	// `ip:` keys no current input gives any more (removed at the end of a full run), and the reporters with a failed step (host, step, error)
 	'identity_keys_orphaned' => 0,
 	'reporters_failed' => ['count' => 0, 'list' => []],
-	// hosts whose PORTS rows have no item ids at all (no standard interface discovery with the topology type PORTS): their links cannot be coloured (model §3.2)
-	'hosts_ports_without_items' => ['count' => 0, 'list' => []],
 	'snapshots_ignored_type_mismatch' => 0,
 	// model §6.2 (2.59): the NEIGHBORS snapshots older than the freshness threshold (hostid, itemid, clock); their rows are observations `old_snapshot`; the threshold of the run
 	'snapshots_old' => [],

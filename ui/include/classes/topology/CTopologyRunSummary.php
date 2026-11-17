@@ -24,7 +24,6 @@ class CTopologyRunSummary {
 	public const ATTENTION_REPORTER_FAILED = 'reporter_failed';
 	public const ATTENTION_LOCAL_PORT_UNRESOLVED = 'local_port_unresolved';
 	public const ATTENTION_ROWS_NO_IDENTITY = 'rows_no_identity';
-	public const ATTENTION_PORTS_WITHOUT_ITEMS = 'hosts_ports_without_items';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
 	public const ATTENTION_PORTS_DISAGREE = 'hosts_ports_disagree';
@@ -112,9 +111,6 @@ class CTopologyRunSummary {
 		// 2.69 (model §6.6): the two PORTS snapshots of a host disagree and none is newer
 		foreach ($summary['hosts_ports_disagree']['list'] ?? [] as $host) {
 			$list[] = $entry(self::ATTENTION_PORTS_DISAGREE, 'hosts_ports_disagree', 1, (int) $host['hostid'], (string) $host['host']);
-		}
-		foreach ($summary['hosts_ports_without_items']['list'] ?? [] as $host) {
-			$list[] = $entry(self::ATTENTION_PORTS_WITHOUT_ITEMS, 'hosts_ports_without_items', 1, (int) $host['hostid'], (string) $host['host']);
 		}
 
 		return $list;

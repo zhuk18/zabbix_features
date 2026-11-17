@@ -562,7 +562,7 @@ $raw_port = static function (PDO $pdo, string $chassis, string $name) : int {
 		->execute([json_encode(['chassis_id' => $chassis, 'sysname' => $chassis, 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
 	$device = (int) $pdo->lastInsertId();
 	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => []])]);
 	return (int) $pdo->lastInsertId();
 };
 $raw_link = static function (PDO $pdo, int $a, int $b, int $seen): void {
@@ -653,7 +653,7 @@ $raw_port = static function (PDO $pdo, string $chassis, string $name): int {
 		->execute([json_encode(['chassis_id' => $chassis, 'sysname' => $chassis, 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
 	$device = (int) $pdo->lastInsertId();
 	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+		->execute([$device, json_encode(['if_index' => 1, 'name' => $name, 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => []])]);
 	return (int) $pdo->lastInsertId();
 };
 $raw_link = static function (PDO $pdo, int $a, int $b, string $via, int $seen): int {

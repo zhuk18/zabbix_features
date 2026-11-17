@@ -104,7 +104,7 @@ class IngestStore {
 		}
 		$attrs = $overlay + [
 			'if_index' => $if_index, 'name' => '', 'if_type' => 'physical', 'mac' => null, 'speed' => null,
-			'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => [],
+			'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [],
 			'pseudo' => false,
 		];
 		foreach ($soft as $key => $value) {

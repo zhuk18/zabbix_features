@@ -348,7 +348,7 @@ check(candidates($pdo, $A) === $want_a && !isset(dev_attrs($pdo, $A)['duplicate_
 echo "\n=== 3: operator merge (keep A, remove B): ports, links, observations and shadow_ack move ===\n";
 function add_port(PDO $pdo, int $device, int $if, string $name, bool $pseudo): int {
 	$pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-		->execute([$device, json_encode(['if_index' => $if, 'name' => $name, 'pseudo' => $pseudo, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+		->execute([$device, json_encode(['if_index' => $if, 'name' => $name, 'pseudo' => $pseudo, 'learned_macs' => []])]);
 	return (int) $pdo->lastInsertId();
 }
 

@@ -232,7 +232,7 @@ $pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALU
 	->execute([json_encode(['chassis_id' => 'ee:00:00:00:00:09', 'sysname' => 'Manual peer', 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
 $manual_dev = (int) $pdo->lastInsertId();
 $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-	->execute([$manual_dev, json_encode(['if_index' => 1, 'name' => 'eth0', 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	->execute([$manual_dev, json_encode(['if_index' => 1, 'name' => 'eth0', 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => []])]);
 $manual_port = (int) $pdo->lastInsertId();
 $lo = min($port_a3, $manual_port);
 $hi = max($port_a3, $manual_port);
@@ -474,7 +474,7 @@ check(count($x_ports()) === $ports_before + 1, 'another name is another pseudo p
 // old data: a pseudo port made under the hash of the raw spelling is found by its name
 $dev = (int) device_id($pdo, $XX);
 $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-	->execute([$dev, json_encode(['if_index' => 123456, 'name' => 'TenGigabitEthernet1/1', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	->execute([$dev, json_encode(['if_index' => 123456, 'name' => 'TenGigabitEthernet1/1', 'pseudo' => true, 'learned_macs' => []])]);
 $old = (int) $pdo->lastInsertId();
 $ports_before = count($x_ports());
 snapshot($pdo, 1002, 101, 2, CLOCK + 50, [$row(3, ['rem_port' => 'Te1/1', 'rem_port_desc' => 'te1/1']), $row(2, ['rem_port_desc' => 'Uplink B'])]);

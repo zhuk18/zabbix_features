@@ -124,7 +124,7 @@ class API {
 						if (!in_array((string) ($item['hostid'] ?? ''), array_map('strval', $options['hostids']), true) || !empty($item['hidden'])) {
 							continue;
 						}
-						$out[] = ['itemid' => (string) $id, 'key_' => $item['key_'], 'itemDiscovery' => ['parent_itemid' => '1', 'key_' => $item['proto'] ?? ''], 'tags' => $item['tags'] ?? []];
+						$out[] = ['itemid' => (string) $id, 'hostid' => (string) $item['hostid'], 'key_' => $item['key_'], 'itemDiscovery' => ['parent_itemid' => '1', 'key_' => $item['proto'] ?? ''], 'tags' => $item['tags'] ?? []];
 					}
 					return $out;
 				}
@@ -407,7 +407,7 @@ check(($r['interfaces'][0]['itemids'] ?? null) === $i1 && ($r['interfaces'][2]['
 echo "\n=== 2. Bind ===\n";
 $r = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p1'], 'if_index' => 2]);
 $at = attrs_of($pdo, $bp['p1']);
-check(!failed($r) && ($at['if_index'] ?? null) === 2 && $at['zabbix_itemids'] === $i2 && $at['name'] === 'p1' && $at['source'] === 'manual' && $at['interface_name'] === 'Gi0/2', 'Bind p1 to the interface 2: if_index, zabbix_itemids; name and source stay', [$r, $at]);
+check(!failed($r) && ($at['if_index'] ?? null) === 2 && !array_key_exists('zabbix_itemids', $at) && $at['name'] === 'p1' && $at['source'] === 'manual' && $at['interface_name'] === 'Gi0/2', 'Bind p1 to the interface 2: if_index and interface_name, no stored items; name and source stay', [$r, $at]);
 $dev = attrs_of($pdo, $BD);
 check(($dev['updated_by'] ?? null) === '1' && isset($dev['updated_at']), 'updated_by and updated_at of the Device are recorded', $dev);
 $r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $bp['p2']]);
@@ -420,7 +420,7 @@ foreach ([[99, 'an index that the host has no interface for'], [9, 'an interface
 	check(failed($r) && !array_key_exists('if_index', attrs_of($pdo, $bp['p2'])), 'Bind refused: '.$text, $r);
 }
 $r = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p1'], 'if_index' => 7]);
-check(!failed($r) && attrs_of($pdo, $bp['p1'])['zabbix_itemids'] === $i7, 'Bind p1 again, to another interface: it moves (the old items are replaced)');
+check(!failed($r) && attrs_of($pdo, $bp['p1'])['if_index'] === 7 && attrs_of($pdo, $bp['p1'])['interface_name'] === 'Te1/0/1', 'Bind p1 again, to another interface: it moves');
 // a port with a link can be bound: the manual link stays
 $other = device($pdo, 'Other');
 $op = port($pdo, $other, 1, 'o1');
@@ -442,7 +442,7 @@ $b = binding_of($bp['p3'], $BD);
 check(($b['binding']['missing'] ?? null) === true, 'the items of the interface are deleted: the binding shows "interface not found" (missing)', $b);
 $r = call(CControllerTopologyPortsUnbind::class, ['id' => (string) $bp['p3']]);
 $at = attrs_of($pdo, $bp['p3']);
-check(!failed($r) && !array_key_exists('if_index', $at) && $at['zabbix_itemids'] === [] && !array_key_exists('interface_name', $at) && $at['name'] === 'p3' && $at['source'] === 'manual' && edge_row($pdo, $LK) !== null, 'Unbind works on a stale binding: if_index and items cleared, the port and its link stay', $at);
+check(!failed($r) && !array_key_exists('if_index', $at) && !array_key_exists('zabbix_itemids', $at) && !array_key_exists('interface_name', $at) && $at['name'] === 'p3' && $at['source'] === 'manual' && edge_row($pdo, $LK) !== null, 'Unbind works on a stale binding: if_index and interface_name cleared, the port and its link stay', $at);
 check(binding_of($bp['p3'], $BD)['binding'] === null, 'after Unbind the binding is gone from ports.get');
 check(!failed(call(CControllerTopologyPortsUnbind::class, ['id' => (string) $bp['p3']])), 'Unbind of a port that is not bound: no refusal');
 $r = call(CControllerTopologyPortsUnbind::class, ['id' => (string) $op]);
@@ -485,7 +485,7 @@ check($r['code'] === 0, 'the run finishes', $r['err']);
 $with_index_2 = $pdo->query("SELECT id FROM topo_nodes WHERE type = 'port' AND device_id = {$ND} AND JSON_EXTRACT(attrs, '\$.if_index') = 2")->fetchAll(PDO::FETCH_COLUMN);
 $at = attrs_of($pdo, $np['lan0']);
 check(array_map('intval', $with_index_2) === [$np['lan0']], 'the row with the bound index takes the bound Port: no second Port with the index 2', $with_index_2);
-check(($at['name'] ?? null) === 'Gi0/2' && $at['zabbix_itemids'] === $j2, 'the name of the row replaces the manual name; the items are those of the row', $at);
+check(($at['name'] ?? null) === 'Gi0/2' && !array_key_exists('zabbix_itemids', $at), 'the name of the row replaces the manual name', $at);
 // task 108 (§9.7 2.92): the Port that the row took is a reported port: source reported, no interface name, no binding in ports.get, no Rename / Bind / Unbind (the port data says it is not manual)
 check(($at['source'] ?? null) === 'reported' && !array_key_exists('interface_name', $at) && ($at['if_index'] ?? null) === 2, 'the Port that the row took: source reported, no interface_name, index and name of the row', $at);
 $taken_row = binding_of($np['lan0'], $ND);
@@ -536,6 +536,101 @@ check($r['code'] === 0 && attrs_of($pdo, $sp['e0'])['if_index'] === 3, 'a run do
 check(!failed(call(CControllerTopologyPortsUnbind::class, ['id' => (string) $sp['e0']])) && binding_of($sp['e0'], $SD)['binding'] === null, 'Unbind works');
 $k3b = add_interface($pdo, 302, 3, 'ge-0/0/3');
 check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $sp['e0'], 'if_index' => 3])) && binding_of($sp['e0'], $SD)['binding']['missing'] === false, 'Bind again to the interface that is back: the binding is not missing');
+
+echo "\n=== 8. the items of a port are found when the graph is read (task 110, model §3.2) ===\n";
+reset_all($pdo);
+API::$items = [];
+/** the interface of a host by name (a Zabbix agent template: net.if.in["eth0"]); the tag `interface` and the key carry the name */
+$add_named = static function (PDO $pdo, int $hostid, string $name, string $tag = null) : array {
+	$ids = [];
+	foreach (['net.if.in' => 'in', 'net.if.out' => 'out'] as $key => $unused) {
+		$id = $hostid * 1000 + 500 + count(API::$items) % 400;
+		while (isset(API::$items[$id])) {
+			$id++;
+		}
+		API::$items[$id] = ['hostid' => $hostid, 'key_' => $key.'["'.$name.'"]', 'proto' => $key.'["{#IFNAME}"]', 'tags' => [['tag' => 'interface', 'value' => $tag ?? $name]], 'value_type' => '3', 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
+		$ids[] = $id;
+	}
+	return $ids;
+};
+$items_of = static function (array $port_ids) : array {
+	$method = new ReflectionMethod(CTopologyPrototype::class, 'portItems');
+	$method->setAccessible(true);
+	return $method->invoke(null, $port_ids);
+};
+$ids_of = static fn (array $entry): array => array_map('intval', $entry['itemids']);
+
+// R: a reporter (host 401): the interfaces 1 and 2 have items; the port Gi0/3 has no interface; the port Gi0/9 (index 9, no interface of that index) has the name of the interface 5
+add_host($pdo, 401, 'R401', 'R 401', '10.0.4.1');
+$r1 = add_interface($pdo, 401, 1, 'Gi0/1');
+$r2 = add_interface($pdo, 401, 2, 'Gi0/2');
+$r5 = add_interface($pdo, 401, 5, 'Gi0/5');
+// E: a host with the same interface name twice (two LLD values with the tag Gi0/1), and N: a reporter whose host has no interface items
+add_host($pdo, 402, 'E402', 'E 402', '10.0.4.2');
+$e1 = add_interface($pdo, 402, 1, 'Gi0/1');
+$e2 = add_interface($pdo, 402, 2, 'Gi0/1');
+add_host($pdo, 403, 'N403', 'N 403', '10.0.4.3');
+reporter($pdo, 401, 'a0:00:00:00:04:01', [[1, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [9, 'Gi0/5']], []);
+reporter($pdo, 402, 'a0:00:00:00:04:02', [[11, 'Gi0/1'], [12, 'Gi0/7']], []);
+reporter($pdo, 403, 'a0:00:00:00:04:03', [[1, 'Gi0/1']], []);
+$r = run_ingest($dsn, $user, $password);
+check($r['code'] === 0, 'the run finishes', $r['err']);
+$dev = static fn (string $chassis): int => (int) scalar($pdo, "SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?", [$chassis]);
+$R = ports_of($pdo, $dev('a0:00:00:00:04:01'));
+$E = ports_of($pdo, $dev('a0:00:00:00:04:02'));
+$N = ports_of($pdo, $dev('a0:00:00:00:04:03'));
+API::$item_calls = 0;
+$got = $items_of([$R['Gi0/1'], $R['Gi0/2'], $N['Gi0/1']]);
+check(API::$item_calls === 1, 'the ports that have the index of an interface: ONE item.get for the ports of two hosts (no tags are read)', API::$item_calls);
+API::$item_calls = 0;
+$got = $items_of(array_merge(array_values($R), array_values($E), array_values($N)));
+check(API::$item_calls === 2, 'ports that need a name: ONE item.get for the interfaces of the three hosts and ONE more, for the names of the hosts that need them', API::$item_calls);
+check($ids_of($got[(string) $R['Gi0/1']]) === $r1 && $ids_of($got[(string) $R['Gi0/2']]) === $r2, 'a port is found by its if_index: the items of that interface', $got);
+check($ids_of($got[(string) $R['Gi0/5']]) === $r5, 'no interface with the index 9: found by the name Gi0/5 (the tag interface), the only interface with this name', $got[(string) $R['Gi0/5']]);
+check($got[(string) $R['Gi0/3']] === ['itemids' => [], 'reason' => 'no_match'], 'no interface of the index and none of the name: no items, reason no_match', $got[(string) $R['Gi0/3']]);
+check($got[(string) $E['Gi0/1']]['itemids'] === [] && $got[(string) $E['Gi0/1']]['reason'] === 'no_match', 'two interfaces of the host have the name: not unique, no items', $got[(string) $E['Gi0/1']]);
+check($got[(string) $N['Gi0/1']] === ['itemids' => [], 'reason' => 'no_items'], 'a reporter whose host has no interface items: reason no_items (the page names the missing template)', $got[(string) $N['Gi0/1']]);
+// the index wins over the name: the ports exchange their indexes, the items follow the index (the known limit of §18)
+$pdo->prepare("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '\$.if_index', 2) WHERE id = ?")->execute([$R['Gi0/1']]);
+$pdo->prepare("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '\$.if_index', 1) WHERE id = ?")->execute([$R['Gi0/2']]);
+$got = $items_of([$R['Gi0/1'], $R['Gi0/2']]);
+check($ids_of($got[(string) $R['Gi0/1']]) === $r2 && $ids_of($got[(string) $R['Gi0/2']]) === $r1, 'ports that exchanged their indexes show the items of the other port (by the index, not by the name)', $got);
+// a Device that no host reports, a pseudo port, a manual port
+$far = device($pdo, 'Far');
+$farp = port($pdo, $far, 1, 'f1');
+$pseudo = $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 0, 0)");
+$pseudo->execute([$dev('a0:00:00:00:04:01'), json_encode(['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => true])]);
+$pseudo_id = (int) $pdo->lastInsertId();
+$got = $items_of([$farp, $pseudo_id]);
+check($got[(string) $farp] === ['itemids' => [], 'reason' => 'not_monitored'], 'a port of a Device without a host: no items, reason not_monitored', $got[(string) $farp]);
+check($got[(string) $pseudo_id] === ['itemids' => [], 'reason' => 'not_reported'], 'a pseudo port: no items, reason not_reported', $got[(string) $pseudo_id]);
+// a Zabbix agent host (the interface name in the key, no ifIndex): a port named eth0 with an index that no interface has
+add_host($pdo, 404, 'A404', 'A 404', '10.0.4.4');
+$a_eth0 = $add_named($pdo, 404, 'eth0');
+$a_eth1 = $add_named($pdo, 404, 'eth1');
+reporter($pdo, 404, 'a0:00:00:00:04:04', [[2, 'eth0'], [3, 'eth1'], [4, 'eth2']], []);
+run_ingest($dsn, $user, $password);
+$A = ports_of($pdo, $dev('a0:00:00:00:04:04'));
+$got = $items_of(array_values($A));
+check($ids_of($got[(string) $A['eth0']]) === $a_eth0 && $ids_of($got[(string) $A['eth1']]) === $a_eth1 && $got[(string) $A['eth2']]['reason'] === 'no_match',
+	'a host of the agent template (the name in the key and the tag): found by the name; a name with no interface: no items', $got);
+// a manual Device associated with a host: an unbound port has no items, a bound port has the items of its interface (by the index, else by its interface name)
+$MD = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'MAN', 'device_class' => 'switch', 'ports' => [['name' => 'p1'], ['name' => 'p2']]])['id'];
+$MP = ports_of($pdo, $MD);
+add_host($pdo, 405, 'M405', 'M 405', '10.0.4.5');
+$m5 = add_interface($pdo, 405, 5, 'Gi0/5');
+CTopologyPrototype::promote((string) $MD, 'host', '405');
+call(CControllerTopologyPortsBind::class, ['id' => (string) $MP['p1'], 'if_index' => 5]);
+$got = $items_of(array_values($MP));
+check($got[(string) $MP['p2']] === ['itemids' => [], 'reason' => 'no_binding'], 'a manual port that is not bound: no items, reason no_binding', $got[(string) $MP['p2']]);
+check($ids_of($got[(string) $MP['p1']]) === $m5, 'a bound manual port: the items of its interface', $got[(string) $MP['p1']]);
+$pdo->prepare("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '\$.if_index', 77) WHERE id = ?")->execute([$MP['p1']]);
+$got = $items_of([$MP['p1']]);
+check($ids_of($got[(string) $MP['p1']]) === $m5, 'the bound index is gone: found by its interface_name (Gi0/5), the only interface with this name', $got);
+drop_items($pdo, $m5);
+check($items_of([$MP['p1']])[(string) $MP['p1']]['itemids'] === [] && binding_of($MP['p1'], $MD)['binding']['missing'] === true, 'the items are deleted: no items, binding missing');
+// the stored attrs never have the items (2.93)
+check(!str_contains((string) scalar($pdo, "SELECT GROUP_CONCAT(attrs) FROM topo_nodes WHERE type = 'port'"), 'zabbix_itemids'), 'no Port has zabbix_itemids in its attrs');
 
 echo "\nAll Bind to interface checks passed.\n";
 

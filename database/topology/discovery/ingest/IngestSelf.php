@@ -282,23 +282,6 @@ class IngestSelf {
 		$snapshots = $reporter['snapshots'];
 
 		// ---- PORTS ----
-		// zabbix_itemids (topology-1-model.md §3.2): the items the rule's own LLD run made from the row (`itemids`, set by the server). A host can have two
-		// PORTS rules (the topology template and the standard interface discovery): their rows join by if_index, the ids come from the one with item
-		// prototypes (the other has []). The list is replaced by every run; a row without the field (an older snapshot) has none.
-		$port_items = [];
-		foreach ($snapshots[TOPO_TYPE_PORTS] ?? [] as $snapshot) {
-			foreach ($snapshot['rows'] as $row) {
-				$port_items[(int) $row['if_index']] = array_values(array_unique(array_merge($port_items[(int) $row['if_index']] ?? [],
-					array_map('intval', is_array($row['itemids'] ?? null) ? $row['itemids'] : []))));
-				sort($port_items[(int) $row['if_index']]);
-			}
-		}
-		if ($port_items && !array_filter($port_items)) {
-			$summary['hosts_ports_without_items']['count']++;
-			if (count($summary['hosts_ports_without_items']['list']) < 200) {
-				$summary['hosts_ports_without_items']['list'][] = ['hostid' => (int) $reporter['hostid'], 'host' => (string) $reporter['host']];
-			}
-		}
 		// model §6.6 "Two PORTS rules of one host" (2.69): one list of port rows from the PORTS snapshots of the host; when two snapshots disagree and none is newer, the Ports do not change
 		$port_decision = $this->portSnapshots($snapshots[TOPO_TYPE_PORTS] ?? []);
 		if ($port_decision['unchanged']) {
@@ -313,7 +296,7 @@ class IngestSelf {
 		foreach ($port_decision['unchanged'] ? [] : $port_decision['snapshots'] as $snapshot) {
 			foreach ($snapshot['rows'] as $row) {
 				$if_index = (int) $row['if_index'];
-				$overlay = ['if_index' => $if_index, 'pseudo' => false, 'zabbix_itemids' => $port_items[$if_index] ?? []];
+				$overlay = ['if_index' => $if_index, 'pseudo' => false];
 				$row['name'] = ($row['name'] ?? '') !== '' ? $row['name'] : ($row['descr'] ?? '');       // the port's display name: ifName, else ifDescr (the step does not choose)
 				foreach (['name', 'mac', 'speed'] as $key) {
 					if (($row[$key] ?? '') !== '') {
@@ -453,7 +436,7 @@ class IngestSelf {
 	 * A port follows its name (topology-1-model.md §6.6, 2.65): before the PORTS upsert, a row whose name is on one row of the snapshot and on exactly one stored real Port of the Device gives that
 	 * Port its `if_index`. All changes of one snapshot are computed first and written together, so two ports that exchange their indexes do not collide. A stored Port whose index another Port takes
 	 * and that gets no row itself keeps its id, name, links and decisions but loses `attrs.if_index` (the key is absent: no row resolves to it by ifIndex; a later row with its name gives it an index
-	 * again) and its `zabbix_itemids` (the items follow the rows). A row with an empty name, or a name on several rows or on several stored Ports, is upserted by `if_index` as before. Pseudo ports
+	 * again). A row with an empty name, or a name on several rows or on several stored Ports, is upserted by `if_index` as before. Pseudo ports
 	 * never take a row; a row whose index a pseudo port holds goes by `if_index` as before (the upsert makes that pseudo port the real one).
 	 */
 	public function followNames(int $device_id, array $snapshots): void {
@@ -524,9 +507,8 @@ class IngestSelf {
 			if (isset($moves[$id]) || !isset($attrs['if_index']) || !isset($taken[(int) $attrs['if_index']]) || !empty($attrs['pseudo'])) {
 				continue;
 			}
-			// the Port is gone (its name is not in the snapshot, or the name is not unique): it stays, without an index and without items
+			// the Port is gone (its name is not in the snapshot, or the name is not unique): it stays, without an index (and so without items: the view finds them by the index or the name, §3.2)
 			unset($attrs['if_index']);
-			$attrs['zabbix_itemids'] = [];
 			$store->writeAttrs($id, $attrs, $ports[$id]);
 			$this->run->summary['ports_index_dropped']++;
 		}

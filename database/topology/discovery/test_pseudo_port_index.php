@@ -200,10 +200,10 @@ check(fingerprint($pdo) === $before, 'a rerun changes nothing (ingest does not m
 // ============================================================================================================
 echo "\n=== 3: ingest moves an existing pseudo port with a positive allocated if_index to a negative one ===\n";
 $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-	->execute([$D, json_encode(['if_index' => 663128, 'name' => 'old-allocated', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	->execute([$D, json_encode(['if_index' => 663128, 'name' => 'old-allocated', 'pseudo' => true, 'learned_macs' => []])]);
 $old = (int) $pdo->lastInsertId();
 $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-	->execute([$D, json_encode(['if_index' => 42, 'name' => '42', 'pseudo' => true, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	->execute([$D, json_encode(['if_index' => 42, 'name' => '42', 'pseudo' => true, 'learned_macs' => []])]);
 $numbered = (int) $pdo->lastInsertId();
 $r = run_ingest($dsn, $user, $password);
 $ports = ports_of_device($pdo, $D);

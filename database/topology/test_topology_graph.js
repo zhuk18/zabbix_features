@@ -572,6 +572,15 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 		'the tooltip of a link has both sides and is the same text as when neighbors.get gave both sides', text(links[0]));
 	G.applyNearLoads(links, [{edge_id: '7', load: null}], 'A');
 	ok(links[0].source_load === null, 'a port of a link with no load gives null (no load line for that side)');
+	// task 110 (FR-C V-12 items 2 and 4, model 2.93): a side with no items says "no data" in the tooltip; the reason rides along from ports.get and neighbors.get
+	G.applyNearLoads(links, [{edge_id: '7', load: null, load_reason: 'no_items'}], 'A');
+	ok(links[0].source_load === null && links[0].source_load_reason === 'no_items', 'applyNearLoads: the reason of the port comes with its load');
+	const one_side = G.linkTooltip({...links[0], source: {name: 'SW12'}, target: {name: 'PC1'}, target_load: far, target_load_reason: null, source_load_reason: 'no_items'}, {...words, no_data: 'no data'});
+	ok(one_side.includes('PC1: in 0 bps / out 0 bps of 1 Gbps (0 %)') && one_side.includes('SW12: no data'), 'the tooltip: the side with items has its load, the side without items says no data', one_side);
+	const none = G.linkTooltip({...links[0], source: {name: 'SW12'}, target: {name: 'PC1'}, target_load: null, source_load_reason: 'no_items', target_load_reason: 'not_monitored'}, words);
+	ok(none.includes('SW12: no data') && none.includes('PC1: no data'), 'both sides without items: both say no data (the default word)', none);
+	const unknown = G.linkTooltip({...links[0], source: {name: 'SW12'}, target: {name: 'PC1'}, source_load: null, target_load: null, source_load_reason: null, target_load_reason: null}, words);
+	ok(!unknown.includes('no data'), 'a side whose reason is not known (no answer yet) says nothing', unknown);
 }
 // the start order (model §12.1, 2.90, task 106): the label, then the hardware ID, then the kind; a group node and a Junction after their parent; never the node id
 {

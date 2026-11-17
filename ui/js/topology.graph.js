@@ -1241,10 +1241,14 @@
 		const statuses = [state(link.source_status), state(link.target_status)].filter(Boolean).join(' / ');
 		lines.push([link.source_text, statuses].filter(Boolean).join(' · '));
 		const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
-		[[link.source, link.source_load], [link.target, link.target_load]].forEach(([node, load]) => {
+		[[link.source, link.source_load, link.source_load_reason], [link.target, link.target_load, link.target_load_reason]].forEach(([node, load, reason]) => {
 			if (load && ((load.in !== null && load.in !== undefined) || (load.out !== null && load.out !== undefined))) {
 				lines.push(`${node?.name ?? '?'}: ${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '')
 					+ (load.percent !== null && load.percent !== undefined ? ` (${load.percent} %)` : ''));
+			}
+			else if (reason) {
+				// FR-C V-12 item 2 (model 2.93): a side that has no items says so (the link panel says why)
+				lines.push(`${node?.name ?? '?'}: ${words.no_data ?? 'no data'}`);
 			}
 		});
 		(link.marks ?? []).forEach(mark => lines.push(mark));
@@ -1270,18 +1274,21 @@
 		const by_edge = new Map();
 		ports.forEach(port => {
 			if (port.edge_id !== null && port.edge_id !== undefined && Object.prototype.hasOwnProperty.call(port, 'load')) {
-				by_edge.set(String(port.edge_id), port.load ?? null);
+				by_edge.set(String(port.edge_id), [port.load ?? null, port.load_reason ?? null]);
 			}
 		});
 		links.forEach(link => {
 			if (link.type !== 'physical_link' || link.edge_id === null || link.edge_id === undefined || !by_edge.has(String(link.edge_id))) {
 				return;
 			}
+			const [load, reason] = by_edge.get(String(link.edge_id));
 			if (String(link.source) === String(node_id)) {
-				link.source_load = by_edge.get(String(link.edge_id));
+				link.source_load = load;
+				link.source_load_reason = reason;
 			}
 			else if (String(link.target) === String(node_id)) {
-				link.target_load = by_edge.get(String(link.edge_id));
+				link.target_load = load;
+				link.target_load_reason = reason;
 			}
 		});
 	}

@@ -36,9 +36,10 @@ def run_ingest(settings):
     return st
 
 
-def run_derived():
-    """The derived state the UI reads (php/derived.php: read only), as a dict; LabError if the helper fails."""
-    p = subprocess.run(['php', DERIVED], capture_output=True, text=True, timeout=120)
+def run_derived(port_items=False):
+    """The derived state the UI reads (php/derived.php: read only), as a dict; LabError if the helper fails.
+    port_items: also the items of every Port as the view finds them (model §3.2, 2.93): `port_items`, port id -> item ids."""
+    p = subprocess.run(['php', DERIVED] + (['--port-items'] if port_items else []), capture_output=True, text=True, timeout=120)
     try:
         answer = json.loads(p.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -280,7 +281,7 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
                       '' if ok else 'hidden neighbors %s, expected %s' % (got, want))
     if 'link_items' in a or 'link_load' in a or 'link_severity' in a:
         # the items, the load and the severity that the UI shows for a link (model §3.2, §4.8; php/derived.php): link_items {link} - both end ports have
-        # items (zabbix_itemids not empty); link_load {link, percent, tolerance} - both sides within tolerance (default 5 points) of percent;
+        # items (the end ports have items that the view finds, model §3.2); link_load {link, percent, tolerance} - both sides within tolerance (default 5 points) of percent;
         # link_severity {link, present: bool} - the link has (or has not) a severity from an active trigger on the items of its end ports
         kind = 'link_items' if 'link_items' in a else 'link_load' if 'link_load' in a else 'link_severity'
         r = a[kind]
@@ -653,6 +654,9 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
     manifest = json.load(open(os.path.join(ctl.DATA_DIR, scenario.id, 'manifest.json')))
     mon = sorted(manifest['devices'])
     history, clocks_hist = {}, {}
+    # the assertion `port` with `itemids` or `itemids_same_as` needs the items that the view finds (model §3.2, 2.93)
+    wants_port_items = any(isinstance(a, dict) and 'port' in a and ('itemids' in a or 'itemids_same_as' in a)
+                           for st in scenario.steps for a in st.get('assert') or [])
     try:
         ms = zbx.masters(api, mon)
         transport = {d: scenario.states[0].devices[d]['zabbix']['transport'] for d in mon}
@@ -870,6 +874,11 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
                 sr['errors'].append(str(e))
             ingest = run_ingest(settings)
             state = db.natural_state(conn)
+            if wants_port_items:
+                # model §3.2 (2.93): the items of a port are not stored; the assertion `port` reads those that the view finds (lab spec 8.3)
+                found_items = run_derived(port_items=True).get('port_items') or {}
+                for port_node in state['port_nodes']:
+                    port_node['itemids'] = sorted(found_items.get(str(port_node['id']), []))
             history[i] = state
             clocks_hist[i] = snapshot_ids(conn)
             sr['ingest_status'] = ingest

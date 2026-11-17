@@ -131,9 +131,31 @@ class API {
 		return new class {
 			public function get($options) {
 				API::$item_calls++;
+				global $pdo;
+				if (isset($options['hostids'])) {
+					// task 110 (§3.2): the interface items of hosts. A test says which items a port has with give_items(); the items are made as discovered ones of a prototype with {#SNMPINDEX}
+					$out = [];
+					foreach ($GLOBALS['PORT_ITEMS'] ?? [] as $port_id => $itemids) {
+						$row = $pdo->query('SELECT p.attrs, h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE p.id = '.(int) $port_id)->fetch(PDO::FETCH_ASSOC);
+						if (!$row || !in_array((string) $row['host_ref'], array_map('strval', $options['hostids']), true)) {
+							continue;
+						}
+						$attrs = json_decode($row['attrs'], true);
+						$index = (int) ($GLOBALS['PORT_ITEM_INDEX'][$port_id] ?? $attrs['if_index']);
+						foreach ($itemids as $id) {
+							$key = API::$items[$id]['key_'] ?? '';
+							if (!preg_match('/^(net\.if\.(?:in|out|speed|status)\[.*\.)'.$index.'\]$/', $key, $match)) {
+								$key = 'net.if.in[synth'.$id.'.'.$index.']';
+								$match = [1 => 'net.if.in[synth'.$id.'.'];
+							}
+							$out[] = ['itemid' => (string) $id, 'hostid' => (string) $row['host_ref'], 'key_' => $key, 'itemDiscovery' => ['parent_itemid' => '1', 'key_' => $match[1].'{#SNMPINDEX}]'],
+								'tags' => [['tag' => 'interface', 'value' => (string) ($GLOBALS['PORT_ITEM_NAME'][$port_id] ?? $attrs['name'])]]];
+						}
+					}
+					return $out;
+				}
 				API::$item_ids_asked[] = array_map('strval', $options['itemids']);
 				$out = [];
-				global $pdo;
 				foreach ($options['itemids'] as $id) {
 					if (isset(API::$items[$id])) {
 						$item = API::$items[$id];
@@ -207,7 +229,22 @@ function edge(PDO $pdo, string $type, int $src, int $dst, array $attrs): int {
 	return (int) $pdo->lastInsertId();
 }
 
+/** task 110 (§3.2): the interface items of a port are found when the graph is read: the Device of the port gets a host, and the stub of item.get gives these items as the discovered interface of the port's index */
+function give_items(PDO $pdo, int $port_id, array $itemids): void {
+	$device = (int) $pdo->query('SELECT device_id FROM topo_nodes WHERE id = '.(int) $port_id)->fetchColumn();
+	if ($pdo->query('SELECT represented_by_node_id FROM topo_nodes WHERE id = '.$device)->fetchColumn() === null) {
+		$pdo->prepare('REPLACE INTO hosts (hostid, host, name, status) VALUES (?, ?, ?, 0)')->execute([5000 + $device, 'H'.$device, 'H'.$device]);
+		$host = node($pdo, 'host', []);
+		$pdo->exec('UPDATE topo_nodes SET host_ref = '.(5000 + $device).' WHERE id = '.$host);
+		$pdo->exec('UPDATE topo_nodes SET represented_by_node_id = '.$host.' WHERE id = '.$device);
+	}
+	$GLOBALS['PORT_ITEMS'][$port_id] = $itemids;
+}
+
 function reset_topology(PDO $pdo): void {
+	$GLOBALS['PORT_ITEMS'] = [];
+	$GLOBALS['PORT_ITEM_INDEX'] = [];
+	$GLOBALS['PORT_ITEM_NAME'] = [];
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
 		$pdo->exec("TRUNCATE TABLE {$table}");
@@ -679,10 +716,10 @@ $far = [];
 $near_ports = [];
 foreach ($names as $k => $name) {
 	$far[$name] = device($pdo, $name);
-	$near_ports[$name] = node($pdo, 'port', ['if_index' => 10 + $k, 'name' => 'Gi0/'.(10 + $k), 'pseudo' => false, 'oper_status' => 'up',
-		'zabbix_itemids' => [1000 + $k]], $R);
-	$far_port = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up',
-		'zabbix_itemids' => [2000 + $k]], $far[$name]);
+	$near_ports[$name] = node($pdo, 'port', ['if_index' => 10 + $k, 'name' => 'Gi0/'.(10 + $k), 'pseudo' => false, 'oper_status' => 'up'], $R);
+	give_items($pdo, $near_ports[$name], [1000 + $k]);
+	$far_port = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up'], $far[$name]);
+	give_items($pdo, $far_port, [2000 + $k]);
 	edge($pdo, 'physical_link', min($near_ports[$name], $far_port), max($near_ports[$name], $far_port),
 		['discovered_via' => 'lldp', 'last_seen' => time()]);
 }
@@ -713,14 +750,14 @@ API::$items = [
 	3000 => ['key_' => 'net.if.in[ifInOctets.1]', 'lastvalue' => '5', 'lastclock' => (string) ($now - 5000)],      // an old value: no load
 	3001 => ['key_' => 'net.if.speed[ifSpeed.1]', 'lastvalue' => '1000000000', 'lastclock' => (string) $now],
 ];
-$pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JSON_ARRAY(1000, 1100, 1102)) WHERE id = ".(int) $near_ports['Switch A']);
-$pdo->exec("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '$.zabbix_itemids', JSON_ARRAY(3000, 3001)) WHERE device_id = ".(int) $far['Switch A']." AND type = 'port'");
+give_items($pdo, $near_ports['Switch A'], [1000, 1100, 1102]);
+give_items($pdo, (int) $pdo->query("SELECT id FROM topo_nodes WHERE device_id = ".(int) $far['Switch A']." AND type = 'port'")->fetchColumn(), [3000, 3001]);
 API::$items[1102] = ['key_' => 'net.if.speed[ifSpeed.10]', 'lastvalue' => '1000000000', 'lastclock' => (string) $now];
 API::$item_calls = 0;
 API::$item_ids_asked = [];
 $n = CTopologyPrototype::getNeighbors((string) $R);
 $load = neighbor($n, $far['Switch A'])['load'];
-check(API::$item_calls === 1, 'four neighbors, ONE item lookup for the whole response');
+check(API::$item_calls === 2, 'four neighbors: ONE lookup of the interface items of all the hosts and ONE read of the load items, for the whole response (task 110)');
 // task 103 (§4.8, 2.88): neighbors.get reads the far side only; the near side is in ports.get
 $asked = array_merge(...API::$item_ids_asked);
 check(!array_key_exists('local', $load) && !array_intersect(['1000', '1100', '1102'], $asked), 'neighbors.get reads the far side only: no near side in the load, the items of the near port are not read', [$load, $asked]);
@@ -780,7 +817,11 @@ reset_topology($pdo);
 $Dl = device($pdo, 'Dev L');
 $Dm = device($pdo, 'Dev M');
 $mk = static function (PDO $pdo, int $device, int $if, string $name, array $itemids): int {
-	return node($pdo, 'port', ['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => $itemids], $device);
+	$id = node($pdo, 'port', ['if_index' => $if, 'name' => $name, 'pseudo' => false, 'oper_status' => 'up'], $device);
+	if ($itemids) {
+		give_items($pdo, $id, $itemids);
+	}
+	return $id;
 };
 $pa = $mk($pdo, $Dl, 1, 'Gi0/1', [1001, 1002, 1003]);      // a link
 $pb = $mk($pdo, $Dl, 2, 'Gi0/2', [2001, 2002, 2003]);      // no link
@@ -849,12 +890,15 @@ check(CTopologyLoad::window([$item(1, ITEM_VALUE_TYPE_UINT64, ['type' => (string
 reset_topology($pdo);
 $Dr = device($pdo, 'Dev R');
 $Ds = device($pdo, 'Dev S');
-$p1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7101, 7102, 7103]], $Dr);
-$p2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7201, 7202]], $Dr);
-$p3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => [7301, 7302, 7303]], $Dr);
-$q1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
-$q2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
-$q3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up', 'zabbix_itemids' => []], $Ds);
+$p1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up'], $Dr);
+give_items($pdo, $p1, [7101, 7102, 7103]);
+$p2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up'], $Dr);
+give_items($pdo, $p2, [7201, 7202]);
+$p3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up'], $Dr);
+give_items($pdo, $p3, [7301, 7302, 7303]);
+$q1 = node($pdo, 'port', ['if_index' => 1, 'name' => 'Gi0/1', 'pseudo' => false, 'oper_status' => 'up'], $Ds);
+$q2 = node($pdo, 'port', ['if_index' => 2, 'name' => 'Gi0/2', 'pseudo' => false, 'oper_status' => 'up'], $Ds);
+$q3 = node($pdo, 'port', ['if_index' => 3, 'name' => 'Gi0/3', 'pseudo' => false, 'oper_status' => 'up'], $Ds);
 foreach ([[$p1, $q1], [$p2, $q2], [$p3, $q3]] as [$x, $y]) {
 	edge($pdo, 'physical_link', $x, $y, ['discovered_via' => 'lldp', 'last_seen' => time()]);
 }

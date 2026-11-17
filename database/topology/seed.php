@@ -107,22 +107,22 @@ try {
 	$ports = [];
 	for ($port_index = 1; $port_index <= 44; $port_index++) {
 		$connected = $port_index <= 40;
-		$ports[$port_index] = $port($switch, ['if_index' => $port_index, 'name' => 'GigabitEthernet1/0/'.$port_index, 'if_type' => 'physical', 'mac' => sprintf('00:11:22:33:%02x:%02x', intdiv($port_index, 256), $port_index % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => $connected ? 'up' : 'down', 'learned_macs' => $connected && $port_index > 2 ? [sprintf('02:00:00:00:00:%02x', $port_index)] : [], 'zabbix_itemids' => []]);
+		$ports[$port_index] = $port($switch, ['if_index' => $port_index, 'name' => 'GigabitEthernet1/0/'.$port_index, 'if_type' => 'physical', 'mac' => sprintf('00:11:22:33:%02x:%02x', intdiv($port_index, 256), $port_index % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => $connected ? 'up' : 'down', 'learned_macs' => $connected && $port_index > 2 ? [sprintf('02:00:00:00:00:%02x', $port_index)] : []]);
 	}
 	$edge_switches = [];
 	for ($neighbor_index = 1; $neighbor_index <= 2; $neighbor_index++) {
 		$neighbor = $device(['mac' => sprintf('00:aa:bb:cc:dd:%02x', $neighbor_index), 'chassis_id' => 'neighbor-'.$neighbor_index, 'mgmt_ip' => '192.0.2.'.(20 + $neighbor_index), 'sysname' => 'edge-switch-'.$neighbor_index, 'vendor' => 'Example Networks', 'last_seen' => $now]);
-		$neighbor_port = $port($neighbor, ['if_index' => 1, 'name' => 'Ethernet1', 'if_type' => 'physical', 'mac' => sprintf('00:aa:bb:cc:dd:%02x', $neighbor_index), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$neighbor_port = $port($neighbor, ['if_index' => 1, 'name' => 'Ethernet1', 'if_type' => 'physical', 'mac' => sprintf('00:aa:bb:cc:dd:%02x', $neighbor_index), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
 		$ensure_edge('physical_link', $ports[$neighbor_index], $neighbor_port, ['discovered_via' => 'lldp', 'last_seen' => $now], true);
 		$edge_switches[] = $neighbor;
 	}
 	foreach ([[1, 37, 38], [2, 39, 40]] as [$lag_index, $first, $second]) {
-		$lag = $port($switch, ['if_index' => 100 + $lag_index, 'name' => 'Port-channel'.$lag_index, 'if_type' => 'lag', 'mac' => sprintf('00:11:22:33:fe:%02x', $lag_index), 'speed' => 2000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$lag = $port($switch, ['if_index' => 100 + $lag_index, 'name' => 'Port-channel'.$lag_index, 'if_type' => 'lag', 'mac' => sprintf('00:11:22:33:fe:%02x', $lag_index), 'speed' => 2000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
 		$ensure_edge('member_of_lag', $ports[$first], $lag, []);
 		$ensure_edge('member_of_lag', $ports[$second], $lag, []);
 	}
 	for ($mgmt_index = 1; $mgmt_index <= 2; $mgmt_index++) {
-		$port($switch, ['if_index' => 200 + $mgmt_index, 'name' => 'Management'.$mgmt_index, 'if_type' => 'mgmt', 'mac' => sprintf('00:11:22:33:fd:%02x', $mgmt_index), 'speed' => 100000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$port($switch, ['if_index' => 200 + $mgmt_index, 'name' => 'Management'.$mgmt_index, 'if_type' => 'mgmt', 'mac' => sprintf('00:11:22:33:fd:%02x', $mgmt_index), 'speed' => 100000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
 	}
 
 	// Access-layer fanout: a few dozen more devices branching off the two edge switches, so the graph has
@@ -135,16 +135,16 @@ try {
 	for ($i = 1; $i <= $access_switch_count; $i++) {
 		$parent = $pool[$i % count($pool)];
 		$uplink_port_counter[$parent] = ($uplink_port_counter[$parent] ?? 0) + 1;
-		$parent_downlink = $port($parent, ['if_index' => 10 + $uplink_port_counter[$parent], 'name' => 'GigabitEthernet0/'.$uplink_port_counter[$parent], 'if_type' => 'physical', 'mac' => sprintf('00:cc:dd:%02x:%02x:%02x', intdiv($parent, 65536) % 256, intdiv($parent, 256) % 256, $parent % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$parent_downlink = $port($parent, ['if_index' => 10 + $uplink_port_counter[$parent], 'name' => 'GigabitEthernet0/'.$uplink_port_counter[$parent], 'if_type' => 'physical', 'mac' => sprintf('00:cc:dd:%02x:%02x:%02x', intdiv($parent, 65536) % 256, intdiv($parent, 256) % 256, $parent % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
 
 		$access_device = $device(['mac' => sprintf('00:bb:cc:%02x:%02x:%02x', intdiv($i, 65536) % 256, intdiv($i, 256) % 256, $i % 256), 'chassis_id' => 'access-'.$i, 'mgmt_ip' => '192.0.3.'.(($i % 254) + 1), 'sysname' => 'access-switch-'.$i, 'vendor' => $vendors[$i % count($vendors)], 'last_seen' => $now]);
-		$uplink = $port($access_device, ['if_index' => 1, 'name' => 'GigabitEthernet0/1', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:01', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$uplink = $port($access_device, ['if_index' => 1, 'name' => 'GigabitEthernet0/1', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:01', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => []]);
 		$ensure_edge('physical_link', $parent_downlink, $uplink, ['discovered_via' => 'lldp', 'last_seen' => $now], true);
 
 		// one MAC-only port (no LLDP neighbor — most ports terminate in non-LLDP endpoints, topology-1-model.md "PORTS, LAG, LEARNED_MACS") and one
 		// disconnected port per access switch, for interface-table variety matching the core switch's mix
-		$port($access_device, ['if_index' => 2, 'name' => 'GigabitEthernet0/2', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:02', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [sprintf('02:00:00:cc:%02x:%02x', intdiv($i, 256) % 256, $i % 256)], 'zabbix_itemids' => []]);
-		$port($access_device, ['if_index' => 3, 'name' => 'GigabitEthernet0/3', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:03', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'down', 'learned_macs' => [], 'zabbix_itemids' => []]);
+		$port($access_device, ['if_index' => 2, 'name' => 'GigabitEthernet0/2', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:02', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'up', 'learned_macs' => [sprintf('02:00:00:cc:%02x:%02x', intdiv($i, 256) % 256, $i % 256)]]);
+		$port($access_device, ['if_index' => 3, 'name' => 'GigabitEthernet0/3', 'if_type' => 'physical', 'mac' => sprintf('00:bb:cc:%02x:%02x:03', intdiv($i, 256) % 256, $i % 256), 'speed' => 1000000000, 'admin_status' => 'up', 'oper_status' => 'down', 'learned_macs' => []]);
 
 		$pool[] = $access_device;
 	}

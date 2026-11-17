@@ -580,9 +580,10 @@ class CTopologyPrototype {
 		}
 		// Link colour = severity of the problems on the items of the end ports (§4.8, §12.3): ONE lookup for all the links
 		$itemids_by_link = [];
+		$items_of_port = self::portItems(array_merge(array_column($device_links, 'source_port_id'), array_column($device_links, 'target_port_id')));
 		foreach ($device_links as $key => $relation) {
-			$itemids_by_link[$key] = array_merge($port_details[$relation['source_port_id']]['zabbix_itemids'] ?? [],
-				$port_details[$relation['target_port_id']]['zabbix_itemids'] ?? []);
+			$itemids_by_link[$key] = array_merge($items_of_port[(string) $relation['source_port_id']]['itemids'] ?? [],
+				$items_of_port[(string) $relation['target_port_id']]['itemids'] ?? []);
 		}
 		$severity_by_link = self::getMaxActiveSeverityByItemIds($itemids_by_link);
 		foreach ($device_links as $key => $relation) {
@@ -1204,16 +1205,17 @@ class CTopologyPrototype {
 		));
 		// Link severity (topology-1-model.md "Link severity (derived)"): one trigger lookup for the items of every end port of every
 		// shown link, not one per neighbor.
+		// 2.93 (§3.2): the items of the end ports are found now, one lookup for both ends of every link; one side with items is enough
+		$items_of_port = self::portItems(array_merge(array_column($link_ports, 'local'), array_column($link_ports, 'remote')));
 		$link_itemids = [];
 		foreach ($link_ports as $id => $ends) {
-			$link_itemids[$id] = array_merge($port_details[$ends['local']]['zabbix_itemids'] ?? [],
-				$port_details[$ends['remote']]['zabbix_itemids'] ?? []);
+			$link_itemids[$id] = array_merge($items_of_port[(string) $ends['local']]['itemids'] ?? [], $items_of_port[(string) $ends['remote']]['itemids'] ?? []);
 		}
 		$link_severity = self::getMaxActiveSeverityByItemIds($link_itemids);
 		// Load of the far side of each shown link (§4.8, 2.88): one read for the far ports; the near side is in `ports.get` (the page puts the two together)
 		$port_itemids = [];
 		foreach ($link_ports as $ends) {
-			$port_itemids[$ends['remote']] = $port_details[$ends['remote']]['zabbix_itemids'] ?? [];
+			$port_itemids[$ends['remote']] = $items_of_port[(string) $ends['remote']]['itemids'] ?? [];
 		}
 		$port_loads = self::getPortLoads($port_itemids);
 
@@ -1233,6 +1235,8 @@ class CTopologyPrototype {
 			$neighbor['edge_id'] = $link['edge_id'];
 			$neighbor = array_merge($neighbor, self::describeSeverity($link_severity[$id] ?? null));
 			$neighbor['load'] = ['remote' => $port_loads[$link_ports[$id]['remote']] ?? null];
+			// 2.93 (FR-C V-12 item 4): why the far side has no data
+			$neighbor['load_reason'] = ['remote' => isset($port_loads[$link_ports[$id]['remote']]) ? null : ($items_of_port[(string) $link_ports[$id]['remote']]['reason'] ?? null)];
 			$neighbor['last_seen'] = isset($link_attrs['last_seen']) ? (int) $link_attrs['last_seen'] : null;
 			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
 				: $neighbor['last_seen'];
@@ -1394,30 +1398,22 @@ class CTopologyPrototype {
 
 		// 2.87 (§11, task 102): the load (§4.8) is read only for the ports of the Links section, an end of a link that is not superseded (the rows of a superseded link have no linkid here) or of a
 		// device-level link; the other ports have no load fields. The read of the last values of the items of a port (two values of each item, one query for each item) was the time of the call.
+		// 2.93 (§3.2): the items of the ports are found now (one lookup); a bound manual port whose interface is not found shows "interface not found" (§9.7)
+		$wanted = [];
+		foreach ($rows as $row) {
+			$attrs = self::attrs($row);
+			if ($row['linkid'] !== null || isset($device_level[$row['id']]) || (($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index']))) {
+				$wanted[] = $row['id'];
+			}
+		}
+		$items_of_port = self::portItems($wanted);
 		$itemids_by_port = [];
 		foreach ($rows as $row) {
 			if ($row['linkid'] !== null || isset($device_level[$row['id']])) {
-				$itemids_by_port[$row['id']] = array_map('strval', self::attrs($row)['zabbix_itemids'] ?? []);
+				$itemids_by_port[$row['id']] = $items_of_port[(string) $row['id']]['itemids'] ?? [];
 			}
 		}
 		$port_loads = self::getPortLoads($itemids_by_port);
-		// 2.91 (§9.7 "Bind to interface"): a bound manual port whose items are all gone shows "interface not found"
-		$bound_items = [];
-		foreach ($rows as $row) {
-			$attrs = self::attrs($row);
-			if (($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index'])) {
-				foreach ($attrs['zabbix_itemids'] ?? [] as $itemid) {
-					$bound_items[(int) $itemid] = true;
-				}
-			}
-		}
-		$existing_items = [];
-		if ($bound_items) {
-			$result = DBselect('SELECT itemid FROM items WHERE '.dbConditionId('itemid', array_keys($bound_items)));
-			while ($item = DBfetch($result, false)) {
-				$existing_items[(int) $item['itemid']] = true;
-			}
-		}
 
 		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
@@ -1438,7 +1434,7 @@ class CTopologyPrototype {
 				'manual' => ($attrs['source'] ?? null) === 'manual', 'description' => $attrs['description'] ?? null,
 				// 2.91: the interface a manual port is bound to ("lan0 → Gi0/1"); `missing`: its items are gone ("interface not found")
 				'binding' => ($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index']) ? ['if_index' => (int) $attrs['if_index'], 'name' => $attrs['interface_name'] ?? null,
-					'missing' => !array_filter($attrs['zabbix_itemids'] ?? [], static fn ($id): bool => isset($existing_items[(int) $id]))] : null,
+					'missing' => !($items_of_port[(string) $row['id']]['itemids'] ?? [])] : null,
 				'status' => $attrs['oper_status'] ?? null, 'admin_status' => $attrs['admin_status'] ?? null,
 				// a LAG member shows the name of its LAG (§12.5)
 				'lag' => $row['lag_id'] !== null ? ($lag_names[$row['lag_id']] ?? null) : null,
@@ -1467,6 +1463,7 @@ class CTopologyPrototype {
 			];
 			if (array_key_exists($row['id'], $itemids_by_port)) {
 				$entry['load'] = $port_loads[$row['id']] ?? null;
+				$entry['load_reason'] = $entry['load'] !== null ? null : ($items_of_port[(string) $row['id']]['reason'] ?? null);
 			}
 			$groups[$group][] = $entry;
 		}
@@ -3265,47 +3262,213 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * The interfaces of a host (§9.7): the discovered items (made from item prototypes) with the key prefixes of INTERFACE_KEYS, grouped by the LLD index. The index is read from the key of the
-	 * item against the key of its prototype (`item_discovery.key_`, with {#SNMPINDEX} or {#IFINDEX} in it): `net.if.in[ifHCInOctets.{#SNMPINDEX}]` and `net.if.in[ifHCInOctets.17]` give 17. The name is
-	 * the value of the item tag `interface` (the template sets it to {#IFNAME}); without it (an unresolved macro too) the index. Only items that the user can read (item.get).
+	 * The interfaces of hosts (§3.2, §9.7): the discovered items (made from item prototypes) with the key prefixes of INTERFACE_KEYS, grouped by the LLD value that they share. The value is read from the
+	 * key of the item against the key of its prototype (`item_discovery.key_`): `net.if.in[ifHCInOctets.{#SNMPINDEX}]` and `net.if.in[ifHCInOctets.17]` give 17; `net.if.in["{#IFNAME}"]` and
+	 * `net.if.in["eth0"]` give eth0. The macro is {#SNMPINDEX} or {#IFINDEX} when the key has one (then the value is a number: the `if_index`), else the first macro of the key. The name is the value of the item
+	 * tag `interface` (the template sets it to {#IFNAME}); without it (an unresolved macro too) the LLD value. Only items that the user can read (item.get). ONE `item.get` for all the hosts.
+	 * The tags cost as much as the items (task 110: 1368 items of 8 hosts, 30-60 ms), so they are read only when a name is needed (`$names`, or interfaceNames() for some hosts later).
 	 *
-	 * @return array  [index => ['if_index' => int, 'name' => string, 'itemids' => [int, ...]]]
+	 * @param string[] $hostids
+	 * @param bool     $names    read the tag `interface` too
+	 *
+	 * @return array  [hostid => [lld value => ['lld' => string, 'if_index' => int|null, 'name' => string, 'itemids' => [int, ...]]]]
 	 */
-	private static function hostInterfaces(string $hostid): array {
+	private static function interfacesOfHosts(array $hostids, bool $names = true): array {
+		$hostids = array_values(array_unique(array_map('strval', $hostids)));
+		if (!$hostids) {
+			return [];
+		}
 		$items = API::Item()->get([
-			'output' => ['itemid', 'key_'], 'hostids' => [$hostid], 'filter' => ['flags' => ZBX_FLAG_DISCOVERY_CREATED],
+			'output' => ['itemid', 'hostid', 'key_'], 'hostids' => $hostids, 'filter' => ['flags' => ZBX_FLAG_DISCOVERY_CREATED],
 			'search' => ['key_' => self::INTERFACE_KEYS], 'searchByAny' => true, 'startSearch' => true,
-			'selectItemDiscovery' => ['parent_itemid', 'key_'], 'selectTags' => ['tag', 'value']
-		]);
+			'selectItemDiscovery' => ['parent_itemid', 'key_']
+		] + ($names ? ['selectTags' => ['tag', 'value']] : []));
 		$interfaces = [];
+		$patterns = [];
 		foreach ($items as $item) {
 			if (!array_filter(self::INTERFACE_KEYS, static fn (string $prefix): bool => str_starts_with($item['key_'], $prefix))) {
 				continue;
 			}
 			$prototype_key = (string) ($item['itemDiscovery']['key_'] ?? '');
-			if ($prototype_key === '' || !preg_match('/\{#(SNMPINDEX|IFINDEX)\}/', $prototype_key)) {
+			if (!array_key_exists($prototype_key, $patterns)) {
+				$patterns[$prototype_key] = self::lldPattern($prototype_key);
+			}
+			if ($patterns[$prototype_key] === null || !preg_match($patterns[$prototype_key], $item['key_'], $match)) {
 				continue;
 			}
-			$pattern = '/^'.preg_replace('/\\\\\{\\\\?#(SNMPINDEX|IFINDEX)\\\\\}/', '(\d+)', preg_quote($prototype_key, '/')).'$/';
-			if (!preg_match($pattern, $item['key_'], $match)) {
-				continue;
+			$lld = (string) $match[1];
+			$numeric = ctype_digit($lld);
+			$interface = &$interfaces[$item['hostid']][$lld];
+			$interface ??= ['lld' => $lld, 'if_index' => $numeric ? (int) $lld : null, 'name' => $lld, 'named' => !$numeric, 'itemids' => []];
+			$interface['itemids'][] = (int) $item['itemid'];
+			self::applyInterfaceTags($interface, $item['tags'] ?? []);
+			unset($interface);
+		}
+		foreach ($interfaces as &$of_host) {
+			foreach ($of_host as &$interface) {
+				sort($interface['itemids']);
 			}
-			$index = (int) $match[1];
-			$interfaces[$index] ??= ['if_index' => $index, 'name' => (string) $index, 'itemids' => []];
-			$interfaces[$index]['itemids'][] = (int) $item['itemid'];
-			foreach ($item['tags'] ?? [] as $tag) {
-				if ($tag['tag'] === 'interface' && $tag['value'] !== '' && !str_contains($tag['value'], '{#')) {
-					$interfaces[$index]['name'] = $tag['value'];
+			unset($interface);
+		}
+		unset($of_host);
+
+		return $interfaces;
+	}
+
+	private static function applyInterfaceTags(array &$interface, array $tags): void {
+		foreach ($tags as $tag) {
+			if ($tag['tag'] === 'interface' && $tag['value'] !== '' && !str_contains($tag['value'], '{#')) {
+				$interface['name'] = $tag['value'];
+				$interface['named'] = true;
+			}
+		}
+	}
+
+	/** Reads the names of the interfaces of some hosts (the tag `interface` of their items) into `$interfaces` ([hostid => [lld => interface]], from interfacesOfHosts($hostids, false)). */
+	private static function interfaceNames(array &$interfaces, array $hostids): void {
+		$itemids = [];
+		$owner = [];
+		foreach ($hostids as $hostid) {
+			foreach ($interfaces[$hostid] ?? [] as $lld => $interface) {
+				foreach ($interface['itemids'] as $itemid) {
+					$itemids[] = $itemid;
+					$owner[$itemid] = [$hostid, $lld];
 				}
 			}
 		}
-		foreach ($interfaces as &$interface) {
-			sort($interface['itemids']);
+		if (!$itemids) {
+			return;
 		}
-		unset($interface);
-		uasort($interfaces, static fn (array $a, array $b): int => $a['if_index'] <=> $b['if_index']);
+		foreach (API::Item()->get(['output' => ['itemid'], 'itemids' => $itemids, 'selectTags' => ['tag', 'value']]) as $item) {
+			[$hostid, $lld] = $owner[(int) $item['itemid']];
+			self::applyInterfaceTags($interfaces[$hostid][$lld], $item['tags'] ?? []);
+		}
+	}
+
+	/**
+	 * The regular expression that gives the LLD value from the key of an item of a prototype, or null when the key of the prototype has no LLD macro ({#SNMPINDEX} and {#IFINDEX} give a number; else
+	 * the first macro gives text; any other macro of the key matches anything).
+	 */
+	private static function lldPattern(string $prototype_key): ?string {
+		if (!preg_match_all('/\{#([A-Z0-9_.]+)\}/', $prototype_key, $macros)) {
+			return null;
+		}
+		$chosen = array_values(array_intersect($macros[1], ['SNMPINDEX', 'IFINDEX']))[0] ?? $macros[1][0];
+		$numeric = in_array($chosen, ['SNMPINDEX', 'IFINDEX'], true);
+		$taken = false;
+		$pattern = preg_replace_callback('/\\\\\{\\\\?#([A-Z0-9_.]+)\\\\\}/', static function (array $m) use ($chosen, $numeric, &$taken): string {
+			if ($m[1] === $chosen && !$taken) {
+				$taken = true;
+
+				return $numeric ? '(\d+)' : '(.+?)';
+			}
+
+			return '.+?';
+		}, preg_quote($prototype_key, '/'));
+
+		return '/^'.$pattern.'$/';
+	}
+
+	/**
+	 * The interfaces of ONE host that the user can bind a port to (§9.7): those with a numeric LLD value (the `if_index`).
+	 *
+	 * @return array  [index => ['if_index' => int, 'name' => string, 'itemids' => [int, ...]]]
+	 */
+	private static function hostInterfaces(string $hostid): array {
+		$interfaces = [];
+		foreach (self::interfacesOfHosts([$hostid])[$hostid] ?? [] as $interface) {
+			if ($interface['if_index'] !== null) {
+				$interfaces[$interface['if_index']] = ['if_index' => $interface['if_index'], 'name' => $interface['name'], 'itemids' => $interface['itemids']];
+			}
+		}
+		ksort($interfaces);
 
 		return $interfaces;
+	}
+
+	/** Name cleaning (FR-B D-39): no trailing NUL, no white space at the start or the end, one pair of surrounding quotes; '' = no value. */
+	private static function cleanName(?string $name): string {
+		$name = trim(rtrim((string) $name, "\0"));
+		if (strlen($name) >= 2 && $name[0] === $name[-1] && ($name[0] === '"' || $name[0] === "'")) {
+			$name = trim(substr($name, 1, -1));
+		}
+
+		return $name;
+	}
+
+	/**
+	 * The items of ports (§3.2, 2.93): not stored, found when the graph is read, for a real port of the Device of a reporter's host and for a bound manual port. ONE lookup for all the ports (and all the
+	 * hosts) of the request: one query for the ports with their hosts, one `item.get` (interfacesOfHosts). The interface of a port is found
+	 *  1. by `if_index`: the interface whose LLD value is the index;
+	 *  2. else by name: the interface whose name equals the port name (for a bound manual port: its `interface_name`) after cleaning, when exactly one interface of the host has this name;
+	 *  3. else the port has no items.
+	 * `reason` says why a port has none: `not_monitored` (the Device has no host), `not_reported` (a pseudo port), `no_binding` (a manual port that is not bound), `no_items` (the host has no interface items:
+	 * no interface discovery template), `no_match` (the host has interfaces, none is this port's).
+	 *
+	 * @param string[] $port_ids
+	 *
+	 * @return array  [port id => ['itemids' => [string, ...], 'reason' => string|null]]
+	 */
+	public static function portItems(array $port_ids): array {
+		$port_ids = array_values(array_unique(array_map('strval', array_filter($port_ids, static fn ($id): bool => $id !== null))));
+		if (!$port_ids) {
+			return [];
+		}
+		$rows = [];
+		$result = DBselect(
+			'SELECT p.id,p.attrs,h.host_ref FROM topo_nodes p'.
+			' LEFT JOIN topo_nodes d ON d.id=p.device_id'.
+			' LEFT JOIN topo_nodes h ON h.id=d.represented_by_node_id AND h.type='.zbx_dbstr('host').
+			' WHERE p.type='.zbx_dbstr('port').' AND '.dbConditionId('p.id', $port_ids)
+		);
+		while ($row = DBfetch($result, false)) {      // (without the conversion of NULL to '0': no host is NULL)
+			$rows[] = $row;
+		}
+		$interfaces = self::interfacesOfHosts(array_filter(array_column($rows, 'host_ref'), static fn ($id): bool => $id !== null), false);
+		$result = [];
+		$by_name = [];      // the ports that no interface has the index of: found by the name below (the names are read for their hosts only)
+		foreach ($rows as $row) {
+			$attrs = self::attrs($row);
+			$manual = ($attrs['source'] ?? null) === 'manual';
+			$name = self::cleanName($manual ? ($attrs['interface_name'] ?? null) : ($attrs['name'] ?? null));
+			$id = (string) $row['id'];
+			$result[$id] = ['itemids' => [], 'reason' => null];
+			if ($row['host_ref'] === null) {
+				$result[$id]['reason'] = 'not_monitored';
+			}
+			elseif (!empty($attrs['pseudo'])) {
+				$result[$id]['reason'] = 'not_reported';
+			}
+			elseif ($manual && !isset($attrs['if_index']) && $name === '') {
+				$result[$id]['reason'] = 'no_binding';
+			}
+			elseif (empty($interfaces[$row['host_ref']])) {
+				$result[$id]['reason'] = 'no_items';
+			}
+			elseif (isset($attrs['if_index']) && isset($interfaces[$row['host_ref']][(string) (int) $attrs['if_index']])) {
+				$result[$id]['itemids'] = array_map('strval', $interfaces[$row['host_ref']][(string) (int) $attrs['if_index']]['itemids']);
+			}
+			elseif ($name !== '') {
+				$by_name[$id] = [$row['host_ref'], $name];
+			}
+			else {
+				$result[$id]['reason'] = 'no_match';
+			}
+		}
+		if ($by_name) {
+			self::interfaceNames($interfaces, array_values(array_unique(array_column($by_name, 0))));
+			foreach ($by_name as $id => [$hostid, $name]) {
+				$same = array_values(array_filter($interfaces[$hostid], static fn (array $interface): bool => ($interface['named'] ?? false) && self::cleanName($interface['name']) === $name));
+				if (count($same) === 1) {
+					$result[$id]['itemids'] = array_map('strval', $same[0]['itemids']);
+				}
+				else {
+					$result[$id]['reason'] = 'no_match';
+				}
+			}
+		}
+
+		return $result;
 	}
 
 	/** The Ports of a Device that have an `if_index`: [if_index => ['id' => id, 'name' => name]]. */
@@ -3331,7 +3494,7 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * POST /topo/ports/{id}/bind {if_index} (§9.7): the port gets the index and the items of that interface (`zabbix_itemids`, §3.2) and keeps its name and `source = manual`. Refused: an interface that
+	 * POST /topo/ports/{id}/bind {if_index} (§9.7): the port gets the index and the name of that interface (the items are found when the graph is read, §3.2) and keeps its name and `source = manual`. Refused: an interface that
 	 * another Port of the Device already has ("<port> already has this interface"), an index that the host has no interface for (or none that the user may read), a discovered port, a Device without an association.
 	 */
 	public static function bindPort(string $port_id, int $if_index, string $userid): array {
@@ -3346,7 +3509,6 @@ class CTopologyPrototype {
 		}
 		$attrs = self::attrs($row);
 		$attrs['if_index'] = $interface['if_index'];
-		$attrs['zabbix_itemids'] = $interface['itemids'];
 		$attrs['interface_name'] = $interface['name'];
 		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
 		self::touchManualDevice((string) $row['device_id'], $userid);
@@ -3354,12 +3516,11 @@ class CTopologyPrototype {
 		return ['id' => $port_id, 'if_index' => $interface['if_index'], 'interface' => $interface['name']];
 	}
 
-	/** POST /topo/ports/{id}/unbind (§9.7): clears `if_index`, `zabbix_itemids` and the interface name; the port stays. */
+	/** POST /topo/ports/{id}/unbind (§9.7): clears `if_index` and the interface name; the port stays. */
 	public static function unbindPort(string $port_id, string $userid): array {
 		[$row] = self::bindablePort($port_id);
 		$attrs = self::attrs($row);
 		unset($attrs['if_index'], $attrs['interface_name']);
-		$attrs['zabbix_itemids'] = [];
 		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
 		self::touchManualDevice((string) $row['device_id'], $userid);
 
@@ -3719,7 +3880,7 @@ class CTopologyPrototype {
 	}
 
 	// Resolves the highest-severity *active* trigger (value=TRIGGER_VALUE_TRUE, i.e. currently in problem
-	// state) attached to any of zabbix_itemids across the given ports — oper_status and trigger severity are
+	// state) attached to any of the items of the given ports (§3.2, found by portItems()) — oper_status and trigger severity are
 	// deliberately kept apart (topology-1-model.md "Link severity (derived)"): a port can be oper_status=up and still carry an active trigger.
 	// Node-level severity for a Host on the graph itself (topology-1-model.md "Node styles": "Host: solid fill, colored by Zabbix
 	// severity/status") — the worst of its own active problems, same source as getProblems() but only the max.
@@ -4060,8 +4221,7 @@ class CTopologyPrototype {
 				'name' => $attrs['name'] ?? null,
 				'oper_status' => $attrs['oper_status'] ?? null,
 				'admin_status' => $attrs['admin_status'] ?? null,
-				'speed' => self::speedBps($attrs['speed'] ?? null),
-				'zabbix_itemids' => array_map('strval', $attrs['zabbix_itemids'] ?? [])
+				'speed' => self::speedBps($attrs['speed'] ?? null)
 			];
 		}
 

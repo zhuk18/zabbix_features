@@ -884,6 +884,8 @@ const view = new class {
 				link.target_speed = neighbor.remote_speed;
 				link.source_load = neighbor.load?.local ?? null;
 				link.target_load = neighbor.load?.remote ?? null;
+				link.source_load_reason = neighbor.load_reason?.local ?? null;
+				link.target_load_reason = neighbor.load_reason?.remote ?? null;
 			}
 			else {
 				link.source_port = neighbor.remote_port;
@@ -896,6 +898,8 @@ const view = new class {
 				link.target_speed = neighbor.local_speed;
 				link.source_load = neighbor.load?.remote ?? null;
 				link.target_load = neighbor.load?.local ?? null;
+				link.source_load_reason = neighbor.load_reason?.remote ?? null;
+				link.target_load_reason = neighbor.load_reason?.local ?? null;
 			}
 		});
 	}
@@ -957,10 +961,14 @@ const view = new class {
 				rows.push([<?= json_encode(_('Note')) ?>, <?= json_encode(_('Speed mismatch between the two ends.')) ?>]);
 			}
 			// load of each side: numbers and the graphs of the port items; no colour (§4.8)
-			[[link.source, link.source_load], [link.target, link.target_load]].forEach(([node, load]) => {
+			[[link.source, link.source_load, link.source_load_reason], [link.target, link.target_load, link.target_load_reason]].forEach(([node, load, reason]) => {
 				const text = this.loadText(load);
 				if (text !== '') {
 					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, `<span class="topology-wrap">${this.escape(text)} ${this.loadGraphLinks(load)}</span>`, true]);
+				}
+				else if (reason) {
+					// FR-C V-12 item 4 (2.93): a side with no items says why it has no data
+					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, this.noDataText(reason)]);
 				}
 			});
 			if (link.severity !== null && link.severity !== undefined) {
@@ -1192,6 +1200,17 @@ const view = new class {
 		const part = (label, value) => value === null || value === undefined ? '' : `${label} ${value === 0 ? '0 bps' : this.formatSpeed(value)}`;
 		return [part(<?= json_encode(_('in')) ?>, load.in), part(<?= json_encode(_('out')) ?>, load.out), part(<?= json_encode(_('speed')) ?>, load.speed)]
 			.filter(Boolean).join(', ') + (load.percent !== null && load.percent !== undefined ? ` (${load.percent} %)` : '');
+	}
+
+	// FR-C V-12 item 4 (model §3.2, 2.93): why a side of a link has no data (the reason comes from the server: `load_reason`)
+	noDataText(reason) {
+		return {
+			not_monitored: <?= json_encode(_('no data: the Device is not a monitored host')) ?>,
+			not_reported: <?= json_encode(_('no data: not a port that the host reports')) ?>,
+			no_binding: <?= json_encode(_('no data: the port is not bound to an interface')) ?>,
+			no_items: <?= json_encode(_('no data: the host has no interface items; link an interface template (for example "Network Generic Device by SNMP") next to "Topology by SNMP"')) ?>,
+			no_match: <?= json_encode(_('no data: no interface of the host matches this port')) ?>
+		}[reason] ?? <?= json_encode(_('no data')) ?>;
 	}
 
 	loadGraphLinks(load) {
@@ -3111,7 +3130,7 @@ const view = new class {
 					marks.push(`${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.`);
 				}
 				const source = link.discovered_via === 'manual' ? <?= json_encode(_('manual')) ?> : this.sourceText(link.discovery_source || 'lldp');
-				return G.linkTooltip({...link, source_text: source, marks}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
+				return G.linkTooltip({...link, source_text: source, marks}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>, no_data: <?= json_encode(_('no data')) ?>,
 					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
 			}
 			if (link.type === 'device_link') {

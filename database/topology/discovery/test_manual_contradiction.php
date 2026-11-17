@@ -378,7 +378,7 @@ $pdo->prepare("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALU
 	->execute([json_encode(['chassis_id' => $U, 'sysname' => 'UPS1', 'mac' => null, 'mgmt_ip' => null, 'vendor' => 'unknown', 'last_seen' => 1])]);
 $ups_device = (int) $pdo->lastInsertId();
 $pdo->prepare("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', ?, ?, 1, 1)")
-	->execute([$ups_device, json_encode(['if_index' => 1, 'name' => 'eth0', 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => [], 'zabbix_itemids' => []])]);
+	->execute([$ups_device, json_encode(['if_index' => 1, 'name' => 'eth0', 'if_type' => 'physical', 'pseudo' => false, 'learned_macs' => []])]);
 $Up = (int) $pdo->lastInsertId();
 $m = raw_link($pdo, $P, $Up, 'manual');                                            // forgotten manual link to UPS1
 $r = ingest($dsn, $user, $password, $pdo, 'with the manual link next to the discovered one');
