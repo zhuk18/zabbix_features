@@ -48,15 +48,16 @@ def with_stand(tags, stand):
     return out + [{'tag': TAG, 'value': '1'}, {'tag': STAND_TAG, 'value': stand}]
 
 
-def _check_ports_type(api, templateid, name):
-    """The topology type PORTS is a property of the template (FR-B D-49: `topology_type: PORTS` on the interface discovery rule in the template file), so that the ports of
-    the hosts get items (model §3.2). The tool does not set it any more: a rule of a host that inherits it is read-only. A template without the topology type is an error."""
+def _check_interface_rule(api, templateid, name):
+    """The interface discovery rule of the template (`net.if.discovery`) has no topology type (FR-B D-49, model §3.2, lab 2.31 §7): the view finds the items of a port from the items of the
+    host, so the interface rule is not a PORTS rule and a host that links it is no reporter because of it. The tool never sets a type on it. A template with no such rule, or one with
+    a topology type (an old import), is an error."""
     rules = api.call('discoveryrule.get', {'hostids': [templateid], 'output': ['itemid', 'key_', 'topology_type'],
                                            'filter': {'key_': 'net.if.discovery'}})
     if not rules:
         raise LabError('template %r has no interface discovery rule (net.if.discovery)' % name)
-    if str(rules[0]['topology_type']) != '1':
-        raise LabError('the interface discovery rule of template %r has no topology type PORTS; import the template file of the tree (templates/net/generic_snmp)' % name)
+    if str(rules[0]['topology_type']) != '0':
+        raise LabError('the interface discovery rule of template %r has a topology type; the official interface templates have none (FR-B D-49): import the template file of the tree (templates/net/generic_snmp)' % name)
 
 
 def provision(api, scenario, prune=False, log=print):
@@ -79,7 +80,7 @@ def provision(api, scenario, prune=False, log=print):
     if z.get('template_interfaces'):
         if not tmpl['template_interfaces']:
             raise LabError('template %r does not exist' % z['template_interfaces'])
-        _check_ports_type(api, tmpl['template_interfaces'], z['template_interfaces'])
+        _check_interface_rule(api, tmpl['template_interfaces'], z['template_interfaces'])
     proxies = {p['name']: p['proxyid'] for p in api.call('proxy.get', {'output': ['proxyid', 'name']})}
 
     existing = {h['host']: h for h in api.call('host.get', {
@@ -188,8 +189,8 @@ def masters(api, hostnames):
         # "Topology by push": the trapper discovery rules (topology.push.ports, topology.push.lldp, ...), by key
         push = {i['key_']: i['itemid'] for i in rules if i['key_'].startswith(PUSH_RULE_PREFIX)}
         info = {i['itemid']: {'key': i['key_'], 'status': i['status']} for i in rules}
-        # the standard interface discovery rule with the topology type PORTS (its snapshot carries the item ids of the ports): "check now" runs the rule itself
-        ifdisc = next((i for i in rules if i['key_'] == 'net.if.discovery' and i['status'] == '0' and str(i['topology_type']) == '1'), None)
+        # the standard interface discovery rule (no topology type, 2.31): it makes the items of the ports; "check now" runs the rule itself
+        ifdisc = next((i for i in rules if i['key_'] == 'net.if.discovery' and i['status'] == '0'), None)
         out[h['host']] = {'hostid': h['hostid'], 'core': core, 'fdb': fdb, 'push': push, 'rule_info': info,
                           'ifdisc': {'itemid': ifdisc['itemid']} if ifdisc else None,
                           'rules': {'core': [i['itemid'] for i in rules if core and i['master_itemid'] == core['itemid'] and i['status'] == '0'],

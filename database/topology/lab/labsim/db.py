@@ -161,6 +161,18 @@ def comparable(state):
     }
 
 
+def rule_lastchecks(conn, ruleids):
+    """rule itemid -> the time (`item_discovery.lastcheck`) of the last LLD run that made or kept an item of the rule; 0 for a rule that has made no item yet.
+    The interface discovery rule has no topology type (model §3.2, 2.93), so it has no snapshot: this is the sign that a run of the rule has finished (lab spec 2.31 §4.5)."""
+    ids = sorted({int(r) for r in ruleids})
+    if not ids:
+        return {}
+    out = {r: 0 for r in ids}
+    for r in rows(conn, 'SELECT lldruleid, MAX(lastcheck) AS last FROM item_discovery WHERE lldruleid IN (%s) GROUP BY lldruleid' % ','.join(str(i) for i in ids)):
+        out[int(r['lldruleid'])] = int(r['last'] or 0)
+    return out
+
+
 def snapshot_clocks(conn):
     return {r['itemid']: r['clock'] for r in rows(conn, 'SELECT itemid, clock FROM topo_lld_snapshot')}
 

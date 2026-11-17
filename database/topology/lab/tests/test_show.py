@@ -77,7 +77,7 @@ class FakeApi:
         if method == 'template.get':
             return [{'templateid': {'Topology by SNMP': '10', 'Topology by push': '11', 'Network Generic Device by SNMP': '12'}.get(params['filter']['host'][0], '13'), 'host': params['filter']['host'][0]}]
         if method == 'discoveryrule.get':
-            return [{'itemid': '1', 'key_': 'net.if.discovery', 'topology_type': '1'}]
+            return [{'itemid': '1', 'key_': 'net.if.discovery', 'topology_type': '0', 'status': '0'}]
         if method == 'proxy.get':
             return []
         if method == 'host.get':
@@ -143,6 +143,59 @@ class ProvisionStand(unittest.TestCase):
         self.assertIn('zz-untagged', api.hosts, 'a host without the tag is never touched')
         self.assertNotIn('zz-lab-stale', api.hosts)
         self.assertNotIn('zz-no-stand-tag', api.hosts, 'no lab.stand = the stand lab')
+
+
+class InterfaceRule(unittest.TestCase):
+    """Lab 2.31 §7 (task 110): the interface discovery rule has no topology type; the lab never sets one and refuses a template that has one."""
+
+    def test_provision_sets_no_topology_type(self):
+        lab = model.load_lab(os.path.join(model.HERE, 'lab.yaml'))
+        api = FakeApi({})
+        zbx.provision(api, model.load_scenario('S0', lab), log=lambda *a: None)
+        for method, params in api.calls:
+            if not method.endswith('.get'):
+                self.assertNotIn('topology_type', str(params), '%s sets a topology type' % method)
+            self.assertFalse(method.startswith('discoveryrule.') and method.endswith(('create', 'update')), '%s: the lab changes no discovery rule' % method)
+
+    def test_a_template_with_a_type_on_the_interface_rule_is_refused(self):
+        class Api:
+            def call(self, method, params):
+                return [{'itemid': '1', 'key_': 'net.if.discovery', 'topology_type': '1'}]
+        with self.assertRaises(LabError) as caught:
+            zbx._check_interface_rule(Api(), '12', 'Network Generic Device by SNMP')
+        self.assertIn('has a topology type', str(caught.exception))
+
+    def test_a_template_without_the_interface_rule_is_refused(self):
+        class Api:
+            def call(self, method, params):
+                return []
+        with self.assertRaises(LabError):
+            zbx._check_interface_rule(Api(), '12', 'T')
+
+    def test_the_masters_find_the_interface_rule_by_its_key(self):
+        class Api:
+            def call(self, method, params):
+                if method == 'host.get':
+                    return [{'hostid': '5', 'host': 'R'}]
+                if method == 'item.get':
+                    return []
+                return [{'itemid': '77', 'key_': 'net.if.discovery', 'master_itemid': '0', 'status': '0', 'topology_type': '0'}]
+        self.assertEqual(zbx.masters(Api(), ['R'])['R']['ifdisc'], {'itemid': '77'})
+
+    def test_a_run_of_the_rule_is_the_lastcheck_of_its_items(self):
+        from labsim import db
+
+        class Conn:
+            def cursor(self, dictionary=False):
+                return self
+
+            def execute(self, sql, args=()):
+                self.sql = sql
+
+            def fetchall(self):
+                return [{'lldruleid': 7, 'last': 100}]
+        self.assertEqual(db.rule_lastchecks(Conn(), ['7', 8]), {7: 100, 8: 0}, 'a rule that made no item has 0')
+        self.assertEqual(db.rule_lastchecks(Conn(), []), {})
 
 
 class ShowSteps(unittest.TestCase):
