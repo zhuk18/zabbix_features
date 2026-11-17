@@ -119,6 +119,10 @@ try:
     check(len(switch_load) == 1 and 'in ' in switch_load[0] and 'bps' in switch_load[0] and 'no data' not in switch_load[0], 'the panel shows the load of the %s side' % SWITCH, panel)
     check(len(end_load) == 1 and 'no data' in end_load[0] and 'not a monitored host' in end_load[0], 'the panel says why the %s side has no data' % END_DEVICE, end_load)
     shot(ws, '110-no-data-panel.png')
+    # FR-C V-12 item 4: the reason is readable, not cut by the width of the panel (the whole text is on screen, in more than one line when needed)
+    clipped = js("""(() => { const r = Array.from(document.querySelectorAll('#topology-details tr')).find(x => x.textContent.trim().startsWith(%s + ' load'));
+        const c = r.cells[1]; const s = c.querySelector('.topology-wrap') || c; return {text: s.textContent.trim(), cut: c.scrollWidth > c.clientWidth + 1 || getComputedStyle(c).textOverflow === 'ellipsis' && getComputedStyle(c).whiteSpace === 'nowrap' && c.scrollWidth > c.clientWidth, lines: Math.round(s.getBoundingClientRect().height / parseFloat(getComputedStyle(s).lineHeight || 16))}; })()""" % json.dumps(END_DEVICE))
+    check(not clipped['cut'] and clipped['text'].endswith('monitored host') and clipped['lines'] >= 2, 'the reason for %s is wrapped, not cut by the panel width' % END_DEVICE, clipped)
 
     # a reporter's port whose host has no interface items names the missing template (the reason of the server): through the same page function, with the reason that the server gives
     text = js("view.noDataText('no_items')")

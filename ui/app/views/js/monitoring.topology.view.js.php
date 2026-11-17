@@ -968,7 +968,7 @@ const view = new class {
 				}
 				else if (reason) {
 					// FR-C V-12 item 4 (2.93): a side with no items says why it has no data
-					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, this.noDataText(reason)]);
+					rows.push([`${this.escape(node.name)} ${<?= json_encode(_('load')) ?>}`, `<span class="topology-wrap">${this.escape(this.noDataText(reason))}</span>`, true]);
 				}
 			});
 			if (link.severity !== null && link.severity !== undefined) {
