@@ -204,11 +204,9 @@ static char	*lld_topology_macro_get(const zbx_lld_entry_t *entry, const char *ma
  *               FAIL    - row is invalid (reasons updated)                   *
  *                                                                            *
  ******************************************************************************/
-static int	lld_topology_row_build(int topology_type, const zbx_lld_topo_field_t *contract, const zbx_lld_row_t *lld_row,
-		int *reasons, zbx_lld_topo_row_t **row)
+static int	lld_topology_row_build(int topology_type, const zbx_lld_topo_field_t *contract,
+		const zbx_lld_entry_t *entry, int *reasons, zbx_lld_topo_row_t **row)
 {
-	const zbx_lld_entry_t	*entry = lld_row->data;
-
 	char		*values[ZBX_LLD_TOPO_MAX_FIELDS] = {NULL};
 	zbx_uint64_t	numbers[ZBX_LLD_TOPO_MAX_FIELDS] = {0}, if_index = 0;
 	int		n, ret = SUCCEED, group_ok[3] = {0}, group_seen[3] = {0};
@@ -278,27 +276,6 @@ static int	lld_topology_row_build(int topology_type, const zbx_lld_topo_field_t 
 
 			if (0 == strcmp(contract[n].field, "if_index"))
 				if_index = numbers[n];
-		}
-
-		/* topology-2-lld-delivery.md §3.4 "Item ids of a PORTS row": the items this LLD run created or kept from the row (items only), sorted;  */
-		/* [] for a rule without item prototypes. The links are filled by lld_update_items(), so the snapshot is written after it.             */
-		if (ZBX_LLD_TOPO_TYPE_PORTS == topology_type)
-		{
-			zbx_vector_uint64_t	itemids;
-
-			zbx_vector_uint64_create(&itemids);
-
-			for (int i = 0; i < lld_row->item_links.values_num; i++)
-				zbx_vector_uint64_append(&itemids, lld_row->item_links.values[i]->itemid);
-
-			zbx_vector_uint64_sort(&itemids, ZBX_DEFAULT_UINT64_COMPARE_FUNC);
-			zbx_json_addarray(&j, "itemids");
-
-			for (int i = 0; i < itemids.values_num; i++)
-				zbx_json_adduint64(&j, NULL, itemids.values[i]);
-
-			zbx_json_close(&j);
-			zbx_vector_uint64_destroy(&itemids);
 		}
 
 		*row = (zbx_lld_topo_row_t *)zbx_malloc(NULL, sizeof(zbx_lld_topo_row_t));
@@ -481,7 +458,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	{
 		zbx_lld_topo_row_t	*row;
 
-		if (SUCCEED == lld_topology_row_build(topology_type, contract, lld_rows->values[i], reasons, &row))
+		if (SUCCEED == lld_topology_row_build(topology_type, contract, lld_rows->values[i]->data, reasons, &row))
 			zbx_vector_lld_topo_row_ptr_append(&rows, row);
 	}
 

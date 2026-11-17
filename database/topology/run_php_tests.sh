@@ -182,12 +182,6 @@ else
 fi
 
 # ---- 5. checks on the state of the lab (the `zabbix` database, read only) ----
-lab_host=$(mysql -N -u"$user" zabbix -e "select h.host from hosts h join items i on i.hostid=h.hostid join topo_lld_snapshot s on s.itemid=i.itemid where i.key_='net.if.discovery' order by h.hostid limit 1" 2>/dev/null)
-if [ -n "$lab_host" ]; then
-	exec_test "discovery/test_port_itemids.py ($lab_host)" /tmp/topo_t_port_itemids.log python3 "$here/discovery/test_port_itemids.py" "$lab_host"
-else
-	skip discovery/test_port_itemids.py "no host with the rule net.if.discovery and a snapshot in the lab (provision a scenario and run it)"
-fi
 s=$(date +%s)
 php "$here/lab/php/view_scope_check.php" >/tmp/topo_t_view_scope.log 2>&1
 rc=$?
