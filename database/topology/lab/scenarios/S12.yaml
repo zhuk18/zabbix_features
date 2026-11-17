@@ -2,7 +2,8 @@ id: S12
 title: ifIndex changes of a reporter (model §6.6, task 086)
 base: lab.yaml
 # A reporter R that has monitored neighbors on two ports (A on Gi0/1, B on Gi0/2: they report R's ports by name, and R reports theirs) and one unmonitored neighbor (N on Gi0/3).
-# Lab spec §9 S12 (model 2.65, 2.69 §6.6, task 089). R has both PORTS rules (the topology template and the interface discovery with the port items). The interface discovery rule is polled
+# Lab spec §9 S12 (model 2.65, 2.93 §3.2, §6.6, task 089, 110). R has one PORTS rule (the topology template) and the interface discovery without a topology type; the port items are those that
+# the view finds (by the ifIndex of the port; an interface with a number for LLD value is not found by its name). The interface discovery rule is polled
 # only at step 0 and in the steps with `poll_interface_discovery`: the time between the polls of the two rules is what the scenario shows.
 # Step 1: R:Gi0/1 gets 11 (an index not used before), the interface discovery rule is not polled. Step 2: the rule is polled. Step 3: Gi0/1 and Gi0/2 exchange their indexes (Gi0/1: 2, Gi0/2: 11),
 # not polled. Step 4: polled. Names stay (deviation ifindex_renumber with `map`). `poll_all: true` polls the core master items of every device in each step.

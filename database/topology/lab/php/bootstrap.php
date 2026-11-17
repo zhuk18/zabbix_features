@@ -52,11 +52,40 @@ class API {
 	public static function Item() {
 		return new class {
 			public function get($options) {
+				if (isset($options['hostids'])) {
+					// task 110 (model §3.2): the interface lookup of CTopologyPrototype (discovered items of hosts with the key prefixes, the key of their prototype, the tags); no permissions
+					$hostids = array_map('intval', $options['hostids']);
+					$keys = [];
+					foreach ($options['search']['key_'] ?? [] as $prefix) {
+						$keys[] = 'i.key_ LIKE '.zbx_dbstr(str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix).'%');
+					}
+					$out = [];
+					if ($hostids) {
+						foreach (DBselect('SELECT i.itemid,i.hostid,i.key_,d.key_ AS proto FROM items i JOIN item_discovery d ON d.itemid=i.itemid WHERE i.hostid IN ('.implode(',', $hostids).') AND i.flags=4'.
+								($keys ? ' AND ('.implode(' OR ', $keys).')' : '')) as $row) {
+							$item = ['itemid' => (string) $row['itemid'], 'hostid' => (string) $row['hostid'], 'key_' => $row['key_']];
+							if (isset($options['selectItemDiscovery'])) {
+								$item['itemDiscovery'] = ['parent_itemid' => '0', 'key_' => (string) $row['proto']];
+							}
+							if (isset($options['selectTags'])) {
+								$item['tags'] = DBfetchArray(DBselect('SELECT tag,value FROM item_tag WHERE itemid='.(int) $row['itemid']));
+							}
+							$out[] = $item;
+						}
+					}
+					return $out;
+				}
 				$ids = array_map('intval', $options['itemids'] ?? []);
 				if (!$ids) {
 					return [];
 				}
 				$out = [];
+				if (isset($options['selectTags'])) {
+					foreach (DBselect('SELECT itemid FROM items WHERE itemid IN ('.implode(',', $ids).')') as $row) {
+						$out[] = ['itemid' => (string) $row['itemid'], 'tags' => DBfetchArray(DBselect('SELECT tag,value FROM item_tag WHERE itemid='.(int) $row['itemid']))];
+					}
+					return $out;
+				}
 				// task 103: the load is read by CTopologyLoad::lastValues(), which needs the fields of the item that decide its window (value type, type, delay, master item); the stub gives them from the table
 				foreach (DBselect('SELECT itemid,hostid,key_,value_type,type,delay,master_itemid FROM items WHERE itemid IN ('.implode(',', $ids).')') as $item) {
 					$out[] = ['itemid' => (string) $item['itemid'], 'hostid' => (string) $item['hostid'], 'key_' => $item['key_'], 'value_type' => (string) $item['value_type'], 'type' => (string) $item['type'],

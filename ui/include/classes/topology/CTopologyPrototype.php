@@ -3299,7 +3299,7 @@ class CTopologyPrototype {
 			$lld = (string) $match[1];
 			$numeric = ctype_digit($lld);
 			$interface = &$interfaces[$item['hostid']][$lld];
-			$interface ??= ['lld' => $lld, 'if_index' => $numeric ? (int) $lld : null, 'name' => $lld, 'named' => !$numeric, 'itemids' => []];
+			$interface ??= ['lld' => $lld, 'if_index' => $numeric ? (int) $lld : null, 'name' => $lld, 'itemids' => []];
 			$interface['itemids'][] = (int) $item['itemid'];
 			self::applyInterfaceTags($interface, $item['tags'] ?? []);
 			unset($interface);
@@ -3319,7 +3319,6 @@ class CTopologyPrototype {
 		foreach ($tags as $tag) {
 			if ($tag['tag'] === 'interface' && $tag['value'] !== '' && !str_contains($tag['value'], '{#')) {
 				$interface['name'] = $tag['value'];
-				$interface['named'] = true;
 			}
 		}
 	}
@@ -3400,7 +3399,9 @@ class CTopologyPrototype {
 	 * The items of ports (§3.2, 2.93): not stored, found when the graph is read, for a real port of the Device of a reporter's host and for a bound manual port. ONE lookup for all the ports (and all the
 	 * hosts) of the request: one query for the ports with their hosts, one `item.get` (interfacesOfHosts). The interface of a port is found
 	 *  1. by `if_index`: the interface whose LLD value is the index;
-	 *  2. else by name: the interface whose name equals the port name (for a bound manual port: its `interface_name`) after cleaning, when exactly one interface of the host has this name;
+	 *  2. else by name: the interface whose name equals the port name (for a bound manual port: its `interface_name`) after cleaning, when exactly one interface of the host has this name. Only
+	 *     an interface whose LLD value is the name (the key carries the name: Zabbix agent templates, `net.if.in["eth0"]`) is found this way. An interface with a numeric LLD value is the
+	 *     interface of its index: after an ifIndex change its items poll the old index, so a port that has a new index shows no items until the rule is polled again (§18; found in S12);
 	 *  3. else the port has no items.
 	 * `reason` says why a port has none: `not_monitored` (the Device has no host), `not_reported` (a pseudo port), `no_binding` (a manual port that is not bound), `no_items` (the host has no interface items:
 	 * no interface discovery template), `no_match` (the host has interfaces, none is this port's).
@@ -3448,7 +3449,7 @@ class CTopologyPrototype {
 			elseif (isset($attrs['if_index']) && isset($interfaces[$row['host_ref']][(string) (int) $attrs['if_index']])) {
 				$result[$id]['itemids'] = array_map('strval', $interfaces[$row['host_ref']][(string) (int) $attrs['if_index']]['itemids']);
 			}
-			elseif ($name !== '') {
+			elseif ($name !== '' && array_filter($interfaces[$row['host_ref']], static fn (array $interface): bool => $interface['if_index'] === null)) {
 				$by_name[$id] = [$row['host_ref'], $name];
 			}
 			else {
@@ -3458,7 +3459,7 @@ class CTopologyPrototype {
 		if ($by_name) {
 			self::interfaceNames($interfaces, array_values(array_unique(array_column($by_name, 0))));
 			foreach ($by_name as $id => [$hostid, $name]) {
-				$same = array_values(array_filter($interfaces[$hostid], static fn (array $interface): bool => ($interface['named'] ?? false) && self::cleanName($interface['name']) === $name));
+				$same = array_values(array_filter($interfaces[$hostid], static fn (array $interface): bool => $interface['if_index'] === null && self::cleanName($interface['name']) === $name));
 				if (count($same) === 1) {
 					$result[$id]['itemids'] = array_map('strval', $same[0]['itemids']);
 				}

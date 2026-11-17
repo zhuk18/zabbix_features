@@ -584,11 +584,11 @@ $got = $items_of([$R['Gi0/1'], $R['Gi0/2'], $N['Gi0/1']]);
 check(API::$item_calls === 1, 'the ports that have the index of an interface: ONE item.get for the ports of two hosts (no tags are read)', API::$item_calls);
 API::$item_calls = 0;
 $got = $items_of(array_merge(array_values($R), array_values($E), array_values($N)));
-check(API::$item_calls === 2, 'ports that need a name: ONE item.get for the interfaces of the three hosts and ONE more, for the names of the hosts that need them', API::$item_calls);
+check(API::$item_calls === 1, 'ports of hosts with numeric interfaces only: no names are read, still ONE item.get for the three hosts', API::$item_calls);
 check($ids_of($got[(string) $R['Gi0/1']]) === $r1 && $ids_of($got[(string) $R['Gi0/2']]) === $r2, 'a port is found by its if_index: the items of that interface', $got);
-check($ids_of($got[(string) $R['Gi0/5']]) === $r5, 'no interface with the index 9: found by the name Gi0/5 (the tag interface), the only interface with this name', $got[(string) $R['Gi0/5']]);
+check($got[(string) $R['Gi0/5']] === ['itemids' => [], 'reason' => 'no_match'], 'no interface with the index 9: not found by the name either (the interface Gi0/5 has a numeric LLD value: it is the interface of its index)', $got[(string) $R['Gi0/5']]);
 check($got[(string) $R['Gi0/3']] === ['itemids' => [], 'reason' => 'no_match'], 'no interface of the index and none of the name: no items, reason no_match', $got[(string) $R['Gi0/3']]);
-check($got[(string) $E['Gi0/1']]['itemids'] === [] && $got[(string) $E['Gi0/1']]['reason'] === 'no_match', 'two interfaces of the host have the name: not unique, no items', $got[(string) $E['Gi0/1']]);
+check($got[(string) $E['Gi0/1']]['itemids'] === [] && $got[(string) $E['Gi0/1']]['reason'] === 'no_match', 'no interface of the index, and the name is not found for a numeric LLD value: no items', $got[(string) $E['Gi0/1']]);
 check($got[(string) $N['Gi0/1']] === ['itemids' => [], 'reason' => 'no_items'], 'a reporter whose host has no interface items: reason no_items (the page names the missing template)', $got[(string) $N['Gi0/1']]);
 // the index wins over the name: the ports exchange their indexes, the items follow the index (the known limit of §18)
 $pdo->prepare("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '\$.if_index', 2) WHERE id = ?")->execute([$R['Gi0/1']]);
@@ -611,7 +611,9 @@ $a_eth1 = $add_named($pdo, 404, 'eth1');
 reporter($pdo, 404, 'a0:00:00:00:04:04', [[2, 'eth0'], [3, 'eth1'], [4, 'eth2']], []);
 run_ingest($dsn, $user, $password);
 $A = ports_of($pdo, $dev('a0:00:00:00:04:04'));
+API::$item_calls = 0;
 $got = $items_of(array_values($A));
+check(API::$item_calls === 2, 'a host whose interfaces have the name for LLD value: ONE item.get for the interfaces and ONE for their names (tags), for all its ports', API::$item_calls);
 check($ids_of($got[(string) $A['eth0']]) === $a_eth0 && $ids_of($got[(string) $A['eth1']]) === $a_eth1 && $got[(string) $A['eth2']]['reason'] === 'no_match',
 	'a host of the agent template (the name in the key and the tag): found by the name; a name with no interface: no items', $got);
 // a manual Device associated with a host: an unbound port has no items, a bound port has the items of its interface (by the index, else by its interface name)
@@ -626,7 +628,7 @@ check($got[(string) $MP['p2']] === ['itemids' => [], 'reason' => 'no_binding'], 
 check($ids_of($got[(string) $MP['p1']]) === $m5, 'a bound manual port: the items of its interface', $got[(string) $MP['p1']]);
 $pdo->prepare("UPDATE topo_nodes SET attrs = JSON_SET(attrs, '\$.if_index', 77) WHERE id = ?")->execute([$MP['p1']]);
 $got = $items_of([$MP['p1']]);
-check($ids_of($got[(string) $MP['p1']]) === $m5, 'the bound index is gone: found by its interface_name (Gi0/5), the only interface with this name', $got);
+check($got[(string) $MP['p1']] === ['itemids' => [], 'reason' => 'no_match'], 'the bound index is gone: the name of the interface does not find an interface with a numeric LLD value (the binding is stale, "interface not found")', $got);
 drop_items($pdo, $m5);
 check($items_of([$MP['p1']])[(string) $MP['p1']]['itemids'] === [] && binding_of($MP['p1'], $MD)['binding']['missing'] === true, 'the items are deleted: no items, binding missing');
 // the stored attrs never have the items (2.93)
