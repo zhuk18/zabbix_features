@@ -126,7 +126,8 @@ try:
 
     # a reporter's port whose host has no interface items names the missing template (the reason of the server): through the same page function, with the reason that the server gives
     text = js("view.noDataText('no_items')")
-    check('Network Generic Device by SNMP' in text and 'Topology by SNMP' in text, 'the reason "no interface items" names the interface template', text)
+    check('template with interface discovery' in text and 'official SNMP interface template' in text and 'Topology by SNMP' in text and 'Network Generic Device by SNMP' not in text,
+          'the reason "no interface items" says that the host needs a template with interface discovery (an example, not one template by name)', text)
 finally:
     chrome.kill()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All no-data checks passed.'))

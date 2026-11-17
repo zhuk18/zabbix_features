@@ -82,6 +82,7 @@ steps:
       - port: R:Gi0/1
         same_id_as_step: 0
         if_index: 11
+        items: none
         itemids: []
       - port: R:Gi0/2
         same_id_as_step: 0
@@ -109,6 +110,7 @@ steps:
       - port: R:Gi0/1
         same_id_as_step: 0
         if_index: 11
+        items: present      # lab 2.32: the view finds items again (of the index 11)
       - port: R:Gi0/2
         same_id_as_step: 0
       - edge_id_same_as: {step: 0, link: [R:Gi0/1, A:Gi0/1]}

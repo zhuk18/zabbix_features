@@ -1208,7 +1208,7 @@ const view = new class {
 			not_monitored: <?= json_encode(_('no data: the Device is not a monitored host')) ?>,
 			not_reported: <?= json_encode(_('no data: not a port that the host reports')) ?>,
 			no_binding: <?= json_encode(_('no data: the port is not bound to an interface')) ?>,
-			no_items: <?= json_encode(_('no data: the host has no interface items; link an interface template (for example "Network Generic Device by SNMP") next to "Topology by SNMP"')) ?>,
+			no_items: <?= json_encode(_('no data: the host has no interface items; it needs a template with interface discovery (for example the official SNMP interface template) next to "Topology by SNMP"')) ?>,
 			no_match: <?= json_encode(_('no data: no interface of the host matches this port')) ?>
 		}[reason] ?? <?= json_encode(_('no data')) ?>;
 	}

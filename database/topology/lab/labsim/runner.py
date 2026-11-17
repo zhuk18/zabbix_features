@@ -376,6 +376,12 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
             problems.append('if_index %s, expected %s' % (now['if_index'], a['if_index']))
         if 'itemids' in a and now['itemids'] != a['itemids']:
             problems.append('itemids %s, expected %s' % (now['itemids'], a['itemids']))
+        if 'items' in a:
+            # lab 2.32 (8.3): `present` = the view finds items for the Port, `none` = it finds none
+            if a['items'] not in ('present', 'none'):
+                problems.append('items: %r, expected present or none' % (a['items'],))
+            elif bool(now['itemids']) != (a['items'] == 'present'):
+                problems.append('items %s: the view finds %s' % (a['items'], now['itemids'] or 'none'))
         if 'itemids_same_as' in a:
             r = a['itemids_same_as']
             other_device, other_name = r['port'].split(':', 1)
@@ -655,7 +661,7 @@ def run(scenario, settings, api, conn, reset=False, timeout=DEFAULT_TIMEOUT, log
     mon = sorted(manifest['devices'])
     history, clocks_hist = {}, {}
     # the assertion `port` with `itemids` or `itemids_same_as` needs the items that the view finds (model §3.2, 2.93)
-    wants_port_items = any(isinstance(a, dict) and 'port' in a and ('itemids' in a or 'itemids_same_as' in a)
+    wants_port_items = any(isinstance(a, dict) and 'port' in a and ('itemids' in a or 'itemids_same_as' in a or 'items' in a)
                            for st in scenario.steps for a in st.get('assert') or [])
     try:
         ms = zbx.masters(api, mon)

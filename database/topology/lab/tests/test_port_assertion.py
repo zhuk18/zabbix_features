@@ -1,4 +1,4 @@
-"""Lab spec 2.25 (task 089): the assertion `port` (same_id_as_step, if_index, itemids_same_as, itemids) and the step key `poll_interface_discovery`."""
+"""Lab spec 2.25 (task 089): the assertion `port` (same_id_as_step, if_index, itemids_same_as, itemids, items) and the step key `poll_interface_discovery`."""
 import os
 import sys
 import unittest
@@ -34,6 +34,15 @@ class PortAssertion(unittest.TestCase):
         self.assertEqual(check({'port': 'R:Gi0/1', 'itemids_same_as': {'step': 0, 'port': 'R:Gi0/1'}}).status, 'fail')
         # an empty list is not "the same items" (the assertion is about items that follow)
         self.assertEqual(check({'port': 'R:Gi0/2', 'itemids_same_as': {'step': 0, 'port': 'R:Gi0/2'}}).status, 'fail')
+
+    def test_items_present_or_none(self):
+        # lab 2.32 (8.3): `items: present | none`
+        self.assertEqual(check({'port': 'R:Gi0/1', 'items': 'present'}).status, 'pass')      # the view finds the items of the index 2
+        self.assertEqual(check({'port': 'R:Gi0/2', 'items': 'none'}).status, 'pass')
+        self.assertEqual(check({'port': 'R:Gi0/2', 'items': 'present'}).status, 'fail')
+        self.assertEqual(check({'port': 'R:Gi0/1', 'items': 'none'}).status, 'fail')
+        self.assertEqual(check({'port': 'R:Gi0/1', 'items': 'maybe'}).status, 'fail')
+        model.validate_assertion('S', 1, {'port': 'R:Gi0/1', 'items': 'present'})
 
     def test_missing_port_and_pseudo(self):
         self.assertEqual(check({'port': 'R:nope'}).status, 'fail')

@@ -363,7 +363,7 @@ ASSERTION_FORMS = {
     'link_items': (set(), {'link'}),
     'link_load': (set(), {'link', 'percent', 'tolerance'}),
     'link_severity': (set(), {'link', 'present'}),
-    'port': ({'same_id_as_step', 'if_index', 'itemids_same_as', 'itemids'}, None),
+    'port': ({'same_id_as_step', 'if_index', 'itemids_same_as', 'itemids', 'items'}, None),
     'device_count': (set(), {'key', 'equals'}),
     'candidate': (set(), {'key', 'reason', 'pairs'}),
     'matches_reference': (set(), None),
