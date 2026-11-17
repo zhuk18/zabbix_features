@@ -4,14 +4,23 @@ declare(strict_types=1);
 
 /**
  * view_scope_check.php — topology-1-model.md §12.1 "View scope" on the data path of the view page: CTopologyPrototype::getView(), the method that
- * topology.devices.get (CControllerTopologyDevicesGet) answers with. Read only, on the office stand in the `zabbix` database (task 040 section 1).
+ * topology.devices.get (CControllerTopologyDevicesGet) answers with. On the office stand in the `zabbix` database (task 040 section 1). Task 111: reading the scope makes the Host node of a start host
+ * that has none (a host with only the official interface templates is no reporter), so the session is not read only; the check asserts that nothing else changes: no Device, Port, edge, observation or
+ * Host node of a host that has one is written.
  * The API facade is the lab stub (bootstrap.php): every host is visible, host.get applies `hostids` and `groupids`.
  *
  * Usage: php view_scope_check.php            (exit 1 when a check fails; prints the nodes and links of each case)
  */
 
 require_once __DIR__.'/bootstrap.php';
-DBexecute('SET SESSION TRANSACTION READ ONLY');
+$state = static fn (): array => [
+	'not host nodes' => DBfetch(DBselect("SELECT COUNT(*) AS c, COALESCE(SUM(id),0) AS s, COALESCE(MAX(updated_at),0) AS u FROM topo_nodes WHERE type<>'host'"), false),
+	'edges' => DBfetch(DBselect('SELECT COUNT(*) AS c, COALESCE(SUM(id),0) AS s FROM topo_edges'), false),
+	'observations' => DBfetch(DBselect('SELECT COUNT(*) AS c FROM topo_observations'), false),
+	'host nodes that were there' => DBfetch(DBselect("SELECT COUNT(*) AS c, COALESCE(MAX(updated_at),0) AS u FROM topo_nodes WHERE type='host' AND id<=(SELECT COALESCE(MAX(id),0) FROM topo_nodes)"), false)
+];
+$before_state = $state();
+$before_hosts = array_column(DBfetchArray(DBselect("SELECT id FROM topo_nodes WHERE type='host'")), 'id');
 
 $failed = 0;
 function check(bool $condition, string $description): void {
@@ -178,5 +187,13 @@ check(!array_diff($solo['nodes'], $both['nodes']) && !array_diff(array_map(stati
 // no selection: every node
 check(CTopologyPrototype::resolveScope([], '', 1) === null, 'nothing selected: no scope (every node)');
 
+// task 111: only Host nodes were made (of hosts without one); the Host nodes that were there are the same rows
+$after_state = $state();
+$kept = array_column(DBfetchArray(DBselect("SELECT id FROM topo_nodes WHERE type='host'")), 'id');
+check($before_state['not host nodes'] === $after_state['not host nodes'] && $before_state['edges'] === $after_state['edges'] && $before_state['observations'] === $after_state['observations'],
+	'reading the scope wrote no Device, Port, edge or observation');
+check(!array_diff($before_hosts, $kept), 'no Host node that was there is gone');
+$made = count($kept) - count($before_hosts);
+echo "  ({$made} Host node(s) made for start hosts without one)\n";
 echo $failed ? "\n{$failed} FAILED\n" : "\nALL OK\n";
 exit($failed ? 1 : 0);
