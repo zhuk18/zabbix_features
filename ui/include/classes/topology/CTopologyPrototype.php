@@ -901,12 +901,21 @@ class CTopologyPrototype {
 			return [];
 		}
 
-		// A Host without a pointer node yet (never pulled) is no start node.
+		// 2.71 (§12.1): a Host without a Device is a node of the view too. Since FR-B 0.29 D-49 a host with only the official interface templates is not a reporter, so no run makes its Host node:
+		// the Host node of a start host is made here, when the view reads the scope (task 111). The hosts are the ones that the user may see (API::Host()->get above).
+		$seed_hostids = array_values(array_unique($seed_hostids));
 		$seed_ids = [];
-		$result = DBselect('SELECT id FROM topo_nodes WHERE type='.zbx_dbstr('host').
-			' AND '.dbConditionId('host_ref', array_unique($seed_hostids)));
+		$have = [];
+		$result = DBselect('SELECT id,host_ref FROM topo_nodes WHERE type='.zbx_dbstr('host').
+			' AND '.dbConditionId('host_ref', $seed_hostids));
 		while ($row = DBfetch($result)) {
 			$seed_ids[] = $row['id'];
+			$have[(string) $row['host_ref']] = true;
+		}
+		foreach ($seed_hostids as $seed_hostid) {
+			if (!isset($have[(string) $seed_hostid])) {
+				$seed_ids[] = (string) self::upsertPointerNode('host', 'host_ref', (string) $seed_hostid);
+			}
 		}
 		if (!$seed_ids) {
 			return [];

@@ -44,7 +44,8 @@ def check(condition, text, detail=None):
     failed += 0 if condition else 1
 
 
-# a group and a host in it, with a Host node (the Host nodes of the graph are made on demand; the test makes one)
+# a group and a host in it. The host has NO Host node and no Device, as a host with only the official interface templates (FR-B D-49): the view makes its Host node when it reads the scope (task 111).
+# (Until task 110 this test inserted the Host node itself, so it could not see that such a host was never drawn.)
 for old in api('host.get', {'filter': {'host': [HOST]}, 'output': ['hostid']}):
     api('host.delete', [old['hostid']])
 for old in api('hostgroup.get', {'filter': {'name': [GROUP]}, 'output': ['groupid']}):
@@ -52,7 +53,7 @@ for old in api('hostgroup.get', {'filter': {'name': [GROUP]}, 'output': ['groupi
 group = api('hostgroup.create', {'name': GROUP})['groupids'][0]
 host = api('host.create', {'host': HOST, 'groups': [{'groupid': group}]})['hostids'][0]
 try:
-    sql("INSERT INTO topo_nodes (type, host_ref, attrs, created_at, updated_at) VALUES ('host', %s, '{}', 1, 1)" % int(host))
+    check(sql('select count(*) from topo_nodes where type=\'host\' and host_ref=%d' % int(host)) == '0', 'set-up: the host has no Host node and no Device')
     by_default = drawn('--group', GROUP, '--depth', '1')
     check(by_default == 0, 'a Host without a Device and without a link, in the selected host group: not drawn', by_default)
     with_switch = drawn('--group', GROUP, '--depth', '1', '--unlinked')
