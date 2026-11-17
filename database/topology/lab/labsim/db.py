@@ -168,7 +168,7 @@ def rule_lastchecks(conn, ruleids):
     if not ids:
         return {}
     out = {r: 0 for r in ids}
-    for r in rows(conn, 'SELECT lldruleid, MAX(lastcheck) AS last FROM item_discovery WHERE lldruleid IN (%s) GROUP BY lldruleid' % ','.join(str(i) for i in ids)):
+    for r in rows(conn, 'SELECT p.lldruleid AS lldruleid, MAX(d.lastcheck) AS last FROM item_discovery d JOIN item_discovery p ON p.itemid = d.parent_itemid WHERE p.lldruleid IN (%s) GROUP BY p.lldruleid' % ','.join(str(i) for i in ids)):
         out[int(r['lldruleid'])] = int(r['last'] or 0)
     return out
 
