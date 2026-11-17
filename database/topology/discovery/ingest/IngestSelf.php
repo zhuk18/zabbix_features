@@ -514,11 +514,10 @@ class IngestSelf {
 		}
 	}
 	/**
-	 * Model §6.6 "Two PORTS rules of one host" (2.69): the PORTS snapshots of one host as one list of port rows. The snapshots agree when each port name that both have has the same
-	 * `if_index` in both and each `if_index` that both have has the same name: then they are returned as they are (the rows join by if_index, as before). When they disagree, the newer
-	 * snapshot (its `clock`) gives the name, the `if_index` and the attrs of each of its rows; an attr that only an older snapshot has comes from its row with the same name and the same
-	 * `if_index`; a row of an older snapshot is used only when neither its name nor its `if_index` is in the newer one. With equal clocks, or when one of the rules is a trapper rule (its
-	 * clock is not from the same poller), there is no newer snapshot: `unchanged`, the Ports of the host do not change in this run.
+	 * Model §6.6 "Two PORTS rules of one host" (2.93; up to 2.92 the newer snapshot decided): the PORTS snapshots of one host as one list of port rows. The snapshots agree when each port name
+	 * that both have has the same `if_index` in both and each `if_index` that both have has the same name: then they are returned as they are (the rows join by if_index). When they disagree,
+	 * the Ports of the host do not change in this run (`unchanged`: no upsert, no "follows its name"), and the run summary lists the host (`hosts_ports_disagree`); there is no choice by time
+	 * (FR-A 5.7 R-11, R-16). A host has two PORTS rules only when a user links two templates with PORTS rules (the official interface templates have no topology type, FR-B 0.29 D-49).
 	 *
 	 * @return array  ['snapshots' => the snapshots to use, 'unchanged' => bool]
 	 */
@@ -558,45 +557,7 @@ class IngestSelf {
 		if ($agree) {
 			return ['snapshots' => $snapshots, 'unchanged' => false];
 		}
-		$ordered = array_values($snapshots);
-		usort($ordered, static fn (array $x, array $y): int => $y['clock'] <=> $x['clock']);
-		foreach ($ordered as $snapshot) {
-			if (!empty($snapshot['trapper'])) {
-				return ['snapshots' => $snapshots, 'unchanged' => true];
-			}
-		}
-		if ($ordered[0]['clock'] === $ordered[1]['clock']) {
-			return ['snapshots' => $snapshots, 'unchanged' => true];
-		}
-		$rows = $ordered[0]['rows'];
-		$names = [];
-		$indexes = [];
-		foreach ($rows as $row) {
-			$names[$name_of($row)] = true;
-			$indexes[(int) $row['if_index']] = true;
-		}
-		foreach (array_slice($ordered, 1) as $older) {
-			foreach ($older['rows'] as $row) {
-				$name = $name_of($row);
-				$index = (int) $row['if_index'];
-				if (!isset($names[$name]) && !isset($indexes[$index])) {
-					$rows[] = $row;      // neither its name nor its index is in the newer snapshot: kept from the older row
-					$names[$name] = true;
-					$indexes[$index] = true;
-					continue;
-				}
-				foreach ($rows as $n => $newer_row) {
-					if ((int) $newer_row['if_index'] === $index && $name_of($newer_row) === $name) {
-						foreach ($row as $key => $value) {
-							if ($key !== 'itemids' && (!array_key_exists($key, $newer_row) || $newer_row[$key] === '' || $newer_row[$key] === null)) {
-								$rows[$n][$key] = $value;      // an attr that only the older rule has
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return ['snapshots' => [['itemid' => $ordered[0]['itemid'], 'clock' => $ordered[0]['clock'], 'rows' => $rows, 'old' => false]], 'unchanged' => false];
+		// 2.93 (FR-A 5.7 R-11, R-16): no choice by time; the Ports of the host do not change in this run (the next poll of either rule usually ends it)
+		return ['snapshots' => $snapshots, 'unchanged' => true];
 	}
 }

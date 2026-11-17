@@ -4,9 +4,9 @@
 declare(strict_types=1);
 
 /**
- * test_two_ports_rules.php — task 089, topology-1-model.md 2.69 §6.6 "Two PORTS rules of one host" and §3.2 (item ids by if_index): the two PORTS snapshots of a host (the interface discovery
- * with item prototypes, and the topology rule without) agree: join by if_index as before; disagree: the newer snapshot gives names, if_index and attrs; an older row only when neither its name
- * nor its if_index is in the newer one; equal clocks or a trapper rule: the Ports of the host do not change and the host is in hosts_ports_disagree. The real ingest.php runs as a process.
+ * test_two_ports_rules.php — topology-1-model.md 2.93 §6.6 "Two PORTS rules of one host" (task 110; up to 2.92 the newer snapshot decided, task 089): the two PORTS snapshots of a host (two rules
+ * of the user's templates) agree: join by if_index; disagree (a name or an index with two values): the Ports of the host do not change in this run, whichever rule is newer, and the host is in
+ * hosts_ports_disagree; the next run, when the rules agree again, follows. The real ingest.php runs as a process.
  *
  * Usage: test_two_ports_rules.php <PDO DSN> <database user> [password]
  * Expects a THROWAWAY database.
@@ -225,53 +225,60 @@ $p = base($pdo, $dsn, $user, $password);
 check(count($p) === 4 && array_sum(array_map('count', $p)) === 4, 'four Ports', array_keys($p));
 check($p['Gi0/3'][0]['if_index'] === 3, 'each Port has the index of its row', $p);
 
-echo "\n=== 2. the newer rule has a new index for one port, the older the old one ===\n";
-$before = base($pdo, $dsn, $user, $password);
-put_rule($pdo, TOPO_RULE, false, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);       // newer; the item rule (older) still has Gi0/1 = 1
-$r = run_ingest($dsn, $user, $password);
-$p = device_ports($pdo, $C1);
-check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11, 'no second Port; the Port keeps its id and gets the new index', $p);
-check(($r['summary']['hosts_ports_disagree']['count'] ?? -1) === 0, 'a newer rule decides: the host is not in hosts_ports_disagree');
+echo "\n=== 2. the rules disagree (one port has another index in one rule): no Port changes, whichever rule is newer ===\n";
+foreach ([['the topology rule is newer', TOPO_RULE, false, ITEM_RULE, true], ['the other rule is newer', ITEM_RULE, true, TOPO_RULE, false]] as [$text, $new_rule, $new_items, $old_rule, $old_items]) {
+	$before = base($pdo, $dsn, $user, $password);
+	put_rule($pdo, $new_rule, $new_items, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);       // Gi0/1 = 11 here, 1 in the other rule
+	$r = run_ingest($dsn, $user, $password);
+	check(device_ports($pdo, $C1) === $before, $text.': the Ports (ids, indexes) are as before; no second Port, no new index', device_ports($pdo, $C1));
+	check(($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1 && ($r['summary']['hosts_ports_disagree']['list'][0]['host'] ?? '') === 'SW101', $text.': hosts_ports_disagree lists the host (there is no choice by time)', $r['summary']['hosts_ports_disagree'] ?? null);
+	check(str_contains($r['out'], 'hosts_ports_disagree') && count(array_filter($r['summary']['attention'] ?? [], static fn (array $a): bool => $a['kind'] === 'hosts_ports_disagree')) === 1, $text.': the CLI text and "Needs attention" show the host');
+}
 
-echo "\n=== 3. the same, the rule with the items is the newer one ===\n";
-$before = base($pdo, $dsn, $user, $password);
-put_rule($pdo, ITEM_RULE, true, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);        // newer; the topology rule (older) still has Gi0/1 = 1
-run_ingest($dsn, $user, $password);
-$p = device_ports($pdo, $C1);
-check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11,
-	'the Port gets the new index and the items of its new index', $p);
-
-echo "\n=== 4. two ports exchange their indexes in the newer rule only ===\n";
+echo "\n=== 3. two ports exchange their indexes in one rule only: no change ===\n";
 $before = base($pdo, $dsn, $user, $password);
 put_rule($pdo, TOPO_RULE, false, [[2, 'Gi0/1'], [1, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);
-run_ingest($dsn, $user, $password);
-$p = device_ports($pdo, $C1);
-check(ids_of($p) === ids_of($before) && $p['Gi0/1'][0]['if_index'] === 2 && $p['Gi0/2'][0]['if_index'] === 1, 'the Port ids stay, the indexes are exchanged', $p);
+$r = run_ingest($dsn, $user, $password);
+check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1, 'the indexes of the Ports are as before; the host is listed', device_ports($pdo, $C1));
 
-echo "\n=== 5. the older rule has a port that the newer one does not have ===\n";
+echo "\n=== 4. a port that only one rule has: the rows of the rules do not disagree, they join ===\n";
 $before = base($pdo, $dsn, $user, $password);
-put_rule($pdo, TOPO_RULE, false, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3']], $NOW);       // no Gi0/4 (its name and index 4 are free in the newer rule)
-run_ingest($dsn, $user, $password);
-$p = device_ports($pdo, $C1);
-check(array_sum(array_map('count', $p)) === 4 && $p['Gi0/4'][0]['id'] === $before['Gi0/4'][0]['id'] && $p['Gi0/4'][0]['if_index'] === 4 && $p['Gi0/1'][0]['if_index'] === 11,
-	'the Port Gi0/4 is kept from the older row (index and items); Gi0/1 follows the newer one', $p);
+put_rule($pdo, TOPO_RULE, false, [[1, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3']], $NOW);       // no Gi0/4: not a disagreement (no name or index with two values)
+$r = run_ingest($dsn, $user, $password);
+check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? -1) === 0, 'a port that one rule does not have is no disagreement: the four Ports stay, the host is not listed', $r['summary']['hosts_ports_disagree'] ?? null);
 
-echo "\n=== 6. disagree with equal clocks, and with a trapper rule: the Ports do not change ===\n";
+echo "\n=== 5. equal clocks, and a trapper rule: the same, the Ports do not change ===\n";
 $before = base($pdo, $dsn, $user, $password);
 put_rule($pdo, ITEM_RULE, true, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);
 put_rule($pdo, TOPO_RULE, false, $FOUR, $NOW);       // equal clocks, they disagree on Gi0/1
 $r = run_ingest($dsn, $user, $password);
-check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1 && ($r['summary']['hosts_ports_disagree']['list'][0]['host'] ?? '') === 'SW101',
-	'equal clocks: the Ports (ids, indexes, items) are as before; hosts_ports_disagree = 1', [$r['summary']['hosts_ports_disagree'] ?? null]);
-check(str_contains($r['out'], 'hosts_ports_disagree') && count(array_filter($r['summary']['attention'] ?? [], static fn (array $a): bool => $a['kind'] === 'hosts_ports_disagree')) === 1, 'the CLI text and "Needs attention" show the host');
+check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1, 'equal clocks: the Ports are as before; hosts_ports_disagree = 1', [$r['summary']['hosts_ports_disagree'] ?? null]);
 $before = base($pdo, $dsn, $user, $password);
 put_rule($pdo, ITEM_RULE, true, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW - 100);
-put_rule($pdo, TOPO_RULE, false, $FOUR, $NOW);       // the topology rule is newer, but the other one is a trapper rule: no comparison of clocks
+put_rule($pdo, TOPO_RULE, false, $FOUR, $NOW);
 $pdo->exec('UPDATE items SET type = 2 WHERE itemid = '.ITEM_RULE);
 $r = run_ingest($dsn, $user, $password);
 check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1, 'a trapper rule: the Ports are as before; hosts_ports_disagree = 1');
 
-echo "\n=== 7. a second run over the same snapshots changes nothing ===\n";
+echo "\n=== 6. a user's second template: a PORTS rule with other names for the same indexes ===\n";
+$before = base($pdo, $dsn, $user, $password);
+put_rule($pdo, ITEM_RULE, true, [[1, 'ge-0/0/1'], [2, 'ge-0/0/2'], [3, 'ge-0/0/3'], [4, 'ge-0/0/4']], $NOW - 500);      // a second PORTS rule (a template of the user): names that the topology rule has not
+$r = run_ingest($dsn, $user, $password);
+check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1 && array_sum(array_map('count', device_ports($pdo, $C1))) === 4,
+	'the two rules give other names to the same indexes: no Port is renamed, no Port is made; the host is listed', device_ports($pdo, $C1));
+
+echo "\n=== 7. the next poll ends it: the rules agree again, the Ports follow ===\n";
+$before = base($pdo, $dsn, $user, $password);
+put_rule($pdo, TOPO_RULE, false, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);
+$r = run_ingest($dsn, $user, $password);
+check(device_ports($pdo, $C1) === $before && ($r['summary']['hosts_ports_disagree']['count'] ?? 0) === 1, 'the topology rule has the new index, the other rule not yet: no change');
+put_rule($pdo, ITEM_RULE, true, [[11, 'Gi0/1'], [2, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW + 1);       // the other rule is polled: both agree
+$r = run_ingest($dsn, $user, $password);
+$p = device_ports($pdo, $C1);
+check(($r['summary']['hosts_ports_disagree']['count'] ?? -1) === 0 && array_sum(array_map('count', $p)) === 4 && $p['Gi0/1'][0]['id'] === $before['Gi0/1'][0]['id'] && $p['Gi0/1'][0]['if_index'] === 11,
+	'both rules agree: the Port keeps its id and gets the new index; the host is no longer listed', $p);
+
+echo "\n=== 8. a second run over the same snapshots changes nothing ===\n";
 base($pdo, $dsn, $user, $password);
 put_rule($pdo, TOPO_RULE, false, [[2, 'Gi0/1'], [1, 'Gi0/2'], [3, 'Gi0/3'], [4, 'Gi0/4']], $NOW);
 run_ingest($dsn, $user, $password);
