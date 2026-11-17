@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 /**
  * test_bind_interface.php — task 107, topology-1-model.md 2.91 §9.7 "Bind to interface" and §11: the operations topology.ports.interfaces / bind / unbind through the real controller classes, with
- * their refusals and the guest; an item that the user may not read is not listed; the ingest rules (a bound port on a host with a PORTS rule takes the row of its index, a host without a PORTS rule
+ * their refusals and the guest; the interfaces of a host that the user may not read are not listed and not bound (the lookup is one SQL query, task 111); the ingest rules (a bound port on a host with a PORTS rule takes the row of its index, a host without a PORTS rule
  * leaves the binding alone, deleted items show "interface not found" and Unbind works). The real ingest.php runs as a process.
  *
  * Usage: test_bind_interface.php <PDO DSN> <database user> [password]
@@ -38,7 +38,7 @@ $dbname = $m[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'globalmacro',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'item_tag', 'item_discovery', 'items', 'globalmacro',
 		'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -46,7 +46,9 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0, key_ VARCHAR(2048) NOT NULL DEFAULT \'\', flags INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE item_discovery (itemid BIGINT UNSIGNED PRIMARY KEY, key_ VARCHAR(2048) NOT NULL DEFAULT \'\')');
+$pdo->exec('CREATE TABLE item_tag (itemtagid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, itemid BIGINT UNSIGNED NOT NULL, tag VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(255) NOT NULL DEFAULT \'\')');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 $pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
@@ -72,6 +74,8 @@ class CSeverityHelper {
 /** Stub of the API facade: only the visible hosts matter to the topology classes. */
 class API {
 	public static array $visible = [];
+	/** @var int[] hosts that the user may not read */
+	public static array $unreadable = [];
 	/** @var array[] active triggers: ['priority' => int, 'itemids' => [..]] */
 	public static array $triggers = [];
 	public static int $trigger_calls = 0;
@@ -118,16 +122,6 @@ class API {
 			public function get($options) {
 				API::$item_calls++;
 				$out = [];
-				if (isset($options['hostids'])) {
-					// the interfaces of a host (task 107): its discovered items; an item with 'hidden' is one the user may not read
-					foreach (API::$items as $id => $item) {
-						if (!in_array((string) ($item['hostid'] ?? ''), array_map('strval', $options['hostids']), true) || !empty($item['hidden'])) {
-							continue;
-						}
-						$out[] = ['itemid' => (string) $id, 'hostid' => (string) $item['hostid'], 'key_' => $item['key_'], 'itemDiscovery' => ['parent_itemid' => '1', 'key_' => $item['proto'] ?? ''], 'tags' => $item['tags'] ?? []];
-					}
-					return $out;
-				}
 				foreach ($options['itemids'] as $id) {
 					if (isset(API::$items[$id])) {
 						$out[] = ['itemid' => (string) $id] + API::$items[$id];
@@ -141,6 +135,10 @@ class API {
 	public static function Host() {
 		return new class {
 			public function get($options) {
+				if (isset($options['hostids'])) {
+					// the lookup of the interface items reads the hosts that the user may read (task 111): the ones of API::$unreadable are not among them
+					return array_values(array_map(static fn ($id): array => ['hostid' => (string) $id], array_diff(array_map('strval', $options['hostids']), array_map('strval', API::$unreadable))));
+				}
 				return array_map(static fn ($id): array => ['hostid' => (string) $id], API::$visible);
 			}
 		};
@@ -341,19 +339,24 @@ function key_rows(PDO $pdo, int $device_id): array {
 $USER_ID = '1';
 login();
 $M1 = 'a0:00:00:00:00:77';
-/** The items of one interface of a host (the stub of item.get above): the four keys of §4.8 with their prototypes and the tag `interface`. */
-function add_interface(PDO $pdo, int $hostid, int $index, string $name, bool $hidden = false): array {
+/** The items of one interface of a host: the four keys of §4.8 with their prototypes and the tag `interface`, written where the lookup reads them (task 111: ONE SQL query over items, item_discovery and item_tag). */
+function add_interface(PDO $pdo, int $hostid, int $index, string $name): array {
 	$ids = [];
 	foreach (['net.if.in' => 'ifHCInOctets', 'net.if.out' => 'ifHCOutOctets', 'net.if.speed' => 'ifHighSpeed', 'net.if.status' => 'ifOperStatus'] as $key => $oid) {
 		$id = $hostid * 1000 + $index * 10 + count($ids);
-		API::$items[$id] = ['hostid' => $hostid, 'key_' => "{$key}[{$oid}.{$index}]", 'proto' => "{$key}[{$oid}.{{$GLOBALS['MACRO']}}]", 'tags' => [['tag' => 'interface', 'value' => $name], ['tag' => 'component', 'value' => 'network']],
-			'hidden' => $hidden, 'value_type' => '3', 'type' => '20', 'delay' => '1m', 'master_itemid' => '0'];
-		$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type) VALUES (?, ?, 0, 0)')->execute([$id, $hostid]);
+		API::$items[$id] = ['hostid' => $hostid, 'key_' => "{$key}[{$oid}.{$index}]", 'value_type' => '3', 'type' => '20', 'delay' => '1m', 'master_itemid' => '0'];
+		$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type, key_, flags) VALUES (?, ?, 0, 0, ?, 4)')->execute([$id, $hostid, "{$key}[{$oid}.{$index}]"]);
+		$pdo->prepare('REPLACE INTO item_discovery (itemid, key_) VALUES (?, ?)')->execute([$id, "{$key}[{$oid}.{{$GLOBALS['MACRO']}}]"]);
+		$pdo->prepare('DELETE FROM item_tag WHERE itemid = ?')->execute([$id]);
+		foreach ([['interface', $name], ['component', 'network']] as [$tag, $value]) {
+			$pdo->prepare('INSERT INTO item_tag (itemid, tag, value) VALUES (?, ?, ?)')->execute([$id, $tag, $value]);
+		}
 		$ids[] = $id;
 	}
 	// an item of another kind (errors) is not part of the interface
 	$id = $hostid * 1000 + $index * 10 + 9;
-	API::$items[$id] = ['hostid' => $hostid, 'key_' => "net.if.in.errors[ifInErrors.{$index}]", 'proto' => "net.if.in.errors[ifInErrors.{{$GLOBALS['MACRO']}}]", 'tags' => [], 'hidden' => $hidden];
+	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type, key_, flags) VALUES (?, ?, 0, 0, ?, 4)')->execute([$id, $hostid, "net.if.in.errors[ifInErrors.{$index}]"]);
+	$pdo->prepare('REPLACE INTO item_discovery (itemid, key_) VALUES (?, ?)')->execute([$id, "net.if.in.errors[ifInErrors.{{$GLOBALS['MACRO']}}]"]);
 
 	return $ids;
 }
@@ -396,13 +399,21 @@ add_host($pdo, 201, 'SW201', 'Switch 201', '10.0.0.201');
 $i1 = add_interface($pdo, 201, 1, 'Gi0/1');
 $i2 = add_interface($pdo, 201, 2, 'Gi0/2');
 $i7 = add_interface($pdo, 201, 7, 'Te1/0/1');
-add_interface($pdo, 201, 9, 'Hidden0/9', true);
 add_interface($pdo, 202, 1, 'OtherHost');      // an interface of another host is not listed
 CTopologyPrototype::promote((string) $BD, 'host', '201');
 $r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $bp['p1']]);
 $names = array_map(static fn (array $i): string => $i['if_index'].':'.$i['name'], $r['interfaces'] ?? []);
-check(!failed($r) && $names === ['1:Gi0/1', '2:Gi0/2', '7:Te1/0/1'], 'the interfaces of the host: index and name (the tag), sorted by index; an item the user may not read and another host are not listed', [$names, $r]);
+check(!failed($r) && $names === ['1:Gi0/1', '2:Gi0/2', '7:Te1/0/1'], 'the interfaces of the host: index and name (the tag), sorted by index; another host is not listed', [$names, $r]);
 check(($r['interfaces'][0]['itemids'] ?? null) === $i1 && ($r['interfaces'][2]['itemids'] ?? null) === $i7 && $r['interfaces'][0]['port'] === null, 'the items of an interface: in, out, speed, status (not the errors item); no Port has it yet', $r['interfaces'][0] ?? null);
+
+// a host that the user may not read: its items are not found (item.get gave the items of readable hosts only; the SQL lookup asks host.get for the hosts of a user who is not a super admin)
+API::$unreadable = [201];
+CWebUser::$data['type'] = USER_TYPE_ZABBIX_USER;
+$r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $bp['p1']]);
+$rb = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p1'], 'if_index' => 2]);
+check((failed($r) || ($r['interfaces'] ?? []) === []) && failed($rb) && !array_key_exists('if_index', attrs_of($pdo, $bp['p1'])), 'a host that the user may not read: no interfaces listed, Bind refused', [$r, $rb]);
+API::$unreadable = [];
+login();
 
 echo "\n=== 2. Bind ===\n";
 $r = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p1'], 'if_index' => 2]);
@@ -415,7 +426,7 @@ check(($r['interfaces'][1]['port']['name'] ?? null) === 'p1' && $r['interfaces']
 $r = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p2'], 'if_index' => 2]);
 check(failed($r) && str_contains(implode(' ', $r['error']['messages']), 'p1 already has') && !array_key_exists('if_index', attrs_of($pdo, $bp['p2'])), 'Bind p2 to the same interface: refused ("p1 already has this interface")', $r);
 check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p1'], 'if_index' => 2])), 'Bind p1 to the interface it already has: no refusal');
-foreach ([[99, 'an index that the host has no interface for'], [9, 'an interface whose items the user may not read'], [1000000, 'a very large index']] as [$index, $text]) {
+foreach ([[99, 'an index that the host has no interface for'], [1000000, 'a very large index']] as [$index, $text]) {
 	$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $bp['p2'], 'if_index' => $index]);
 	check(failed($r) && !array_key_exists('if_index', attrs_of($pdo, $bp['p2'])), 'Bind refused: '.$text, $r);
 }
@@ -548,7 +559,11 @@ $add_named = static function (PDO $pdo, int $hostid, string $name, string $tag =
 		while (isset(API::$items[$id])) {
 			$id++;
 		}
-		API::$items[$id] = ['hostid' => $hostid, 'key_' => $key.'["'.$name.'"]', 'proto' => $key.'["{#IFNAME}"]', 'tags' => [['tag' => 'interface', 'value' => $tag ?? $name]], 'value_type' => '3', 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
+		API::$items[$id] = ['hostid' => $hostid, 'key_' => $key.'["'.$name.'"]', 'value_type' => '3', 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
+		$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type, key_, flags) VALUES (?, ?, 0, 0, ?, 4)')->execute([$id, $hostid, $key.'["'.$name.'"]']);
+		$pdo->prepare('REPLACE INTO item_discovery (itemid, key_) VALUES (?, ?)')->execute([$id, $key.'["{#IFNAME}"]']);
+		$pdo->prepare('DELETE FROM item_tag WHERE itemid = ?')->execute([$id]);
+		$pdo->prepare('INSERT INTO item_tag (itemid, tag, value) VALUES (?, ?, ?)')->execute([$id, 'interface', $tag ?? $name]);
 		$ids[] = $id;
 	}
 	return $ids;
@@ -579,12 +594,15 @@ $dev = static fn (string $chassis): int => (int) scalar($pdo, "SELECT id FROM to
 $R = ports_of($pdo, $dev('a0:00:00:00:04:01'));
 $E = ports_of($pdo, $dev('a0:00:00:00:04:02'));
 $N = ports_of($pdo, $dev('a0:00:00:00:04:03'));
+// task 111 (model 2.94 section 18): the lookup is SQL, not item.get: one query for the ports with their hosts and ONE for the interface items of all the hosts (the names are read only when a name is needed: one more)
+global $DB;
 API::$item_calls = 0;
+$before = $DB['SELECT_COUNT'];
 $got = $items_of([$R['Gi0/1'], $R['Gi0/2'], $N['Gi0/1']]);
-check(API::$item_calls === 1, 'the ports that have the index of an interface: ONE item.get for the ports of two hosts (no tags are read)', API::$item_calls);
-API::$item_calls = 0;
+check($DB['SELECT_COUNT'] - $before === 2 && API::$item_calls === 0, 'the ports that have the index of an interface: 2 SQL queries (the ports, the interface items of two hosts), no item.get, no tags read', [$DB['SELECT_COUNT'] - $before, API::$item_calls]);
+$before = $DB['SELECT_COUNT'];
 $got = $items_of(array_merge(array_values($R), array_values($E), array_values($N)));
-check(API::$item_calls === 1, 'ports of hosts with numeric interfaces only: no names are read, still ONE item.get for the three hosts', API::$item_calls);
+check($DB['SELECT_COUNT'] - $before === 2 && API::$item_calls === 0, 'ports of hosts with numeric interfaces only: no names are read, still 2 SQL queries for the three hosts', [$DB['SELECT_COUNT'] - $before, API::$item_calls]);
 check($ids_of($got[(string) $R['Gi0/1']]) === $r1 && $ids_of($got[(string) $R['Gi0/2']]) === $r2, 'a port is found by its if_index: the items of that interface', $got);
 check($got[(string) $R['Gi0/5']] === ['itemids' => [], 'reason' => 'no_match'], 'no interface with the index 9: not found by the name either (the interface Gi0/5 has a numeric LLD value: it is the interface of its index)', $got[(string) $R['Gi0/5']]);
 check($got[(string) $R['Gi0/3']] === ['itemids' => [], 'reason' => 'no_match'], 'no interface of the index and none of the name: no items, reason no_match', $got[(string) $R['Gi0/3']]);
@@ -611,9 +629,9 @@ $a_eth1 = $add_named($pdo, 404, 'eth1');
 reporter($pdo, 404, 'a0:00:00:00:04:04', [[2, 'eth0'], [3, 'eth1'], [4, 'eth2']], []);
 run_ingest($dsn, $user, $password);
 $A = ports_of($pdo, $dev('a0:00:00:00:04:04'));
-API::$item_calls = 0;
+$before = $DB['SELECT_COUNT'];
 $got = $items_of(array_values($A));
-check(API::$item_calls === 2, 'a host whose interfaces have the name for LLD value: ONE item.get for the interfaces and ONE for their names (tags), for all its ports', API::$item_calls);
+check($DB['SELECT_COUNT'] - $before === 3 && API::$item_calls === 0, 'a host whose interfaces have the name for LLD value: the ports, the interface items and ONE query for their names (tags), for all its ports', [$DB['SELECT_COUNT'] - $before, API::$item_calls]);
 check($ids_of($got[(string) $A['eth0']]) === $a_eth0 && $ids_of($got[(string) $A['eth1']]) === $a_eth1 && $got[(string) $A['eth2']]['reason'] === 'no_match',
 	'a host of the agent template (the name in the key and the tag): found by the name; a name with no interface: no items', $got);
 // a manual Device associated with a host: an unbound port has no items, a bound port has the items of its interface (by the index, else by its interface name)

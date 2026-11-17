@@ -3274,7 +3274,7 @@ class CTopologyPrototype {
 	 * The interfaces of hosts (§3.2, §9.7): the discovered items (made from item prototypes) with the key prefixes of INTERFACE_KEYS, grouped by the LLD value that they share. The value is read from the
 	 * key of the item against the key of its prototype (`item_discovery.key_`): `net.if.in[ifHCInOctets.{#SNMPINDEX}]` and `net.if.in[ifHCInOctets.17]` give 17; `net.if.in["{#IFNAME}"]` and
 	 * `net.if.in["eth0"]` give eth0. The macro is {#SNMPINDEX} or {#IFINDEX} when the key has one (then the value is a number: the `if_index`), else the first macro of the key. The name is the value of the item
-	 * tag `interface` (the template sets it to {#IFNAME}); without it (an unresolved macro too) the LLD value. Only items that the user can read (item.get). ONE `item.get` for all the hosts.
+	 * tag `interface` (the template sets it to {#IFNAME}); without it (an unresolved macro too) the LLD value. Only items of the hosts that the user can read (as item.get gives them). ONE SQL query for all the hosts.
 	 * The tags cost as much as the items (task 110: 1368 items of 8 hosts, 30-60 ms), so they are read only when a name is needed (`$names`, or interfaceNames() for some hosts later).
 	 *
 	 * @param string[] $hostids
@@ -3287,11 +3287,27 @@ class CTopologyPrototype {
 		if (!$hostids) {
 			return [];
 		}
-		$items = API::Item()->get([
-			'output' => ['itemid', 'hostid', 'key_'], 'hostids' => $hostids, 'filter' => ['flags' => ZBX_FLAG_DISCOVERY_CREATED],
-			'search' => ['key_' => self::INTERFACE_KEYS], 'searchByAny' => true, 'startSearch' => true,
-			'selectItemDiscovery' => ['parent_itemid', 'key_']
-		] + ($names ? ['selectTags' => ['tag', 'value']] : []));
+		$hostids = self::readableHostIds($hostids);
+		if (!$hostids) {
+			return [];
+		}
+		// ONE query over items and item_discovery for all the hosts (task 111; model 2.94 section 18): the discovered items with the key prefixes, with the key of their prototype. The tag `interface`
+		// is joined in when the names are wanted.
+		$prefixes = [];
+		foreach (self::INTERFACE_KEYS as $prefix) {
+			$prefixes[] = 'i.key_ LIKE '.zbx_dbstr($prefix.'%');
+		}
+		$items = [];
+		$cursor = DBselect(
+			'SELECT i.itemid,i.hostid,i.key_,d.key_ AS prototype_key'.($names ? ',t.value AS tag_value' : '').
+			' FROM items i JOIN item_discovery d ON d.itemid=i.itemid'.
+			($names ? ' LEFT JOIN item_tag t ON t.itemid=i.itemid AND t.tag='.zbx_dbstr('interface') : '').
+			' WHERE '.dbConditionId('i.hostid', $hostids).' AND i.flags='.ZBX_FLAG_DISCOVERY_CREATED.' AND i.type<>'.ITEM_TYPE_HTTPTEST.' AND ('.implode(' OR ', $prefixes).')'
+		);
+		while ($row = DBfetch($cursor, false)) {
+			$items[] = ['itemid' => $row['itemid'], 'hostid' => $row['hostid'], 'key_' => $row['key_'], 'itemDiscovery' => ['key_' => $row['prototype_key']],
+				'tags' => $names && $row['tag_value'] !== null ? [['tag' => 'interface', 'value' => $row['tag_value']]] : []];
+		}
 		$interfaces = [];
 		$patterns = [];
 		foreach ($items as $item) {
@@ -3347,10 +3363,27 @@ class CTopologyPrototype {
 		if (!$itemids) {
 			return;
 		}
-		foreach (API::Item()->get(['output' => ['itemid'], 'itemids' => $itemids, 'selectTags' => ['tag', 'value']]) as $item) {
-			[$hostid, $lld] = $owner[(int) $item['itemid']];
-			self::applyInterfaceTags($interfaces[$hostid][$lld], $item['tags'] ?? []);
+		// (the hosts were checked for read access by interfacesOfHosts(); the items are theirs)
+		$cursor = DBselect('SELECT itemid,value FROM item_tag WHERE tag='.zbx_dbstr('interface').' AND '.dbConditionId('itemid', $itemids));
+		while ($row = DBfetch($cursor, false)) {
+			[$hostid, $lld] = $owner[(int) $row['itemid']];
+			self::applyInterfaceTags($interfaces[$hostid][$lld], [['tag' => 'interface', 'value' => $row['value']]]);
 		}
+	}
+
+	/**
+	 * The hosts of the list that the user may read (what item.get gives: the items of readable hosts). A super admin reads every host; for another user one host.get.
+	 *
+	 * @param string[] $hostids
+	 *
+	 * @return string[]
+	 */
+	private static function readableHostIds(array $hostids): array {
+		if (!$hostids || CWebUser::getType() == USER_TYPE_SUPER_ADMIN) {
+			return $hostids;
+		}
+
+		return array_map('strval', array_column(API::Host()->get(['output' => ['hostid'], 'hostids' => $hostids]), 'hostid'));
 	}
 
 	/**
@@ -3406,7 +3439,7 @@ class CTopologyPrototype {
 
 	/**
 	 * The items of ports (§3.2, 2.93): not stored, found when the graph is read, for a real port of the Device of a reporter's host and for a bound manual port. ONE lookup for all the ports (and all the
-	 * hosts) of the request: one query for the ports with their hosts, one `item.get` (interfacesOfHosts). The interface of a port is found
+	 * hosts) of the request: one query for the ports with their hosts, one SQL query over items and item_discovery (interfacesOfHosts). The interface of a port is found
 	 *  1. by `if_index`: the interface whose LLD value is the index;
 	 *  2. else by name: the interface whose name equals the port name (for a bound manual port: its `interface_name`) after cleaning, when exactly one interface of the host has this name. Only
 	 *     an interface whose LLD value is the name (the key carries the name: Zabbix agent templates, `net.if.in["eth0"]`) is found this way. An interface with a numeric LLD value is the

@@ -37,8 +37,8 @@ if (($conf['TYPE'] ?? '') !== 'MYSQL') {
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 require_once 'include/classes/core/CAutoloader.php';
 
-/** Stub of the API facade: the visible hosts (every host), and for the link severity and load of the derived state (model §4.8) the three reads of
- * CTopologyPrototype by SQL: items by id, the triggers in problem state of items, and the open problems of triggers. No session, no permissions. */
+/** Stub of the API facade: the visible hosts (every host), and for the link severity and load of the derived state (model §4.8) the reads of
+ * CTopologyPrototype that go through the API: items by id, the triggers in problem state of items, and the open problems of triggers. No session, no permissions. */
 class API {
 	/** The settings (the severity names and colours of describeSeverity()): what CApiSettingsHelper reads from the `settings` table, without a session. */
 	public static function Settings() {
@@ -52,29 +52,6 @@ class API {
 	public static function Item() {
 		return new class {
 			public function get($options) {
-				if (isset($options['hostids'])) {
-					// task 110 (model §3.2): the interface lookup of CTopologyPrototype (discovered items of hosts with the key prefixes, the key of their prototype, the tags); no permissions
-					$hostids = array_map('intval', $options['hostids']);
-					$keys = [];
-					foreach ($options['search']['key_'] ?? [] as $prefix) {
-						$keys[] = 'i.key_ LIKE '.zbx_dbstr(str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix).'%');
-					}
-					$out = [];
-					if ($hostids) {
-						foreach (DBselect('SELECT i.itemid,i.hostid,i.key_,d.key_ AS proto FROM items i JOIN item_discovery d ON d.itemid=i.itemid WHERE i.hostid IN ('.implode(',', $hostids).') AND i.flags=4'.
-								($keys ? ' AND ('.implode(' OR ', $keys).')' : '')) as $row) {
-							$item = ['itemid' => (string) $row['itemid'], 'hostid' => (string) $row['hostid'], 'key_' => $row['key_']];
-							if (isset($options['selectItemDiscovery'])) {
-								$item['itemDiscovery'] = ['parent_itemid' => '0', 'key_' => (string) $row['proto']];
-							}
-							if (isset($options['selectTags'])) {
-								$item['tags'] = DBfetchArray(DBselect('SELECT tag,value FROM item_tag WHERE itemid='.(int) $row['itemid']));
-							}
-							$out[] = $item;
-						}
-					}
-					return $out;
-				}
 				$ids = array_map('intval', $options['itemids'] ?? []);
 				if (!$ids) {
 					return [];

@@ -43,7 +43,7 @@ $dbname = $m[1];
 
 $pdo = new PDO($dsn, $user, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
 $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'globalmacro',
+foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'item_tag', 'item_discovery', 'items', 'globalmacro',
 		'proxy', 'hosts'] as $table) {
 	$pdo->exec("DROP TABLE IF EXISTS {$table}");
 }
@@ -51,7 +51,9 @@ $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 $pdo->exec("CREATE TABLE hosts (hostid BIGINT UNSIGNED PRIMARY KEY, host VARCHAR(128) NOT NULL, name VARCHAR(128) NOT NULL DEFAULT '', status INT NOT NULL DEFAULT 0)");
 $pdo->exec('CREATE TABLE proxy (proxyid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec('CREATE TABLE globalmacro (globalmacroid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, macro VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(2048) NOT NULL DEFAULT \'\')');
-$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, name VARCHAR(255) NOT NULL DEFAULT \'\', status INT NOT NULL DEFAULT 0, topology_type INT NOT NULL DEFAULT 0, type INT NOT NULL DEFAULT 0, key_ VARCHAR(2048) NOT NULL DEFAULT \'\', flags INT NOT NULL DEFAULT 0)');
+$pdo->exec('CREATE TABLE item_discovery (itemid BIGINT UNSIGNED PRIMARY KEY, key_ VARCHAR(2048) NOT NULL DEFAULT \'\')');
+$pdo->exec('CREATE TABLE item_tag (itemtagid BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT, itemid BIGINT UNSIGNED NOT NULL, tag VARCHAR(255) NOT NULL DEFAULT \'\', value VARCHAR(255) NOT NULL DEFAULT \'\')');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 $pdo->exec('CREATE TABLE topo_lld_snapshot (itemid BIGINT UNSIGNED PRIMARY KEY, hostid BIGINT UNSIGNED NOT NULL, topology_type INT NOT NULL DEFAULT 0,'.
 	' clock INT NOT NULL DEFAULT 0, rows_hash VARCHAR(64) NOT NULL DEFAULT \'\', rows_json LONGTEXT NOT NULL, rows_total INT NOT NULL DEFAULT 0,'.
@@ -132,28 +134,6 @@ class API {
 			public function get($options) {
 				API::$item_calls++;
 				global $pdo;
-				if (isset($options['hostids'])) {
-					// task 110 (§3.2): the interface items of hosts. A test says which items a port has with give_items(); the items are made as discovered ones of a prototype with {#SNMPINDEX}
-					$out = [];
-					foreach ($GLOBALS['PORT_ITEMS'] ?? [] as $port_id => $itemids) {
-						$row = $pdo->query('SELECT p.attrs, h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE p.id = '.(int) $port_id)->fetch(PDO::FETCH_ASSOC);
-						if (!$row || !in_array((string) $row['host_ref'], array_map('strval', $options['hostids']), true)) {
-							continue;
-						}
-						$attrs = json_decode($row['attrs'], true);
-						$index = (int) ($GLOBALS['PORT_ITEM_INDEX'][$port_id] ?? $attrs['if_index']);
-						foreach ($itemids as $id) {
-							$key = API::$items[$id]['key_'] ?? '';
-							if (!preg_match('/^(net\.if\.(?:in|out|speed|status)\[.*\.)'.$index.'\]$/', $key, $match)) {
-								$key = 'net.if.in[synth'.$id.'.'.$index.']';
-								$match = [1 => 'net.if.in[synth'.$id.'.'];
-							}
-							$out[] = ['itemid' => (string) $id, 'hostid' => (string) $row['host_ref'], 'key_' => $key, 'itemDiscovery' => ['parent_itemid' => '1', 'key_' => $match[1].'{#SNMPINDEX}]'],
-								'tags' => [['tag' => 'interface', 'value' => (string) ($GLOBALS['PORT_ITEM_NAME'][$port_id] ?? $attrs['name'])]]];
-						}
-					}
-					return $out;
-				}
 				API::$item_ids_asked[] = array_map('strval', $options['itemids']);
 				$out = [];
 				foreach ($options['itemids'] as $id) {
@@ -238,13 +218,28 @@ function give_items(PDO $pdo, int $port_id, array $itemids): void {
 		$pdo->exec('UPDATE topo_nodes SET host_ref = '.(5000 + $device).' WHERE id = '.$host);
 		$pdo->exec('UPDATE topo_nodes SET represented_by_node_id = '.$host.' WHERE id = '.$device);
 	}
-	$GLOBALS['PORT_ITEMS'][$port_id] = $itemids;
+	// task 111 (model 2.94 section 18): the interface items of a host are read by ONE SQL query over items, item_discovery and item_tag, so the test writes the items of its ports there: discovered items
+	// (flags 4) of a prototype with {#SNMPINDEX}, the index of the port, the tag `interface` = the name of the port
+	$row = $pdo->query('SELECT p.attrs, h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id JOIN topo_nodes h ON h.id = d.represented_by_node_id WHERE p.id = '.(int) $port_id)->fetch(PDO::FETCH_ASSOC);
+	$attrs = json_decode($row['attrs'], true);
+	$index = (int) $attrs['if_index'];
+	foreach ($itemids as $id) {
+		$key = API::$items[$id]['key_'] ?? '';
+		if (!preg_match('/^(net\.if\.(?:in|out|speed|status)\[.*\.)'.$index.'\]$/', $key, $match)) {
+			$key = 'net.if.in[synth'.$id.'.'.$index.']';
+			$match = [1 => 'net.if.in[synth'.$id.'.'];
+		}
+		$pdo->prepare('REPLACE INTO items (itemid, hostid, key_, flags) VALUES (?, ?, ?, 4)')->execute([$id, $row['host_ref'], $key]);
+		$pdo->prepare('REPLACE INTO item_discovery (itemid, key_) VALUES (?, ?)')->execute([$id, $match[1].'{#SNMPINDEX}]']);
+		$pdo->prepare('DELETE FROM item_tag WHERE itemid = ?')->execute([$id]);
+		$pdo->prepare('INSERT INTO item_tag (itemid, tag, value) VALUES (?, ?, ?)')->execute([$id, 'interface', (string) ($attrs['name'] ?? '')]);
+	}
 }
 
 function reset_topology(PDO $pdo): void {
-	$GLOBALS['PORT_ITEMS'] = [];
-	$GLOBALS['PORT_ITEM_INDEX'] = [];
-	$GLOBALS['PORT_ITEM_NAME'] = [];
+	$pdo->exec('DELETE FROM item_tag');
+	$pdo->exec('DELETE FROM item_discovery');
+	$pdo->exec('DELETE FROM items WHERE flags = 4');
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
 		$pdo->exec("TRUNCATE TABLE {$table}");
@@ -757,7 +752,7 @@ API::$item_calls = 0;
 API::$item_ids_asked = [];
 $n = CTopologyPrototype::getNeighbors((string) $R);
 $load = neighbor($n, $far['Switch A'])['load'];
-check(API::$item_calls === 2, 'four neighbors: ONE lookup of the interface items of all the hosts and ONE read of the load items, for the whole response (task 110)');
+check(API::$item_calls === 1, 'four neighbors: ONE read of the load items for the whole response (the interface items are read by one SQL query, task 111)');
 // task 103 (§4.8, 2.88): neighbors.get reads the far side only; the near side is in ports.get
 $asked = array_merge(...API::$item_ids_asked);
 check(!array_key_exists('local', $load) && !array_intersect(['1000', '1100', '1102'], $asked), 'neighbors.get reads the far side only: no near side in the load, the items of the near port are not read', [$load, $asked]);
