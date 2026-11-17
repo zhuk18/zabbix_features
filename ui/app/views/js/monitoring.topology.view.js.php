@@ -740,7 +740,7 @@ const view = new class {
 		if (!drawn) {
 			this.details.insertAdjacentHTML('afterbegin', `<p class="topology-not-in-view">${this.escape(<?= json_encode(_('Not in this view')) ?>)}</p>`);
 		}
-		this.applySelection(!(this.keep_view_until > Date.now()));      // task 109: no pan to the object of the panel that a fold or an unfold opens
+		this.applySelection(!this.no_pan_for_panel);      // task 109, 110: no pan to the object of the panel that a fold or an unfold opens (set by withoutPan(); a panel that a click opens pans)
 		const entry = this.panel_stack[this.panel_stack.length - 1];
 		if (entry) {
 			this.details.insertAdjacentHTML('afterbegin', `<div class="topology-back"><button type="button" class="btn-link topology-back-button" title="${this.escape(entry.title)}">` +
@@ -2127,16 +2127,27 @@ const view = new class {
 	// Leaf group (§12.8): the click on its node unfolds it, "Fold <N> devices" folds it. The state is kept until the page is loaded or the filter applied, not stored.
 	unfoldGroup(parent_id) {
 		this.user_moved = true;      // an unfold or a fold is the user's action: the view does not jump to the centre again
-		this.keep_view_until = Date.now() + 3000;      // and the panel that follows (the group, the parent) does not pan to its object either (task 109, §12.8: a fold or an unfold never moves the view)
 		this.unfolded.add(String(parent_id));
 		this.render();
 	}
 
 	foldGroup(parent_id) {
 		this.user_moved = true;
-		this.keep_view_until = Date.now() + 3000;      // see unfoldGroup()
 		this.unfolded.delete(String(parent_id));
 		this.render();
+	}
+
+	// Runs `open` (a function that folds or unfolds a group and shows the panel that follows: the group, the parent) so that the panel does not pan the view to its object, even when the object is
+	// outside the window (§12.8, 2.93: a fold or an unfold never moves the view). The rule depends on the action that opens the panel, not on a time after it (task 110); a panel that a click on a node
+	// or a line opens pans as before (applySelection).
+	async withoutPan(open) {
+		this.no_pan_for_panel = true;
+		try {
+			return await open();
+		}
+		finally {
+			this.no_pan_for_panel = false;
+		}
 	}
 
 	// The side panel of a leaf group: its Devices, one line each: label, the local port of the parent, the remote port. A click on a line opens the panel of that Device.
@@ -2222,16 +2233,18 @@ const view = new class {
 	async toggleGroup(parent_id) {
 		const panel = this.current_panel;
 		const state = this.capturePanelState();
-		if (this.unfolded.has(String(parent_id))) {
-			this.foldGroup(parent_id);
-		}
-		else {
-			this.unfoldGroup(parent_id);
-		}
-		if (panel) {
-			await panel.reopen();
-			this.restorePanelState(state);
-		}
+		await this.withoutPan(async () => {
+			if (this.unfolded.has(String(parent_id))) {
+				this.foldGroup(parent_id);
+			}
+			else {
+				this.unfoldGroup(parent_id);
+			}
+			if (panel) {
+				await panel.reopen();
+				this.restorePanelState(state);
+			}
+		});
 	}
 
 	// The parent of an unfolded group gets the control "Fold <N> devices" at the top of its panel.
@@ -3319,13 +3332,15 @@ const view = new class {
 					&& (String(candidate.parent) === String(node.id) || candidate.devices.map(String).includes(String(node.id))));
 				if (group) {
 					event.preventDefault();
-					this.foldGroup(group.parent);
-					// 091 (§12.8): the side panel then shows the group, not a leaf that is no longer drawn
-					const group_node = this.group_nodes.get(String(group.parent));
-					this.panel_from = null;
-					if (group_node) {
-						this.showGroup(group_node);
-					}
+					this.withoutPan(() => {
+						this.foldGroup(group.parent);
+						// 091 (§12.8): the side panel then shows the group, not a leaf that is no longer drawn
+						const group_node = this.group_nodes.get(String(group.parent));
+						this.panel_from = null;
+						if (group_node) {
+							this.showGroup(group_node);
+						}
+					});
 				}
 			})
 			// a dragged node stays where it is dropped, until the page is loaded again or the filter is applied (§12.1 "Node placement"); positions are not stored
@@ -3385,8 +3400,10 @@ const view = new class {
 					return;
 				}
 				if (node.type === 'group') {
-					this.unfoldGroup(node.parent);
-					this.showGroup(node);
+					this.withoutPan(() => {
+						this.unfoldGroup(node.parent);
+						this.showGroup(node);
+					});
 					return;
 				}
 				this.selectNode(node);

@@ -181,7 +181,17 @@ else
 	skip corpus/test_corpus_walk.py "no python with PyYAML at $labpy (LABPY)"
 fi
 
+# ---- 4a. the state of R1 at the start (task 110 section 4): a manual Device or a manual link that no check made (somebody made it by hand on the stand) is not a failure of a check. The run is
+# reported as `infrastructure` with the ids, the checks that read the stand are not run, and nothing is deleted: the stand is restored from `--reset` by whoever runs it next.
+r1_dirty=$(mysql -N -u"$user" zabbix -e "SELECT CONCAT('manual Device ', id, ' ', IFNULL(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')), '')) FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.source')) = 'manual' UNION ALL SELECT CONCAT('manual link ', id) FROM topo_edges WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.discovered_via')) = 'manual' ORDER BY 1" 2>/dev/null)
+if [ -n "$r1_dirty" ]; then
+	printf 'R1 has manual data at the start of the run that no check made (not deleted; restore R1 from --reset):\n%s\n' "$r1_dirty" >/tmp/topo_t_r1_dirty.log
+	record "R1 at the start: manual Device or link that no check made" INFRA 0 /tmp/topo_t_r1_dirty.log
+	infra=$(( infra + 1 ))
+fi
+
 # ---- 5. checks on the state of the lab (the `zabbix` database, read only) ----
+if [ -z "$r1_dirty" ]; then
 s=$(date +%s)
 php "$here/lab/php/view_scope_check.php" >/tmp/topo_t_view_scope.log 2>&1
 rc=$?
@@ -189,6 +199,9 @@ if [ $rc = 2 ]; then
 	skip lab/php/view_scope_check.php "the office stand hosts are not provisioned in the lab (labsim provision R1)"
 else
 	record lab/php/view_scope_check.php $([ $rc = 0 ] && echo PASS || echo FAIL) $(( $(date +%s) - s )) /tmp/topo_t_view_scope.log
+fi
+else
+	skip lab/php/view_scope_check.php "R1 has manual data that no check made (INFRA above)"
 fi
 
 # ---- 6. API tests of the frontend against the lab Zabbix (they create and remove their own hosts) ----
@@ -203,74 +216,80 @@ else
 fi
 
 # ---- 7. the real page: layout and escaping (headless Chrome, logged in; the login comes from the environment) ----
-if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v google-chrome >/dev/null && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host like 'SW12-%' limit 1" 2>/dev/null)" ]; then
-	shot="$here/ui_check_040/page_shot.py"
-	sw12=SW12-10-CORE-6000-48G
-	page_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
-	page_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
-	# task 090 (model §12.1, §12.2): no node box overlaps another, at both window sizes, without a focus host (force placement) and with one (radial placement); the switch
-	# "Show devices without links"; the Addresses of SW12 with the count and the folded sources
-	page_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
-	page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
-	page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
-	page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
-	# the subject of the switch is a Device with no link at all: since the Junction projection (104) draws the three MikroTik Devices of SW18 port 6, the check makes one of its own for the
-	# time of the check (a Device row with a name that no scenario uses; the next reset clears it too)
-	mysql -uzabbix zabbix -e "INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '{\"sysname\":\"ZZ-NO-LINK-CHECK\",\"chassis_id\":\"ZZ-NO-LINK-CHECK\"}', 0, 0)" 2>/dev/null
-	page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
-	mysql -uzabbix zabbix -e "DELETE FROM topo_nodes WHERE type='device' AND attrs LIKE '%ZZ-NO-LINK-CHECK%'" 2>/dev/null
-	# a Host without a Device and without a link (a throwaway host through the API): not drawn, drawn with the switch, drawn as the focus host (091)
-	if [ -n "${ZBX_TOKEN:-}" ]; then
-		page_test "page: a Host without a Device and without a link" /tmp/topo_t_nolink_host.log python3 "$here/ui_check_040/nolink_host.py"
-	else
-		skip "page: a Host without a Device and without a link" "needs ZBX_TOKEN in the environment"
-	fi
-	# a real mouse double click on the SW18 parent and on an unfolded leaf folds the group, the panel shows it, no zoom (091)
-	page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
-	# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
-	page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
-	page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
-	# the Fold / Unfold toggle in the group and parent panels, Back in a panel opened from another panel (098)
-	page_test "page: Fold / Unfold toggle and Back in the panel" /tmp/topo_t_stack.log python3 "$here/ui_check_040/stack_check.py"
-	# the Junction projection (§12.6, 104): one node on the anchor Port, lines to the Devices behind it, its read-only panel, Back, the selection ring
-	page_test "page: Junction projection (node, lines, panel, Back)" /tmp/topo_t_junction_page.log python3 "$here/ui_check_040/junction_check.py"
-	# a manual Device: the create dialog, the panel, a manual port, a link, edit, delete (099; the database login of the harness, `mysql -uzabbix zabbix`)
-	page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
-	# Bind to interface (107): create, link, Promote to a lab host, Bind / Unbind with real mouse events, the load of the interface, the refusal, Depromote, Delete; nothing is left
-	page_test "page: Bind to interface (dialog, bound port, load, refusal, Unbind)" /tmp/topo_t_bind_page.log python3 "$here/ui_check_040/bind_check.py"
-	# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)
-	page_test "page: deterministic first layout (10 + 10 loads)" /tmp/topo_t_determinism.log python3 "$here/ui_check_040/determinism_check.py"
-	# the time budget of the node panel: SW12 is complete within 300 ms on the quiet VM, the goal 200 ms is printed (a note on a loaded one) (102, 105)
-	page_test "page: the panel of SW12 is complete within 300 ms (median of 5 clicks; goal 200 ms)" /tmp/topo_t_panel_time.log python3 "$here/ui_check_040/panel_time_check.py"
-	# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
-	page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
-	page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
-	page_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check arc --out /tmp/topo_t_arc.png
-	page_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); document.querySelectorAll('#topology-details details.topology-identity, #topology-details details.topology-addresses').forEach(d => { d.open = true; }); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
-	page_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
-	# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
-	exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
-	# the UI only requests a run, the CLI executes it; executor_missing; a write action waits for the run lock; accept discovery (087)
-	# the page header and filter bar, parallel links, leaf groups (090)
-	exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
-	exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
-	page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
-	page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
-	# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
-	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
-		page_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png
-		page_test "page Addresses labels 1460x900, menu open" /tmp/topo_t_addr_1460.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1460 --height 900 --menu open --check addresses --out /tmp/topo_t_addr_1460.png
-	else
-		skip "page Addresses labels (ui_check_040/page_shot.py --check addresses)" "the office host SW15-10-POE-6000-24G is not in the lab"
-	fi
-	# the duplicate panel and the filter "possible duplicate" (057): the MikroTik Devices of SW18 share the address 192.168.88.1
-	if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from topo_nodes where type = 'device' and attrs like '%same_address%' limit 1" 2>/dev/null)" ] && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW19-09-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
-		page_test "page duplicate panel and filter 1460x900, menu open" /tmp/topo_t_dup_1460.log python3 "$shot" --depth "" --select MikroTik --width 1460 --height 900 --menu open --check duplicates --out /tmp/topo_t_dup_1460.png
-	else
-		skip "page duplicate panel and filter (ui_check_040/page_shot.py --check duplicates)" "no Device with a same_address candidate in the lab (run the scenario R1 first) or the office host SW19 is missing"
-	fi
+if [ -n "$r1_dirty" ]; then
+	skip "page checks and lab/php checks of the real page" "R1 has manual data that no check made (INFRA above)"
 else
-	skip "page layout and escaping (ui_check_040/page_shot.py)" "needs ZBX_UI_USER and ZBX_UI_PASSWORD in the environment, google-chrome, and the office stand host SW12 in the lab"
+	if [ -n "${ZBX_UI_USER:-}" ] && [ -n "${ZBX_UI_PASSWORD:-}" ] && command -v google-chrome >/dev/null && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host like 'SW12-%' limit 1" 2>/dev/null)" ]; then
+		shot="$here/ui_check_040/page_shot.py"
+		sw12=SW12-10-CORE-6000-48G
+		page_test "page layout 1280x800, menu collapsed" /tmp/topo_t_page_1280.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1280 --height 800 --menu collapsed --check layout --out /tmp/topo_t_page_1280.png
+		page_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
+		# task 090 (model §12.1, §12.2): no node box overlaps another, at both window sizes, without a focus host (force placement) and with one (radial placement); the switch
+		# "Show devices without links"; the Addresses of SW12 with the count and the folded sources
+		page_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
+		page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
+		page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
+		page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
+		# the subject of the switch is a Device with no link at all: since the Junction projection (104) draws the three MikroTik Devices of SW18 port 6, the check makes one of its own for the
+		# time of the check (a Device row with a name that no scenario uses; the next reset clears it too)
+		mysql -uzabbix zabbix -e "INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '{\"sysname\":\"ZZ-NO-LINK-CHECK\",\"chassis_id\":\"ZZ-NO-LINK-CHECK\"}', 0, 0)" 2>/dev/null
+		page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
+		mysql -uzabbix zabbix -e "DELETE FROM topo_nodes WHERE type='device' AND attrs LIKE '%ZZ-NO-LINK-CHECK%'" 2>/dev/null
+		# a Host without a Device and without a link (a throwaway host through the API): not drawn, drawn with the switch, drawn as the focus host (091)
+		if [ -n "${ZBX_TOKEN:-}" ]; then
+			page_test "page: a Host without a Device and without a link" /tmp/topo_t_nolink_host.log python3 "$here/ui_check_040/nolink_host.py"
+		else
+			skip "page: a Host without a Device and without a link" "needs ZBX_TOKEN in the environment"
+		fi
+		# a real mouse double click on the SW18 parent and on an unfolded leaf folds the group, the panel shows it, no zoom (091)
+		page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
+		# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
+		page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
+		page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
+		# the Fold / Unfold toggle in the group and parent panels, Back in a panel opened from another panel (098)
+		page_test "page: Fold / Unfold toggle and Back in the panel" /tmp/topo_t_stack.log python3 "$here/ui_check_040/stack_check.py"
+		# the Junction projection (§12.6, 104): one node on the anchor Port, lines to the Devices behind it, its read-only panel, Back, the selection ring
+		page_test "page: Junction projection (node, lines, panel, Back)" /tmp/topo_t_junction_page.log python3 "$here/ui_check_040/junction_check.py"
+		# a manual Device: the create dialog, the panel, a manual port, a link, edit, delete (099; the database login of the harness, `mysql -uzabbix zabbix`)
+		page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
+		# Bind to interface (107): create, link, Promote to a lab host, Bind / Unbind with real mouse events, the load of the interface, the refusal, Depromote, Delete; nothing is left
+		page_test "page: Bind to interface (dialog, bound port, load, refusal, Unbind)" /tmp/topo_t_bind_page.log python3 "$here/ui_check_040/bind_check.py"
+	# the load of the side that has items, "no data" and the reason for the side that has none (110, FR-C V-12)
+	page_test "page: a link to an end device: the load of one side, no data on the other (real mouse events)" /tmp/topo_t_nodata.log python3 "$here/ui_check_040/no_data_check.py"
+		# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)
+		page_test "page: deterministic first layout (10 + 10 loads)" /tmp/topo_t_determinism.log python3 "$here/ui_check_040/determinism_check.py"
+		# the time budget of the node panel: SW12 is complete within 300 ms on the quiet VM, the goal 200 ms is printed (a note on a loaded one) (102, 105)
+		page_test "page: the panel of SW12 is complete within 300 ms (median of 5 clicks; goal 200 ms)" /tmp/topo_t_panel_time.log python3 "$here/ui_check_040/panel_time_check.py"
+		# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
+		page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
+		page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
+		page_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check arc --out /tmp/topo_t_arc.png
+		page_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); document.querySelectorAll('#topology-details details.topology-identity, #topology-details details.topology-addresses').forEach(d => { d.open = true; }); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
+		page_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
+		# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
+		exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
+		# the UI only requests a run, the CLI executes it; executor_missing; a write action waits for the run lock; accept discovery (087)
+		# the page header and filter bar, parallel links, leaf groups (090)
+		exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
+		exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
+		page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
+		page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
+		# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
+		if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
+			page_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png
+			page_test "page Addresses labels 1460x900, menu open" /tmp/topo_t_addr_1460.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1460 --height 900 --menu open --check addresses --out /tmp/topo_t_addr_1460.png
+		else
+			skip "page Addresses labels (ui_check_040/page_shot.py --check addresses)" "the office host SW15-10-POE-6000-24G is not in the lab"
+		fi
+		# the duplicate panel and the filter "possible duplicate" (057): the MikroTik Devices of SW18 share the address 192.168.88.1
+		if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from topo_nodes where type = 'device' and attrs like '%same_address%' limit 1" 2>/dev/null)" ] && [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW19-09-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
+			page_test "page duplicate panel and filter 1460x900, menu open" /tmp/topo_t_dup_1460.log python3 "$shot" --depth "" --select MikroTik --width 1460 --height 900 --menu open --check duplicates --out /tmp/topo_t_dup_1460.png
+		else
+			skip "page duplicate panel and filter (ui_check_040/page_shot.py --check duplicates)" "no Device with a same_address candidate in the lab (run the scenario R1 first) or the office host SW19 is missing"
+		fi
+	else
+		skip "page layout and escaping (ui_check_040/page_shot.py)" "needs ZBX_UI_USER and ZBX_UI_PASSWORD in the environment, google-chrome, and the office stand host SW12 in the lab"
+	fi
 fi
 
 # ---- the table ----
