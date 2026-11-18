@@ -145,6 +145,50 @@ class ProvisionStand(unittest.TestCase):
         self.assertNotIn('zz-no-stand-tag', api.hosts, 'no lab.stand = the stand lab')
 
 
+class ProvisionClean(unittest.TestCase):
+    """Lab 2.33 §7 (task 112): `provision` of a scenario deletes the hosts that an earlier provision of the same scenario made, with their items, and makes them again."""
+
+    def setUp(self):
+        zbx.CONFIG_SYNC_WAIT = 0
+        self.lab = model.load_lab(os.path.join(model.HERE, 'lab.yaml'))
+        self.sc = model.load_scenario('S0', self.lab)
+        self.names = sorted(h['host'] for h in __import__('labsim.gen', fromlist=['x']).hosts_json(self.sc))
+
+    def tags(self, scenario, stand='lab'):
+        return [{'tag': 'lab.managed', 'value': '1'}, {'tag': 'lab.stand', 'value': stand}] + ([{'tag': 'lab.scenario', 'value': scenario}] if scenario else [])
+
+    def test_a_created_host_has_the_scenario_tag(self):
+        api = FakeApi({})
+        zbx.provision(api, self.sc, log=lambda *a: None)
+        for h in api.hosts.values():
+            self.assertIn({'tag': 'lab.scenario', 'value': 'S0'}, h['tags'])
+
+    def test_a_second_provision_deletes_and_makes_the_hosts_again(self):
+        api = FakeApi({})
+        zbx.provision(api, self.sc, log=lambda *a: None)
+        first = {n: h['hostid'] for n, h in api.hosts.items()}
+        api.calls.clear()
+        zbx.provision(api, self.sc, log=lambda *a: None)
+        self.assertEqual(sorted(api.hosts), sorted(first), 'the same hosts exist again')
+        deleted = [params for method, params in api.calls if method == 'host.delete']
+        self.assertEqual(sorted(h for params in deleted for h in params), sorted(first.values()), 'every host of the first provision was deleted before it was made again')
+        order = [method for method, params in api.calls if method in ('host.delete', 'host.create')]
+        self.assertLess(order.index('host.create'), len(order))
+        self.assertEqual(order[:len(deleted)], ['host.delete'] * len(deleted), 'the deletes come before the creates')
+
+    def test_other_hosts_are_not_deleted(self):
+        name = self.names[0]
+        for tags, why in ((self.tags('S1'), 'another scenario'), (self.tags(None), 'no scenario tag'), (self.tags('S0', 'lab-office'), 'another stand')):
+            api = FakeApi({name: existing('7', tags)})
+            zbx.provision(api, self.sc, log=lambda *a: None)
+            self.assertFalse([1 for method, params in api.calls if method == 'host.delete'], 'a host of %s is not deleted' % why)
+
+    def test_stale_hosts_lists_only_this_stand_and_scenario(self):
+        got = zbx.stale_hosts({'a': existing('1', self.tags('S0')), 'b': existing('2', self.tags('S1')), 'c': existing('3', self.tags('S0', 'lab-office')), 'd': existing('4', [])}, 'lab', 'S0')
+        self.assertEqual(got, ['a'])
+        self.assertEqual(zbx.stale_hosts({'a': existing('1', self.tags('S0'))}, 'lab', None), [])
+
+
 class InterfaceRule(unittest.TestCase):
     """Lab 2.31 §7 (task 110): the interface discovery rule has no topology type; the lab never sets one and refuses a template that has one."""
 

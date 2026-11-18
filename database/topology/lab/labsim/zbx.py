@@ -7,6 +7,7 @@ import urllib.request
 from .model import LabError
 
 TAG = 'lab.managed'
+SCENARIO_TAG = 'lab.scenario'    # lab 2.33 §7: the scenario that made the host; the next provision of that scenario deletes the host and makes it again (no items of an earlier run are left)
 STAND_TAG = 'lab.stand'          # lab spec 2 (2.27): the stand that provisioned the host; a tagged host without it belongs to the stand `lab`
 
 
@@ -42,10 +43,23 @@ def stand_of(h):
     return next((t['value'] for t in h.get('tags', []) if t['tag'] == STAND_TAG), 'lab')
 
 
-def with_stand(tags, stand):
-    """The tags of a host with `lab.managed=1` and `lab.stand=<stand>` (other tags stay)."""
-    out = [t for t in tags if t['tag'] not in (TAG, STAND_TAG)]
-    return out + [{'tag': TAG, 'value': '1'}, {'tag': STAND_TAG, 'value': stand}]
+def with_stand(tags, stand, scenario=None):
+    """The tags of a host with `lab.managed=1` and `lab.stand=<stand>` (other tags stay); with `scenario`, also `lab.scenario=<scenario>`."""
+    out = [t for t in tags if t['tag'] not in (TAG, STAND_TAG, SCENARIO_TAG)]
+    return out + [{'tag': TAG, 'value': '1'}, {'tag': STAND_TAG, 'value': stand}] + ([{'tag': SCENARIO_TAG, 'value': scenario}] if scenario else [])
+
+
+def scenario_of(h):
+    """The scenario that made a lab host (`lab.scenario`), or None."""
+    return next((t['value'] for t in h.get('tags', []) if t['tag'] == SCENARIO_TAG), None)
+
+
+def stale_hosts(existing, stand, scenario):
+    """lab 2.33 §7: the hosts that an earlier run of this scenario made: lab hosts of this stand with `lab.scenario=<scenario>`. Provision deletes them, with their items, and makes them again.
+    A host without the scenario tag, of another scenario or of another stand is never in the list."""
+    if not scenario:
+        return []
+    return sorted(name for name, h in existing.items() if _has_tag(h) and stand_of(h) == stand and scenario_of(h) == scenario)
 
 
 def _check_interface_rule(api, templateid, name):
@@ -87,6 +101,13 @@ def provision(api, scenario, prune=False, log=print):
         'filter': {'host': list(wanted)}, 'output': ['hostid', 'host', 'monitored_by', 'proxyid'], 'selectTags': 'extend',
         'selectInterfaces': 'extend', 'selectParentTemplates': ['templateid']})}
 
+    # lab 2.33 §7: the hosts that an earlier run of this scenario made are deleted with their items and made again (S12 failed on interface items left from an earlier run)
+    scenario_id = getattr(scenario, 'id', None)
+    for name in stale_hosts(existing, stand, scenario_id):
+        api.call('host.delete', [existing[name]['hostid']])
+        log('  deleted host %s (made by an earlier provision of %s)' % (name, scenario_id))
+        del existing[name]
+
     # Plan first, change after: nothing is touched before the adopted hosts are exported.
     plan = []
     for name, w in sorted(wanted.items()):
@@ -124,7 +145,7 @@ def provision(api, scenario, prune=False, log=print):
             raise LabError('proxy %r does not exist' % w['proxy'])
         if kind == 'create':
             r = api.call('host.create', dict({'host': w['host'], 'groups': [{'groupid': groupid}],
-                                              'tags': with_stand([], stand),
+                                              'tags': with_stand([], stand, scenario_id),
                                               'templates': [{'templateid': t} for t in [tmpl[tkey]] + ([tmpl['template_interfaces']] if tmpl.get('template_interfaces') else [])],
                                               'interfaces': [want_if]}, **proxy_params))
             log('  created host %s (%s)' % (name, r['hostids'][0]))
@@ -132,8 +153,8 @@ def provision(api, scenario, prune=False, log=print):
             continue
         changes = {}
         # lab spec 2, 6.4a (2.27): the stand that starts owns the host; the tag moves to it (the same host name in two stands is one Zabbix host), nothing else of another stand is touched
-        if kind == 'adopt' or stand_of(h) != stand or not any(t['tag'] == STAND_TAG for t in h['tags']):
-            changes['tags'] = with_stand(h['tags'], stand)
+        if kind == 'adopt' or stand_of(h) != stand or not any(t['tag'] == STAND_TAG for t in h['tags']) or scenario_of(h) != scenario_id:
+            changes['tags'] = with_stand(h['tags'], stand, scenario_id)
         linked = {t['templateid'] for t in h['parentTemplates']}
         # one transport per host: the other lab template is unlinked (and cleared), so a transport override moves the host over
         other = tmpl['template_push' if tkey == 'template_lld' else 'template_lld']
