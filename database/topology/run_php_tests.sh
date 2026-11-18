@@ -243,6 +243,7 @@ else
 		fi
 		# a real mouse double click on the SW18 parent and on an unfolded leaf folds the group, the panel shows it, no zoom (091)
 		page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
+		page_test "page: selection after Apply (focus host selected; without a focus host nothing, no panel; first load nothing)" /tmp/topo_t_selection.log python3 "$here/ui_check_040/selection_check.py"
 		# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
 		page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
 		page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
