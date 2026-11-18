@@ -101,7 +101,8 @@ class CTopologyPrototype {
 		return $chassis_id;
 	}
 
-	public static function getDevices(?array $node_ids = null): array {
+	/** @param array $transient_hostids  hostids of the hosts without a Host node that the view draws (model 2.95 §12.1): nodes `host:<hostid>`, nothing is stored */
+	public static function getDevices(?array $node_ids = null, array $transient_hostids = []): array {
 		$nodes = [];
 		$visible_hostids = self::getVisibleHostIds();
 		$sql = 'SELECT node.id,node.type,node.attrs,node.created_at,node.host_ref,node.proxy_ref,'.
@@ -125,7 +126,17 @@ class CTopologyPrototype {
 			// for an empty array.
 			$sql .= $node_ids ? ' AND '.dbConditionId('node.id', $node_ids) : ' AND 1=0';
 		}
-		$result = DBselect($sql);
+		$rows = DBfetchArray(DBselect($sql));
+		// the transient nodes: the live data of the host, the visible hosts only, and only a host that still has no Host node
+		$transient_hostids = $transient_hostids ? array_values(array_intersect($transient_hostids, $visible_hostids)) : [];
+		if ($transient_hostids) {
+			$result = DBselect('SELECT h.hostid,h.name,h.status,h.maintenance_status FROM hosts h WHERE '.dbConditionId('h.hostid', $transient_hostids).
+				' AND NOT EXISTS (SELECT 1 FROM topo_nodes n WHERE n.type='.zbx_dbstr('host').' AND n.host_ref=h.hostid)');
+			while ($host = DBfetch($result)) {
+				$rows[] = ['id' => self::TRANSIENT_PREFIX.$host['hostid'], 'type' => 'host', 'attrs' => '{}', 'created_at' => 0, 'host_ref' => $host['hostid'], 'proxy_ref' => null,
+					'host_name' => $host['name'], 'host_status' => $host['status'], 'host_maintenance_status' => $host['maintenance_status'], 'proxy_name' => null, 'proxy_state' => null];
+			}
+		}
 
 		// 'represented'/'represented_hostid' for device rows are patched in AFTER this loop
 		// (batched below) rather than resolved inline per row — one isRepresented() call per
@@ -133,7 +144,7 @@ class CTopologyPrototype {
 		// got earlier; adding the hostid lookup the same naive way would have doubled it.
 		$device_ids = [];
 		$host_rows = [];
-		while ($row = DBfetch($result)) {
+		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
 			$node = ['id' => $row['id'], 'type' => $row['type'], 'monitoring_state' => null];
 
@@ -767,7 +778,7 @@ class CTopologyPrototype {
 	 * $hops null: no limit. Nothing selected: every node.
 	 */
 	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false, array $include = []): array {
-		$node_ids = self::resolveScope($groupids, $hostid, $hops);
+		[$node_ids, $transient_hostids] = self::splitScope(self::resolveScope($groupids, $hostid, $hops));
 		// 2.80 (§12.1): a manual Device that the operator just created is in the view until the filter is applied (only manual Devices can be added this way)
 		if ($node_ids !== null && $include) {
 			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $include));
@@ -789,7 +800,7 @@ class CTopologyPrototype {
 			$node_ids = array_values(array_unique(array_merge($node_ids, ...array_map(static fn (array $junction): array => array_column($junction['devices'], 'id'), $junctions))));
 		}
 
-		$devices = self::getDevices($node_ids);
+		$devices = self::getDevices($node_ids, $duplicates ? [] : $transient_hostids);
 		$relations = self::getRelations($node_ids);
 		$contradictions = self::getContradictions();
 		// a Device with a badge other than "possible duplicate" (an unacknowledged hidden neighbor of a contradicted manual link) is in no leaf group (§12.8)
@@ -901,8 +912,8 @@ class CTopologyPrototype {
 			return [];
 		}
 
-		// 2.71 (§12.1): a Host without a Device is a node of the view too. Since FR-B 0.29 D-49 a host with only the official interface templates is not a reporter, so no run makes its Host node:
-		// the Host node of a start host is made here, when the view reads the scope (task 111). The hosts are the ones that the user may see (API::Host()->get above).
+		// 2.71 (§12.1): a Host without a Device is a node of the view too. Since FR-B 0.29 D-49 a host with only the official interface templates is not a reporter, so no run makes its
+		// Host node. 2.95: a read request writes nothing (task 112): such a host is a transient node of the answer, id `host:<hostid>`; the scope lists it next to the stored ids.
 		$seed_hostids = array_values(array_unique($seed_hostids));
 		$seed_ids = [];
 		$have = [];
@@ -912,16 +923,38 @@ class CTopologyPrototype {
 			$seed_ids[] = $row['id'];
 			$have[(string) $row['host_ref']] = true;
 		}
+		$transient = [];
 		foreach ($seed_hostids as $seed_hostid) {
 			if (!isset($have[(string) $seed_hostid])) {
-				$seed_ids[] = (string) self::upsertPointerNode('host', 'host_ref', (string) $seed_hostid);
+				$transient[] = self::TRANSIENT_PREFIX.$seed_hostid;
 			}
 		}
 		if (!$seed_ids) {
-			return [];
+			return $transient;
 		}
 
-		return CTopologyHopScope::neighborhood($seed_ids, $hops ?? PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs());
+		return array_merge(CTopologyHopScope::neighborhood($seed_ids, $hops ?? PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs()), $transient);
+	}
+
+	/** The id of a transient Host node (model 2.95 §12.1): `host:<hostid>`; it is never a topo_nodes.id. */
+	public const TRANSIENT_PREFIX = 'host:';
+
+	/** @return array [the stored node ids, the hostids of the transient nodes] of a scope of resolveScope(); null stays null */
+	private static function splitScope(?array $node_ids): array {
+		if ($node_ids === null) {
+			return [null, []];
+		}
+		$stored = $transient = [];
+		foreach ($node_ids as $id) {
+			if (strncmp((string) $id, self::TRANSIENT_PREFIX, strlen(self::TRANSIENT_PREFIX)) === 0) {
+				$transient[] = substr((string) $id, strlen(self::TRANSIENT_PREFIX));
+			}
+			else {
+				$stored[] = $id;
+			}
+		}
+
+		return [$stored, $transient];
 	}
 
 
@@ -1283,6 +1316,12 @@ class CTopologyPrototype {
 	// to hosts/items, not to the Proxy config object itself) — don't invent a heuristic for it; a
 	// Proxy node simply has no Problems section in the UI (topology-1-model.md "Side panels").
 	public static function getProblems(string $nodeid): array {
+		// a transient Host node (model 2.95 §12.1): the problems of the live host; API::Problem()->get() gives only what the user may see
+		if (strncmp($nodeid, self::TRANSIENT_PREFIX, strlen(self::TRANSIENT_PREFIX)) === 0) {
+			$hostid = substr($nodeid, strlen(self::TRANSIENT_PREFIX));
+
+			return ctype_digit($hostid) ? self::getProblemsForHost($hostid) : [];
+		}
 		// DBfetch(..., false) — see GOTCHAS.md #1: with the default $convertNulls=true, a Device/Proxy
 		// node's NULL host_ref would come back as the string '0' instead of null, defeating this check.
 		$node = DBfetch(DBselect('SELECT node.type,node.host_ref FROM topo_nodes node'.

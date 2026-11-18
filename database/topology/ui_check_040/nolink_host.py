@@ -25,6 +25,17 @@ def sql(statement):
     return subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip()
 
 
+def panel(*extra):
+    # the host is selected (its transient node `host:<hostid>`), as a click does: the panel, its problems section and the Focus button
+    expr = '''(async () => { await new Promise(r => setTimeout(r, 1500)); const d = document.getElementById('topology-details'); const focus = d.querySelector('.topology-focus-button'); const head = d.querySelector('.topology-node-name');
+        const out = {title: head ? head.textContent : '', problems: !!d.querySelector('.topology-problems, [data-section="problems"], details'), focus: !!focus, node: view.selected_node ? String(view.selected_node.id) : null};
+        if (focus) { focus.click(); await new Promise(r => setTimeout(r, 4000)); out.focus_host = (jQuery('#hostid').multiSelect('getData')[0] || {}).name || null; out.after = view.selected_node ? view.selected_node.label : null; } return out; })()'''
+    out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2', '--select', HOST, '--eval', expr, '--out', '/tmp/nolink.png', *extra],
+                         capture_output=True, text=True, timeout=180).stdout
+    line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
+    return json.loads(line.split(':', 1)[1]) if line else None
+
+
 def drawn(*extra):
     count = '(Array.from(document.querySelectorAll("#topology-canvas g.topology-node text.topology-label")).filter(t => t.textContent === "%s").length)' % HOST
     out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2', '--eval', count, '--out', '/tmp/nolink.png', *extra],
@@ -44,7 +55,7 @@ def check(condition, text, detail=None):
     failed += 0 if condition else 1
 
 
-# a group and a host in it. The host has NO Host node and no Device, as a host with only the official interface templates (FR-B D-49): the view makes its Host node when it reads the scope (task 111).
+# a group and a host in it. The host has NO Host node and no Device, as a host with only the official interface templates (FR-B D-49): the view draws it as a transient node `host:<hostid>` and writes nothing (task 112, model 2.95).
 # (Until task 110 this test inserted the Host node itself, so it could not see that such a host was never drawn.)
 for old in api('host.get', {'filter': {'host': [HOST]}, 'output': ['hostid']}):
     api('host.delete', [old['hostid']])
@@ -60,6 +71,11 @@ try:
     check(with_switch == 1, 'the same with the switch "Show devices without links": drawn', with_switch)
     as_focus = drawn('--host', HOST, '--depth', '1')
     check(as_focus == 1, 'as the focus host: drawn', as_focus)
+    shown = panel('--group', GROUP, '--depth', '1', '--unlinked')
+    check(shown is not None and shown['node'] == 'host:%s' % host and shown['title'].startswith(HOST) and shown['focus'], 'the panel of the transient node (host:<hostid>) opens with the name and the Focus button', shown)
+    check(shown is not None and shown.get('focus_host') == HOST and shown.get('after') == HOST, 'Focus on it sets the focus host and selects it (Apply with a focus host)', shown)
+    check(sql('select count(*) from topo_nodes where type=\'host\' and host_ref=%d' % int(host)) == '0' and sql('select count(*) from topo_nodes where represented_by_node_id in (select id from topo_nodes where host_ref=%d)' % int(host)) == '0',
+          'after the reads the host still has no Host node and no Device (a read writes nothing)')
 finally:
     api('host.delete', [host])
     api('hostgroup.delete', [group])
