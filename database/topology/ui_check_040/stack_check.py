@@ -238,11 +238,10 @@ try:
         check(p['kind'] == 'Zabbix host' and (p['title'] or '').startswith(label) and p['problems'] and p['focus'] == focus and not p['not_in_view'] and p['ring'] == 1, text, p)
 
     js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
-    # the first selection of the page (nothing clicked): the Host panel of the first Device of the list (before 101 it was the Device of SW12: "Not in this view")
+    # model 2.95 §12.1: Apply without a focus host selects nothing (until 2.94 it selected the first Device of the list, task 101: its Host panel); the panels below come from clicks
     js("document.getElementById('topology-filter-apply').click()")
     time.sleep(4)
-    p = js(HOSTPANEL)
-    check(p['kind'] == 'Zabbix host' and not p['not_in_view'] and p['ring'] == 1, 'the first panel of the page is a Host panel, drawn and selected (no "Not in this view")', p)
+    check(not js("document.querySelector('#topology-details .topology-node-head') !== null"), 'the first load and Apply without a focus host: no panel (nothing is selected)')
     js("(() => { view.unfolded.clear(); view.render(); })()")
     click_node('SW12')
     host_panel('a click on SW12: Host panel, Problems, Focus, selection on the drawn node', 'SW12')

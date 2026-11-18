@@ -136,6 +136,13 @@ def pick_host():
     return rows.split('\n')[0].split('\t') if rows else None
 
 
+def interface_names(hostid):
+    # the names (tag `interface`) of the interface items of the host, by index: the first two
+    rows = db("select cast(substring_index(substring_index(i.key_, '.', -1), ']', 1) as unsigned) as idx, t.value from items i join item_tag t on t.itemid = i.itemid and t.tag = 'interface' "
+              "where i.hostid = %s and i.flags = 4 and i.key_ like 'net.if.in[%%' order by idx" % hostid)
+    return [line.split('\t')[1] for line in rows.split('\n') if line][:2]
+
+
 def interface_items(hostid, index):
     out = {}
     for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[ifInOctets.%d]', 'net.if.out[ifOutOctets.%d]', 'net.if.speed[ifSpeed.%d]')" % (hostid, index, index, index)).split('\n'):
@@ -173,6 +180,8 @@ host = pick_host()
 try:
     time.sleep(2)
     js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
+    # task 112: the names of the first two interfaces come from the host (the hosts of the lab have different names: Router1 Gi0/0 Gi0/1, AccessSwitch1 Gi0/1 Gi0/2), not from the text of the check
+    NAMES = interface_names(host[0]) if host else ['', '']
     check(host is not None, 'a lab host with the interface template, two discovered interfaces and no Device of its own exists (run `labsim provision S6` when not)', host)
     if host is None:
         raise SystemExit(1)
@@ -226,16 +235,16 @@ try:
     click("(%s)('p1').querySelector('.topology-port-bind')" % LINKS_ROW)
     check(wait("!!document.querySelector('.topology-bind-table')"), 'the dialog "Bind to interface" opens with the list of interfaces')
     names = js("Array.from(document.querySelectorAll('.topology-bind-row')).map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()).filter(Boolean).join(' '))")
-    check(names == ['Gi0/0 1', 'Gi0/1 2'], 'the list shows the name and the index of each interface of %s' % hostname, names)
+    check(names == ['%s 1' % NAMES[0], '%s 2' % NAMES[1]], 'the list shows the name and the index of each interface of %s' % hostname, names)
     shot('107-bind-dialog.png')
     click("document.getElementById('topology-bind-1')")
     click(dialog_button('Bind'))
     check(wait("!document.querySelector('.topology-bind-table')"), 'Bind closes the dialog')
     at = db("select json_extract(attrs, '$.if_index'), json_unquote(json_extract(attrs, '$.interface_name')), json_extract(attrs, '$.zabbix_itemids') from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
-    check(at.split('\t')[0] == '1' and at.split('\t')[1] == 'Gi0/0' and at.split('\t')[2] == 'NULL', 'p1 has if_index 1 and the interface name; the items are not stored (found when the graph is read)', at)
-    wait("(%s)('p1') && (%s)('p1').querySelector('.topology-link-ports').textContent.includes('p1 → Gi0/0')" % (LINKS_ROW, LINKS_ROW), 20)
+    check(at.split('\t')[0] == '1' and at.split('\t')[1] == NAMES[0] and at.split('\t')[2] == 'NULL', 'p1 has if_index 1 and the interface name; the items are not stored (found when the graph is read)', at)
+    wait("(%s)('p1') && (%s)('p1').querySelector('.topology-link-ports').textContent.includes('p1 → %s')" % (LINKS_ROW, LINKS_ROW, NAMES[0]), 20)
     text = js("(%s)('p1').textContent" % LINKS_ROW)
-    check('p1 → Gi0/0' in text, 'the Links row shows "p1 → Gi0/0"', text)
+    check('p1 → %s' % NAMES[0] in text, 'the Links row shows "p1 → %s"' % NAMES[0], text)
     check('in 0.8 %' in text and 'out 0.4 %' in text, 'the Links row shows the load of the interface (8 Mbit/s in and 4 Mbit/s out of 1 Gbit/s: in 0.8 % / out 0.4 %)', text)
     shot('107-bound-port.png')
     menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
