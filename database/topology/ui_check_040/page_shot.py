@@ -438,6 +438,7 @@ def main():
     ap.add_argument('--width', type=int, default=1400)
     ap.add_argument('--height', type=int, default=900)
     ap.add_argument('--unlinked', action='store_true', help='set the switch "Show devices without links" before the filter is applied (model §12.1, V-1)')
+    ap.add_argument('--no-filter', action='store_true', help='do not set or apply the filter: the state of the first load of the page (task 112)')
     ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
     ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
     ap.add_argument('--action', default='topology.view', help='the page (zabbix.php?action=...); another page than topology.view gets no filter (to compare with stock Zabbix pages)')
@@ -488,11 +489,11 @@ def main():
             except RuntimeError:
                 pass
             time.sleep(0.5)
-        # task 101 §3: the page has made its first panel (the first selection reads four requests and draws again); the menu and the filter are set after it, as a user does, so that two loads of the page
+        # task 101 §3, 112: the page has made its first load (until 2.94 it also made a first panel: the first selection read four requests and drew again; since 2.95 nothing is selected); the menu and the filter are set after it, as a user does, so that two loads of the page
         # do not run into each other (under load the second answer could come last and the layout was not the same each time)
         for _ in range(60):
             try:
-                if js("!!(window.view && view.current_panel)") or a.action != 'topology.view':
+                if js("!!(window.view && view.first_load_done)") or a.action != 'topology.view':
                     break
             except RuntimeError:
                 pass
@@ -521,7 +522,7 @@ def main():
             js('''(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden');
                 window.dispatchEvent(new Event('resize')); })()''' % ('true' if a.menu == 'collapsed' else 'false'))
             time.sleep(1)
-        if a.action == 'topology.view':
+        if a.action == 'topology.view' and not a.no_filter:
             print('filter:', json.dumps(js(filter_js)))
         time.sleep(a.settle)
         if a.select:

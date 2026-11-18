@@ -139,7 +139,7 @@ const view = new class {
 			this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
 			this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
 			this.include_ids.clear();
-			await this.loadDevices({reset_layout: true});
+			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
 		// Reset (the former "Show all"): clears the selection and the switches and shows every node (Depth 1 as the page starts)
 		document.getElementById('topology-filter-clear').addEventListener('click', () => this.guard(async () => {
@@ -151,7 +151,7 @@ const view = new class {
 			this.only_duplicates = false;
 			this.show_unlinked = false;
 			this.include_ids.clear();
-			await this.loadDevices({reset_layout: true});
+			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
 		// the first layout waits for the fonts (the widths of the labels are measured with the real font, §12.3, 2.79)
 		try {
@@ -159,7 +159,8 @@ const view = new class {
 		}
 		catch (error) {
 		}
-		await this.loadDevices();
+		await this.loadDevices({select_focus: true});
+		this.first_load_done = true;      // the checks wait for it (the page makes no first panel since 2.95)
 	}
 
 	// "Run discovery ingest" (topology-1-model.md §6.1, FR-C O-7, V-21): the page only REQUESTS a run (POST topology.ingest.run); the scheduled CLI job executes it. The status shows
@@ -339,7 +340,7 @@ const view = new class {
 		return query;
 	}
 
-	async loadDevices({reselect_edge = null, reselect_device = null, reset_layout = false} = {}) {
+	async loadDevices({reselect_edge = null, reselect_device = null, reset_layout = false, select_focus = false} = {}) {
 		const query = this.filterQuery();
 		const {devices = [], relations = [], contradictions = [], leaf_groups = [], junctions = []} = await this.request(`topology.devices.get${query}`);
 		this.contradictions = contradictions;
@@ -426,10 +427,29 @@ const view = new class {
 				return;
 			}
 		}
-		const first_device = devices.find(node => node.type === 'device');
-		if (first_device) {
-			await this.selectNode(first_device);
+		// 2.95 (§12.1 "Selection after Apply"): Apply (and the first load of the page) selects the focus host and opens its panel; without a focus host nothing is selected and the panel is closed.
+		// The page does not select the first Device of the list. A reload after an action leaves the panel as it is.
+		if (select_focus) {
+			const focus = this.applied_hostid === null ? null
+				: devices.find(node => node.type === 'host' && String(node.hostid) === String(this.applied_hostid));
+			if (focus) {
+				await this.selectNode(focus);
+			}
+			else {
+				this.clearSelection();
+			}
 		}
+	}
+
+	// No node, link or panel selected (model 2.95 §12.1): the panel is empty and closed
+	clearSelection() {
+		this.select_token = (this.select_token ?? 0) + 1;
+		this.details.innerHTML = '';
+		this.selected_node = null;
+		this.current_panel = null;
+		this.panel_stack = [];
+		this.selection = null;
+		this.applySelection(false);
 	}
 
 	// A link object as render() hands it to selectLink(): with source/target resolved to node objects.
