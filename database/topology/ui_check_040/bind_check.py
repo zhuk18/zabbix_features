@@ -129,10 +129,10 @@ TITLE = "(() => { const t = document.querySelector('#topology-details .topology-
 
 
 def pick_host():
-    # the first host of the default lab with two discovered interfaces, no node of its own and no snapshot (so it is not a reporter of another Device)
+    # the first host of the default lab with two discovered interfaces, no Device of its own (a Host node is allowed: the view makes it when it reads the scope, task 111) and no snapshot (so it is not a reporter of another Device)
     rows = db("select h.hostid, h.host from hosts h where h.status = 0 and h.host in ('Router1', 'Switch1', 'Switch2', 'AccessSwitch1', 'UPS1') "
               "and (select count(*) from items i join item_discovery d on d.itemid = i.itemid where i.hostid = h.hostid and i.key_ like 'net.if.in[%') >= 2 "
-              "and not exists (select 1 from topo_nodes n where n.type = 'host' and n.host_ref = h.hostid) and not exists (select 1 from topo_lld_snapshot s where s.hostid = h.hostid) order by h.hostid")
+              "and not exists (select 1 from topo_nodes n where n.type = 'device' and n.host_ref = h.hostid) and not exists (select 1 from topo_lld_snapshot s where s.hostid = h.hostid) order by h.hostid")
     return rows.split('\n')[0].split('\t') if rows else None
 
 
