@@ -136,7 +136,16 @@ try {
 		$junctions[] = ['device' => $junction['device_name'], 'port' => $junction['port_name'], 'devices' => array_column($junction['devices'], 'name'), 'port_id' => $junction['port_id']];
 	}
 
-	echo json_encode(['links' => $links, 'contradictions' => $contradictions, 'badges' => (object) $badges, 'junctions' => $junctions] + ($port_items === null ? [] : ['port_items' => (object) $port_items])), "\n";
+	// 2.36 (§12.2, task 115): the class and the bits of each Device that the view gives (getDevices(): own capabilities of a reporter first, else the neighbors' union)
+	$device_classes = [];
+	foreach (CTopologyPrototype::getDevices(null) as $node) {
+		if ($node['type'] === 'device') {
+			$device_classes[(string) $node['id']] = ['class' => $node['device_class'] ?? null, 'bits' => $node['device_class_bits'] ?? []];
+		}
+	}
+
+	echo json_encode(['links' => $links, 'contradictions' => $contradictions, 'badges' => (object) $badges, 'junctions' => $junctions,
+		'device_classes' => (object) $device_classes] + ($port_items === null ? [] : ['port_items' => (object) $port_items])), "\n";
 	exit(0);
 }
 catch (Throwable $exception) {

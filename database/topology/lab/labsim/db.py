@@ -106,11 +106,13 @@ def natural_state(conn):
 
     hostnames = {r['hostid']: r['host'] for r in rows(conn, 'SELECT hostid, host FROM hosts')}
     represented = {}
+    represented_by_id = {}
     for n in nodes.values():
         if n['type'] == 'device' and n['represented_by_node_id']:
             t = nodes[n['represented_by_node_id']]
             represented[dev_name(n)] = hostnames.get(t['host_ref'], 'host#%s' % t['host_ref']) if t['host_ref'] \
                 else 'proxy#%s' % t['proxy_ref']
+            represented_by_id[n['id']] = represented[dev_name(n)]
     represented = dict(sorted(represented.items()))
 
     def end_parts(nid):
@@ -148,7 +150,7 @@ def natural_state(conn):
     keys_of = {}
     for k in rows(conn, 'SELECT device_id, `key` AS k FROM topo_identity_keys WHERE replaced = 0 ORDER BY `key`'):
         keys_of.setdefault(k['device_id'], []).append(k['k'])
-    device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac'), 'keys': keys_of.get(n['id'], []),
+    device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac'), 'keys': keys_of.get(n['id'], []), 'host': represented_by_id.get(n['id']),
                      'candidates': [{'device_id': c.get('device_id'), 'reason': c.get('reason')} for c in n['a'].get('duplicate_candidates') or []]}
                     for n in nodes.values() if n['type'] == 'device']
     return {'device_nodes': device_nodes, 'port_nodes': port_nodes, 'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}

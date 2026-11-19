@@ -367,8 +367,9 @@ ASSERTION_FORMS = {
     'link_load': (set(), {'link', 'percent', 'tolerance'}),
     'link_severity': (set(), {'link', 'present'}),
     'port': ({'same_id_as_step', 'if_index', 'itemids_same_as', 'itemids', 'items'}, None),
-    'device_count': (set(), {'key', 'equals'}),
+    'device_count': (set(), {'key', 'equals', 'represented_by'}),   # 2.36: represented_by = the host that represents the single Device
     'device_keys': (set(), {'device', 'equals'}),         # 2.34: the identity keys of a Device (S13), as stored: chassis:mac:..., cdp:<segment>:<name key>
+    'device_class': (set(), {'device', 'equals', 'bits'}),   # 2.36: the class (and the bits) that the view shows for a Device (model 12.2: own capabilities of a reporter, else the neighbors')
     'candidate': (set(), {'key', 'reason', 'pairs'}),
     'matches_reference': (set(), None),
     'pending': (set(), None),

@@ -392,7 +392,12 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         return Result('port', a, 'fail' if problems else 'pass', '; '.join(problems))
     if 'device_count' in a:
         r = a['device_count']
-        n = len(device_ids(state, r['key']))
+        ids = device_ids(state, r['key'])
+        n = len(ids)
+        if n == r['equals'] and 'represented_by' in r:
+            hosts = [x['host'] for x in state['device_nodes'] if x['id'] in ids]
+            if hosts != [r['represented_by']]:
+                return Result('device_count', a, 'fail', 'the Device of %s is represented by %s, expected host %s' % (r['key'], hosts, r['represented_by']))
         return Result('device_count', a, 'pass' if n == r['equals'] else 'fail',
                       '' if n == r['equals'] else '%d Device(s) for the key %s, expected %s' % (n, r['key'], r['equals']))
     if 'device_keys' in a:
@@ -403,6 +408,18 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         keys = next(n['keys'] for n in state['device_nodes'] if n['id'] == ids[0])
         want = sorted(r['equals'])
         return Result('device_keys', a, 'pass' if sorted(keys) == want else 'fail', '' if sorted(keys) == want else 'keys of %s: %s, expected %s' % (r['device'], sorted(keys), want))
+    if 'device_class' in a:
+        r = a['device_class']
+        ids = device_ids(state, r['device'])
+        if len(ids) != 1:
+            return Result('device_class', a, 'fail', '%d Device(s) for %s, expected one' % (len(ids), r['device']))
+        got = derived().get('device_classes', {}).get(str(ids[0])) or {'class': None, 'bits': []}
+        problems = []
+        if got['class'] != r['equals']:
+            problems.append('class %s, expected %s' % (got['class'], r['equals']))
+        if 'bits' in r and sorted(got['bits']) != sorted(r['bits']):
+            problems.append('bits %s, expected %s' % (sorted(got['bits']), sorted(r['bits'])))
+        return Result('device_class', a, 'fail' if problems else 'pass', '; '.join(problems))
     if 'candidate' in a:
         r = a['candidate']
         ids = device_ids(state, r['key'])
