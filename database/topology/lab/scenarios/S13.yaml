@@ -1,0 +1,64 @@
+id: S13
+title: CDP-only reporter by its own CDP device ID (model 2.96 §6.4 step 8)
+base: lab.yaml
+# topology-4-lab-simulator.md S13 (task 113; model 2.96 §6.4 steps 2 and 8, §6.7.0; LLD 2.19 source `device`). Two reporters, addresses 192.0.2.170 and .171:
+#   C: CDP only (no LLDP-MIB, so no chassis id), 4 ports, `cdp_device_id: C13.lab`: its neighbors know it by that device ID and a loopback address (10.255.0.13, not its SNMP interface
+#   address), and its own walk has the same value as cdpGlobalDeviceId. N: LLDP and CDP, 4 ports. Cable N:Gi0/1 - C:Gi0/1.
+# Before the DEVICE row, N's CDP report of C (a name that is no key of any reporter, an address that is no SNMP address) made a second Device for C. The key of a name is the name key
+# of normalization §4.6: the domain is cut (c13.lab -> c13).
+# Step 1: C is renamed (its neighbors and its own walk say C13-new.lab): the same Device, the new key replaces the old one, the same link.
+patch:
+  settings: {emit_subtypes: true, emit_loc_port_table: true}
+  devices:
+    C:
+      ip: 192.0.2.170
+      chassis: {subtype: mac, value: "00:11:22:33:44:d0"}
+      port_mac_prefix: "02:00:00:13"
+      lldp: false
+      cdp: true
+      cdp_device_id: C13.lab
+      cdp_address: 10.255.0.13
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+    N:
+      ip: 192.0.2.171
+      chassis: {subtype: mac, value: "00:11:22:33:44:d1"}
+      port_mac_prefix: "02:00:00:14"
+      lldp: true
+      cdp: true
+      ports:
+        - {ifindex: 1, name: Gi0/1}
+        - {ifindex: 2, name: Gi0/2}
+        - {ifindex: 3, name: Gi0/3}
+        - {ifindex: 4, name: Gi0/4}
+      zabbix: {monitored: true, transport: lld, proxy: null}
+  cables:
+    add:
+      - [N:Gi0/1, C:Gi0/1]
+steps:
+  - id: 0
+    note: baseline, both monitored, every master item polled
+    poll_all: true
+    assert:
+      - device_count: {key: C, equals: 1}
+      - device_count: {key: N, equals: 1}
+      - device_keys: {device: C, equals: ["cdp:server:c13"]}
+      - link: [N:Gi0/1, C:Gi0/1]
+        state: active
+        type: physical_link
+      - candidate: {key: C, reason: reporter_cdp_key, pairs: 0}
+  - id: 1
+    note: C is renamed (its neighbors and its own walk)
+    poll_all: true
+    devices:
+      C: {cdp_device_id: C13-new.lab}
+    assert:
+      - device_count: {key: C, equals: 1}
+      - device_keys: {device: C, equals: ["cdp:server:c13-new"]}
+      - edge_id_same_as: {step: 0, link: [N:Gi0/1, C:Gi0/1]}
+      - candidate: {key: C, reason: reporter_cdp_key, pairs: 0}
+      - status: {field: devices_created, equals: 0}

@@ -395,6 +395,14 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
         n = len(device_ids(state, r['key']))
         return Result('device_count', a, 'pass' if n == r['equals'] else 'fail',
                       '' if n == r['equals'] else '%d Device(s) for the key %s, expected %s' % (n, r['key'], r['equals']))
+    if 'device_keys' in a:
+        r = a['device_keys']
+        ids = device_ids(state, r['device'])
+        if len(ids) != 1:
+            return Result('device_keys', a, 'fail', '%d Device(s) for %s, expected one' % (len(ids), r['device']))
+        keys = next(n['keys'] for n in state['device_nodes'] if n['id'] == ids[0])
+        want = sorted(r['equals'])
+        return Result('device_keys', a, 'pass' if sorted(keys) == want else 'fail', '' if sorted(keys) == want else 'keys of %s: %s, expected %s' % (r['device'], sorted(keys), want))
     if 'candidate' in a:
         r = a['candidate']
         ids = device_ids(state, r['key'])

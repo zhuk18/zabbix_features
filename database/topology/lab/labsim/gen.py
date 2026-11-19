@@ -27,7 +27,8 @@ CONTROL_SUFFIX = (99999, 0)
 CORE_ROOTS = [(1, 3, 6, 1, 2, 1, 1, 5), (1, 3, 6, 1, 2, 1, 2, 2, 1), (1, 3, 6, 1, 2, 1, 31, 1, 1, 1, 1),
               (1, 3, 6, 1, 2, 1, 31, 1, 1, 1, 15), (1, 0, 8802, 1, 1, 2, 1, 3, 2), (1, 0, 8802, 1, 1, 2, 1, 3, 7),
               (1, 0, 8802, 1, 1, 2, 1, 4, 1), (1, 0, 8802, 1, 1, 2, 1, 4, 2), (1, 2, 840, 10006, 300, 43, 1, 2, 1, 1, 13),
-              (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 2, 1, 1), (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 1)]
+              (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 2, 1, 1), (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 1),
+              (1, 0, 8802, 1, 1, 2, 1, 3, 3), (1, 0, 8802, 1, 1, 2, 1, 3, 6), (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 4)]
 FDB_ROOTS = [(1, 3, 6, 1, 2, 1, 17, 1, 4, 1, 2), (1, 3, 6, 1, 2, 1, 17, 7, 1, 2, 2, 1), (1, 3, 6, 1, 2, 1, 17, 4, 3, 1)]
 
 LLDP_CAPS = ('other', 'repeater', 'bridge', 'wlanAccessPoint', 'router', 'telephone', 'docsisCableDevice', 'stationOnly')
@@ -275,6 +276,10 @@ def device_records(lab, name):
             or bool(s.get('emit_loc_port_table'))
         lb = (1, 0, 8802, 1, 1, 2, 1, 3)
         r.put_hex(lb + (2, 0), mac_bytes(dev['chassis']['value']))
+        # the own data of the device (lab spec 4.1, 2.34; LLD spec 2.19 source `device`): its system name and enabled capabilities
+        r.put_str(lb + (3, 0), dev['sysname'])
+        if dev.get('lldp_capabilities'):
+            r.put_hex(lb + (6, 0), bytes([sum(0x80 >> LLDP_CAPS.index(c) for c in dev['lldp_capabilities']), 0]))
         if s.get('emit_subtypes'):
             r.put(lb + (1, 0), '2', 4)
         if loc_table:
@@ -321,6 +326,14 @@ def device_records(lab, name):
     # CDP
     if dev['cdp'] and 'cdp' not in omit:
         r.put((1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 1, 0), '2', 1)
+        # cdpGlobalDeviceId: the value that its neighbors get as cdpCacheDeviceId (`cdp_device_id`), or `own_cdp_device_id` (S13: a device that its neighbors know by an old name)
+        own_id = dev.get('own_cdp_device_id', dev.get('cdp_device_id', 'name'))
+        if own_id == 'name':
+            r.put_str((1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 4, 0), dev['sysname'])
+        elif own_id == 'mac':
+            r.put_hex((1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 4, 0), mac_bytes(dev['chassis']['value']))
+        else:
+            r.put_str((1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 3, 4, 0), own_id)
         cb = (1, 3, 6, 1, 4, 1, 9, 9, 23, 1, 2, 1, 1)
         for p in ports:
             for k, (fd, fp) in enumerate(neighbors.get((name, p['name']), []), 1):

@@ -279,6 +279,9 @@ def check_capabilities(name, d):
 def check_cdp_keys(name, d):
     """`cdp_device_id` (lab spec 4.1, 2.21): `name` (the sysname), `mac` (the chassis MAC as 6 bytes) or a literal text; `cdp_address`: `true` (the device ip), `false`
     (none) or an IPv4 address."""
+    own = d.get('own_cdp_device_id')
+    if own is not None and (not isinstance(own, str) or own == ''):
+        raise LabError('device %s: own_cdp_device_id is a literal text, got %r' % (name, own))
     device_id = d.get('cdp_device_id', 'name')
     if not isinstance(device_id, str) or device_id == '':
         raise LabError('device %s: cdp_device_id is "name", "mac" or a literal text, got %r' % (name, device_id))
@@ -365,6 +368,7 @@ ASSERTION_FORMS = {
     'link_severity': (set(), {'link', 'present'}),
     'port': ({'same_id_as_step', 'if_index', 'itemids_same_as', 'itemids', 'items'}, None),
     'device_count': (set(), {'key', 'equals'}),
+    'device_keys': (set(), {'device', 'equals'}),         # 2.34: the identity keys of a Device (S13), as stored: chassis:mac:..., cdp:<segment>:<name key>
     'candidate': (set(), {'key', 'reason', 'pairs'}),
     'matches_reference': (set(), None),
     'pending': (set(), None),
@@ -442,8 +446,8 @@ def load_lab(path=None):
 
 
 TRANSPORTS = ('lld', 'push')
-SCENARIO_SETTINGS = {'freshness_seconds', 'transport', 'sources'}
-RULE_SOURCES = ('ports', 'lldp', 'cdp', 'fdb', 'lag')       # the discovery rules of "Topology by SNMP": topology.<source>
+SCENARIO_SETTINGS = {'freshness_seconds', 'transport', 'sources', 'clean_provision'}
+RULE_SOURCES = ('ports', 'lldp', 'cdp', 'fdb', 'lag', 'device')       # the discovery rules of "Topology by SNMP": topology.<source>
 
 
 class Scenario:
@@ -478,6 +482,10 @@ class Scenario:
             raise LabError('scenario %s: unknown settings %s (allowed: %s)' % (self.id, sorted(unknown), sorted(SCENARIO_SETTINGS)))
         # Scenario-level overrides (the CLI options --transport and --sources replace the settings): every monitored device on one
         # transport, and only some sources collected. The equivalence runs of topology-3-push-delivery.md "Acceptance criteria" use them.
+        # lab 2.34 §7: only a scenario with `clean_provision: true` deletes the hosts of its own earlier provision before it makes them again
+        self.clean_provision = settings.get('clean_provision', False)
+        if not isinstance(self.clean_provision, bool):
+            raise LabError('scenario %s: settings.clean_provision is true or false, got %r' % (self.id, self.clean_provision))
         self.transport = transport or settings.get('transport')
         if self.transport is not None and self.transport not in TRANSPORTS:
             raise LabError('scenario %s: settings.transport must be one of %s or null, got %r' % (self.id, list(TRANSPORTS), self.transport))

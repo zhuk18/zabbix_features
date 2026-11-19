@@ -103,7 +103,8 @@ def provision(api, scenario, prune=False, log=print):
 
     # lab 2.33 §7: the hosts that an earlier run of this scenario made are deleted with their items and made again (S12 failed on interface items left from an earlier run)
     scenario_id = getattr(scenario, 'id', None)
-    for name in stale_hosts(existing, stand, scenario_id):
+    # lab 2.34 §7: only a scenario with settings.clean_provision: true (S12); without it nothing is deleted (provision R1 from scratch would make the whole office stand again with new host ids)
+    for name in (stale_hosts(existing, stand, scenario_id) if getattr(scenario, 'clean_provision', False) else []):
         api.call('host.delete', [existing[name]['hostid']])
         log('  deleted host %s (made by an earlier provision of %s)' % (name, scenario_id))
         del existing[name]

@@ -7,6 +7,8 @@ base: lab.yaml
 # only at step 0 and in the steps with `poll_interface_discovery`: the time between the polls of the two rules is what the scenario shows.
 # Step 1: R:Gi0/1 gets 11 (an index not used before), the interface discovery rule is not polled. Step 2: the rule is polled. Step 3: Gi0/1 and Gi0/2 exchange their indexes (Gi0/1: 2, Gi0/2: 11),
 # not polled. Step 4: polled. Names stay (deviation ifindex_renumber with `map`). `poll_all: true` polls the core master items of every device in each step.
+# lab 2.34 §7: provision deletes the hosts of the earlier provision of S12 (with their items) before it makes them again (task 112); only S12 asks for it
+settings: {clean_provision: true}
 patch:
   settings: {emit_subtypes: true, emit_loc_port_table: true}
   devices:

@@ -145,7 +145,10 @@ def natural_state(conn):
     port_nodes = [{'device': dev_name(nodes[n['device_id']]), 'name': n['a'].get('name'), 'id': n['id'], 'if_index': n['a'].get('if_index'),
                    'itemids': [], 'pseudo': bool(n['a'].get('pseudo'))}
                   for n in nodes.values() if n['type'] == 'port' and n['device_id'] in nodes]
-    device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac'),
+    keys_of = {}
+    for k in rows(conn, 'SELECT device_id, `key` AS k FROM topo_identity_keys WHERE replaced = 0 ORDER BY `key`'):
+        keys_of.setdefault(k['device_id'], []).append(k['k'])
+    device_nodes = [{'id': n['id'], 'sysname': n['a'].get('sysname'), 'chassis_id': n['a'].get('chassis_id'), 'mac': n['a'].get('mac'), 'keys': keys_of.get(n['id'], []),
                      'candidates': [{'device_id': c.get('device_id'), 'reason': c.get('reason')} for c in n['a'].get('duplicate_candidates') or []]}
                     for n in nodes.values() if n['type'] == 'device']
     return {'device_nodes': device_nodes, 'port_nodes': port_nodes, 'devices': devices, 'ports': ports, 'represented_by': represented, 'links': links, 'observations': obs}

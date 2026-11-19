@@ -146,12 +146,13 @@ class ProvisionStand(unittest.TestCase):
 
 
 class ProvisionClean(unittest.TestCase):
-    """Lab 2.33 §7 (task 112): `provision` of a scenario deletes the hosts that an earlier provision of the same scenario made, with their items, and makes them again."""
+    """Lab 2.33, 2.34 §7 (tasks 112, 113): `provision` of a scenario with `settings.clean_provision: true` (S12) deletes the hosts that an earlier provision of the same scenario made, with their items, and makes them again."""
 
     def setUp(self):
         zbx.CONFIG_SYNC_WAIT = 0
         self.lab = model.load_lab(os.path.join(model.HERE, 'lab.yaml'))
-        self.sc = model.load_scenario('S0', self.lab)
+        self.sc = model.load_scenario('S12', self.lab)
+        self.assertTrue(self.sc.clean_provision, 'S12 asks for the clean-up')
         self.names = sorted(h['host'] for h in __import__('labsim.gen', fromlist=['x']).hosts_json(self.sc))
 
     def tags(self, scenario, stand='lab'):
@@ -161,7 +162,7 @@ class ProvisionClean(unittest.TestCase):
         api = FakeApi({})
         zbx.provision(api, self.sc, log=lambda *a: None)
         for h in api.hosts.values():
-            self.assertIn({'tag': 'lab.scenario', 'value': 'S0'}, h['tags'])
+            self.assertIn({'tag': 'lab.scenario', 'value': 'S12'}, h['tags'])
 
     def test_a_second_provision_deletes_and_makes_the_hosts_again(self):
         api = FakeApi({})
@@ -178,15 +179,34 @@ class ProvisionClean(unittest.TestCase):
 
     def test_other_hosts_are_not_deleted(self):
         name = self.names[0]
-        for tags, why in ((self.tags('S1'), 'another scenario'), (self.tags(None), 'no scenario tag'), (self.tags('S0', 'lab-office'), 'another stand')):
+        for tags, why in ((self.tags('S1'), 'another scenario'), (self.tags(None), 'no scenario tag'), (self.tags('S12', 'lab-office'), 'another stand')):
             api = FakeApi({name: existing('7', tags)})
             zbx.provision(api, self.sc, log=lambda *a: None)
             self.assertFalse([1 for method, params in api.calls if method == 'host.delete'], 'a host of %s is not deleted' % why)
 
     def test_stale_hosts_lists_only_this_stand_and_scenario(self):
-        got = zbx.stale_hosts({'a': existing('1', self.tags('S0')), 'b': existing('2', self.tags('S1')), 'c': existing('3', self.tags('S0', 'lab-office')), 'd': existing('4', [])}, 'lab', 'S0')
+        got = zbx.stale_hosts({'a': existing('1', self.tags('S12')), 'b': existing('2', self.tags('S1')), 'c': existing('3', self.tags('S12', 'lab-office')), 'd': existing('4', [])}, 'lab', 'S12')
         self.assertEqual(got, ['a'])
-        self.assertEqual(zbx.stale_hosts({'a': existing('1', self.tags('S0'))}, 'lab', None), [])
+        self.assertEqual(zbx.stale_hosts({'a': existing('1', self.tags('S12'))}, 'lab', None), [])
+
+
+    def test_without_the_setting_nothing_is_deleted(self):
+        """Lab 2.34 §7 (113 Q2): a scenario without `clean_provision` (every scenario but S12; R1 of the office stand) deletes nothing, also when its hosts exist with its own tag."""
+        sc = model.load_scenario('S0', self.lab)
+        self.assertFalse(sc.clean_provision)
+        names = sorted(h['host'] for h in __import__('labsim.gen', fromlist=['x']).hosts_json(sc))
+        api = FakeApi({n: existing(str(100 + i), self.tags('S0')) for i, n in enumerate(names)})
+        before = {n: h['hostid'] for n, h in api.hosts.items()}
+        zbx.provision(api, sc, log=lambda *a: None)
+        self.assertFalse([1 for method, params in api.calls if method == 'host.delete'], 'no host is deleted')
+        self.assertEqual({n: h['hostid'] for n, h in api.hosts.items() if n in before}, before, 'the host ids are the same before and after')
+
+    def test_the_setting_is_a_boolean(self):
+        import yaml, tempfile
+        data = yaml.safe_load(open(os.path.join(model.HERE, 'scenarios', 'S12.yaml')))
+        data['settings'] = {'clean_provision': 'yes'}
+        with self.assertRaises(LabError):
+            model.Scenario(data, self.lab)
 
 
 class InterfaceRule(unittest.TestCase):
