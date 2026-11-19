@@ -276,8 +276,11 @@ try:
 
     print('=== Identity: the list of bits wraps only after a comma (task 101 §5) ===')
     found = None
-    for label in ('SW12', 'SW18', 'SW20', 'SW13', 'SW14'):
-        click_node(label)
+    # since 113 the own capabilities of a reporter's Device replace the neighbors' (model 2.96 §12.2), so the reporters have one bit each: the panel of a Device with two or more bits (opened through the page)
+    ids = js("Array.from(view.nodes.values()).filter(n => n.type === 'device' && (n.device_class_bits || []).length >= 2).slice(0, 5).map(n => String(n.id))") or []
+    for node_id in ids:
+        js("(async id => { await view.selectNode(view.nodes.get(id)); })(%s)" % json.dumps(node_id))
+        time.sleep(1.5)
         js("Array.from(document.querySelectorAll('#topology-details details.topology-identity')).forEach(d => { d.open = true; })")
         r = js("""(() => { const v = document.querySelector('#topology-details .topology-class-value'); if (!v) return null; const spans = Array.from(v.querySelectorAll('.topology-nowrap'));
             return {text: v.textContent, spans: spans.length, broken: spans.filter(s => s.getClientRects().length > 1).map(s => s.textContent), lines: new Set(spans.map(s => Math.round(s.getBoundingClientRect().top))).size}; })()""")
