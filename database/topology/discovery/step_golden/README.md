@@ -62,7 +62,7 @@ already `aa:bb:cc:dd:ee:ff` (`$looks_like_mac`), and matches `chassis_id` as rec
 | MAC as Hex-STRING, any case (chassis type 4, or no type row) | lowercase colon hex | **yes, all of it** (13 chassis ids, 6 local, 18 port MACs) | none |
 | MAC as text: upper case, unpadded `0:bb:cc:0:0:a`, hyphens `aa-bb-..`, Cisco dots `aabb.cc00.000a` | **normalized** to `aa:bb:cc:00:00:0a` (step and JS, since 2026-09-30): `ifPhysAddress`, the local chassis, and remote chassis / port ids of type macAddress or without a type; the lldpLocPortTable id of type macAddress is matched normalized | no | none. Regenerating `expected/` changed no existing file, so no existing identity moved and no migration is needed |
 | chassis type 5 (networkAddress), IPv4, Hex | dotted IPv4 | no | remote side only, see next row |
-| **local** chassis that is a networkAddress | raw colon hex `01:c0:a8:01:0b` (the local id is not decoded by subtype; `lldpLocChassisIdSubtype` is not even in the walk) | no | its neighbors report `192.168.1.11`: two Devices |
+| **local** chassis that is a networkAddress | raw colon hex `01:c0:a8:01:0b` (the local id is not decoded by subtype; the template walk carries `lldpLocChassisIdSubtype` since task 114, the step reads it for the DEVICE row and the other rules) | no | its neighbors report `192.168.1.11`: two Devices |
 | chassis type 5, IPv6, Hex | colon hex with the family byte `02:20:01:..` | no | never matches an IPv6 address written any other way |
 | chassis type 6 / 7 / others (text) | trimmed only, case kept | no | local and remote spell it the same way in practice; not guaranteed |
 | no `lldpLocChassisId` | MAC of the lowest-ifIndex port | no (all lab devices have it) | a port MAC is not the chassis id the neighbors see: two Devices |

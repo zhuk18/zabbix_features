@@ -145,6 +145,7 @@ class testTopologyBySnmpTemplate extends CAPITest {
 		$this->assertContains('1.0.8802.1.1.2.1.3.3', $walked, 'lldpLocSysName');
 		$this->assertContains('1.0.8802.1.1.2.1.3.6', $walked, 'lldpLocSysCapEnabled');
 		$this->assertContains('1.3.6.1.4.1.9.9.23.1.3.4', $walked, 'cdpGlobalDeviceId');
+		$this->assertContains('1.0.8802.1.1.2.1.3.1', $walked, 'lldpLocChassisIdSubtype');
 
 		$fdb = explode(',', substr($items[1]['snmp_oid'], 5, -1));
 		$this->assertSame(['1.3.6.1.2.1.17.1.4.1.2', '1.3.6.1.2.1.17.7.1.2.2.1', '1.3.6.1.2.1.17.4.3.1'], $fdb);
