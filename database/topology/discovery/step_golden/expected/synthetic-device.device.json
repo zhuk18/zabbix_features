@@ -1,0 +1,9 @@
+[
+    {
+        "{#LOC_CDP_DEVICE_ID}": "core3.lab",
+        "{#LOC_CHASSIS_TYPE}": "macAddress",
+        "{#LOC_CHASSIS}": "aa:bb:cc:dd:ee:03",
+        "{#LOC_SYSNAME}": "core3.lab",
+        "{#LOC_SYS_CAP}": "other bridge"
+    }
+]

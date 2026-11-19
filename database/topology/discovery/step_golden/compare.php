@@ -33,7 +33,7 @@ sort($fixtures);
 
 // source => JS rule file. The C step runs with missing_mib=empty: a source the device does not have is an empty
 // result, which is what the JS returns for it. cdp has no JS: its expected/*.cdp.json files are written by hand.
-$sources = ['ports' => 'ports', 'lldp' => 'neighbors', 'fdb' => 'learned_macs', 'lag' => 'lag', 'cdp' => null];
+$sources = ['ports' => 'ports', 'lldp' => 'neighbors', 'fdb' => 'learned_macs', 'lag' => 'lag', 'cdp' => null, 'device' => null];
 
 $failures = 0;
 $checks = 0;
@@ -95,7 +95,7 @@ if (!is_executable($topo_step)) {
 $have_js = is_executable($zabbix_js);
 
 /* Expected outputs that follow the spec where it was decided against the temporary JS (the JS stays the reference everywhere else). */
-$decided_sources = ['ports', 'lldp', 'cdp'];
+$decided_sources = ['ports', 'lldp', 'cdp', 'device'];
 $decided_note = 'LLD 2.4 §4.4: the raw contract of model §5.2; the JS has the old rows (handoff 025)';
 
 if ($generate && !$from_step && !$have_js) {
@@ -175,8 +175,8 @@ foreach ($fixtures as $walk_file) {
 		}
 
 		if (!file_exists($expected_file) && $rule === null) {
-			// CDP is reviewed by hand: a walk without an expectation has no CDP data and must yield no rows
-			check($c['ok'] && $c['rows'] === [], "{$name} {$source}: no CDP data, no rows", $c['text']);
+			// CDP and device are reviewed by hand: a walk without an expectation has no such data and must yield no rows
+			check($c['ok'] && $c['rows'] === [], "{$name} {$source}: no {$source} data, no rows", $c['text']);
 			continue;
 		}
 

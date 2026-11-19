@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Builds template_topology_by_snmp.yaml ("Topology by SNMP") — topology-2-lld-delivery.md "Template Topology by SNMP".
  *
  * Two SNMP walk[] master items (interfaces + LLDP + CDP + LAG every 30m, bridge/FDB tables every 10m, no history,
- * no discard steps) and five DEPENDENT discovery rules, each with exactly one preprocessing step
+ * no discard steps) and six DEPENDENT discovery rules, each with exactly one preprocessing step
  * "SNMP walk to topology rows": no JavaScript, no LLD macro paths.
  *
  * It replaces "Topology by SNMP (temporary JS)" (template_topology_by_snmp_js.yaml, built from lld_js/). The two use
@@ -21,7 +21,8 @@ $output = $argv[1] ?? __DIR__.'/template_topology_by_snmp.yaml';
 // The OID set of lld_js/walk_oids.txt plus CISCO-CDP-MIB (cdpCacheTable, cdpGlobalRun), split by refresh interval.
 $core_oids = ['1.3.6.1.2.1.1.5', '1.3.6.1.2.1.2.2.1', '1.3.6.1.2.1.31.1.1.1.1', '1.3.6.1.2.1.31.1.1.1.15',
 	'1.0.8802.1.1.2.1.3.2', '1.0.8802.1.1.2.1.3.7', '1.0.8802.1.1.2.1.4.1', '1.0.8802.1.1.2.1.4.2',
-	'1.2.840.10006.300.43.1.2.1.1.13', '1.3.6.1.4.1.9.9.23.1.2.1.1', '1.3.6.1.4.1.9.9.23.1.3.1'];
+	'1.2.840.10006.300.43.1.2.1.1.13', '1.3.6.1.4.1.9.9.23.1.2.1.1', '1.3.6.1.4.1.9.9.23.1.3.1',
+	'1.0.8802.1.1.2.1.3.3', '1.0.8802.1.1.2.1.3.6', '1.3.6.1.4.1.9.9.23.1.3.4'];
 $fdb_oids = ['1.3.6.1.2.1.17.1.4.1.2', '1.3.6.1.2.1.17.7.1.2.2.1', '1.3.6.1.2.1.17.4.3.1'];
 
 $listed = array_filter(array_map('trim', file(__DIR__.'/lld_js/walk_oids.txt')));
@@ -43,6 +44,9 @@ $uuid = static function (string $seed): string {
 // applied to a mixed fleet must not turn "the device has no CDP / LAG / bridge tables" into an unsupported rule.
 // Ports stay "error": no IF-MIB means the walk itself is broken.
 $rules = [
+	['key' => 'topology.device', 'name' => 'Topology device (own identity)', 'topology_type' => 'DEVICE', 'source' => 'device',
+		'missing' => 'empty', 'master' => 'topology.walk.core',
+		'description' => 'The device itself: own chassis id, system name, CDP device ID and capabilities (LLDP-MIB local scalars, cdpGlobalDeviceId).'],
 	['key' => 'topology.ports', 'name' => 'Topology ports', 'topology_type' => 'PORTS', 'source' => 'ports',
 		'missing' => 'error', 'master' => 'topology.walk.core',
 		'description' => 'One row per interface (IF-MIB ifTable / ifXTable).'],
@@ -72,7 +76,7 @@ zabbix_export:
       name: 'Topology by SNMP'
       description: |
         Collects the network topology through Zabbix low-level discovery (topology-2-lld-delivery.md). Two SNMP
-        walk[] master items feed five dependent discovery rules, one per data set; each rule has one preprocessing
+        walk[] master items feed six dependent discovery rules, one per data set; each rule has one preprocessing
         step "SNMP walk to topology rows" that turns the walk into the rows of its topology type. The master items
         store no history and have no discard steps: every value is a confirmation that the links are alive.
 

@@ -880,6 +880,7 @@ define('ZBX_TOPOLOGY_TYPE_PORTS',			1);
 define('ZBX_TOPOLOGY_TYPE_NEIGHBORS',		2);
 define('ZBX_TOPOLOGY_TYPE_LEARNED_MACS',	3);
 define('ZBX_TOPOLOGY_TYPE_LAG',				4);
+define('ZBX_TOPOLOGY_TYPE_DEVICE',			5);
 
 // "SNMP walk to topology rows" preprocessing step: source table set and what to do when its MIB is absent.
 define('ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS',	'ports');
@@ -887,6 +888,7 @@ define('ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP',	'lldp');
 define('ZBX_PREPROC_TOPOLOGY_SOURCE_CDP',	'cdp');
 define('ZBX_PREPROC_TOPOLOGY_SOURCE_FDB',	'fdb');
 define('ZBX_PREPROC_TOPOLOGY_SOURCE_LAG',	'lag');
+define('ZBX_PREPROC_TOPOLOGY_SOURCE_DEVICE',	'device');
 define('ZBX_PREPROC_TOPOLOGY_MISSING_ERROR',	'error');
 define('ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY',	'empty');
 define('ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT',	20);

@@ -81,7 +81,8 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'lldp' => ['lldp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
 			'cdp' => ['cdp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
 			'fdb' => ['fdb', ZBX_TOPOLOGY_TYPE_LEARNED_MACS],
-			'lag' => ['lag', ZBX_TOPOLOGY_TYPE_LAG]
+			'lag' => ['lag', ZBX_TOPOLOGY_TYPE_LAG],
+			'device' => ['device', ZBX_TOPOLOGY_TYPE_DEVICE]
 		];
 	}
 
@@ -114,7 +115,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 	}
 
 	public static function getInvalidParams(): array {
-		$sources = 'value must be one of "ports", "lldp", "cdp", "fdb", "lag".';
+		$sources = 'value must be one of "ports", "lldp", "cdp", "fdb", "lag", "device".';
 
 		return [
 			'no source' => ['', 'Invalid parameter "/1/preprocessing/1/params/1": '.$sources],
@@ -241,7 +242,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 		$this->call('discoveryrule.update', [
 			'itemid' => $itemid,
 			'preprocessing' => self::step("nothing\nempty\n7")
-		], 'Invalid parameter "/1/preprocessing/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag".');
+		], 'Invalid parameter "/1/preprocessing/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag", "device".');
 	}
 
 	public function testDiscoveryRuleTopologyStep_Inheritance(): void {

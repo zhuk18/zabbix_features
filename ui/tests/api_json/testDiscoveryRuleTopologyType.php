@@ -26,7 +26,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 
 	private const TYPES = [
 		ZBX_TOPOLOGY_TYPE_NONE, ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS,
-		ZBX_TOPOLOGY_TYPE_LAG
+		ZBX_TOPOLOGY_TYPE_LAG, ZBX_TOPOLOGY_TYPE_DEVICE
 	];
 
 	private static array $ids = [];
@@ -168,7 +168,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 					'type' => ITEM_TYPE_TRAPPER,
 					'topology_type' => 9
 				],
-				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 3, 4.'
+				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 3, 4, 5.'
 			],
 			'Item does not accept topology type' => [
 				'method' => 'item.create',
@@ -332,7 +332,8 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		// NONE rules are omitted; rule[1] may already be LEARNED_MACS if the propagation test ran first.
 		$this->assertNotContains('NONE', $exported);
 		$this->assertContains('LAG', $exported);
-		$this->assertCount(6, $exported);
+		$this->assertCount(7, $exported);
+		$this->assertContains('DEVICE', $exported);
 
 		$yaml = str_replace("'API topology type template'", "'API topology type imported'", $yaml);
 		$yaml = preg_replace_callback('/uuid: [0-9a-f]{32}/', static fn() => 'uuid: '.generateUuidV4(), $yaml);
@@ -381,7 +382,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		$this->call('discoveryrule.update', ['itemid' => $rules[0]['itemid'], 'topology_type' => ZBX_TOPOLOGY_TYPE_LAG]);
 	}
 
-	private const TOPOLOGY_TYPES = [ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG];
+	private const TOPOLOGY_TYPES = [ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG, ZBX_TOPOLOGY_TYPE_DEVICE];
 
 	private static function heartbeatStep(): array {
 		return [

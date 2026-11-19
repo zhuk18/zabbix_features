@@ -39,6 +39,7 @@
 #define TOPO_SOURCE_CDP		3
 #define TOPO_SOURCE_FDB		4
 #define TOPO_SOURCE_LAG		5
+#define TOPO_SOURCE_DEVICE	6
 
 #define TOPO_DEFAULT_MAC_LIMIT	20
 
@@ -76,6 +77,11 @@
 #define OID_CDP_CACHE_DEVICE_PORT	OID_CDP_CACHE_TABLE ".7"
 #define OID_CDP_CACHE_CAPABILITIES	OID_CDP_CACHE_TABLE ".9"
 #define OID_CDP_GLOBAL_RUN		"1.3.6.1.4.1.9.9.23.1.3.1.0"
+#define OID_CDP_GLOBAL_DEVICE_ID	"1.3.6.1.4.1.9.9.23.1.3.4"
+
+#define OID_LLDP_LOC_CHASSIS_ID		"1.0.8802.1.1.2.1.3.2"
+#define OID_LLDP_LOC_SYSNAME		"1.0.8802.1.1.2.1.3.3"
+#define OID_LLDP_LOC_SYS_CAP_ENABLED	"1.0.8802.1.1.2.1.3.6"
 
 #define OID_BRIDGE_BASE_PORT_IF_INDEX	"1.3.6.1.2.1.17.1.4.1.2"
 #define OID_QBRIDGE_FDB_PORT		"1.3.6.1.2.1.17.7.1.2.2.1.2"
@@ -1424,6 +1430,43 @@ static void	topo_source_lag(const zbx_snmp_value_cache_t *cache, zbx_vector_topo
 
 /******************************************************************************
  *                                                                            *
+ * source: device (LLDP-MIB local scalars, cdpGlobalDeviceId)                 *
+ *                                                                            *
+ ******************************************************************************/
+
+/* One row: the device itself (LLD spec 2.19 section 4.4). Absent objects give no macro; the row exists when at least one of the chassis id, the system
+ * name and the CDP device ID is there (the anchor). The CDP device ID and the system name are text columns (topo_decode_text); ingest interprets them. */
+static void	topo_source_device(const zbx_snmp_value_cache_t *cache, const char *chassis, const char *chassis_type,
+		zbx_vector_topo_row_ptr_t *rows)
+{
+	topo_table_t			sysname, sys_cap, cdp_id;
+	const zbx_snmp_value_pair_t	*pair;
+	topo_row_t			*row;
+
+	topo_table_load(cache, OID_LLDP_LOC_SYSNAME, &sysname);
+	topo_table_load(cache, OID_LLDP_LOC_SYS_CAP_ENABLED, &sys_cap);
+	topo_table_load(cache, OID_CDP_GLOBAL_DEVICE_ID, &cdp_id);
+
+	row = topo_row_create();
+	topo_row_add_chassis(row, chassis, chassis_type);
+	topo_row_add_owned(row, "{#LOC_SYSNAME}", topo_table_name(&sysname, "0"));
+	topo_row_add_owned(row, "{#LOC_CDP_DEVICE_ID}", topo_table_name(&cdp_id, "0"));
+
+	if (NULL != (pair = topo_table_get(&sys_cap, "0")))
+		topo_row_add_owned(row, "{#LOC_SYS_CAP}", topo_caps_lldp(pair));
+
+	if (0 != row->fields_num)
+		zbx_vector_topo_row_ptr_append(rows, row);
+	else
+		topo_row_free(row);
+
+	topo_table_clear(&sysname);
+	topo_table_clear(&sys_cap);
+	topo_table_clear(&cdp_id);
+}
+
+/******************************************************************************
+ *                                                                            *
  * step                                                                       *
  *                                                                            *
  ******************************************************************************/
@@ -1468,6 +1511,8 @@ static int	topo_params_parse(const char *params, topo_params_t *out, char **errm
 		out->source = TOPO_SOURCE_FDB;
 	else if (0 == strcmp(line, "lag"))
 		out->source = TOPO_SOURCE_LAG;
+	else if (0 == strcmp(line, "device"))
+		out->source = TOPO_SOURCE_DEVICE;
 	else
 	{
 		*errmsg = zbx_dsprintf(*errmsg, "invalid topology source \"%s\"", line);
@@ -1581,6 +1626,11 @@ static const char	*topo_anchor_missing(int source, const zbx_snmp_value_cache_t 
 		case TOPO_SOURCE_LAG:
 			return SUCCEED == topo_walk_has(cache, OID_LAG_ATTACHED_AGG_ID) ? NULL :
 					"dot3adAggPortAttachedAggID";
+		case TOPO_SOURCE_DEVICE:
+			return (SUCCEED == topo_walk_has(cache, OID_LLDP_LOC_CHASSIS_ID) ||
+					SUCCEED == topo_walk_has(cache, OID_LLDP_LOC_SYSNAME) ||
+					SUCCEED == topo_walk_has(cache, OID_CDP_GLOBAL_DEVICE_ID)) ? NULL :
+					"lldpLocChassisId, lldpLocSysName or cdpGlobalDeviceId";
 	}
 
 	return "";
@@ -1652,6 +1702,9 @@ int	item_preproc_snmp_walk_to_topology(zbx_variant_t *value, const char *params,
 			break;
 		case TOPO_SOURCE_LAG:
 			topo_source_lag(&cache, &rows);
+			break;
+		case TOPO_SOURCE_DEVICE:
+			topo_source_device(&cache, chassis, chassis_type, &rows);
 			break;
 	}
 

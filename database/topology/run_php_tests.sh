@@ -215,6 +215,13 @@ else
 	done
 fi
 
+# ---- 6a. the server: a DEVICE rule with more than one valid row gives an empty snapshot and the info text (LLD spec 2.19 section 3.5; makes and deletes one host) ----
+if [ -n "${ZBX_TOKEN:-}" ] && [ -x "$repo/bin/zabbix_sender" ]; then
+	exec_test discovery/device_rows_check.py /tmp/topo_t_device_rows.log python3 "$here/discovery/device_rows_check.py"
+else
+	skip discovery/device_rows_check.py "needs ZBX_TOKEN in the environment and bin/zabbix_sender"
+fi
+
 # ---- 7. the real page: layout and escaping (headless Chrome, logged in; the login comes from the environment) ----
 if [ -n "$r1_dirty" ]; then
 	skip "page checks and lab/php checks of the real page" "R1 has manual data that no check made (INFRA above)"

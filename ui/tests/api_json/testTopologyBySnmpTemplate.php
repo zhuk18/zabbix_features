@@ -39,6 +39,7 @@ class testTopologyBySnmpTemplate extends CAPITest {
 	}
 
 	private const RULES = [
+		'topology.device' => [ZBX_TOPOLOGY_TYPE_DEVICE, 'topology.walk.core', "device\nempty\n20"],
 		'topology.ports' => [ZBX_TOPOLOGY_TYPE_PORTS, 'topology.walk.core', "ports\nerror\n20"],
 		'topology.lldp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "lldp\nempty\n20"],
 		'topology.cdp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "cdp\nempty\n20"],
@@ -141,6 +142,9 @@ class testTopologyBySnmpTemplate extends CAPITest {
 		$this->assertContains('1.3.6.1.4.1.9.9.23.1.2.1.1', $walked, 'cdpCacheTable');
 		$this->assertContains('1.3.6.1.4.1.9.9.23.1.3.1', $walked, 'cdpGlobalRun');
 		$this->assertContains('1.0.8802.1.1.2.1.4.1', $walked, 'lldpRemTable');
+		$this->assertContains('1.0.8802.1.1.2.1.3.3', $walked, 'lldpLocSysName');
+		$this->assertContains('1.0.8802.1.1.2.1.3.6', $walked, 'lldpLocSysCapEnabled');
+		$this->assertContains('1.3.6.1.4.1.9.9.23.1.3.4', $walked, 'cdpGlobalDeviceId');
 
 		$fdb = explode(',', substr($items[1]['snmp_oid'], 5, -1));
 		$this->assertSame(['1.3.6.1.2.1.17.1.4.1.2', '1.3.6.1.2.1.17.7.1.2.2.1', '1.3.6.1.2.1.17.4.3.1'], $fdb);
@@ -229,7 +233,7 @@ class testTopologyBySnmpTemplate extends CAPITest {
 		$this->assertArrayHasKey('error', $response, 'both templates were linked to one host');
 		$this->assertStringContainsString('an item with the same key is already inherited from template', $response['error']['data']);
 
-		// and the host got the five rules from the native template
+		// and the host got the six rules from the native template
 		$keys = array_column($this->call('discoveryrule.get', [
 			'output' => ['key_'],
 			'hostids' => $hostid

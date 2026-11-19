@@ -300,7 +300,8 @@ foreach (get_preprocessing_types(null, true, $data['preprocessing_types']) as $g
 				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP, _('LLDP neighbors')),
 				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, _('CDP neighbors')),
 				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_FDB, _('Learned MACs (FDB)')),
-				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_LAG, _('LAG members'))
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_LAG, _('LAG members')),
+				new CSelectOption(ZBX_PREPROC_TOPOLOGY_SOURCE_DEVICE, _('Device (own identity)'))
 			]),
 		(new CSelect('preprocessing[#{rowNum}][params_1]'))
 			->setValue('#{params[1]}')

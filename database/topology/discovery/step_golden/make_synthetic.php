@@ -182,6 +182,17 @@ $files = [
 	'synthetic-textmac.walk' => text_macs(),
 	// CISCO-CDP-MIB (no JS reference: the expectation is reviewed by hand)
 	'synthetic-cdp.walk' => interfaces().cdp(),
+	// the device source (LLD spec 2.19): all five own objects, the chassis as a Hex-STRING with its subtype
+	'synthetic-device.walk' => interfaces().line('1.0.8802.1.1.2.1.3.1.0', 'INTEGER', 'macAddress(4)').
+		line('1.0.8802.1.1.2.1.3.2.0', 'Hex-STRING', hex('AA:BB:CC:DD:EE:03')).
+		line('1.0.8802.1.1.2.1.3.3.0', 'STRING', '"core3.lab"').
+		line('1.0.8802.1.1.2.1.3.6.0', 'Hex-STRING', 'A0 00').
+		line('1.3.6.1.4.1.9.9.23.1.3.4.0', 'STRING', '"core3.lab"'),
+	// a CDP-only reporter: no LLDP-MIB, only cdpGlobalDeviceId
+	'synthetic-device-cdponly.walk' => interfaces().line('1.3.6.1.4.1.9.9.23.1.3.1.0', 'INTEGER', 'true(1)').
+		line('1.3.6.1.4.1.9.9.23.1.3.4.0', 'STRING', '"C13.lab"'),
+	// the CDP device ID as a hex string: text when it is valid UTF-8, else its hex form (LLD spec 2.19)
+	'synthetic-device-cdphex.walk' => interfaces().line('1.3.6.1.4.1.9.9.23.1.3.4.0', 'Hex-STRING', hex('43:31:33:2E:6C:61:62')),
 ];
 
 @mkdir(__DIR__.'/fixtures');

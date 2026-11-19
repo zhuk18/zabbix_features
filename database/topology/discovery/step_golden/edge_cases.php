@@ -60,7 +60,7 @@ $if_mib = line('1.3.6.1.2.1.2.2.1.1.1', 'INTEGER', '1').line('1.3.6.1.2.1.2.2.1.
 	line('1.3.6.1.2.1.31.1.1.1.1.1', 'STRING', '"Gi0/1"');
 
 echo "\n=== anchors and missing_mib ===\n";
-$sources = ['ports', 'lldp', 'cdp', 'fdb', 'lag'];
+$sources = ['ports', 'lldp', 'cdp', 'fdb', 'lag', 'device'];
 $other_mib = line('1.3.6.1.2.1.1.5.0', 'STRING', '"sw"');	// a walk with variables, but none of the source's MIB
 
 foreach ($sources as $source) {
@@ -81,6 +81,12 @@ check($r['ok'] && count($r['rows']) === 1, 'lldp: a device that has lldpRemTable
 
 $r = step(line('1.3.6.1.4.1.9.9.23.1.3.1.0', 'INTEGER', 'true(1)'), 'cdp', 'error');
 check($r['ok'] && $r['rows'] === [], 'cdp: only cdpGlobalRun present -> []', $r['text']);
+
+$r = step(line('1.0.8802.1.1.2.1.3.3.0', 'STRING', '"sw1"'), 'device', 'error');
+check($r['ok'] && $r['rows'] === [['{#LOC_SYSNAME}' => 'sw1']], 'device: only lldpLocSysName present -> one row with {#LOC_SYSNAME}', $r['text']);
+
+$r = step(line('1.0.8802.1.1.2.1.3.3.0', 'STRING', '""'), 'device', 'error');
+check($r['ok'] && $r['rows'] === [], 'device: the only object is empty -> no row (an empty value is missing)', $r['text']);
 
 $r = step($if_mib.line('1.3.6.1.2.1.17.1.4.1.2.1', 'INTEGER', '1'), 'fdb', 'error');
 check($r['ok'] && $r['rows'] === [], 'fdb: dot1dBasePortIfIndex present and no entries -> []', $r['text']);

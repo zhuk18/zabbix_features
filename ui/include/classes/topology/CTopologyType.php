@@ -65,6 +65,12 @@ class CTopologyType {
 			'required' => ['{#IFINDEX}', '{#LAG_IFINDEX}'],
 			'one_of' => [],
 			'optional' => []
+		],
+		ZBX_TOPOLOGY_TYPE_DEVICE => [
+			'export' => 'DEVICE',
+			'required' => [],
+			'one_of' => [['{#LOC_CHASSIS}', '{#LOC_CDP_DEVICE_ID}', '{#LOC_SYSNAME}']],
+			'optional' => ['{#LOC_CHASSIS_TYPE}', '{#LOC_SYS_CAP}']
 		]
 	];
 
@@ -84,7 +90,8 @@ class CTopologyType {
 			ZBX_TOPOLOGY_TYPE_PORTS => _('Ports'),
 			ZBX_TOPOLOGY_TYPE_NEIGHBORS => _('Neighbors'),
 			ZBX_TOPOLOGY_TYPE_LEARNED_MACS => _('Learned MACs'),
-			ZBX_TOPOLOGY_TYPE_LAG => _('LAG membership')
+			ZBX_TOPOLOGY_TYPE_LAG => _('LAG membership'),
+			ZBX_TOPOLOGY_TYPE_DEVICE => _('Device')
 		];
 	}
 

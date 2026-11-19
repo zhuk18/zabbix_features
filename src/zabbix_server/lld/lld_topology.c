@@ -38,6 +38,7 @@
 #define ZBX_LLD_TOPO_TYPE_NEIGHBORS	2
 #define ZBX_LLD_TOPO_TYPE_LEARNED_MACS	3
 #define ZBX_LLD_TOPO_TYPE_LAG		4
+#define ZBX_LLD_TOPO_TYPE_DEVICE	5
 
 #define ZBX_LLD_TOPO_STR	0	/* emitted as JSON string */
 #define ZBX_LLD_TOPO_UINT	1	/* emitted as JSON number; a non-numeric value invalidates the row */
@@ -112,6 +113,16 @@ static const zbx_lld_topo_field_t	topo_lag[] = {
 	{NULL, NULL, 0, 0, 0, NULL}
 };
 
+/* DEVICE (topology-1-model.md §5.2, 2.96): the reporter itself, one row; at least one of its own chassis id, CDP device ID and system name */
+static const zbx_lld_topo_field_t	topo_device[] = {
+	{"{#LOC_CHASSIS}",	"loc_chassis",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
+	{"{#LOC_CDP_DEVICE_ID}","loc_cdp_device_id",	ZBX_LLD_TOPO_STR,	0, 1, NULL},
+	{"{#LOC_SYSNAME}",	"loc_sysname",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
+	{"{#LOC_CHASSIS_TYPE}",	"loc_chassis_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#LOC_SYS_CAP}",	"loc_sys_cap",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{NULL, NULL, 0, 0, 0, NULL}
+};
+
 /* {#SNMPINDEX} stands in for a missing {#IFINDEX} for PORTS only: stock IF-MIB discovery emits it as the ifIndex. */
 /* For other topology types it is a different table index (for NEIGHBORS - TimeMark.LocalPortNum.RemIndex).          */
 #define ZBX_LLD_TOPO_SNMPINDEX_MACRO	"{#SNMPINDEX}"
@@ -128,6 +139,8 @@ static const char	*lld_topology_type_name(int topology_type)
 			return "LEARNED_MACS";
 		case ZBX_LLD_TOPO_TYPE_LAG:
 			return "LAG";
+		case ZBX_LLD_TOPO_TYPE_DEVICE:
+			return "DEVICE";
 		default:
 			return NULL;
 	}
@@ -145,6 +158,8 @@ static const zbx_lld_topo_field_t	*lld_topology_contract(int topology_type)
 			return topo_learned_macs;
 		case ZBX_LLD_TOPO_TYPE_LAG:
 			return topo_lag;
+		case ZBX_LLD_TOPO_TYPE_DEVICE:
+			return topo_device;
 		default:
 			return NULL;
 	}
@@ -440,6 +455,7 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	char				*rows_json = NULL, hash[2 * ZBX_SHA256_DIGEST_SIZE + 1];
 	unsigned char			digest[ZBX_SHA256_DIGEST_SIZE];
 	size_t				alloc = 0, offset = 0;
+	int				device_rows = 0;
 
 	if (NULL == contract)
 		return;
@@ -460,6 +476,13 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 
 		if (SUCCEED == lld_topology_row_build(topology_type, contract, lld_rows->values[i]->data, reasons, &row))
 			zbx_vector_lld_topo_row_ptr_append(&rows, row);
+	}
+
+	/* DEVICE (LLD spec 2.19 section 3.5): one device has one identity, more than one valid row gives an empty snapshot */
+	if (ZBX_LLD_TOPO_TYPE_DEVICE == topology_type && 1 < rows.values_num)
+	{
+		device_rows = rows.values_num;
+		zbx_vector_lld_topo_row_ptr_clear_ext(&rows, lld_topology_row_free);
 	}
 
 	/* deterministic order: identical data always produces an identical hash */
@@ -487,7 +510,11 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 				itemid);
 	}
 
-	if (rows.values_num != rows_total)
+	if (0 != device_rows)
+	{
+		*info = zbx_dsprintf(*info, "Topology (DEVICE): %d rows, one expected\n", device_rows);
+	}
+	else if (rows.values_num != rows_total)
 	{
 		char	*text = NULL;
 
