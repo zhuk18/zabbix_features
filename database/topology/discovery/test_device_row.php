@@ -265,4 +265,15 @@ $d6 = device_of_host($pdo, 6);
 check(keys_of($pdo, $d5) === ['cdp:server:box', 'chassis:mac:'.$MAC_A] && keys_of($pdo, $d6) === ['cdp:server:box', 'chassis:mac:'.$MAC_B], 'both reporters carry their own key; it is shared');
 check(array_filter($r['summary']['identity_keys_shared']['list'] ?? [], static fn (array $e): bool => $e['key'] === 'cdp_key') !== [], 'the shared key is in the run summary');
 
+echo "\n=== 9: a DEVICE result with two valid rows (LLD 2.19 §3.5): the server stores an empty snapshot (rows_total 2, rows_valid 0); the reporter has no own identity from it ===\n";
+reset_all($pdo);
+reporter($pdo, 1, '192.0.2.1', $MAC_B, null);
+$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type) VALUES (14, 1, 0, 5)')->execute();
+$pdo->prepare('REPLACE INTO topo_lld_snapshot (itemid, hostid, topology_type, clock, rows_hash, rows_json, rows_total, rows_valid) VALUES (14, 1, 5, ?, ?, ?, 2, 0)')
+	->execute([CLOCK, hash('sha256', '[]'), '[]']);
+ingest($dsn, $user, $password);
+$d = device_of_host($pdo, 1);
+check($d !== null && attrs($pdo, $d)['chassis_id'] === $MAC_B && keys_of($pdo, $d) === ['chassis:mac:'.$MAC_B], 'the empty DEVICE snapshot gives nothing: the identity comes from the other snapshots');
+// the info line and the empty snapshot of the server itself: discovery/device_rows_check.py (a live trapper rule, 3 sends), part of run_php_tests.sh section 6a
+
 echo "\nOK\n";
