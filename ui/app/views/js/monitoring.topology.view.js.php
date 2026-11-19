@@ -51,6 +51,7 @@ const view = new class {
 	async init() {
 		this.canvas = d3.select('#topology-canvas');
 		this.details = document.getElementById('topology-details');
+		this.details_hint = this.details.innerHTML;      // the hint of the first load: an empty panel shows it again (model 2.96 §12.1)
 		this.nodes = new Map();
 		this.links = [];
 		this.link_pick = null;
@@ -439,12 +440,29 @@ const view = new class {
 				this.clearSelection();
 			}
 		}
+		else {
+			await this.refreshPanel();
+		}
 	}
 
-	// No node, link or panel selected (model 2.95 §12.1): the panel is empty and closed
+	// A reload after an action (model 2.96 §12.1 "Reload after an action"): the open panel reads its object again; an object that is gone (merged, deleted, an unlinked link) or not in the view
+	// any more closes the panel and clears the selection.
+	async refreshPanel() {
+		if (!this.selection || !this.current_panel) {
+			return;
+		}
+		if (this.selectionTarget(this.selection) === null) {
+			this.clearSelection();
+			return;
+		}
+		await this.current_panel.reopen();
+	}
+
+	// No node, link or panel selected (model 2.95 §12.1): the panel is empty and closed; it shows the hint of the first load (2.96)
 	clearSelection() {
 		this.select_token = (this.select_token ?? 0) + 1;
-		this.details.innerHTML = '';
+		this.details.innerHTML = this.details_hint;
+		this.setDetailsTitle(<?= json_encode(_('Device details')) ?>);
 		this.selected_node = null;
 		this.current_panel = null;
 		this.panel_stack = [];
@@ -728,11 +746,7 @@ const view = new class {
 			}
 			await post('topology.devices.delete', {id: data.device});
 			this.include_ids.delete(String(data.device));
-			this.details.innerHTML = '';
-			this.current_panel = null;
-			this.panel_stack = [];
-			this.selection = null;
-			this.applySelection(false);
+			this.clearSelection();
 			await this.loadDevices();
 			return;
 		}
