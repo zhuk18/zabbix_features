@@ -6,8 +6,8 @@ base: lab.yaml
 #   address), and its own walk has the same value as cdpGlobalDeviceId. N: LLDP and CDP, 4 ports. Cable N:Gi0/1 - C:Gi0/1.
 # Before the DEVICE row, N's CDP report of C (a name that is no key of any reporter, an address that is no SNMP address) made a second Device for C. The key of a name is the name key
 # of normalization §4.6: the domain is cut (c13.lab -> c13).
-# Own name and class (lab 2.36, task 115): D (192.0.2.172, LLDP and CDP; sysname D13-own; its neighbors know it by the CDP device ID neighbors-call-it-d13.lab; own bits bridge router, CDP bits
-# switch host) and M (192.0.2.173, CDP only), cable M:Gi0/1 - D:Gi0/2. The own name and the own class (Switch, not Station from `host`) win over what M reports.
+# Own name and class (lab 2.36, task 115; the addresses are .176 and .177, not .172 and .173 of the spec: S11 and S12 use .172 and .173, and the hosts of an earlier scenario stay in the database and poll the same address): D (192.0.2.176, LLDP and CDP; sysname D13-own; its neighbors know it by the CDP device ID neighbors-call-it-d13.lab; own bits bridge router, CDP bits
+# switch host) and M (192.0.2.177, CDP only), cable M:Gi0/1 - D:Gi0/2. The own name and the own class (Switch, not Station from `host`) win over what M reports.
 # Step 1: C is renamed (its neighbors and its own walk say C13-new.lab): the same Device, the new key replaces the old one, the same link.
 patch:
   settings: {emit_subtypes: true, emit_loc_port_table: true}
@@ -39,7 +39,7 @@ patch:
         - {ifindex: 4, name: Gi0/4}
       zabbix: {monitored: true, transport: lld, proxy: null}
     D:
-      ip: 192.0.2.172
+      ip: 192.0.2.176
       sysname: D13-own
       chassis: {subtype: mac, value: "00:11:22:33:44:d2"}
       port_mac_prefix: "02:00:00:15"
@@ -56,7 +56,7 @@ patch:
         - {ifindex: 4, name: Gi0/4}
       zabbix: {monitored: true, transport: lld, proxy: null}
     M:
-      ip: 192.0.2.173
+      ip: 192.0.2.177
       chassis: {subtype: mac, value: "00:11:22:33:44:d3"}
       port_mac_prefix: "02:00:00:16"
       lldp: false
