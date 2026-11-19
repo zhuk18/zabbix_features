@@ -55,3 +55,45 @@ function topology_port_neighbors_max(?string $raw): array {
 		htmlspecialchars($raw, ENT_QUOTES, 'UTF-8').'", which is not a number of at least '.TOPOLOGY_PORT_NEIGHBORS_MIN.
 		'; the default '.TOPOLOGY_PORT_NEIGHBORS_DEFAULT.' is used.'];
 }
+
+/**
+ * The allowed age of a snapshot (topology-1-model.md §6.2, §8.8, 2.96; FR-B D-55): a snapshot whose clock is older than this is old. The number of intervals and the minimum are
+ * constants of this file: no macro in the prototype (FR-B D-55 "define in the Spec"; architecture review B9: settings, not macros, in the product).
+ */
+const TOPOLOGY_AGE_INTERVALS = 3;
+const TOPOLOGY_AGE_MIN = 600;      // seconds
+
+/**
+ * The simple update interval of an item (the part of the delay before the first `;`: flexible and scheduling intervals are not used) in seconds. Null when there is no base: the text is empty,
+ * 0 (a trapper rule, or an interval that is 0 with only flexible or scheduling intervals) or not an interval (an unresolved macro, text).
+ */
+function topology_interval_seconds(?string $text): ?int {
+	if ($text === null) {
+		return null;
+	}
+
+	$simple = explode(';', trim($text), 2)[0];
+
+	if (preg_match('/^([0-9]{1,9})([smhdw]?)$/D', $simple, $m) !== 1) {
+		return null;
+	}
+
+	$seconds = (int) $m[1] * ['' => 1, 's' => 1, 'm' => 60, 'h' => 3600, 'd' => 86400, 'w' => 604800][$m[2]];
+
+	return $seconds > 0 ? $seconds : null;
+}
+
+/**
+ * @param int|null $base       the update interval of the rule (a dependent rule: of its first master that is not dependent), or the heartbeat when that item has "Discard unchanged with
+ *                             heartbeat"; null: no base
+ * @param int      $threshold  the freshness threshold (§8.8), the upper limit of every allowed age
+ *
+ * @return int  seconds: max(3 * base, 600), never more than the threshold; no base: the threshold
+ */
+function topology_allowed_age(?int $base, int $threshold): int {
+	if ($base === null) {
+		return $threshold;
+	}
+
+	return min($threshold, max(TOPOLOGY_AGE_INTERVALS * $base, TOPOLOGY_AGE_MIN));
+}

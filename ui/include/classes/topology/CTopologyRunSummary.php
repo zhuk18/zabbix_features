@@ -102,7 +102,9 @@ class CTopologyRunSummary {
 		// 2.60 (model §6.2): each old NEIGHBORS snapshot, with the time of the snapshot
 		foreach ($summary['snapshots_old'] ?? [] as $old) {
 			[$hostid, $host, $itemid, $rule] = $of_rule((int) $old['itemid']);
-			$list[] = $entry(self::ATTENTION_SNAPSHOT_OLD, 'old snapshot of '.date('Y-m-d H:i:s T', (int) $old['clock']), 1, $hostid ?? (int) $old['hostid'], $host, $itemid, $rule, (int) $old['clock']);
+			// 2.96: the allowed age that the rule gave (its interval, never more than the freshness threshold)
+			$allowed = isset($old['allowed_age']) ? ', allowed age '.(int) $old['allowed_age'].' s' : '';
+			$list[] = $entry(self::ATTENTION_SNAPSHOT_OLD, 'old snapshot of '.date('Y-m-d H:i:s T', (int) $old['clock']).$allowed, 1, $hostid ?? (int) $old['hostid'], $host, $itemid, $rule, (int) $old['clock']);
 		}
 		// 2.65 (model §6.7.7): a reporter port with more neighbors than the limit
 		foreach ($summary['ports_neighbor_limit'] ?? [] as $limited) {

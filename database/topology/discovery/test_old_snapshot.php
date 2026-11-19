@@ -200,7 +200,7 @@ $pdo->exec('UPDATE topo_lld_snapshot SET clock = '.($NOW - OLD).' WHERE itemid =
 $r = run_ingest($dsn, $user, $password);
 check(active($pdo) === ['a0:00:00:00:00:01/Gi0/1 - a0:00:00:00:00:03/Gi0/1'], 'after the threshold: the old link is superseded, SW1:Gi0/1 - SW3:Gi0/1 is made', active($pdo));
 check(outcomes($pdo, 1022) === ['old_snapshot'] && outcomes($pdo, 1012) === ['applied'], 'the rows of the old snapshot are old_snapshot, the new claim is applied');
-check(($r['summary']['snapshots_old'] ?? null) === [['hostid' => 102, 'itemid' => 1022, 'clock' => $NOW - OLD]], 'snapshots_old lists the snapshot (hostid, itemid, clock)', $r['summary']['snapshots_old'] ?? null);
+check(($r['summary']['snapshots_old'] ?? null) === [['hostid' => 102, 'itemid' => 1022, 'clock' => $NOW - OLD, 'allowed_age' => 60]], 'snapshots_old lists the snapshot (hostid, itemid, clock, 2.96: allowed_age; a stand-in of the tables has no interval, so the threshold)', $r['summary']['snapshots_old'] ?? null);
 check(count(array_filter($r['summary']['attention'] ?? [], static fn (array $l): bool => $l['kind'] === 'snapshot_old' && $l['hostid'] === 102 && $l['clock'] === $NOW - OLD)) === 1, 'Needs attention has a line for the old snapshot with its time');
 
 echo "\n=== 2. the Device is down, no other neighbor on the port: the link stays ===\n";
