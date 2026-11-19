@@ -53,6 +53,12 @@ $union = CTopologyDeviceClass::ofObservations($rows);
 check($union['7']['class'] === 'access_point' && $union['7']['bits'] === ['bridge', 'router', 'wlanAccessPoint'], 'two observations of one Device: the union of the bits, the class of the union', $union['7']);
 check($union['8']['class'] === 'station' && !isset($union['9']) && !isset($union['10']), 'an observation without the field or with bad JSON gives nothing');
 
+echo "\n=== the own capabilities of a reporter's Device win (2.96, §12.2) ===\n";
+$own = CTopologyDeviceClass::ofObservations($rows, ['7' => 'router', '11' => 'bridge']);
+check($own['7']['class'] === 'router' && $own['7']['bits'] === ['router'], 'own capabilities replace the neighbors\' ones for that Device (they said access point)', $own['7']);
+check($own['11']['class'] === 'switch' && $own['8']['class'] === 'station', 'a Device with only own capabilities has a class; the other Devices keep the union of their observations', $own);
+check(CTopologyDeviceClass::ofObservations($rows, ['7' => ''])['7']['class'] === null, 'an empty own value: no class of its own (nothing is used from the neighbors either: own data wins)');
+
 echo "\n=== a value with HTML (§13) ===\n";
 $evil = '<img src=x onerror=alert(1)> router';
 $bits = CTopologyDeviceClass::bitsOf($evil);

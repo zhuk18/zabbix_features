@@ -47,16 +47,25 @@ class CTopologyDeviceClass {
 	 * Device id => ['class' => ..., 'bits' => sorted union] for the Devices that have a `rem_sys_cap` in a current observation.
 	 *
 	 * @param array $rows  rows with `device_id` and `remote_attrs` (JSON text) of the observations
+	 * @param array $own   device id => the own capabilities of a reporter's Device (`attrs.sys_cap`, 2.96, model §12.2): for such a Device they replace the capabilities of the neighbors
 	 */
-	public static function ofObservations(array $rows): array {
+	public static function ofObservations(array $rows, array $own = []): array {
 		$bits = [];
 		foreach ($rows as $row) {
 			$attrs = json_decode((string) $row['remote_attrs'], true);
 			if (!is_array($attrs) || !isset($attrs['rem_sys_cap']) || !is_string($attrs['rem_sys_cap'])) {
 				continue;
 			}
+			if (array_key_exists((string) $row['device_id'], $own)) {
+				continue;      // own data wins
+			}
 			foreach (self::bitsOf($attrs['rem_sys_cap']) as $bit) {
 				$bits[(string) $row['device_id']][$bit] = true;
+			}
+		}
+		foreach ($own as $device_id => $value) {
+			foreach (self::bitsOf((string) $value) as $bit) {
+				$bits[(string) $device_id][$bit] = true;
 			}
 		}
 		$result = [];

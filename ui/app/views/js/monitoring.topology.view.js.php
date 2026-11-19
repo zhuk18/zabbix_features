@@ -653,6 +653,7 @@ const view = new class {
 			same_name: <?= json_encode(_('same name %1$s')) ?>,
 			reporters_share_key: <?= json_encode(_('same HW-ID %1$s')) ?>,
 			reporter_key_shared: <?= json_encode(_('same HW-ID %1$s')) ?>,
+			reporter_cdp_key: <?= json_encode(_('same device ID %1$s')) ?>,
 			reporter_chassis_change: <?= json_encode(_('possible hardware replacement')) ?>
 		};
 		const label = candidate.reason === 'key_shared'

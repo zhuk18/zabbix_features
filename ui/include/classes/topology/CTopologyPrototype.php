@@ -228,10 +228,20 @@ class CTopologyPrototype {
 		// the bits are data from the network: the caller escapes them. A Device without the field has no class (the generic icon).
 		$device_ids = array_column(array_filter($nodes, static fn (array $node): bool => $node['type'] === 'device'), 'id');
 		if ($device_ids) {
+			// 2.96 (§12.2): the own capabilities of a reporter's Device (`attrs.sys_cap`, from its DEVICE row) are used instead of the neighbors'
+			$own_caps = [];
+			foreach (DBfetchArray(DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $device_ids).
+					' AND attrs LIKE '.zbx_dbstr('%sys_cap%'))) as $own_row) {
+				$own_attrs = json_decode((string) $own_row['attrs'], true);
+
+				if (is_array($own_attrs) && isset($own_attrs['sys_cap']) && is_string($own_attrs['sys_cap']) && trim($own_attrs['sys_cap']) !== '') {
+					$own_caps[(string) $own_row['id']] = $own_attrs['sys_cap'];
+				}
+			}
 			$classes = CTopologyDeviceClass::ofObservations(DBfetchArray(DBselect(
 				'SELECT device_id,remote_attrs FROM topo_observations WHERE device_id IS NOT NULL AND '.dbConditionId('device_id', $device_ids).
 				' AND remote_attrs LIKE '.zbx_dbstr('%rem_sys_cap%')
-			)));
+			)), $own_caps);
 			foreach ($nodes as &$node) {
 				if ($node['type'] === 'device' && isset($classes[(string) $node['id']])) {
 					$node['device_class'] = $classes[(string) $node['id']]['class'];

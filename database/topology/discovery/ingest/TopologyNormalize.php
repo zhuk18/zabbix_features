@@ -176,7 +176,7 @@ class TopologyNormalize {
 			}
 		}
 		// normalization §4.5: the cleaned value is the stored one; an empty result is no value
-		foreach (['name', 'descr', 'if_name', 'rem_sysname', 'rem_port_desc', 'loc_port_desc'] as $field) {
+		foreach (['name', 'descr', 'if_name', 'rem_sysname', 'rem_port_desc', 'loc_port_desc', 'loc_sysname'] as $field) {
 			if (isset($row[$field]) && is_string($row[$field])) {
 				if (($cleaned = self::clean($row[$field])) === null) {
 					unset($row[$field]);

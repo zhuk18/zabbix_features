@@ -418,6 +418,7 @@ const TOPO_TYPE_PORTS = 1;
 const TOPO_TYPE_NEIGHBORS = 2;
 const TOPO_TYPE_LEARNED_MACS = 3;
 const TOPO_TYPE_LAG = 4;
+const TOPO_TYPE_DEVICE = 5;      // 2.96, FR-B D-53: the reporter itself, one row
 
 // topology-1-model.md "`device_link` (Port → Device)": why a link ends at a Device instead of a Port. fdb_mac_only is
 // reserved: validation accepts it, nothing in this script produces it.
@@ -642,7 +643,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	if ($reporter_own_of[$hostid]['skip'] !== null) {
 		continue;
 	}
-	if (($claimed_key = $reporter_own_of[$hostid]['loc_key']) !== null) {
+	if (($claimed_key = $reporter_own_of[$hostid]['lookup_key']) !== null) {
 		$claimants[$claimed_key][$hostid] = true;
 	}
 }
@@ -658,7 +659,7 @@ $key_shared_hosts = [];
 foreach ($snapshot_reporters as $hostid => $reporter) {
 	ingest_tick('reporters');
 	$own = $reporter_own_of[$hostid];
-	if ($own['skip'] !== null || $own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
+	if ($own['skip'] !== null || $own['lookup_key'] === null || isset($claimed_keys[$own['lookup_key']])) {
 		continue;
 	}
 	$has_device = $pdo->prepare("SELECT 1 FROM topo_nodes h JOIN topo_nodes d ON d.represented_by_node_id = h.id WHERE h.type = 'host' AND h.host_ref = ?");
@@ -666,7 +667,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	if ($has_device->fetchColumn() !== false) {
 		continue;
 	}
-	$match = $resolve_device(['chassis' => [$own['loc_key'], (string) $own['loc_chassis']]], true);
+	$match = $resolve_device(['chassis' => [$own['lookup_key'], $own['lookup_raw'], $own['lookup_kind']]], true);
 	if ($match !== null && $match[0] === 'shared') {
 		$key_shared_hosts[(int) $hostid] = $match;      // the reporter's own chassis finds several Devices
 	}
@@ -724,8 +725,8 @@ foreach ($claimed_keys as $claimed_key => $hosts) {
 		}
 	}
 	$first_own = $reporter_own_of[array_key_first($devices) ?? $hosts[0]];
-	$raw_value = (string) $first_own['loc_chassis'];
-	$kind_name = 'chassis_id';
+	$raw_value = (string) $first_own['lookup_raw'];
+	$kind_name = $first_own['lookup_kind'];
 	$device_ids = array_values(array_unique($devices));
 	foreach ($device_ids as $one) {
 		foreach ($device_ids as $other) {
@@ -745,15 +746,30 @@ foreach ($identified as $hostid => $result) {
 	ingest_tick('pass A');
 	$own = $reporter_own_of[$hostid];
 	$device = (int) $result['device_id'];
-	if ($own['loc_key'] === null || isset($claimed_keys[$own['loc_key']])) {
+	if ($own['lookup_key'] === null || isset($claimed_keys[$own['lookup_key']])) {
 		continue;
 	}
-	$others = array_values(array_diff($key_holders($own['loc_key']), [$device]));
+	$others = array_values(array_diff($key_holders($own['lookup_key']), [$device]));
 	if (count($others) > 1) {
 		foreach ($others as $other) {
-			$note_duplicate($device, $other, 'reporter_key_shared', 'chassis_id', (string) $own['loc_chassis']);
-			$note_duplicate($other, $device, 'reporter_key_shared', 'chassis_id', (string) $own['loc_chassis']);
+			$note_duplicate($device, $other, 'reporter_key_shared', $own['lookup_kind'], $own['lookup_raw']);
+			$note_duplicate($other, $device, 'reporter_key_shared', $own['lookup_kind'], $own['lookup_raw']);
 		}
+	}
+}
+// `reporter_cdp_key` (§6.4 step 8, §6.7.5, 2.96): the reporter's own CDP device ID key is on another Device without a host (made from CDP-only neighbor reports) while the reporter's Device
+// was found by its chassis, so it did not take the key; the candidate goes on both. The evidence is current: computed from the stored keys in every full run. No merge by ingest (FR-0 decision 11).
+foreach ($identified as $hostid => $result) {
+	ingest_tick('pass A');
+	$own = $reporter_own_of[$hostid];
+	$device = (int) $result['device_id'];
+	if ($own['cdp_key'] === null || $device_holds_key($device, $own['cdp_key'])) {
+		continue;
+	}
+	$others = array_values(array_diff($key_holders($own['cdp_key']), [$device]));
+	if (count($others) === 1) {
+		$note_duplicate($device, $others[0], 'reporter_cdp_key', 'cdp_key', (string) $own['cdp_name']);
+		$note_duplicate($others[0], $device, 'reporter_cdp_key', 'cdp_key', (string) $own['cdp_name']);
 	}
 }
 // ---- pass A, step 2: PORTS, LAG, LEARNED_MACS of every identified reporter ----

@@ -105,23 +105,65 @@ class IngestSelf {
 		$segment_of = [$this->run->keys, 'segmentOf'];
 		$chassis_key = [$this->run->keys, 'chassisKey'];
 		$chassis_values = [];
-		foreach ($reporter['snapshots'] as $list) {
-			foreach ($list as $snapshot) {
-				foreach ($snapshot['rows'] as $row) {
-					if (($row['loc_chassis'] ?? '') !== '') {
-						// 2.60, 2.62 (FR-A RC-3): a chassis id that is no hardware ID (the subtypes interfaceAlias, portComponent, interfaceName, an undefined subtype) is no loc_chassis: the
-						// reporter's Device is found by its SNMP interface address
-						if ($chassis_key($row['loc_chassis'], $row['loc_chassis_type'] ?? null, $segment_of($reporter['hostid'])) === null) {
-							continue;
+		// 2.96, §6.4 step 8: the own identity of the DEVICE row(s) of the host: the chassis (or the CDP device ID in MAC form when the row has no chassis), the CDP device ID key, the name, the capabilities
+		$device_chassis = [];
+		$cdp_names = [];
+		$cdp_keys = [];
+		$sysnames = [];
+		$sys_caps = [];
+		foreach ($reporter['snapshots'][TOPO_TYPE_DEVICE] ?? [] as $snapshot) {
+			foreach ($snapshot['rows'] as $row) {
+				$row_chassis = null;
+				if (($row['loc_chassis'] ?? '') !== '' && $chassis_key($row['loc_chassis'], $row['loc_chassis_type'] ?? null, $segment_of($reporter['hostid'])) !== null) {
+					$row_chassis = [$row['loc_chassis'], $row['loc_chassis_type'] ?? null];
+				}
+				if (($row['loc_cdp_device_id'] ?? '') !== '') {
+					$cdp = TopologyNormalize::cdpDeviceId((string) $row['loc_cdp_device_id']);
+					if ($cdp[0] === 'mac' && $row_chassis === null) {
+						$row_chassis = [$cdp[1], 'macAddress'];      // a CDP device ID in MAC form is a MAC hardware ID; a loc_chassis of the row wins (it is not a key)
+					}
+					elseif ($cdp[0] === 'key') {
+						$cdp_keys[substr('cdp:'.$segment_of($reporter['hostid']).':'.$cdp[1], 0, 300)] = true;
+						$cdp_names[(string) TopologyNormalize::clean((string) $row['loc_cdp_device_id'])] = true;
+					}
+				}
+				if ($row_chassis !== null) {
+					$device_chassis[$row_chassis[0]] = $row_chassis[1];
+				}
+				if (($row['loc_sysname'] ?? '') !== '') {
+					$sysnames[(string) $row['loc_sysname']] = true;
+				}
+				if (($row['loc_sys_cap'] ?? '') !== '') {
+					$sys_caps[(string) $row['loc_sys_cap']] = true;
+				}
+			}
+		}
+		if ($device_chassis) {
+			$chassis_values = $device_chassis;      // step 2: the DEVICE snapshot first, the other snapshots only when it gives no loc_chassis
+		}
+		else {
+			foreach ($reporter['snapshots'] as $list) {
+				foreach ($list as $snapshot) {
+					foreach ($snapshot['rows'] as $row) {
+						if (($row['loc_chassis'] ?? '') !== '') {
+							// 2.60, 2.62 (FR-A RC-3): a chassis id that is no hardware ID (the subtypes interfaceAlias, portComponent, interfaceName, an undefined subtype) is no loc_chassis: the
+							// reporter's Device is found by its SNMP interface address
+							if ($chassis_key($row['loc_chassis'], $row['loc_chassis_type'] ?? null, $segment_of($reporter['hostid'])) === null) {
+								continue;
+							}
+							$chassis_values[$row['loc_chassis']] = $row['loc_chassis_type'] ?? null;
 						}
-						$chassis_values[$row['loc_chassis']] = $row['loc_chassis_type'] ?? null;
 					}
 				}
 			}
 		}
 		$clocks = array_merge(...array_map(static fn (array $list): array => array_column($list, 'clock'), array_values($reporter['snapshots'])));
 		$own = ['skip' => null, 'chassis_values' => array_keys($chassis_values), 'seen' => max($clocks), 'loc_chassis' => null, 'mgmt_ip' => null,
-			'segment' => $segment_of($reporter['hostid']), 'loc_key' => null];
+			'segment' => $segment_of($reporter['hostid']), 'loc_key' => null,
+			'cdp_key' => count($cdp_keys) === 1 ? array_key_first($cdp_keys) : null,      // two DEVICE rows with two names: no key (P4)
+			'cdp_name' => count($cdp_names) === 1 ? array_key_first($cdp_names) : null,
+			'sysname' => count($sysnames) === 1 ? array_key_first($sysnames) : null, 'sys_cap' => count($sys_caps) === 1 ? array_key_first($sys_caps) : null,
+			'lookup_key' => null, 'lookup_kind' => 'chassis_id', 'lookup_raw' => null];
 		if (count($chassis_values) > 1) {
 			$own['skip'] = 'identity_ambiguous';
 			return $own;
@@ -132,7 +174,14 @@ class IngestSelf {
 		$interface->execute([$reporter['hostid']]);
 		$own['mgmt_ip'] = $interface->fetchColumn() ?: null;
 		$own['loc_key'] = $chassis_key($own['loc_chassis'], $own['loc_chassis'] === null ? null : $chassis_values[$own['loc_chassis']], $own['segment']);
-		if ($own['loc_chassis'] === null && $own['mgmt_ip'] === null) {
+		// the key that finds the reporter's Device in step 2: its chassis; without one its own CDP device ID key (2.96, §6.4 step 2)
+		if ($own['loc_key'] !== null) {
+			[$own['lookup_key'], $own['lookup_raw']] = [$own['loc_key'], (string) $own['loc_chassis']];
+		}
+		elseif ($own['cdp_key'] !== null) {
+			[$own['lookup_key'], $own['lookup_kind'], $own['lookup_raw']] = [$own['cdp_key'], 'cdp_key', (string) $own['cdp_name']];
+		}
+		if ($own['loc_chassis'] === null && $own['cdp_key'] === null && $own['mgmt_ip'] === null) {
 			$own['skip'] = 'identity_missing';
 		}
 		return $own;
@@ -186,7 +235,10 @@ class IngestSelf {
 			return ['status' => 'skipped', 'reason' => 'identity_ambiguous'];
 		}
 		// the key this reporter looks its Device up by: its own chassis, unless another reporter claims it too
+		$lookup_key = $own['lookup_key'];
 		$look_chassis = $loc_key !== null && !isset($claimed[$loc_key]) ? $loc_key : null;
+		// 2.96: a reporter without a chassis finds its Device by its own CDP device ID key, in the same way (§6.4 step 2)
+		$look_cdp = $loc_key === null && $lookup_key !== null && !isset($claimed[$lookup_key]) ? $lookup_key : null;
 
 		$existing = $pdo->prepare(
 			"SELECT d.id FROM topo_nodes d JOIN topo_nodes h ON h.id = d.represented_by_node_id".
@@ -209,8 +261,8 @@ class IngestSelf {
 			// §6.4 step 2 and 5: found by its own unclaimed chassis among Devices that have no representation, else created (a reporter with only an SNMP interface
 			// address gets a Device without a key); the Device carries the reporter's chassis, a claimed one too
 			$device_id = $snap_device(['chassis_id' => $loc_chassis, 'mgmt_ip' => $mgmt_ip,
-				'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis,
-				'sysname' => $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, [], $key_shared);
+				'chassis_key' => $look_chassis, 'chassis_raw' => $loc_chassis, 'own_cdp_key' => $look_cdp, 'own_cdp_raw' => $own['lookup_raw'],
+				'sysname' => $own['sysname'] ?? $reporter['name'], 'vendor' => 'unknown'], null, $reporter_seen, true, [], $key_shared);
 			if ($device_id === null) {
 				throw new RuntimeException("reporter '{$label}': no Device for its own identity");      // not reached: a reporter's key never stays shared
 			}
@@ -243,9 +295,58 @@ class IngestSelf {
 			$snap_write_attrs($device_id, $attrs, $before);      // attrs.last_seen is set at the end of the run (§8.7)
 		}
 		$device_id = (int) $device_id;
+		$this->ownDeviceData($device_id, $own, $reporter_seen);
 		$snap_link_reporter_self($device_id, (string) $reporter['hostid'], $label);
 
 		return ['status' => 'ok', 'device_id' => $device_id, 'segment' => $segment];
+	}
+
+	/**
+	 * The own data of the DEVICE row on the reporter's Device (model §6.4 steps 6 and 8, 2.96): `attrs.sysname` (own data wins), `attrs.sys_cap` (the own capabilities, §12.2) and the own
+	 * CDP device ID key. The key follows the reporter's data: a new own CDP device ID replaces the old key of this Device (the device was renamed). A key that another Device without a
+	 * host holds (made from CDP-only neighbor reports) is not taken: the candidate `reporter_cdp_key` goes on both (decided in the end of pass A, from the stored state); a key that a Device
+	 * with a host or several Devices hold is shared (the reporter's own key is always on its Device, §6.7.4).
+	 */
+	public function ownDeviceData(int $device_id, array $own, int $seen_at): void {
+		$snap_node_attrs = [$this->run->store, 'nodeAttrs'];
+		$snap_write_attrs = [$this->run->store, 'writeAttrs'];
+		$key_holders = [$this->run->keys, 'keyHolders'];
+		$device_holds_key = [$this->run->keys, 'deviceHoldsKey'];
+		$insert_key = [$this->run->keys, 'insertKey'];
+		$note_shared = [$this->run->identify, 'noteShared'];
+		$pdo = $this->run->pdo;
+		$q_key = $this->run->q_key;
+		$before = $snap_node_attrs($device_id);
+		$attrs = $before;
+		if ($own['sysname'] !== null) {
+			$attrs['sysname'] = $own['sysname'];
+		}
+		if ($own['sys_cap'] !== null) {
+			$attrs['sys_cap'] = $own['sys_cap'];
+		}
+		$snap_write_attrs($device_id, $attrs, $before);
+		$cdp_key = $own['cdp_key'];
+		if ($cdp_key === null || $device_holds_key($device_id, $cdp_key)) {
+			return;
+		}
+		$others = array_values(array_diff($key_holders($cdp_key), [$device_id]));
+		// the old own key goes: the key of a renamed device (the kind cdp of a reporter's Device comes from its own data only)
+		$pdo->prepare("DELETE FROM topo_identity_keys WHERE device_id = ? AND kind = 'cdp' AND replaced = 0 AND {$q_key} <> ?")->execute([$device_id, $cdp_key]);
+		if (count($others) === 1 && !$this->hasHost($others[0])) {
+			return;      // two own keys, two Devices (step 8): no automatic merge; the candidate `reporter_cdp_key` is noted at the end of pass A
+		}
+		$insert_key($device_id, $cdp_key, 'cdp', $seen_at);
+		if ($others) {
+			$note_shared('cdp_key', (string) $own['cdp_name'], array_merge([$device_id], $others));
+		}
+	}
+
+	/** has the Device a `represented_by` (a reporter or an operator's choice) */
+	public function hasHost(int $device_id): bool {
+		$stmt = $this->run->pdo->prepare('SELECT represented_by_node_id FROM topo_nodes WHERE id = ?');
+		$stmt->execute([$device_id]);
+
+		return $stmt->fetchColumn() !== null;
 	}
 
 	/** Pass A, step 2: PORTS, LAG and LEARNED_MACS of one reporter (§6.5). */

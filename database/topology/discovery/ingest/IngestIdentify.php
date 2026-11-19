@@ -21,6 +21,7 @@ class IngestIdentify {
 			return null;
 		}
 		[$value, $raw] = $identity['chassis'];
+		$kind = $identity['chassis'][2] ?? 'chassis_id';      // 2.96: `cdp_key` for the own CDP device ID key of a reporter without a chassis
 		$ids = $key_holders($value);
 		if ($for_reporter || $exclude) {
 			// §6.4 step 5: a reporter never takes a Device that has another representation, nor one that another reporter takes
@@ -39,10 +40,10 @@ class IngestIdentify {
 			}));
 		}
 		if (count($ids) > 1) {
-			return ['shared', 'chassis_id', $raw, $ids, $value];
+			return ['shared', $kind, $raw, $ids, $value];
 		}
 		if ($ids) {
-			return [$ids[0], 'chassis_id'];
+			return [$ids[0], $kind];
 		}
 		// topology-1-model.md §6.7.0 "Replaced chassis": a chassis key that is marked replaced on exactly one Device finds that Device, after the lookup by the
 		// normal keys found nothing (a neighbor that still advertises the old chassis does not make a ghost Device)
@@ -93,9 +94,10 @@ class IngestIdentify {
 			$match = [(int) $incoming['found_device_id'], 'match'];
 		}
 		else {
-			$match = $force_new ? null : $resolve_device([
-				'chassis' => isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']] : null,
-			], $for_reporter, $exclude);
+			// 2.96: a reporter without a chassis finds its Device by its own CDP device ID key (`own_cdp_key`, §6.4 step 2); a neighbor claim never uses it (§6.7.1 decides the claims without a chassis)
+			$lookup = isset($incoming['chassis_key']) ? [$incoming['chassis_key'], $incoming['chassis_raw'] ?? $incoming['chassis_key']]
+				: (isset($incoming['own_cdp_key']) ? [$incoming['own_cdp_key'], $incoming['own_cdp_raw'] ?? $incoming['own_cdp_key'], 'cdp_key'] : null);
+			$match = $force_new ? null : $resolve_device(['chassis' => $lookup], $for_reporter, $exclude);
 		}
 		if ($match !== null && $match[0] === 'shared') {
 			$note_shared($match[1], $match[2], $match[3]);
@@ -189,6 +191,9 @@ class IngestIdentify {
 		}
 		elseif (isset($incoming['cdp_key'])) {
 			$insert_key($created_id, $incoming['cdp_key'], 'cdp', $seen_at);
+		}
+		elseif (isset($incoming['own_cdp_key'])) {
+			$insert_key($created_id, $incoming['own_cdp_key'], 'cdp', $seen_at);      // a CDP-only reporter's Device carries its own key (2.96)
 		}
 		return $created_id;
 	}
