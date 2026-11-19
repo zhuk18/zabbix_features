@@ -30,10 +30,15 @@ def panel(*extra):
     expr = '''(async () => { await new Promise(r => setTimeout(r, 1500)); const d = document.getElementById('topology-details'); const focus = d.querySelector('.topology-focus-button'); const head = d.querySelector('.topology-node-name');
         const out = {title: head ? head.textContent : '', problems: !!d.querySelector('.topology-problems, [data-section="problems"], details'), focus: !!focus, node: view.selected_node ? String(view.selected_node.id) : null};
         if (focus) { focus.click(); await new Promise(r => setTimeout(r, 4000)); out.focus_host = (jQuery('#hostid').multiSelect('getData')[0] || {}).name || null; out.after = view.selected_node ? view.selected_node.label : null; } return out; })()'''
-    out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2', '--select', HOST, '--eval', expr, '--out', '/tmp/nolink.png', *extra],
-                         capture_output=True, text=True, timeout=180).stdout
-    line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
-    return json.loads(line.split(':', 1)[1]) if line else None
+    # a page_shot run that prints no result (the browser did not start, or the node was not drawn after the short settle on a busy machine: harness run 73, task 115) is run once more, up to three times
+    for attempt in range(3):
+        out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2' if attempt == 0 else '6', '--select', HOST, '--eval', expr, '--out', '/tmp/nolink.png', *extra],
+                             capture_output=True, text=True, timeout=180).stdout
+        line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
+        if line:
+            return json.loads(line.split(':', 1)[1])
+        print('page_shot output (attempt %d): %s' % (attempt + 1, out[-300:]))
+    return None
 
 
 def drawn(*extra):
