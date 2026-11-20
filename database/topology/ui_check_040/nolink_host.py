@@ -43,12 +43,15 @@ def panel(*extra):
 
 def drawn(*extra):
     count = '(Array.from(document.querySelectorAll("#topology-canvas g.topology-node text.topology-label")).filter(t => t.textContent === "%s").length)' % HOST
-    out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2', '--eval', count, '--out', '/tmp/nolink.png', *extra],
-                         capture_output=True, text=True, timeout=120).stdout
-    line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
-    if not line:
-        print('page_shot output:', out[-300:])
-    return int(line.split(':', 1)[1]) if line else None
+    # a run that prints no result is repeated, up to three times with a longer settle (harness runs 73 and 93 of task 115)
+    for attempt in range(3):
+        out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '2' if attempt == 0 else '6', '--eval', count, '--out', '/tmp/nolink.png', *extra],
+                             capture_output=True, text=True, timeout=120).stdout
+        line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
+        if line:
+            return int(line.split(':', 1)[1])
+        print('page_shot output (attempt %d): %s' % (attempt + 1, out[-300:]))
+    return None
 
 
 failed = 0
