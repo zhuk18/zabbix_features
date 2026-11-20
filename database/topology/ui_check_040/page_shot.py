@@ -578,5 +578,25 @@ def main():
         shutil.rmtree(profile, ignore_errors=True)
 
 
+def run_with_retry():
+    # a run with --eval that ends without its `eval:` line (the browser or the page was too slow on a loaded machine: a script error, "chrome did not start", a login that was not answered in time) is run again, up to three times with a longer
+    # settle; the output of the last run is the output (harness runs 73, 93 and 102 of task 115 had such a run, in different checks)
+    if '--eval' not in sys.argv or os.environ.get('PAGE_SHOT_CHILD'):
+        return main()
+    code, out = 1, ''
+    for attempt in range(3):
+        argv = list(sys.argv)
+        if attempt and '--settle' in argv:
+            argv[argv.index('--settle') + 1] = str(max(6, float(argv[argv.index('--settle') + 1])))
+        run = subprocess.run([sys.executable] + argv, capture_output=True, text=True, env=dict(os.environ, PAGE_SHOT_CHILD='1'))
+        code, out = run.returncode, run.stdout
+        sys.stderr.write(run.stderr)
+        if any(l.startswith('eval:') for l in out.split('\n')):
+            break
+        time.sleep(3)
+    sys.stdout.write(out)
+    sys.exit(code)
+
+
 if __name__ == '__main__':
-    main()
+    run_with_retry()
