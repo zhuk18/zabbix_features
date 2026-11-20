@@ -1,7 +1,30 @@
 <?php declare(strict_types = 0); ?>
 <script>
 const view = new class {
+	// For the checks (task 116), not for the user: what the page is doing. `busy` counts the running actions (a load, a guarded action), `pending_requests` the requests in flight,
+	// `loads_done` the loads that have finished, `finished_requests` the answers that have come. `idle` is true when nothing runs; a check waits for it (and for the state it expects)
+	// instead of a fixed time. The layout is made in one synchronous pass of render(), so there is no animation to wait for.
+	busy = 0;
+	pending_requests = 0;
+	finished_requests = 0;
+	loads_done = 0;
+
+	get idle() {
+		return this.busy === 0 && this.pending_requests === 0 && !!this.first_load_done;
+	}
+
 	async request(action, options = {}) {
+		this.pending_requests++;
+		try {
+			return await this.requestRun(action, options);
+		}
+		finally {
+			this.pending_requests--;
+			this.finished_requests++;
+		}
+	}
+
+	async requestRun(action, options = {}) {
 		// Every POST carries the CSRF token in its JSON body.
 		if (options.method === 'POST') {
 			options = {...options, body: JSON.stringify({
@@ -21,11 +44,15 @@ const view = new class {
 	// 1:1 represented_by constraint of topology-1-model.md "`represented_by` (Device → Host or Proxy)") — without this, request()'s thrown Error was an unhandled promise
 	// rejection: the click did nothing visible and the failure only showed up in the browser console.
 	async guard(action) {
+		this.busy++;
 		try {
 			await action();
 		}
 		catch (error) {
 			alert(error.message);
+		}
+		finally {
+			this.busy--;
 		}
 	}
 
@@ -341,7 +368,18 @@ const view = new class {
 		return query;
 	}
 
-	async loadDevices({reselect_edge = null, reselect_device = null, reset_layout = false, select_focus = false} = {}) {
+	async loadDevices(options = {}) {
+		this.busy++;
+		try {
+			return await this.loadDevicesRun(options);
+		}
+		finally {
+			this.busy--;
+			this.loads_done++;
+		}
+	}
+
+	async loadDevicesRun({reselect_edge = null, reselect_device = null, reset_layout = false, select_focus = false} = {}) {
 		const query = this.filterQuery();
 		const {devices = [], relations = [], contradictions = [], leaf_groups = [], junctions = []} = await this.request(`topology.devices.get${query}`);
 		this.contradictions = contradictions;

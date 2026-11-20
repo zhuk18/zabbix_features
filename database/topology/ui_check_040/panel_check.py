@@ -25,37 +25,7 @@ def check(condition, text, detail=None):
 
 
 def session():
-    profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'panel', 9700)
     return chrome, ws, js
 
 
@@ -65,7 +35,7 @@ def mouse(ws, x, y):
 
 def select(js, label, kind=None):
     js("""(async () => { const n = Array.from(view.nodes.values()).find(n => n.label === %s && (%s)); await view.selectNode(n); return 1; })()""" % (json.dumps(label), ("n.type === '%s'" % kind) if kind else 'true'))
-    time.sleep(1.5)
+    P.after_input(js)
 
 
 PANEL = """(() => {
@@ -112,25 +82,25 @@ try:
 
     print('=== the host menu (the standard Zabbix one) ===')
     js("document.querySelector('#topology-details .topology-host-name').click()")
-    time.sleep(2)
+    P.until(js, "document.querySelector('.menu-popup a')", 'the standard Zabbix host menu is open (Zabbix loads its items on its own, not through the page)')
     menu = js("(() => { const m = document.querySelector('.menu-popup'); return m ? Array.from(m.querySelectorAll('a')).map(a => a.textContent.trim()).filter(Boolean) : null; })()")
     check(menu is not None and len(menu) >= 3, 'the name of the Host opens the standard host menu', menu)
     js("document.body.click()")
-    time.sleep(0.5)
+    P.after_input(js)
 
     print('=== a row and its line ===')
     js("document.body.click()")
     row = js("""(() => { const r = Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(x => !x.hidden && !x.classList.contains('topology-link-bundle'))[0];
         r.scrollIntoView({block: 'center'}); const b = r.getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2, edges: r.dataset.edges}; })()""")
-    time.sleep(0.3)
+    P.after_input(js)
     row = js("""(() => { const r = Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(x => !x.hidden && !x.classList.contains('topology-link-bundle'))[0];
         const b = r.getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2, edges: r.dataset.edges}; })()""")
     mouse(ws, row['x'], row['y'])
-    time.sleep(0.4)
+    P.after_input(js)
     state = js("(() => ({hover: !!view.hover_entry, edge: view.hover_entry ? String(view.hover_entry.link.edge_id) : null, glow: document.querySelectorAll('.topology-link-hover').length, row: document.querySelectorAll('tr.topology-row-hover').length}))()")
     check(state['hover'] and state['edge'] == row['edges'] and state['glow'] >= 1, 'a hover on a row highlights its line', [state, row['edges']])
     mouse(ws, 700, 700)
-    time.sleep(0.3)
+    P.after_input(js)
     check(js("!view.hover_entry"), 'the pointer leaves the row: no hover on the line')
     # a hover on a line marks its row: the pointer on the line of a row of the open panel (the middle of the line, then other points of it when a node or another line is there)
     ok_hover = False
@@ -140,7 +110,7 @@ try:
             const e = view.line_entries.find(x => x.link && x.link.type === 'physical_link' && rows.includes(String(x.link.edge_id))); const p = e.hit.getPointAtLength(e.hit.getTotalLength() * u);
             const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y, edge: String(e.link.edge_id), u}; })(%s)""" % u)
         mouse(ws, point['x'], point['y'])
-        time.sleep(0.4)
+        P.after_input(js)
         marked = js("Array.from(document.querySelectorAll('tr.topology-row-hover')).map(r => r.dataset.edges)")
         tried.append([point, marked])
         if point['edge'] in ','.join(marked):
@@ -166,19 +136,19 @@ try:
     js("window.__asked = 0; window.confirm = () => { window.__asked++; return false; }")
     js("""(() => { const r = Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(x => !x.hidden && !x.classList.contains('topology-link-bundle'))[0];
         r.querySelector('.topology-menu-button').click(); })()""")
-    time.sleep(0.3)
+    P.after_input(js)
     items = js("Array.from(document.querySelectorAll('#topology-details .topology-menu-list:not([hidden]) .topology-menu-item')).map(e => e.textContent.trim())")
     check(items == ['Link details', 'Neighbor reports', 'Unlink'], 'the row menu: Link details, Neighbor reports, Unlink', items)
     js("document.querySelector('#topology-details .topology-menu-list:not([hidden]) .topology-remove-link-button, #topology-details .topology-menu-list:not([hidden]) .topology-unlink-button').click()")
-    time.sleep(1.0)
+    P.after_input(js)
     after = js("[window.__asked, document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row').length]")
     check(after[0] == 1 and after[1] == before, 'Unlink asks for a confirmation; cancelled, the link stays', [after, before])
     # Link details opens the link panel
     js("""(() => { const r = Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(x => !x.hidden && !x.classList.contains('topology-link-bundle'))[0];
         r.querySelector('.topology-menu-button').click(); })()""")
-    time.sleep(0.2)
+    P.after_input(js)
     js("document.querySelector('#topology-details .topology-menu-list:not([hidden]) .topology-link-details').click()")
-    time.sleep(0.5)
+    P.after_input(js)
     check(js("document.getElementById('topology-details-title').textContent") == 'Link details', 'Link details opens the panel of the link')
 
     print('=== a stale link has its mark in line 2; the bundle row menu ===')
@@ -200,7 +170,7 @@ try:
     check(bundle_menu == ['Link details'], 'the bundle row has a menu: Link details (Unlink only on members)', bundle_menu)
     js("document.querySelector('#topology-details tr.topology-link-bundle .topology-menu-button').click()")
     js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-details').click()")
-    time.sleep(0.5)
+    P.after_input(js)
     check('LAG' in js("document.getElementById('topology-details').textContent"), 'Link details of a bundle opens the bundle panel')
     select(js, 'SW12-10-CORE-6000-48G', 'host')
 
@@ -210,7 +180,7 @@ try:
     check(r['sections'] == ['problems+', 'links+', 'ports+', 'identity-'] and not r['has_device_details'], 'gw1: sections in order, no "Device details"', r['sections'])
     print('=== a FortiAP Device without association ===')
     js("(async () => { const n = Array.from(view.nodes.values()).find(n => n.type === 'device' && String(n.label).startsWith('FortiAP')); await view.selectNode(n); return n.label; })()")
-    time.sleep(1.5)
+    P.after_input(js)
     r = js(PANEL)
     print('  ', json.dumps(r))
     check(r['sections'][:2] == ['identity+', 'links+'] and r['sections'][2:] in ([], ['ports+']) and not r['has_device_details'], 'FortiAP: Identity, Links, Ports (Ports only when it has a group besides Connected)', r['sections'])
@@ -221,7 +191,7 @@ try:
     check(js("!!document.querySelector('#topology-details .topology-focus-button')"), 'no Focus host yet: Focus is shown')
     select(js, 'SW12-10-CORE-6000-48G', 'host')
     js("document.querySelector('#topology-details .topology-focus-button').click()")
-    time.sleep(4)
+    P.after_input(js)
     select(js, 'SW12-10-CORE-6000-48G', 'host')
     check(js("!document.querySelector('#topology-details .topology-focus-button')"), 'SW12 is the Focus host: no Focus on its panel')
     select(js, 'SW13-10-ACC-6000-48G', 'host')
@@ -229,7 +199,7 @@ try:
     select(js, 'zbx-office-gw1', 'host')
     hostid = js("(() => { const n = Array.from(view.nodes.values()).find(n => n.label === 'zbx-office-gw1' && n.type === 'host'); return String(n.hostid); })()")
     js("document.querySelector('#topology-details .topology-focus-button').click()")
-    time.sleep(4)
+    P.after_input(js)
     focus = js("[String(jQuery('#hostid').multiSelect('getData')[0].id), String(view.applied_hostid)]")
     check(focus == [hostid, hostid], 'Focus sets the Focus host and applies the filter', [focus, hostid])
 

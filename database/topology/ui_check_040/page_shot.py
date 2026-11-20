@@ -103,6 +103,137 @@ class WebSocket:
                 return answer.get('result', {})
 
 
+# task 116: the checks wait for a STATE of the page, not for a time. One helper, `wait_state`: poll a condition on the page until it is true (a long timeout, 60 s by default); on a timeout
+# raise WaitTimeout with the condition, the time, the console of the page and a screenshot (in TOPO_EVIDENCE_DIR). The polling interval is not a wait for the page: it only sets how
+# often the condition is read.
+PROBE_JS = """(() => { if (window.__topo_console) { return; } window.__topo_console = [];
+    const keep = (kind, args) => { try { window.__topo_console.push(kind + ': ' + Array.from(args).map(a => (a && a.stack) || String(a)).join(' ').slice(0, 400)); } catch (e) {} };
+    ['error', 'warn'].forEach(kind => { const old = console[kind]; console[kind] = function () { keep(kind, arguments); return old.apply(this, arguments); }; });
+    window.addEventListener('error', e => keep('error', [e.message + ' at ' + e.filename + ':' + e.lineno]));
+    window.addEventListener('unhandledrejection', e => keep('unhandledrejection', [e.reason]));
+    // wait until condition() is true (polled every 50 ms), at most `limit` ms; the error names what was waited for
+    window.__topo_wait = async (condition, what, limit = 60000) => { const t = Date.now(); while (!condition()) { if (Date.now() - t > limit) { throw new Error('timeout waiting for: ' + what); } await new Promise(r => setTimeout(r, 50)); } }; })()"""
+
+
+class WaitTimeout(RuntimeError):
+    pass
+
+
+def install_probe(ws):
+    """Collect the console (errors, warnings, unhandled rejections) of every page the browser opens from now on; call it before the navigation."""
+    ws.call('Page.addScriptToEvaluateOnNewDocument', source=PROBE_JS)
+
+
+def wait_state(ws, js, condition, what, timeout=60.0, interval=0.1, return_value=False):
+    """Wait until the JavaScript expression `condition` is true on the page. Returns the seconds it took (or, with return_value, the value of the expression). `what` says in words
+    what the check waits for."""
+    started = time.time()
+    last_error = None
+    while time.time() - started < timeout:
+        try:
+            # a DOM element is not returned by value (it would come back as {}): it counts as true
+            value = js('((value) => (value instanceof Element ? true : value))(%s)' % condition)
+            if value:
+                return value if return_value else time.time() - started
+            last_error = None
+        except RuntimeError as error:      # the page script failed: the page may be between two documents, try again until the timeout
+            last_error = error
+        time.sleep(interval)
+    try:
+        console = js('(window.__topo_console || []).join("\\n") || "(empty)"')
+    except Exception as error:
+        console = 'not readable: %s' % error
+    folder = os.environ.get('TOPO_EVIDENCE_DIR', '/tmp/topo_evidence')
+    shot = os.path.join(folder, 'timeout-%s-%d.png' % (time.strftime('%Y%m%d-%H%M%S'), os.getpid()))
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(shot, 'wb') as f:
+            f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
+    except Exception as error:
+        shot = 'no screenshot (%s)' % error
+    try:
+        state = js('window.view ? JSON.stringify({idle: view.idle, busy: view.busy, pending: view.pending_requests, loads: view.loads_done, first_load_done: !!view.first_load_done}) : "no view"')
+    except Exception as error:
+        state = 'not readable: %s' % error
+    raise WaitTimeout('timeout after %.0f s waiting for: %s\n  condition: %s\n  at %s\n  page state: %s\n  last script error: %s\n  screenshot: %s\n  console:\n%s'
+                      % (timeout, what, condition, time.strftime('%H:%M:%S'), state, last_error, shot, console))
+
+
+def settled(ws, js, what='the page is idle (no load, no action, no request)', timeout=60.0):
+    """The page has finished what it was doing (view.idle, see the page's script)."""
+    return wait_state(ws, js, 'window.view && view.idle', what, timeout)
+
+
+def until(js, condition, what, timeout=60.0):
+    """wait_state for a check that has only `js` (the function open_page returns)."""
+    return wait_state(js.ws, js, condition, what, timeout)
+
+
+def idle(js, what='the page is idle (no load, no action, no request)', timeout=60.0):
+    return settled(js.ws, js, what, timeout)
+
+
+def after_input(js, what='the page is idle after the input (no load, no action, no request)'):
+    """After a click, a key or a mouse move: the browser has drawn the frames that apply the styles, and the page has finished what the input started (a load, a guarded action).
+    The input handlers run before dispatchMouseEvent (or a click()) returns, so a request that an input starts is already counted when this is called."""
+    next_frames(js)
+    return idle(js, what)
+
+
+def next_frames(js, count=2):
+    """Let the browser draw `count` frames (a drawn change of a style or a zoom transform is in the page after it): a frame is a state, not a time."""
+    js('new Promise(resolve => { let n = %d; const step = () => (--n <= 0 ? resolve(1) : requestAnimationFrame(step)); requestAnimationFrame(step); })' % count)
+
+
+READY_JS = "document.readyState === 'complete' && !!window.view && view.first_load_done && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"
+
+
+def open_page(cookie, prefix, port_base, width=1500, height=900, action='topology.view', ready=READY_JS):
+    """Start headless Chrome with its own profile, open the page logged in and wait for its first load (task 116: one start for all checks). Returns (chrome, ws, js); the browser is
+    stopped and the profile removed at exit. `js(expr)` evaluates an expression on the page (promises are awaited) and raises RuntimeError when the page script fails."""
+    import atexit
+    profile = tempfile.mkdtemp(prefix=prefix + '-')
+    port = port_base + os.getpid() % 90
+    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
+                               '--window-size=%d,%d' % (width, height), 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def cleanup():
+        chrome.kill()
+        try:
+            chrome.wait(timeout=30)      # the browser has exited when wait() returns: a state, not a pause
+        except subprocess.TimeoutExpired:
+            pass
+        shutil.rmtree(profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
+    atexit.register(cleanup)
+    chrome.close = cleanup      # a check that opens several browsers one after the other stops each with chrome.close()
+    for _ in range(600):      # the DevTools port answers when the browser has started (up to 60 s on a loaded machine)
+        try:
+            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
+            break
+        except Exception:
+            time.sleep(0.1)
+    else:
+        raise RuntimeError('chrome did not start within 60 s (DevTools port %d)' % port)
+    ws = WebSocket(page['webSocketDebuggerUrl'])
+    ws.call('Network.enable')
+    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=BASE)
+    ws.call('Emulation.setDeviceMetricsOverride', width=width, height=height, deviceScaleFactor=1, mobile=False)
+    ws.call('Page.enable')
+    install_probe(ws)
+    ws.call('Page.navigate', url=BASE + 'zabbix.php?action=' + action)
+
+    def js(expr):
+        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
+        if r.get('exceptionDetails'):
+            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
+        return r.get('result', {}).get('value')
+    js.ws = ws      # `until(js, ...)` and `idle(js)` need the connection for the screenshot of a timeout
+
+    wait_state(ws, js, ready, 'the page %s is complete and has made its first load' % action)
+    settled(ws, js, 'the first load has finished (no request, no action)')
+    return chrome, ws, js
+
+
 # Checks of model §12.1 "Layout" (task 042), run in the real page after the filter (and --select)
 # task 098 §2: the evidence of an overlap failure (the boxes with coordinates, the overlapping pairs and by how many px, the label places, the node positions); the page script of the checks
 # `overlap` and `arc` has it as `collect(tag)`, main() writes it into a folder with a screenshot
@@ -259,14 +390,12 @@ CHECKS = {
             actions: ['merge', 'dismiss', 'delete'].map(a => panel.querySelectorAll('[data-topology-dup="' + a + '"]').length)};
         const nodes = () => document.querySelectorAll('#topology-canvas .topology-node').length;
         r.nodes_before = nodes();
+        const loads_before = view.loads_done;
         // the switches are part of the filter (task 090, model §12.1): the checkbox and Apply
         document.getElementById('topology-filter-duplicates').click();
         document.getElementById('topology-filter-apply').click();
-        // wait for the server's answer (the number of nodes changes), at most 30 s: a fixed pause of 3 s was too short on a busy VM
-        for (let i = 0; i < 60 && nodes() === r.nodes_before; i++) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // wait for the load that Apply makes: it has finished and the page is idle
+        await window.__topo_wait(() => view.loads_done > loads_before && view.idle, 'the load after Apply (duplicates filter)');
         // V-17: the server answers with the Devices that have a candidate, their partners and one hop of context (dimmed), and each pair has a labelled line
         r.nodes_filtered = nodes();
         r.duplicate_nodes = document.querySelectorAll('#topology-canvas .topology-node:not(.topology-context)').length;
@@ -282,16 +411,19 @@ CHECKS = {
     'unlinked': '''(async () => {
         // the Devices drawn with no line at all (a Device in a Junction projection has a line to it, §12.6: it is not "without a link"); the R1 end state has the ghost of the replaced NA device
         const drawn = () => view.drawn_nodes.filter(n => n.type === 'device' && !view.drawn_links.some(l => l.source === n || l.target === n)).length;
-        const settle = async before => { for (let i = 0; i < 40 && drawn() === before; i++) { await new Promise(resolve => setTimeout(resolve, 500)); } await new Promise(resolve => setTimeout(resolve, 800)); };
+        // Apply makes a load; wait until it has finished and the page is idle
+        const settle = async loads => { await window.__topo_wait(() => view.loads_done > loads && view.idle, 'the load after Apply (switch Show devices without links)'); };
         const sw = document.getElementById('topology-filter-unlinked');
         const r = {switch_default: sw.checked, off_at_start: drawn()};
         sw.checked = true;
+        let loads = view.loads_done;
         document.getElementById('topology-filter-apply').click();
-        await settle(r.off_at_start);
+        await settle(loads);
         r.on = drawn();
         sw.checked = false;
+        loads = view.loads_done;
         document.getElementById('topology-filter-apply').click();
-        await settle(r.on);
+        await settle(loads);
         r.off_again = drawn();
         r.ok = r.switch_default === false && r.off_at_start === 0 && r.on > 0 && r.off_again === 0;
         return r;
@@ -342,7 +474,7 @@ CHECKS = {
     'fit': '''(async () => {
         const before = view.zoom_transform.k;
         document.getElementById('topology-fit').click();
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));      // the zoom transform is in the page after its next frames
         const svg = document.getElementById('topology-canvas').getBoundingClientRect();
         const boxes = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).map(g => g.getBoundingClientRect());
         const left = Math.min(...boxes.map(b => b.left)), right = Math.max(...boxes.map(b => b.right)), top = Math.min(...boxes.map(b => b.top)), bottom = Math.max(...boxes.map(b => b.bottom));
@@ -439,7 +571,6 @@ def main():
     ap.add_argument('--height', type=int, default=900)
     ap.add_argument('--unlinked', action='store_true', help='set the switch "Show devices without links" before the filter is applied (model §12.1, V-1)')
     ap.add_argument('--no-filter', action='store_true', help='do not set or apply the filter: the state of the first load of the page (task 112)')
-    ap.add_argument('--settle', type=float, default=8.0, help='seconds for the force layout to settle')
     ap.add_argument('--select', help='after the filter: select the node with this label (opens its side panel)')
     ap.add_argument('--action', default='topology.view', help='the page (zabbix.php?action=...); another page than topology.view gets no filter (to compare with stock Zabbix pages)')
     ap.add_argument('--menu', choices=('open', 'collapsed'), help='the Zabbix main menu: open (full) or collapsed (compact), set in this page only (the class of'
@@ -456,7 +587,8 @@ def main():
                                '--user-data-dir=' + profile, '--window-size=%d,%d' % (a.width, a.height), 'about:blank'],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        for _ in range(100):
+        # the browser has started when its DevTools port answers (up to 60 s on a loaded machine)
+        for _ in range(600):
             try:
                 targets = json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port))
                 page = next(t for t in targets if t.get('type') == 'page')
@@ -464,12 +596,13 @@ def main():
             except Exception:
                 time.sleep(0.1)
         else:
-            sys.exit('chrome did not start')
+            sys.exit('chrome did not start within 60 s (DevTools port %d)' % port)
         ws = WebSocket(page['webSocketDebuggerUrl'])
         ws.call('Network.enable')
         ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=BASE)
         ws.call('Emulation.setDeviceMetricsOverride', width=a.width, height=a.height, deviceScaleFactor=1, mobile=False)
         ws.call('Page.enable')
+        install_probe(ws)
         ws.call('Page.navigate', url=BASE + 'zabbix.php?action=' + a.action)
 
         def js(expr):
@@ -477,28 +610,16 @@ def main():
             if r.get('exceptionDetails'):
                 raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
             return r.get('result', {}).get('value')
+        js.ws = ws
 
-        # wait for the page (the first request after a change of the code can take longer than a fixed sleep): the document is complete and the menu and, on the graph page, the
-        # filter bar are there
+        # wait for the page: the document is complete and the menu and, on the graph page, the filter bar are there; on the graph page the first load has been made (the menu and the filter
+        # are set after it, as a user does, so that two loads of the page do not run into each other) and the page is idle
         ready = "document.readyState === 'complete' && !!document.querySelector('.sidebar') && (%s)" % (
             "!!document.getElementById('topology-filter-apply')" if a.action == 'topology.view' else 'true')
-        for _ in range(120):
-            try:
-                if js(ready):
-                    break
-            except RuntimeError:
-                pass
-            time.sleep(0.5)
-        # task 101 §3, 112: the page has made its first load (until 2.94 it also made a first panel: the first selection read four requests and drew again; since 2.95 nothing is selected); the menu and the filter are set after it, as a user does, so that two loads of the page
-        # do not run into each other (under load the second answer could come last and the layout was not the same each time)
-        for _ in range(60):
-            try:
-                if js("!!(window.view && view.first_load_done)") or a.action != 'topology.view':
-                    break
-            except RuntimeError:
-                pass
-            time.sleep(0.5)
-        time.sleep(1)
+        wait_state(ws, js, ready, 'the page %s is complete (document, menu, filter bar)' % a.action)
+        if a.action == 'topology.view':
+            wait_state(ws, js, 'window.view && view.first_load_done', 'the first load of the page is done')
+            settled(ws, js, 'the first load has finished (no request, no action)')
 
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids come from the page's API
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids are read from the database (read only)
@@ -521,10 +642,13 @@ def main():
         if a.menu:
             js('''(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden');
                 window.dispatchEvent(new Event('resize')); })()''' % ('true' if a.menu == 'collapsed' else 'false'))
-            time.sleep(1)
+            next_frames(js)      # the resize is handled in the page's next frames
         if a.action == 'topology.view' and not a.no_filter:
+            loads = js('view.loads_done')
             print('filter:', json.dumps(js(filter_js)))
-        time.sleep(a.settle)
+            # Apply makes a load; wait until it has finished and the page is idle (a.settle is no longer used: the layout is one synchronous pass of render())
+            wait_state(ws, js, 'view.loads_done > %d' % loads, 'Apply filter made its load (loads_done > %d)' % loads)
+            settled(ws, js, 'the load after Apply filter has finished')
         if a.select:
             picked = js('''(async () => {
                 const node = Array.from(view.nodes.values()).find(n => n.label === %s && n.type !== 'device') || Array.from(view.nodes.values()).find(n => n.label === %s);
@@ -533,7 +657,7 @@ def main():
                 return node.type + ' ' + node.label;
             })()''' % ((json.dumps(a.select),) * 3))
             print('selected:', picked)
-            time.sleep(3)
+            settled(ws, js, 'the panel of the selected node has been read (no request, no action)')
         if a.eval:
             print('eval:', json.dumps(js(a.eval)))
         failed = False
@@ -565,7 +689,7 @@ def main():
             js('''(() => { for (const el of document.querySelectorAll('.topology-panel, .topology-workspace, .topology-prototype')) { el.style.maxHeight = 'none'; el.style.height = 'auto'; el.style.overflow = 'visible'; } })()''')
             height = js('Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)')
             ws.call('Emulation.setDeviceMetricsOverride', width=a.width, height=int(height), deviceScaleFactor=1, mobile=False)
-            time.sleep(1)
+            next_frames(js, 3)      # the new size is in the page after its next frames
         shot = ws.call('Page.captureScreenshot', format='png')
         with open(a.out, 'wb') as f:
             f.write(base64.b64decode(shot['data']))
@@ -578,25 +702,5 @@ def main():
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def run_with_retry():
-    # a run with --eval that ends without its `eval:` line (the browser or the page was too slow on a loaded machine: a script error, "chrome did not start", a login that was not answered in time) is run again, up to three times with a longer
-    # settle; the output of the last run is the output (harness runs 73, 93 and 102 of task 115 had such a run, in different checks)
-    if '--eval' not in sys.argv or os.environ.get('PAGE_SHOT_CHILD'):
-        return main()
-    code, out = 1, ''
-    for attempt in range(3):
-        argv = list(sys.argv)
-        if attempt and '--settle' in argv:
-            argv[argv.index('--settle') + 1] = str(max(6, float(argv[argv.index('--settle') + 1])))
-        run = subprocess.run([sys.executable] + argv, capture_output=True, text=True, env=dict(os.environ, PAGE_SHOT_CHILD='1'))
-        code, out = run.returncode, run.stdout
-        sys.stderr.write(run.stderr)
-        if any(l.startswith('eval:') for l in out.split('\n')):
-            break
-        time.sleep(3)
-    sys.stdout.write(out)
-    sys.exit(code)
-
-
 if __name__ == '__main__':
-    run_with_retry()
+    main()

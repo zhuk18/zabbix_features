@@ -22,37 +22,7 @@ def check(condition, text, detail=None):
 
 
 def session():
-    profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'panel', 9700)
     return chrome, ws, js
 
 
@@ -62,7 +32,7 @@ def mouse(ws, x, y):
 
 def select(js, label, kind=None):
     js("""(async () => { const n = Array.from(view.nodes.values()).find(n => n.label === %s && (%s)); await view.selectNode(n); return 1; })()""" % (json.dumps(label), ("n.type === '%s'" % kind) if kind else 'true'))
-    time.sleep(1.5)
+    P.after_input(js)
 
 
 
@@ -79,16 +49,14 @@ db("delete from topo_nodes where type = 'device' and json_unquote(json_extract(a
 chrome, ws, js = session()
 
 
-def wait(expr, seconds=15):
-    for _ in range(int(seconds * 4)):
-        try:
-            value = js(expr)
-        except RuntimeError:
-            value = None
-        if value:
-            return value
-        time.sleep(0.25)
-    return js(expr)
+def wait(expr, seconds=None):
+    """Wait (up to 60 s) until the expression is true on the page; its value is returned. On a timeout the message (condition, time, page state, console, screenshot) is printed and the
+    value is '' so that the check that asked fails with it (task 116)."""
+    try:
+        return P.wait_state(ws, js, expr, 'the page reaches: ' + expr[:120], return_value=True)
+    except P.WaitTimeout as error:
+        print(error)
+        return ''
 
 
 def where(expr):
@@ -100,14 +68,14 @@ def click(expr):
     assert p is not None, 'nothing to click: ' + expr
     for kind in ('mouseMoved', 'mousePressed', 'mouseReleased'):
         ws.call('Input.dispatchMouseEvent', type=kind, x=p['x'], y=p['y'], button='left' if kind != 'mouseMoved' else 'none', buttons=1 if kind == 'mousePressed' else 0, clickCount=1)
-    time.sleep(0.4)
+    P.after_input(js)
 
 
 def type_into(selector, text):
     click("document.querySelector(%s)" % json.dumps(selector))
     js("document.querySelector(%s).select()" % json.dumps(selector))
     ws.call('Input.insertText', text=text)
-    time.sleep(0.2)
+    P.after_input(js)
 
 
 def dialog_button(title):
@@ -149,7 +117,7 @@ def layout_clean(text):
     check(r['overlaps'] == 0 and r['bundle_label_overlaps'] == [] and new == [], text, [r['overlapping_pairs'], r['bundle_label_overlaps'], new])
 
 try:
-    time.sleep(2)
+    P.after_input(js)
     BASELINE.update({crossing_key(t): True for t in js(P.CHECKS['overlap'])['lines_through_nodes']})
     print('lines through a node before the new Device: %d' % len(BASELINE))
     js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
@@ -200,13 +168,13 @@ try:
     port = js("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row ? row.querySelector('.topology-port-name').textContent.trim() : null; })()")
     check(port is not None, 'SW12 has a free port', port)
     click("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row.querySelector('.topology-link-button'); })()")
-    time.sleep(2.5)
+    P.after_input(js)
     edge = db("select e.id from topo_edges e join topo_nodes a on a.id = e.src_id join topo_nodes b on b.id = e.dst_id where e.type = 'physical_link' and json_unquote(json_extract(e.attrs, '$.discovered_via')) = 'manual' and "
               "(json_unquote(json_extract(a.attrs, '$.name')) = 'lan0' or json_unquote(json_extract(b.attrs, '$.name')) = 'lan0') limit 1")
     check(edge != '', 'a manual link between the free port %s of SW12 and lan0 is in the database' % port, edge)
     click("(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === 'ISP-Router'); return g.querySelector('rect.topology-shape'); })()")
     wait("(%s) === 'ISP-Router'" % TITLE)
-    time.sleep(1)
+    P.after_input(js)
     dash = js("(() => { const i = view.drawn_links.findIndex(l => String(l.edge_id) === '%s'); return i < 0 ? null : getComputedStyle(view.link_selection.nodes()[i]).strokeDasharray; })()" % edge)
     check(dash not in (None, '', 'none'), 'the manual link is drawn dashed (manual channel, §12.3)', [dash, edge, js("view.drawn_links.map(l => [l.edge_id, l.type, l.discovered_via])")])
     check(js("document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row').length") == 1, 'the Links section of ISP-Router has the link')
@@ -239,7 +207,7 @@ try:
     click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
     click("document.querySelector('#topology-details .topology-delete-device-button')")
     check(wait("view.drawn_nodes.every(n => n.label !== 'ISP-Router')"), 'Delete Device: the Device is not drawn any more')
-    time.sleep(1)
+    P.after_input(js)
     check(left_over() == '0' and db("select count(*) from topo_edges where id = %s" % edge) == '0' and db("select count(*) from topo_identity_keys k left join topo_nodes n on n.id = k.device_id where n.id is null") == '0',
           'nothing is left in the database: no manual Device, no manual port, no link', [left_over(), db("select count(*) from topo_edges where id = %s" % edge)])
     check(db("select count(*) from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = '%s' and json_unquote(json_extract(attrs, '$.if_index')) is not null" % port) != '0', 'the port %s of SW12 stays' % port)

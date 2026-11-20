@@ -25,37 +25,7 @@ def check(condition, text, detail=None):
 
 
 def session():
-    profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'panel', 9700)
     return chrome, ws, js
 
 
@@ -65,7 +35,7 @@ def mouse(ws, x, y):
 
 def select(js, label, kind=None):
     js("""(async () => { const n = Array.from(view.nodes.values()).find(n => n.label === %s && (%s)); await view.selectNode(n); return 1; })()""" % (json.dumps(label), ("n.type === '%s'" % kind) if kind else 'true'))
-    time.sleep(3.5)
+    P.after_input(js)
 
 
 
@@ -76,7 +46,7 @@ shot = sys.argv[sys.argv.index('--shot') + 1] if '--shot' in sys.argv else None
 
 chrome, ws, js = session()
 try:
-    time.sleep(2)
+    P.after_input(js)
     junctions = js("view.junctions.map(j => ({port_id: String(j.port_id), port: j.port_name, device: j.device_name, devices: j.devices.map(d => d.name)}))")
     check(len(junctions) >= 1, 'the page has the Junction projections of the stand', junctions)
     # the biggest one is the one the check follows
@@ -102,7 +72,7 @@ try:
 
     print('=== the panel ===')
     js("""(() => { const g = Array.from(document.querySelectorAll('g.topology-node.junction')).find(e => e.__data__.id === '%s'); g.querySelector('rect.topology-shape').dispatchEvent(new MouseEvent('click', {bubbles: true})); })()""" % node_id)
-    time.sleep(1.0)
+    P.after_input(js)
     title = js(TITLE_ID)
     check(title == 'Junction at %s, port %s' % (junction['device'], junction['port']), 'the click opens the panel "Junction at <Device>, port <port>"', title)
     rows = js("Array.from(document.querySelectorAll('#topology-details tr.topology-group-row')).map(r => r.textContent.trim())")
@@ -119,16 +89,16 @@ try:
         print('screenshot: ' + shot)
     print('=== a Device of the list, then Back ===')
     js("document.querySelector('#topology-details tr.topology-group-row').click()")
-    time.sleep(3.5)
+    P.after_input(js)
     back = js(BACK)
     check(back is not None and back.startswith('← Back to Junction at '), 'a Device of the list: "← Back to Junction at …"', back)
     js("document.querySelector('#topology-details .topology-back-button').click()")
-    time.sleep(2.0)
+    P.after_input(js)
     check(js(TITLE_ID) == title and js("document.querySelectorAll('#topology-details tr.topology-group-row').length") == len(rows) and js(BACK) is None, 'Back: the Junction panel again, same list', js(TITLE_ID))
     print('=== a click on a line of the projection opens the same panel ===')
     js("view.panel_from = null; document.getElementById('topology-details').innerHTML = ''")
     js("""(() => { const e = view.line_entries.find(e => e.link && e.link.type === 'junction_member'); e.open(); })()""")
-    time.sleep(0.5)
+    P.after_input(js)
     check(js(TITLE_ID) == title, 'a click on a line to a Device opens the Junction panel', js(TITLE_ID))
 finally:
     chrome.kill()

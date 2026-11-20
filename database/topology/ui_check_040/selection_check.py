@@ -24,7 +24,7 @@ def check(condition, text, detail=None):
 
 
 def run(*args, before_filter=None):
-    out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--settle', '3', '--eval', before_filter or STATE, '--out', '/tmp/selection.png', *args],
+    out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--eval', before_filter or STATE, '--out', '/tmp/selection.png', *args],
                          capture_output=True, text=True, timeout=180).stdout
     line = next((l for l in out.split('\n') if l.startswith('eval:')), None)
     if not line:
@@ -42,14 +42,14 @@ check(state is not None and not state['panel'] and state['hint'] and not state['
 state = run('--host', 'SW13-10-ACC-6000-48G', '--depth', '1')
 check(state is not None and state['panel'] and state['title'].startswith('SW13-10-ACC-6000-48G'), 'Apply with a focus host: the panel of the focus host is open', state)
 # 4. the panel is open, the focus host is removed from the filter, Apply: the panel is closed
-again = '(async () => { jQuery("#hostid").multiSelect("clean"); document.getElementById("topology-filter-apply").click(); await new Promise(r => setTimeout(r, 6000)); return %s; })()' % STATE
+again = '(async () => { jQuery("#hostid").multiSelect("clean"); const loads = view.loads_done; document.getElementById("topology-filter-apply").click(); await window.__topo_wait(() => view.loads_done > loads && view.idle, "the load after Apply"); return %s; })()' % STATE
 state = run('--host', 'SW13-10-ACC-6000-48G', '--depth', '1', before_filter=again)
 check(state is not None and not state['panel'] and state['hint'] and not state['selected'], 'the panel was open; Apply without the focus host closes it', state)
 # 5-8. a reload after an action (model 2.96 §12.1): the request of the view is wrapped, the answer is changed, the page reloads
 STUB = '''(async () => {
     const orig = view.request.bind(view); let mutate = null;
     view.request = async (name, options) => { const answer = await orig(name, options); if (name.startsWith('topology.devices.get') && mutate) { mutate(answer); } return answer; };
-    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const quiet = () => window.__topo_wait(() => view.idle, 'the page is idle after the action');      // the action has awaited its own reads; this is the state, not a time
     const state = () => (%s);
     const out = {};
     // 5. a Device panel: the Device is renamed by the answer: the panel reads it again
@@ -58,22 +58,22 @@ STUB = '''(async () => {
     out.before = state();
     const shown = view.selected_node;      // the node of the panel: the Host when the Device has one
     mutate = answer => answer.devices.forEach(n => { if (String(n.id) === String(shown.id)) { n.label = 'RENAMED-BY-RELOAD'; n.name = 'RENAMED-BY-RELOAD'; } });
-    await view.loadDevices(); await wait(800);
+    await view.loadDevices(); await quiet();
     out.renamed = state();
     // 6. the Device is gone from the answer (merged, deleted): the panel closes, nothing is selected
     mutate = answer => { answer.devices = answer.devices.filter(n => String(n.id) !== String(shown.id)); answer.relations = answer.relations.filter(r => String(r.source) !== String(shown.id) && String(r.target) !== String(shown.id)); };
-    await view.loadDevices(); await wait(800);
+    await view.loadDevices(); await quiet();
     out.gone = state();
     // 7. a link panel, the link is gone from the answer (unlinked): the panel closes
-    mutate = null; await view.loadDevices(); await wait(500);
+    mutate = null; await view.loadDevices(); await quiet();
     const link = view.links.find(l => l.edge_id !== null && l.edge_id !== undefined && l.type === 'physical_link');
-    await view.selectLink(view.resolvedLink(link)); await wait(500);
+    await view.selectLink(view.resolvedLink(link)); await quiet();
     out.link_open = state();
     mutate = answer => { answer.relations = answer.relations.filter(r => String(r.edge_id ?? '') !== String(link.edge_id)); };
-    await view.loadDevices(); await wait(800);
+    await view.loadDevices(); await quiet();
     out.link_gone = state();
     // 8. nothing open: a reload opens nothing
-    mutate = null; await view.loadDevices(); await wait(500);
+    mutate = null; await view.loadDevices(); await quiet();
     out.nothing = state();
     return out;
 })()''' % STATE.replace('\n', ' ')

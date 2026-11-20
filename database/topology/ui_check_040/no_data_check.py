@@ -25,11 +25,7 @@ def db(statement):
     return subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip()
 
 
-profile = tempfile.mkdtemp(prefix='nodata-')
-atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-port = 9900 + os.getpid() % 90
-chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                           '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+chrome = None
 
 
 def shot(ws, name):
@@ -40,32 +36,7 @@ def shot(ws, name):
 
 
 try:
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'nodata', 9900)
 
     def mouse(kind, x, y, count=1):
         ws.call('Input.dispatchMouseEvent', type=kind, x=x, y=y, button='left' if kind != 'mouseMoved' else 'none', buttons=1 if kind == 'mousePressed' else 0, clickCount=count)
@@ -74,16 +45,13 @@ try:
     check(len(host) == 2, 'the office host %s is in the lab' % SWITCH_HOST, host)
     js("""(() => { jQuery('#hostid').multiSelect('addData', [{id: %s, name: %s}]); document.getElementById('topology-filter-hops').value = '1'; document.getElementById('topology-filter-apply').click(); return 1; })()"""
        % (json.dumps(host[0]), json.dumps(host[1])))
-    time.sleep(2)
+    P.after_input(js)
     js("(view.leaf_groups ?? []).forEach(g => view.unfoldGroup(g.parent))")      # set-up: the end Devices of SW15 are in a leaf group, folded until the group is unfolded
-    for _ in range(60):
-        if js("view.drawn_nodes.some(n => n.label === %s)" % json.dumps(END_DEVICE)):
-            break
-        time.sleep(0.5)
-    time.sleep(1.5)
+    P.until(js, "view.drawn_nodes.some(n => n.label === %s)" % json.dumps(END_DEVICE), 'the end Device %s is drawn after the unfold' % END_DEVICE)
+    P.after_input(js)
     check(js("view.drawn_nodes.some(n => n.label === %s)" % json.dumps(END_DEVICE)), 'the end Device %s is drawn next to %s' % (END_DEVICE, SWITCH))
     js("""(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.label === %s && n.type === 'device')); return 1; })()""" % json.dumps(SWITCH))
-    time.sleep(2.5)
+    P.after_input(js)
 
     # the Links row of the end Device: the load of this port (the switch side) is in the row; a click on the row opens the link panel
     rows = js("""Array.from(document.querySelectorAll('#topology-details .topology-links-table tr.topology-link-row')).filter(r => !r.hidden && r.textContent.indexOf(%s) >= 0).map(r => ({edges: r.dataset.edges, text: r.textContent.trim().replace(/\\s+/g, ' ')}))""" % json.dumps(END_DEVICE))
@@ -97,7 +65,11 @@ try:
             const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y}; })(%s)""" % (json.dumps(edge), u))
         mouse('mouseMoved', point['x'] - 3, point['y'] - 3)
         mouse('mouseMoved', point['x'], point['y'])
-        time.sleep(0.5)
+        P.next_frames(js)
+        try:      # a point that is not on the line shows no tooltip: this loop looks for a point that is on it, so a miss is not an error (20 s for a slow VM)
+            P.until(js, "(() => { const t = document.getElementById('topology-tooltip'); return t && !t.hidden && t.textContent.indexOf(%s) >= 0; })()" % json.dumps(END_DEVICE), 'the tooltip of the line shows %s' % END_DEVICE, 20)
+        except P.WaitTimeout:
+            pass
         tip = js("(() => { const t = document.getElementById('topology-tooltip'); return t && !t.hidden ? t.textContent : null; })()")
         if tip and END_DEVICE in tip:
             break
@@ -110,7 +82,7 @@ try:
     mouse('mouseMoved', point['x'], point['y'])
     mouse('mousePressed', point['x'], point['y'])
     mouse('mouseReleased', point['x'], point['y'])
-    time.sleep(2.0)
+    P.after_input(js)
     panel = js("""Array.from(document.querySelectorAll('#topology-details tr')).map(r => r.textContent.trim().replace(/\\s+/g, ' '))""")
     title = js("(document.getElementById('topology-details-title') || {textContent: ''}).textContent.trim()")
     check(title == 'Link details', 'a click on the line opens the link panel', title)
@@ -129,6 +101,7 @@ try:
     check('template with interface discovery' in text and 'official SNMP interface template' in text and 'Topology by SNMP' in text and 'Network Generic Device by SNMP' not in text,
           'the reason "no interface items" says that the host needs a template with interface discovery (an example, not one template by name)', text)
 finally:
-    chrome.kill()
+    if chrome:
+        chrome.close()
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All no-data checks passed.'))
 sys.exit(1 if failed else 0)

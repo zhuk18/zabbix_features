@@ -233,14 +233,14 @@ else
 		page_test "page layout 1460x900, menu open" /tmp/topo_t_page_1460.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --menu open --check layout --out /tmp/topo_t_page_1460.png
 		# task 090 (model §12.1, §12.2): no node box overlaps another, at both window sizes, without a focus host (force placement) and with one (radial placement); the switch
 		# "Show devices without links"; the Addresses of SW12 with the count and the folded sources
-		page_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_1500.png
-		page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_1280.png
-		page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1500.png
-		page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --settle 2 --check overlap --out /tmp/topo_t_overlap_radial_1280.png
+		page_test "page overlap 1500x900, nothing selected" /tmp/topo_t_overlap_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --check overlap --out /tmp/topo_t_overlap_1500.png
+		page_test "page overlap 1280x800, nothing selected, menu collapsed" /tmp/topo_t_overlap_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --check overlap --out /tmp/topo_t_overlap_1280.png
+		page_test "page overlap 1500x900, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1500.log python3 "$shot" --host $sw12 --depth 2 --width 1500 --height 900 --menu open --check overlap --out /tmp/topo_t_overlap_radial_1500.png
+		page_test "page overlap 1280x800, focus SW12, depth 2 (radial)" /tmp/topo_t_overlap_radial_1280.log python3 "$shot" --host $sw12 --depth 2 --width 1280 --height 800 --menu collapsed --check overlap --out /tmp/topo_t_overlap_radial_1280.png
 		# the subject of the switch is a Device with no link at all: since the Junction projection (104) draws the three MikroTik Devices of SW18 port 6, the check makes one of its own for the
 		# time of the check (a Device row with a name that no scenario uses; the next reset clears it too)
 		mysql -uzabbix zabbix -e "INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '{\"sysname\":\"ZZ-NO-LINK-CHECK\",\"chassis_id\":\"ZZ-NO-LINK-CHECK\"}', 0, 0)" 2>/dev/null
-		page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check unlinked --out /tmp/topo_t_unlinked.png
+		page_test "page switch Show devices without links" /tmp/topo_t_unlinked.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --check unlinked --out /tmp/topo_t_unlinked.png
 		mysql -uzabbix zabbix -e "DELETE FROM topo_nodes WHERE type='device' AND attrs LIKE '%ZZ-NO-LINK-CHECK%'" 2>/dev/null
 		# a Host without a Device and without a link (a throwaway host through the API): not drawn, drawn with the switch, drawn as the focus host (091)
 		if [ -n "${ZBX_TOKEN:-}" ]; then
@@ -269,10 +269,10 @@ else
 		# the time budget of the node panel: SW12 is complete within 300 ms on the quiet VM, the goal 200 ms is printed (a note on a loaded one) (102, 105)
 		page_test "page: the panel of SW12 is complete within 300 ms (median of 5 clicks; goal 200 ms)" /tmp/topo_t_panel_time.log python3 "$here/ui_check_040/panel_time_check.py"
 		# Fit puts the whole graph in the window; the leaves of an unfolded group are on an arc (092)
-		page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check fit --out /tmp/topo_t_fit_1500.png
-		page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --settle 2 --check fit --out /tmp/topo_t_fit_1280.png
-		page_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --settle 2 --check arc --out /tmp/topo_t_arc.png
-		page_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); document.querySelectorAll('#topology-details details.topology-identity, #topology-details details.topology-addresses').forEach(d => { d.open = true; }); return 1; })()" --width 1500 --height 900 --menu open --settle 2 --check addresses --out /tmp/topo_t_addr_sw12.png
+		page_test "page: Fit 1500x900" /tmp/topo_t_fit_1500.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --check fit --out /tmp/topo_t_fit_1500.png
+		page_test "page: Fit 1280x800, menu collapsed" /tmp/topo_t_fit_1280.log python3 "$shot" --depth 1 --width 1280 --height 800 --menu collapsed --check fit --out /tmp/topo_t_fit_1280.png
+		page_test "page: the leaves of SW18 on an arc" /tmp/topo_t_arc.log python3 "$shot" --depth 1 --width 1500 --height 900 --menu open --check arc --out /tmp/topo_t_arc.png
+		page_test "page Addresses of SW12 (count, folded sources)" /tmp/topo_t_addr_sw12.log python3 "$shot" --host $sw12 --depth 1 --eval "(async () => { await view.selectNode(Array.from(view.nodes.values()).find(n => n.type === 'device' && n.label === '$sw12')); document.querySelectorAll('#topology-details details.topology-identity, #topology-details details.topology-addresses').forEach(d => { d.open = true; }); return 1; })()" --width 1500 --height 900 --menu open --check addresses --out /tmp/topo_t_addr_sw12.png
 		page_test "page escaping (labels and cells)" /tmp/topo_t_page_escape.log python3 "$shot" --host $sw12 --depth 1 --select $sw12 --width 1460 --height 900 --check escape --out /tmp/topo_t_page_escape.png
 		# the menu item, the last run view and its links, started_by of a run started from the page, the new filters of topology.observations.get, a user that is not a Super admin (076)
 		exec_test "lab/php/lastrun_http_check.php" /tmp/topo_t_lastrun_http.log php "$here/lab/php/lastrun_http_check.php"
@@ -280,8 +280,8 @@ else
 		# the page header and filter bar, parallel links, leaf groups (090)
 		exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
 		exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
-		page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1500.png
-		page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --settle 1 --check lastrun --out /tmp/topo_t_lastrun_1280.png
+		page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --check lastrun --out /tmp/topo_t_lastrun_1500.png
+		page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --check lastrun --out /tmp/topo_t_lastrun_1280.png
 		# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
 		if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
 			page_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png

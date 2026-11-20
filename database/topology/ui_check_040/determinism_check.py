@@ -22,37 +22,7 @@ def check(condition, text, detail=None):
 
 
 def session():
-    profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(shutil.rmtree, profile, ignore_errors=True)      # the Chrome profile is not left in /tmp (task 100)
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'panel', 9700)
     return chrome, ws, js
 
 
@@ -62,7 +32,7 @@ def mouse(ws, x, y):
 
 def select(js, label, kind=None):
     js("""(async () => { const n = Array.from(view.nodes.values()).find(n => n.label === %s && (%s)); await view.selectNode(n); return 1; })()""" % (json.dumps(label), ("n.type === '%s'" % kind) if kind else 'true'))
-    time.sleep(1.5)
+    P.after_input(js)
 
 
 
@@ -75,50 +45,19 @@ a = ap.parse_args()
 
 
 def load(width, height, menu):
-    profile = tempfile.mkdtemp(prefix='det-')
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=%d,%d' % (width, height), 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    chrome, ws, js = P.open_page(cookie, 'det', 9700, width, height)
     try:
-        for _ in range(100):
-            try:
-                page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-                break
-            except Exception:
-                time.sleep(0.1)
-        ws = P.WebSocket(page['webSocketDebuggerUrl'])
-        ws.call('Network.enable')
-        ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-        ws.call('Emulation.setDeviceMetricsOverride', width=width, height=height, deviceScaleFactor=1, mobile=False)
-        ws.call('Page.enable')
-        ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-        def js(expr):
-            r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-            if r.get('exceptionDetails'):
-                raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-            return r.get('result', {}).get('value')
-
-        for _ in range(120):
-            try:
-                if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                    break
-            except RuntimeError:
-                pass
-            time.sleep(0.5)
         if not a.no_menu:
-          js("(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden'); window.dispatchEvent(new Event('resize')); })()" % ('true' if menu == 'collapsed' else 'false'))
-        time.sleep(3)
+            js("(() => { const s = document.querySelector('.sidebar'); s.classList.toggle('is-compact', %s); s.classList.remove('is-hidden'); window.dispatchEvent(new Event('resize')); })()" % ('true' if menu == 'collapsed' else 'false'))
+        P.next_frames(js)      # the resize is handled in the page's next frames; the layout is one synchronous pass
+        P.settled(ws, js)
         positions = js("Object.fromEntries(view.drawn_nodes.map(n => [String(n.id), [n.x, n.y]]))")
         positions['_data'] = js("JSON.stringify([Array.from(view.nodes.keys()), view.links.map(l => [l.source, l.target, l.type, l.edge_id, l.stale, l.superseded_at])])")
         positions['_size'] = js("[Math.round(view.view_size.width), Math.round(view.view_size.height), document.getElementById('topology-canvas').getBoundingClientRect().width]")
         result = js(P.CHECKS['overlap'])
         return positions, result
     finally:
-        chrome.kill()
-        chrome.wait(timeout=10)
-        time.sleep(2)      # the helper processes of Chrome write into the profile until they are gone
-        shutil.rmtree(profile, ignore_errors=True)
+        chrome.close()
 
 
 for width, height, menu in [x for x in ((1500, 900, 'open'), (1280, 800, 'collapsed')) if str(x[0]) in a.sizes.split(',')]:

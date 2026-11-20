@@ -27,37 +27,7 @@ def db(statement):
 
 
 def session():
-    profile = tempfile.mkdtemp(prefix='panel-')
-    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-    port = 9700 + os.getpid() % 200
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'panel', 9700)
     return chrome, ws, js
 
 
@@ -67,7 +37,7 @@ def mouse(ws, x, y):
 
 def select(js, label, kind=None):
     js("""(async () => { const n = Array.from(view.nodes.values()).find(n => n.label === %s && (%s)); await view.selectNode(n); return 1; })()""" % (json.dumps(label), ("n.type === '%s'" % kind) if kind else 'true'))
-    time.sleep(1.5)
+    P.after_input(js)
 
 
 
@@ -81,16 +51,14 @@ def left_over():
 chrome, ws, js = session()
 
 
-def wait(expr, seconds=15):
-    for _ in range(int(seconds * 4)):
-        try:
-            value = js(expr)
-        except RuntimeError:
-            value = None
-        if value:
-            return value
-        time.sleep(0.25)
-    return js(expr)
+def wait(expr, seconds=None):
+    """Wait (up to 60 s) until the expression is true on the page; its value is returned. On a timeout the message (condition, time, page state, console, screenshot) is printed and the
+    value is '' so that the check that asked fails with it (task 116)."""
+    try:
+        return P.wait_state(ws, js, expr, 'the page reaches: ' + expr[:120], return_value=True)
+    except P.WaitTimeout as error:
+        print(error)
+        return ''
 
 
 def where(expr):
@@ -102,14 +70,14 @@ def click(expr):
     assert p is not None, 'nothing to click: ' + expr
     for kind in ('mouseMoved', 'mousePressed', 'mouseReleased'):
         ws.call('Input.dispatchMouseEvent', type=kind, x=p['x'], y=p['y'], button='left' if kind != 'mouseMoved' else 'none', buttons=1 if kind == 'mousePressed' else 0, clickCount=1)
-    time.sleep(0.4)
+    P.after_input(js)
 
 
 def type_into(selector, text):
     click("document.querySelector(%s)" % json.dumps(selector))
     js("document.querySelector(%s).select()" % json.dumps(selector))
     ws.call('Input.insertText', text=text)
-    time.sleep(0.2)
+    P.after_input(js)
 
 
 def dialog_button(title):
@@ -178,7 +146,7 @@ PORTS_ROW = "(port => Array.from(document.querySelectorAll('#topology-details tr
 
 host = pick_host()
 try:
-    time.sleep(2)
+    P.after_input(js)
     js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
     # task 112: the names of the first two interfaces come from the host (the hosts of the lab have different names: Router1 Gi0/0 Gi0/1, AccessSwitch1 Gi0/1 Gi0/2), not from the text of the check
     NAMES = interface_names(host[0]) if host else ['', '']
@@ -210,7 +178,7 @@ try:
     wait("(%s) && (%s).startsWith('SW12')" % (TITLE, TITLE))
     js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group[data-group=\"no_neighbor\"]')).forEach(d => { d.open = true; })")
     click("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row.querySelector('.topology-link-button'); })()")
-    time.sleep(2.5)
+    P.after_input(js)
     check(db("select count(*) from topo_edges e join topo_nodes a on a.id = e.src_id join topo_nodes b on b.id = e.dst_id where e.type = 'physical_link' and (json_unquote(json_extract(a.attrs, '$.name')) = 'p1' or json_unquote(json_extract(b.attrs, '$.name')) = 'p1')") == '1', 'p1 has a manual link to a port of SW12')
 
     print('=== Promote to %s ===' % hostname)
@@ -224,7 +192,7 @@ try:
     click("document.querySelector('.topology-promote-button')")
     check(wait("view.nodes.get(String(view.drawn_nodes.find(n => n.label === %s).id)) !== undefined && view.drawn_nodes.every(n => n.label !== 'BIND-TEST')" % json.dumps(hostname), 25), 'Promote: the Device is drawn as the host %s' % hostname)
     js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
-    time.sleep(2.5)
+    P.after_input(js)
     check(js("document.querySelectorAll('#topology-details tr.topology-link-row').length") >= 1, 'the panel of the host has the Links row of p1')
     menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
     check('Bind to interface' in menu and 'Unbind' not in menu, 'the Links row of p1 has "Bind to interface" (and no Unbind) in its menu', menu)
@@ -276,7 +244,7 @@ try:
     # the ingest step of the same change is tested on the server (test_bind_interface.php); here the page gets the data of such a Port: source reported, no binding
     db("update topo_nodes set attrs = json_set(json_remove(attrs, '$.interface_name'), '$.source', 'reported', '$.name', 'Gi0/1') where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
     js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
-    time.sleep(2.5)
+    P.after_input(js)
     wait("(%s)('Gi0/1')" % LINKS_ROW, 15)
     text = js("(%s)('Gi0/1').textContent" % LINKS_ROW)
     menu = js("Array.from((%s)('Gi0/1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
@@ -287,13 +255,12 @@ try:
     click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
     click("document.querySelector('#topology-details .topology-depromote-button')")
     wait("view.drawn_nodes.some(n => n.label === 'BIND-TEST')", 20)
-    wait("(%s) === 'BIND-TEST'" % TITLE, 10)
     js("(async () => { const n = view.drawn_nodes.find(n => n.label === 'BIND-TEST'); await view.selectNode(n); return 1; })()")
-    time.sleep(2)
+    P.after_input(js)
     click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
     click("document.querySelector('#topology-details .topology-delete-device-button')")
     check(wait("view.drawn_nodes.every(n => n.label !== 'BIND-TEST')", 20), 'Delete Device: BIND-TEST is not drawn any more')
-    time.sleep(1)
+    P.after_input(js)
 finally:
     for table, itemid, clock in HISTORY:
         db("delete from %s where itemid = %s and clock = %d" % (table, itemid, clock))

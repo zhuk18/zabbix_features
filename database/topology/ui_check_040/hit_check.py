@@ -35,41 +35,11 @@ def check(condition, text, detail=None):
 
 
 def session(host_label='SW12-10-CORE-6000-48G'):
-    profile = tempfile.mkdtemp(prefix='hit-')
-    atexit.register(lambda: (time.sleep(2), shutil.rmtree(profile, ignore_errors=True)))      # the Chrome profile is not left in /tmp (task 100)
-    port = 9600 + os.getpid() % 300
-    chrome = subprocess.Popen(['google-chrome', '--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=%d' % port, '--user-data-dir=' + profile,
-                               '--window-size=1500,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(100):
-        try:
-            page = next(t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t.get('type') == 'page')
-            break
-        except Exception:
-            time.sleep(0.1)
-    ws = P.WebSocket(page['webSocketDebuggerUrl'])
-    ws.call('Network.enable')
-    ws.call('Network.setCookie', name=cookie.name, value=cookie.value, url=P.BASE)
-    ws.call('Emulation.setDeviceMetricsOverride', width=1500, height=900, deviceScaleFactor=1, mobile=False)
-    ws.call('Page.enable')
-    ws.call('Page.navigate', url=P.BASE + 'zabbix.php?action=topology.view')
-
-    def js(expr):
-        r = ws.call('Runtime.evaluate', expression=expr, awaitPromise=True, returnByValue=True)
-        if r.get('exceptionDetails'):
-            raise RuntimeError('page script failed: %s' % r['exceptionDetails'])
-        return r.get('result', {}).get('value')
-
-    for _ in range(120):
-        try:
-            if js("document.readyState === 'complete' && !!window.view && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"):
-                break
-        except RuntimeError:
-            pass
-        time.sleep(0.5)
+    chrome, ws, js = P.open_page(cookie, 'hit', 9600)
     # the focus host SW12, depth 1: the lines of SW12
     js("""(async () => { const h = Array.from(view.nodes.values()).find(n => n.type === 'host' && n.label === '%s'); jQuery('#hostid').multiSelect('addData', [{id: h.hostid, name: h.name}]);
         document.getElementById('topology-filter-apply').click(); return 1; })()""" % host_label)
-    time.sleep(4)
+    P.after_input(js)
     return chrome, ws, js
 
 
@@ -107,11 +77,11 @@ try:
         for side in (5, -5):
             on, off, _ = normal_point(lines[0]['points'], 0.5, side)
             mouse(ws, off[0], off[1])
-            time.sleep(0.2)
+            P.after_input(js)
             h = hovered(js)
             check(h is not None and h.startswith(lines[0]['label']), '%s: the pointer 5 px %s of the line hovers it (the line is 2 px wide)' % (other, 'right' if side > 0 else 'left'), h)
         mouse(ws, 5, 5)
-        time.sleep(0.2)
+        P.after_input(js)
         check(hovered(js) is None, '%s: the pointer away from the line: no hover' % other)
     print('\n=== two parallel lines that §2 does not bundle: the bundle SW12-SW18 and a manual link ===')
     ports = sql("""SELECT (SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id WHERE p.type = 'port' AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs, '$.sysname')) = 'SW12-10-CORE-6000-48G'
@@ -136,14 +106,14 @@ try:
             norm = math.hypot(*direction) or 1
             target = (p[0] + direction[0] / norm * 5, p[1] + direction[1] / norm * 5)
             mouse(ws, target[0], target[1])
-            time.sleep(0.2)
+            P.after_input(js)
             h = hovered(js)
             check(h is not None and h.endswith('#%s' % (line['edge'] if line['edge'] is not None else 'null')), 'the pointer 5 px beside %s (away from the other line) hovers it' % line['label'], [h, line['edge']])
             # between the two lines, 3 px nearer to this one: the nearest line
             mid = ((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
             toward = ((p[0] - q[0]) / norm * 3, (p[1] - q[1]) / norm * 3)
             mouse(ws, mid[0] + toward[0], mid[1] + toward[1])
-            time.sleep(0.2)
+            P.after_input(js)
             h = hovered(js)
             check(h is not None and h.endswith('#%s' % (line['edge'] if line['edge'] is not None else 'null')), 'a point between the two lines, 3 px nearer to %s: the nearest one is hovered' % line['label'], [h, line['edge']])
     finally:
