@@ -106,6 +106,9 @@ $C2 = 'a0:00:00:00:00:02';
 $C3 = 'a0:00:00:00:00:03';
 
 function reset_all(PDO $pdo): void {
+	// the clock of a scenario starts here, not at the start of the test: a scenario with a short threshold (the macro 60 s) must not see its fresh rows turn old because the machine was slow (task 116)
+	global $NOW;
+	$NOW = time();
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
 	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts', 'globalmacro'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
