@@ -260,24 +260,25 @@ try:
     check(found is not None, 'a node with a list of two or more bits is on the stand', found)
     if found:
         check(found['broken'] == [], 'no bit is broken across two lines: the list wraps only after a comma (%s; %d line(s))' % (found['text'], found['lines']), found)
-    print('=== The graph toolbar: the legend opens over the graph and closes again (task 101 §2) ===')
-    LEG = "(() => { const l = document.getElementById('topology-legend'), c = document.getElementById('topology-canvas').getBoundingClientRect(); const b = l.getBoundingClientRect(); return {hidden: l.hidden, over_graph: !l.hidden && b.left >= c.left && b.top >= c.top && b.right <= c.right && b.bottom <= c.bottom + 1, pressed: document.getElementById('topology-legend-button').getAttribute('aria-pressed')}; })()"
-    if not js("document.getElementById('topology-legend').hidden"):
-        click_legend = js("document.getElementById('topology-legend-button').click()")
+    print('=== The legend: a collapsible box in the bottom corner of the graph area (task 117 section 2) ===')
+    LEG = "(() => { const l = document.getElementById('topology-legend'), c = document.getElementById('topology-canvas').getBoundingClientRect(); const b = l.getBoundingClientRect(); const body = l.querySelector('.topology-legend-body'); return {collapsed: l.classList.contains('topology-legend-collapsed'), body_shown: body.getBoundingClientRect().height > 0, in_corner: b.left >= c.left && b.bottom <= c.bottom + 1 && c.bottom - b.bottom < 20 && b.left - c.left < 20, expanded_attr: document.getElementById('topology-legend-head').getAttribute('aria-expanded')}; })()"
+    if not js(LEG)['collapsed']:
+        js("document.getElementById('topology-legend-head').click()")
         P.after_input(js)
-    check(js(LEG)['hidden'], 'the legend starts closed')
-    js("document.getElementById('topology-legend-button').click()")
+    st = js(LEG)
+    check(st['collapsed'] and not st['body_shown'] and st['in_corner'] and st['expanded_attr'] == 'false', 'the legend starts collapsed: only its head, in the bottom left corner of the graph area', st)
+    js("document.getElementById('topology-legend-head').click()")
     P.after_input(js)
     st = js(LEG)
-    check(not st['hidden'] and st['over_graph'] and st['pressed'] == 'true', 'the Legend button opens the legend as a panel over the graph', st)
+    check(not st['collapsed'] and st['body_shown'] and st['in_corner'] and st['expanded_attr'] == 'true', 'a click on the head opens the legend inside the graph area', st)
     shot_dir = os.environ.get('SHOTS_DIR')
     if shot_dir:
         import base64
         with open(os.path.join(shot_dir, os.environ.get('SHOTS_PREFIX', '101') + '-legend-open.png'), 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
-    js("document.getElementById('topology-legend-button').click()")
+    js("document.getElementById('topology-legend-head').click()")
     P.after_input(js)
-    check(js(LEG)['hidden'], 'the Legend button closes it again')
+    check(js(LEG)['collapsed'], 'a second click collapses it again')
 finally:
     # the cleanup: the link of this check, by its own id, when the run stopped before the Unlink; nothing else
     for edge_id in MADE_BY_THIS_CHECK:

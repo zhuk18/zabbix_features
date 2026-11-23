@@ -24,9 +24,9 @@ $this->includeJsFile('monitoring.topology.view.js.php', ['legend_collapsed' => (
 $page_styles = '
 .topology-prototype{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:520px}
 .topology-prototype.topology-kiosk{height:calc(100vh - 70px)}
-.topology-workspace{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:auto minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
-#topology-canvas{grid-column:1;grid-row:2;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
-.topology-panel{grid-column:2;grid-row:1 / span 2;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
+.topology-workspace{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:minmax(0,1fr);flex:1 1 0;min-height:0;overflow:hidden;border:1px solid #d9d9d9;background:#fff}
+#topology-canvas{grid-column:1;grid-row:1;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
 .topology-wrap{display:block;white-space:normal}
 .topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;font-size:12px;color:#1f5a8a;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
@@ -40,10 +40,11 @@ $page_styles = '
 .topology-node.device rect{fill:#f3f4f6;stroke:#697386;stroke-width:2;stroke-dasharray:6 4}
 .topology-node.host rect{fill:#fff;stroke:#1f2937;stroke-width:2}
 .topology-node.proxy rect{fill:#fff;stroke:#1f2937;stroke-width:2}
-.topology-legend{position:absolute;left:8px;top:44px;z-index:3;max-width:300px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.topology-legend{position:absolute;left:8px;bottom:8px;z-index:3;max-width:300px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .topology-legend-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 8px;cursor:pointer;font-weight:600;user-select:none}
 .topology-legend-body{padding:2px 8px 8px;max-height:46vh;overflow:auto}
-.topology-legend[hidden]{display:none}
+.topology-legend.topology-legend-collapsed .topology-legend-body{display:none}
+.topology-map-controls{position:absolute;left:8px;top:8px;z-index:3;display:flex;flex-direction:column;gap:4px}
 .topology-legend h4{margin:8px 0 3px;font-size:11px;text-transform:uppercase;color:#55606b}
 .topology-legend-row{display:flex;align-items:center;gap:8px;margin:3px 0}
 .topology-legend-row svg{flex:0 0 44px}
@@ -144,9 +145,6 @@ span.topology-neighbor{color:inherit;cursor:default}
 .topology-group-fold{margin:8px 0}
 .topology-back{margin:0 0 6px}
 .topology-back-button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topology-toolbar{grid-column:1;grid-row:1;display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #d9d9d9;background:#f7f8f9}
-.topology-toolbar button{padding:2px 12px}
-.topology-toolbar button[aria-pressed=true]{background:#e7f0f7}
 .topology-dialog-error{display:block;margin:0 0 8px;padding:6px 8px;color:#fff;background:#e45959;border-radius:2px}
 .topology-dialog-error[hidden]{display:none}
 .topology-port-table th{text-align:left;font-weight:normal;color:#768d99;padding:0 4px 2px 0}
@@ -226,12 +224,12 @@ $html_page
 					(new CButton('topology-filter-clear', _('Reset')))->addClass(ZBX_STYLE_BTN_ALT)
 				]),
 			(new CDiv([
-				// the graph toolbar (§12.1, 2.85): Fit, Create device and Legend in one row above the graph area
+				// the controls of the graph, in the corner of the graph area (like the zoom controls of the Geomap widget): zoom in, zoom out, Fit (task 117 section 2)
 				(new CDiv([
-					(new CButton('topology-fit', _('Fit')))->addClass(ZBX_STYLE_BTN_ALT),
-					(new CButton('topology-create-device', _('Create device')))->addClass(ZBX_STYLE_BTN_ALT),
-					(new CButton('topology-legend-button', _('Legend')))->addClass(ZBX_STYLE_BTN_ALT)->setAttribute('aria-pressed', 'false')
-				]))->setId('topology-toolbar')->addClass('topology-toolbar'),
+					(new CSimpleButton())->setId('topology-zoom-in')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_PLUS)->setAttribute('title', _('Zoom in'))->setAttribute('aria-label', _('Zoom in')),
+					(new CSimpleButton())->setId('topology-zoom-out')->addClass(ZBX_STYLE_BTN_ICON)->addClass('zi-minimize')->setAttribute('title', _('Zoom out'))->setAttribute('aria-label', _('Zoom out')),
+					(new CSimpleButton())->setId('topology-fit')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_EXPAND)->setAttribute('title', _('Fit'))->setAttribute('aria-label', _('Fit'))
+				]))->setId('topology-map-controls')->addClass('topology-map-controls'),
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
 					(new CButton('topology-panel-toggle', '»'))

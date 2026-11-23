@@ -123,8 +123,11 @@ const view = new class {
 		});
 		this.buildLegend(<?= json_encode((bool) ($data['legend_collapsed'] ?? 0)) ?>);
 		// the graph toolbar (§12.1, 2.85): "Fit" puts the whole graph in the window (2.72), "Create device" opens the dialog (§9.7), "Legend" opens and closes the legend over the graph
+		// task 117 section 2: Fit, zoom in and zoom out are icon buttons in the corner of the graph area; "Create device" is a button of the page header (not drawn in kiosk mode)
 		document.getElementById('topology-fit').addEventListener('click', () => this.fit());
-		document.getElementById('topology-create-device').addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
+		document.getElementById('topology-zoom-in').addEventListener('click', () => this.zoomBy(1.4));
+		document.getElementById('topology-zoom-out').addEventListener('click', () => this.zoomBy(1 / 1.4));
+		document.getElementById('topology-create-device')?.addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -1405,20 +1408,27 @@ const view = new class {
 		const legend = document.createElement('div');
 		legend.className = 'topology-legend';
 		legend.id = 'topology-legend';
-		legend.hidden = collapsed;
-		legend.innerHTML = `<div class="topology-legend-head" id="topology-legend-head"><span>${this.escape(<?= json_encode(_('Legend')) ?>)}</span><span id="topology-legend-arrow" title="${this.escape(<?= json_encode(_('Close')) ?>)}">×</span></div>` +
+		// task 117 section 2: the legend is a collapsible box in the bottom corner of the graph area (no button in a toolbar); the head opens and closes it, the state is kept for the user
+		legend.classList.toggle('topology-legend-collapsed', collapsed);
+		const arrow = open => `<span id="topology-legend-arrow" class="${open ? 'zi-chevron-down' : 'zi-chevron-up'}"></span>`;
+		legend.innerHTML = `<div class="topology-legend-head" id="topology-legend-head" role="button" tabindex="0" aria-expanded="${String(!collapsed)}"><span>${this.escape(<?= json_encode(_('Legend')) ?>)}</span>${arrow(!collapsed)}</div>` +
 			`<div class="topology-legend-body">${sections.map(([title, rows]) => `<h4>${this.escape(title)}</h4>` + rows.map(([swatch, text]) => row(swatch, this.escape(text))).join('')).join('')}</div>`;
 		workspace.appendChild(legend);
-		// the Legend button of the toolbar opens the legend as a panel over the graph and closes it again (the state is kept for the user, as before)
-		const button = document.getElementById('topology-legend-button');
-		const toggle = open => {
-			legend.hidden = !open;
-			button.setAttribute('aria-pressed', String(open));
-			this.guard(() => this.request('topology.legend.state', {method: 'POST', body: JSON.stringify({collapsed: open ? 0 : 1})}));
+		const head = document.getElementById('topology-legend-head');
+		const toggle = () => {
+			const now_collapsed = !legend.classList.contains('topology-legend-collapsed');
+			legend.classList.toggle('topology-legend-collapsed', now_collapsed);
+			head.setAttribute('aria-expanded', String(!now_collapsed));
+			head.lastElementChild.className = now_collapsed ? 'zi-chevron-up' : 'zi-chevron-down';
+			this.guard(() => this.request('topology.legend.state', {method: 'POST', body: JSON.stringify({collapsed: now_collapsed ? 1 : 0})}));
 		};
-		button.setAttribute('aria-pressed', String(!collapsed));
-		button.addEventListener('click', () => toggle(legend.hidden));
-		document.getElementById('topology-legend-head').addEventListener('click', () => toggle(false));
+		head.addEventListener('click', toggle);
+		head.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				toggle();
+			}
+		});
 	}
 
 	// The page (filter bar, graph area and side panel) ends at the bottom of the window: the graph area has the height that is left, and the side panel
@@ -3767,6 +3777,12 @@ const view = new class {
 	}
 
 	// "Fit" (§12.1 "Fit", 2.72): the zoom is set so that the whole drawn graph is in the window, and the graph is centred.
+	// zoom in / zoom out of the buttons: around the middle of the graph area, inside the limits of the zoom
+	zoomBy(factor) {
+		this.user_moved = true;
+		this.canvas.call(this.zoom.scaleBy, factor);
+	}
+
 	fit() {
 		const nodes = this.drawn_nodes ?? [];
 		if (!nodes.length) {

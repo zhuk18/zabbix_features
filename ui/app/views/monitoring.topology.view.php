@@ -59,6 +59,7 @@ $html_page = (new CHtmlPage())
 						->setModern(true)
 				)
 				->addItem((new CSimpleButton(_('Run reconciliation')))->setId('topology-ingest-run'))
+				->addItem($is_graph ? (new CSimpleButton(_('Create device')))->setId('topology-create-device') : null)
 				->addItem(get_icon('kioskmode', ['mode' => $web_layout_mode]))
 		))->setAttribute('aria-label', _('Content controls'))
 	);
