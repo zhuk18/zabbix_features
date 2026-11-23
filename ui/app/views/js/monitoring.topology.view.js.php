@@ -114,7 +114,7 @@ const view = new class {
 		});
 		panel_toggle.addEventListener('click', () => {
 			const collapsed = workspace.classList.toggle('topology-panel-collapsed');
-			panel_toggle.textContent = collapsed ? '»' : '«';
+			panel_toggle.textContent = collapsed ? '«' : '»';      // the glyph shows where the panel goes on a click: expanded »  (to the right), collapsed «  (back to the left)
 			panel_toggle.title = collapsed ? <?= json_encode(_('Expand')) ?> : <?= json_encode(_('Collapse')) ?>;
 			// The CSS transition resizes the canvas column; re-render once it's settled so the
 			// graph actually uses the space instead of sitting at its old (now stale) viewBox

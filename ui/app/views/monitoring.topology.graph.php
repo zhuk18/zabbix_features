@@ -234,7 +234,7 @@ $html_page
 				]))->setId('topology-toolbar')->addClass('topology-toolbar'),
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
-					(new CButton('topology-panel-toggle', '«'))
+					(new CButton('topology-panel-toggle', '»'))
 						->addClass('topology-panel-toggle')
 						->setAttribute('title', _('Collapse')),
 					(new CTag('h2', true, _('Device details')))->setId('topology-details-title'),
