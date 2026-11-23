@@ -92,7 +92,7 @@ def shot(name):
 
 TITLE = "(() => { const t = document.querySelector('#topology-details .topology-node-title, #topology-details .topology-host-name'); return t ? t.textContent.trim() : null; })()"
 KIND = "(() => { const t = document.querySelector('#topology-details .topology-node-kind'); return t ? t.textContent.trim() : null; })()"
-RING = "document.querySelectorAll('#topology-canvas rect.topology-selection').length"
+RING = "document.querySelectorAll('#topology-canvas g.topology-node.topology-selected').length"
 NODE = "(label => view.drawn_nodes.find(n => n.label === label))"
 
 

@@ -79,7 +79,7 @@ try:
     check(sorted(rows) == sorted(junction['devices']), 'the panel lists the Devices behind the Port', rows)
     check(js("document.querySelector('#topology-details .topology-junction-port td').textContent") == junction['port'], 'the panel shows the anchor Port')
     check(js("document.querySelectorAll('#topology-details button, #topology-details input, #topology-details select').length") == 0, 'the panel is read only: no button, no input')
-    check(js("view.selection && view.selection.kind") == 'junction' and js("document.querySelectorAll('.topology-selection').length") >= 1, 'the node is marked by the selection ring', js("view.selection"))
+    check(js("view.selection && view.selection.kind") == 'junction' and js("document.querySelectorAll('.topology-node.topology-selected').length") >= 1, 'the node is marked as selected (the frame of its icon)', js("view.selection"))
     check(js(BACK) is None, 'opened from the graph: no Back')
     if shot:
         ws.call('Page.captureScreenshot')  # warm up

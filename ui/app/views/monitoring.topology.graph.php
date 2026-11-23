@@ -102,6 +102,7 @@ $page_styles = '
 .topology-filter-field{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .topology-filter-bar label{font-size:12px;color:#1f2933;margin-right:4px}
 .topology-node.topology-hover .topology-shape{stroke:#0b6fb8!important;stroke-width:4!important}
+.topology-node.topology-selected .topology-shape{stroke:#0275b8!important;stroke-width:4!important}
 .topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
 .topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
 .topology-link-glow.topology-link-selected{stroke:#0275b8;stroke-opacity:.8}

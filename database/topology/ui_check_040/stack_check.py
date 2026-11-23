@@ -140,17 +140,15 @@ try:
     check(js(BACK) is None, 'Apply: a new stack, the first panel has no Back', js(BACK))
 
     print('=== Selection (model 2.83) ===')
-    RING = """(() => { const r = document.querySelector('#topology-canvas rect.topology-selection'); if (!r) return null; const b = r.getBoundingClientRect(); return {left: b.left, right: b.right, top: b.top, bottom: b.bottom, count: document.querySelectorAll('#topology-canvas rect.topology-selection').length}; })()"""
+    RING = """(() => { const g = document.querySelectorAll('#topology-canvas g.topology-node.topology-selected'); if (!g.length) return null; const e = g[0]; const s = getComputedStyle(e.querySelector('rect.topology-shape'));
+        return {label: String(e.__data__.label), count: g.length, stroke: s.stroke, width: s.strokeWidth, boxes: document.querySelectorAll('#topology-canvas rect.topology-selection').length}; })()"""
     BOX = "(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label)); const b = g.getBoundingClientRect(); return {left: b.left, right: b.right, top: b.top, bottom: b.bottom}; })(%s)"
-    OUTLINE = "(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label)); const s = getComputedStyle(g.querySelector('rect.topology-shape')); return [s.stroke, s.fill, s.strokeDasharray, s.strokeWidth, s.opacity, getComputedStyle(g).opacity]; })(%s)"
+    OUTLINE = "(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label)); const s = getComputedStyle(g.querySelector('rect.topology-shape')); return [s.fill, s.strokeDasharray, s.opacity, getComputedStyle(g).opacity]; })(%s)"
 
     def ring_on(label):
-        ring, box = js(RING), js(BOX % json.dumps(label))
-        if ring is None:
-            return False
-        k = js("view.zoom_transform.k")
-        m = 4.5 * k
-        return all(abs(a - b) < 2.5 for a, b in [(ring['left'], box['left'] - m), (ring['right'], box['right'] + m), (ring['top'], box['top'] - m), (ring['bottom'], box['bottom'] + m)]) and ring['count'] == 1
+        # task 117 section 4: the mark is the frame of the icon (the shape of the node) in the accent colour, 4 px; no box around the icon and the label
+        ring = js(RING)
+        return ring is not None and ring['label'].startswith(label) and ring['count'] == 1 and ring['boxes'] == 0 and ring['stroke'] == 'rgb(2, 117, 184)' and ring['width'] == '4px'
 
     def click_node(label):
         js("""(label => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith(label));
@@ -161,9 +159,9 @@ try:
     P.after_input(js)
     before = js(OUTLINE % json.dumps('SW12'))
     click_node('SW12')
-    check(ring_on('SW12') and js(TITLE).startswith('SW12'), 'a click on SW12: a ring around its box (gap 3 px + 3 px stroke), one ring', [js(RING), js(BOX % json.dumps('SW12'))])
-    check(js(OUTLINE % json.dumps('SW12')) == before, 'the outline, fill, dash and opacity of SW12 are the same as before the selection', [before, js(OUTLINE % json.dumps('SW12'))])
-    check(js("getComputedStyle(document.querySelector('#topology-canvas rect.topology-selection')).stroke") == 'rgb(2, 117, 184)' and js("getComputedStyle(document.querySelector('#topology-canvas rect.topology-selection')).strokeWidth") == '3px', 'the ring is 3 px in the accent colour')
+    check(ring_on('SW12') and js(TITLE).startswith('SW12'), 'a click on SW12: the frame of its icon is in the accent colour, 4 px; one node; no box around the icon and the label', js(RING))
+    check(js(OUTLINE % json.dumps('SW12')) == before, 'the fill (a problem colour), dash and opacity of SW12 are the same as before the selection: the mark does not look like a status', [before, js(OUTLINE % json.dumps('SW12'))])
+    check(js("document.querySelectorAll('#topology-canvas g.topology-selection-layer, #topology-canvas rect.topology-selection').length") == 0, 'there is no extra element for the selection (no box)')
     shot = os.environ.get('SELECTION_SHOT')
     if shot:
         import base64
@@ -172,10 +170,10 @@ try:
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
     show_details()
     P.after_input(js)
-    check(ring_on('SW18'), 'a neighbor in Links: the ring moves to SW18', js(RING))
+    check(ring_on('SW18'), 'a neighbor in Links: the mark moves to SW18', js(RING))
     js("document.querySelector('#topology-details .topology-back-button').click()")
     P.after_input(js)
-    check(ring_on('SW12'), 'Back: the ring is on SW12 again', js(RING))
+    check(ring_on('SW12'), 'Back: the mark is on SW12 again', js(RING))
     # a panel opened from a list: SW12 is out of the window, the view pans to it, the zoom stays
     click_node('SW18')
     k0 = js("view.zoom_transform.k")
@@ -193,7 +191,7 @@ try:
     # a click on the empty area removes the selection
     js("document.getElementById('topology-canvas').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
     P.after_input(js)
-    check(js(RING) is None, 'a click on the empty area: no ring')
+    check(js(RING) is None, 'a click on the empty area: no mark')
     # a bundle line: the band under it; a member opened from the bundle panel: the bundle line
     BAND = "Array.from(document.querySelectorAll('#topology-canvas path.topology-link-selected')).map(e => parseFloat(e.style.strokeWidth))"
     js("(() => { const e = view.line_entries.find(x => x.link && x.link.type === 'lag_bundle'); e.open(); })()")
@@ -212,7 +210,7 @@ try:
 
     print('=== The panel of a host is the Host panel, however it is opened (task 101 §1, model §12.5 2.85) ===')
     HOSTPANEL = """(() => { const d = document.getElementById('topology-details'); const k = d.querySelector('.topology-node-kind'); return {kind: k ? k.textContent.trim() : null, title: (d.querySelector('.topology-host-name, .topology-node-title') || {}).textContent,
-        problems: !!d.querySelector('details.topology-problems'), focus: !!d.querySelector('.topology-focus-button'), not_in_view: !!d.querySelector('.topology-not-in-view'), ring: document.querySelectorAll('#topology-canvas rect.topology-selection').length}; })()"""
+        problems: !!d.querySelector('details.topology-problems'), focus: !!d.querySelector('.topology-focus-button'), not_in_view: !!d.querySelector('.topology-not-in-view'), ring: document.querySelectorAll('#topology-canvas g.topology-node.topology-selected').length}; })()"""
 
     def host_panel(text, label, focus=True):
         p = js(HOSTPANEL)
