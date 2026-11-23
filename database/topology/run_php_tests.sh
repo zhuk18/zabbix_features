@@ -251,6 +251,7 @@ else
 		# a real mouse double click on the SW18 parent and on an unfolded leaf folds the group, the panel shows it, no zoom (091)
 		page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
 		page_test "page: selection after Apply (focus host selected; without a focus host nothing, no panel; first load nothing)" /tmp/topo_t_selection.log python3 "$here/ui_check_040/selection_check.py"
+		page_test "page: one header for the graph and the last run view (2.98: title, switch, Back, Neighbor reports, warning box, kiosk, width)" /tmp/topo_t_header.log python3 "$here/ui_check_040/header_check.py"
 		# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
 		page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
 		page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"
@@ -280,8 +281,8 @@ else
 		# the page header and filter bar, parallel links, leaf groups (090)
 		exec_test "lab/php/graph_page_check.php" /tmp/topo_t_graph_page_http.log php "$here/lab/php/graph_page_check.php"
 		exec_test "lab/php/run_row_http_check.php" /tmp/topo_t_run_row_http.log php "$here/lab/php/run_row_http_check.php"
-		page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action topology.lastrun --width 1500 --height 1100 --menu open --check lastrun --out /tmp/topo_t_lastrun_1500.png
-		page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action topology.lastrun --width 1280 --height 1100 --menu collapsed --check lastrun --out /tmp/topo_t_lastrun_1280.png
+		page_test "page last run view 1500x1100, menu open" /tmp/topo_t_lastrun_1500.log python3 "$shot" --action "topology.view&view=lastrun" --width 1500 --height 1100 --menu open --check lastrun --out /tmp/topo_t_lastrun_1500.png
+		page_test "page last run view 1280x1100, menu collapsed" /tmp/topo_t_lastrun_1280.log python3 "$shot" --action "topology.view&view=lastrun" --width 1280 --height 1100 --menu collapsed --check lastrun --out /tmp/topo_t_lastrun_1280.png
 		# the section Addresses of a Device without association (051): the office stand's SW15 and its neighbor NA12502000654
 		if [ -n "$(mysql -N -u"$user" zabbix -e "select 1 from hosts where host = 'SW15-10-POE-6000-24G' limit 1" 2>/dev/null)" ]; then
 			page_test "page Addresses labels 1280x800, menu collapsed" /tmp/topo_t_addr_1280.log python3 "$shot" --host SW15-10-POE-6000-24G --depth 1 --select NA12502000654 --width 1280 --height 800 --menu collapsed --check addresses --out /tmp/topo_t_addr_1280.png

@@ -152,7 +152,7 @@ def wait_state(ws, js, condition, what, timeout=60.0, interval=0.1, return_value
     except Exception as error:
         shot = 'no screenshot (%s)' % error
     try:
-        state = js('window.view ? JSON.stringify({idle: view.idle, busy: view.busy, pending: view.pending_requests, loads: view.loads_done, first_load_done: !!view.first_load_done}) : "no view"')
+        state = js('typeof view !== "undefined" ? JSON.stringify({idle: view.idle, busy: view.busy, pending: view.pending_requests, loads: view.loads_done, first_load_done: !!view.first_load_done}) : "no view"')
     except Exception as error:
         state = 'not readable: %s' % error
     raise WaitTimeout('timeout after %.0f s waiting for: %s\n  condition: %s\n  at %s\n  page state: %s\n  last script error: %s\n  screenshot: %s\n  console:\n%s'
@@ -161,7 +161,7 @@ def wait_state(ws, js, condition, what, timeout=60.0, interval=0.1, return_value
 
 def settled(ws, js, what='the page is idle (no load, no action, no request)', timeout=60.0):
     """The page has finished what it was doing (view.idle, see the page's script)."""
-    return wait_state(ws, js, 'window.view && view.idle', what, timeout)
+    return wait_state(ws, js, "typeof view !== 'undefined' && view.idle", what, timeout)
 
 
 def until(js, condition, what, timeout=60.0):
@@ -185,7 +185,7 @@ def next_frames(js, count=2):
     js('new Promise(resolve => { let n = %d; const step = () => (--n <= 0 ? resolve(1) : requestAnimationFrame(step)); requestAnimationFrame(step); })' % count)
 
 
-READY_JS = "document.readyState === 'complete' && !!window.view && view.first_load_done && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"
+READY_JS = "document.readyState === 'complete' && typeof view !== 'undefined' && view.first_load_done && view.drawn_nodes && view.drawn_nodes.length > 0 && !!document.getElementById('hostid')"
 
 
 def open_page(cookie, prefix, port_base, width=1500, height=900, action='topology.view', ready=READY_JS):
@@ -230,7 +230,8 @@ def open_page(cookie, prefix, port_base, width=1500, height=900, action='topolog
     js.ws = ws      # `until(js, ...)` and `idle(js)` need the connection for the screenshot of a timeout
 
     wait_state(ws, js, ready, 'the page %s is complete and has made its first load' % action)
-    settled(ws, js, 'the first load has finished (no request, no action)')
+    if action.startswith('topology.view') and 'view=lastrun' not in action:      # the graph view has the script that counts loads and requests (view.idle); the last run view has none
+        settled(ws, js, 'the first load has finished (no request, no action)')
     return chrome, ws, js
 
 
@@ -294,7 +295,7 @@ CHECKS = {
             container_overflow_x: containers.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.tagName + '.' + e.className),
             container_overflow_y: containers.filter(e => e.scrollHeight > e.clientHeight + 1 && getComputedStyle(e).overflowY !== 'visible').map(e => e.tagName + '.' + e.className),
             outside_window: Array.from(document.querySelectorAll('.topology-prototype *')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > W + 1; }).map(name).slice(0, 10),
-            header_buttons_out: Array.from(document.querySelectorAll('.topology-header button, .topology-filter-bar button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.right > W || b.left < 0); }).map(name),
+            header_buttons_out: Array.from(document.querySelectorAll('.topology-filter-bar button, #topology-ingest-run')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && (b.right > W || b.left < 0); }).map(name),
             panel_buttons_out: Array.from(panel.querySelectorAll('table button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
             panel_headers_out: Array.from(panel.querySelectorAll('table th')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > panel_right + 0.5; }).length,
             headers_cut: Array.from(new Set(Array.from(panel.querySelectorAll('table th')).filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent.trim()))),
@@ -324,7 +325,7 @@ CHECKS = {
             r.note = 'the content area (' + content_w + ' px) is narrower than the Zabbix minimum width of main with its padding (' + main_min + ' px): the page scrolls horizontally, as every Zabbix page';
             r.container_overflow_x = r.container_overflow_x.filter(name => !name.startsWith('DIV.wrapper'));
             r.outside_window = Array.from(document.querySelectorAll('.topology-prototype *')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right + 1; }).map(name).slice(0, 10);
-            r.header_buttons_out = Array.from(document.querySelectorAll('.topology-header button, .topology-filter-bar button')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right; }).map(name);
+            r.header_buttons_out = Array.from(document.querySelectorAll('.topology-filter-bar button, #topology-ingest-run')).filter(e => { const b = e.getBoundingClientRect(); return b.width > 0 && b.right > page_right; }).map(name);
         }
         r.ok = (d.scrollWidth <= W || r.zabbix_min_width_scroll) && d.scrollHeight <= H && !r.container_overflow_x.length && !r.container_overflow_y.length && !r.outside_window.length
             && r.filter_one_row && !r.removed_controls.length && !r.header_buttons_out.length && !r.panel_buttons_out && !r.panel_headers_out && !r.headers_cut.length && r.panel_tables > 0
@@ -332,7 +333,7 @@ CHECKS = {
             && Object.values(r.toolbar).every(Boolean);
         return r;
     })()''',
-    # model §12.7 (task 076): the last run view (--action topology.lastrun): the run summary, the list "Needs attention", the filter and the observation list are there;
+    # model §12.7 (task 076): the last run view (--action topology.view&view=lastrun): the run summary, the list "Needs attention", the filter and the observation list are there;
     # the five outcome numbers are links; no horizontal scroll from the window width where the content area has the Zabbix minimum width (§12.1 "Width"; below it
     # the page scrolls like every Zabbix page); nothing of the page is outside the window; the text of the neighbors is text (no element made from it)
     'lastrun': '''(() => {
@@ -618,7 +619,7 @@ def main():
             "!!document.getElementById('topology-filter-apply')" if a.action == 'topology.view' else 'true')
         wait_state(ws, js, ready, 'the page %s is complete (document, menu, filter bar)' % a.action)
         if a.action == 'topology.view':
-            wait_state(ws, js, 'window.view && view.first_load_done', 'the first load of the page is done')
+            wait_state(ws, js, "typeof view !== 'undefined' && view.first_load_done", 'the first load of the page is done')
             settled(ws, js, 'the first load has finished (no request, no action)')
 
         # the filter is set through the page's own controls (multiselects, the Depth select, "Apply filter"); the ids come from the page's API

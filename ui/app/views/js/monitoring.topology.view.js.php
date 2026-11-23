@@ -90,10 +90,11 @@ const view = new class {
 		this.include_ids = new Set();      // manual Devices created in this view stay in a scoped view until the filter is applied (§12.1, 2.80)
 		this.leaf_groups = [];
 		this.relayout = true;
-		this.show_unlinked = false;
+		// the filter of the URL (§12.1 "Page header", 2.98): the server has set the controls; the page starts with what they show
+		this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
 		// The filter "possible duplicate" (topology-1-model.md §12.1, 2.47, 2.49; FR-C V-16, V-17): the server answers with the Devices that have a candidate (linked
 		// or not), their partners and one hop of context; render() dims the context and draws the pair lines.
-		this.only_duplicates = false;
+		this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
 		// the run summary of the last run view links here with "Possible duplicates only" set (model §12.7)
 		if (new URLSearchParams(window.location.search).get('only_duplicates') === '1') {
 			this.only_duplicates = true;
@@ -151,8 +152,9 @@ const view = new class {
 		// the state of the run and the time of the last run are one line of text (§12.1 "Page header")
 		this.run_line_element = document.getElementById('topology-run-line');
 		this.run_state = '';
-		this.run_info = {note: '', before: '', time: '', after: ''};
-		document.getElementById('topology-ingest-run').addEventListener('click', () => this.guard(async () => {
+		this.run_info = {text: ''};
+		// in kiosk mode the header (the title and the controls) is not drawn: the button is not there, the state of the run is still read
+		document.getElementById('topology-ingest-run')?.addEventListener('click', () => this.guard(async () => {
 			await this.runIngest();
 		}));
 		// A run may already be in progress from a previous page load (button click before a reload) or
@@ -167,6 +169,7 @@ const view = new class {
 			this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
 			this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
 			this.include_ids.clear();
+			this.writeFilterToUrl();
 			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
 		// Reset (the former "Show all"): clears the selection and the switches and shows every node (Depth 1 as the page starts)
@@ -179,6 +182,7 @@ const view = new class {
 			this.only_duplicates = false;
 			this.show_unlinked = false;
 			this.include_ids.clear();
+			this.writeFilterToUrl();
 			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
 		// the first layout waits for the fonts (the widths of the labels are measured with the real font, §12.3, 2.79)
@@ -216,18 +220,26 @@ const view = new class {
 	// FR-C V-21: the time of the last run, and "<N> reporters have new data since the last run" (only the time when N is 0). Read with the status, so it is polled with the three states of
 	// the run (every 2 or 3 seconds while a run works or waits) and every 30 seconds otherwise.
 	renderRunInfo(status) {
-		const time = status.finished_at ? new Date(status.finished_at * 1000).toLocaleString() : '';
-		this.setRunInfo(TopologyGraph.runInfoParts(status.reporters_new_data ?? 0, time, {
+		const time = status.finished_at_text ?? '';
+		this.setRunInfo({text: TopologyGraph.runInfoText(status.reporters_new_data ?? 0, time, {
 			one: <?= json_encode(_('%1$s reporter has new data since the last run')) ?>,
 			many: <?= json_encode(_('%1$s reporters have new data since the last run')) ?>,
 			last: <?= json_encode(_('Last run: %1$s')) ?>
-		}));
+		})});
 	}
 
 	// One line: the state of the run (§12.7: in progress, requested, does not run), then the note about new data and the time of the last run.
 	setRunState(text) {
 		this.run_state = text;
 		this.updateRunLine();
+	}
+
+	// "The reconciliation does not run. Check the scheduled CLI job." is a warning box under the header (server-rendered, hidden unless it applies), not text of the run state
+	setExecutorMissing(missing) {
+		const box = document.getElementById('topology-executor-missing');
+		if (box) {
+			box.hidden = !missing;
+		}
 	}
 
 	setRunInfo(text) {
@@ -239,18 +251,9 @@ const view = new class {
 		if (!this.run_line_element) {
 			return;
 		}
-		// one line (§12.1 "Page header"): the state, the note about new data, "Last run: <time>" where the time is the link to the last run view
-		const info = this.run_info ?? {note: '', before: '', time: '', after: ''};
-		const line = this.run_line_element;
-		line.textContent = [this.run_state, info.note].filter(text => text !== '').join(' — ') + (info.time !== '' && (this.run_state !== '' || info.note !== '') ? ' — ' : '') + info.before;
-		if (info.time !== '') {
-			const link = document.createElement('a');
-			link.href = 'zabbix.php?action=topology.lastrun';
-			link.id = 'topology-run-time';
-			link.textContent = info.time;
-			line.appendChild(link);
-			line.appendChild(document.createTextNode(info.after));
-		}
+		// one line of grey text in the page header (§12.1 "Page header", 2.98): the state of the run, then the note about new data and "Last run: <time>", separated by " · "; the time is text, not a link
+		const info = this.run_info ?? {text: ''};
+		this.run_line_element.textContent = [this.run_state, info.text].filter(text => text !== '').join(' · ');
 	}
 
 	async refreshRunInfo() {
@@ -286,6 +289,7 @@ const view = new class {
 			}
 
 			if (status.running || status.status === 'running') {
+				this.setExecutorMissing(false);
 				this.ingest_polling = true;
 				this.requested_here = true;
 				this.setRunState(<?= json_encode(_('Reconciliation in progress')) ?>);
@@ -295,9 +299,8 @@ const view = new class {
 
 			if (status.requested) {
 				this.ingest_polling = true;
-				this.setRunState(status.executor_missing
-					? <?= json_encode(_('The reconciliation does not run. Check the scheduled CLI job.')) ?>
-					: <?= json_encode(_('Run requested')) ?>);
+				this.setRunState(<?= json_encode(_('Run requested')) ?>);
+				this.setExecutorMissing(!!status.executor_missing);
 				setTimeout(poll, status.executor_missing ? 15000 : 3000);
 				return;
 			}
@@ -305,6 +308,7 @@ const view = new class {
 			const was_polling = this.ingest_polling;
 			this.ingest_polling = false;
 			this.setRunState('');
+			this.setExecutorMissing(false);
 
 			if (status.status === 'idle') {
 				// Nothing has ever run — expected on a normal page load (ignore_idle's caller); not
@@ -348,6 +352,25 @@ const view = new class {
 	// network_topology module's own filter).
 	// topology-1-model.md §12.1 "View scope": the Hosts of the selected groups and the focus host are the start nodes, together; Depth empty = no limit.
 	// Nothing selected: no scope parameters, every node.
+	// §12.1 "Page header" (2.98): the filter of the graph is in the URL (the same names as the page reads at its load), so that Back from the last run view returns to the graph
+	// with its filter. The entry of the history is replaced, not added: Apply is no step of the history.
+	writeFilterToUrl() {
+		const url = new URLSearchParams({action: 'topology.view'});
+		jQuery('#groupids_').multiSelect('getData').forEach(item => url.append('groupids[]', item.id));
+		const hostid = jQuery('#hostid').multiSelect('getData')[0]?.id;
+		if (hostid) {
+			url.set('hostid', hostid);
+		}
+		url.set('hops', document.getElementById('topology-filter-hops').value);
+		if (document.getElementById('topology-filter-duplicates').checked) {
+			url.set('only_duplicates', '1');
+		}
+		if (document.getElementById('topology-filter-unlinked').checked) {
+			url.set('show_unlinked', '1');
+		}
+		history.replaceState(history.state, '', `zabbix.php?${url.toString()}`);
+	}
+
 	filterQuery() {
 		const hostid = jQuery('#hostid').multiSelect('getData')[0]?.id;
 		const groupids = jQuery('#groupids_').multiSelect('getData').map(item => item.id);
@@ -1551,7 +1574,7 @@ const view = new class {
 			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-link-details', attrs: `data-edge="${esc(entry.edge_id)}"`});
 		}
 		if (entry.port_id) {
-			items.push({label: <?= json_encode(_('Neighbor reports')) ?>, href: `zabbix.php?action=topology.lastrun&port_id=${encodeURIComponent(entry.port_id)}`});
+			items.push({label: <?= json_encode(_('Neighbor reports')) ?>, href: `zabbix.php?action=topology.view&view=lastrun&port_id=${encodeURIComponent(entry.port_id)}`});
 		}
 		if (entry.device_link_id) {
 			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-remove-link-button', attrs: `data-edge-id="${esc(entry.device_link_id)}"`});
@@ -1683,7 +1706,7 @@ const view = new class {
 			actions.push(`<button type="button" class="btn-alt topology-focus-button" data-hostid="${esc(node.hostid)}">${esc(<?= json_encode(_('Focus')) ?>)}</button>`);
 		}
 		if (device) {
-			actions.push(`<a class="topology-node-reports" href="zabbix.php?action=topology.lastrun&device_id=${encodeURIComponent(device.id)}">${esc(<?= json_encode(_('Neighbor reports')) ?>)}</a>`);
+			actions.push(`<a class="topology-node-reports" href="zabbix.php?action=topology.view&view=lastrun&device_id=${encodeURIComponent(device.id)}">${esc(<?= json_encode(_('Neighbor reports')) ?>)}</a>`);
 		}
 		const items = [];
 		// a manual Device (§9.7, 2.80): the same dialog edits it, ports are added here

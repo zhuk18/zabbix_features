@@ -34,9 +34,9 @@ window.fetch = async url => { const action = String(url).split('action=')[1].spl
 if __name__ == '__main__':
     tag, dump = sys.argv[1], sys.argv[2]
     if tag == 'before':
-        for name, path in (('js', 'ui/app/views/js/monitoring.topology.view.js.php'), ('view', 'ui/app/views/monitoring.topology.view.php')):
+        for name, path in (('js', 'ui/app/views/js/monitoring.topology.view.js.php'), ('view', 'ui/app/views/monitoring.topology.graph.php')):
             open('%s/shots/before.%s.php' % (S, name), 'w').write(subprocess.run(['git', 'show', 'HEAD:' + path], capture_output=True, text=True, cwd=REPO).stdout)
         print(build('before', S + '/shots/before.js.php', S + '/shots/before.view.php', dump))
     else:
         collapsed = sys.argv[3] if len(sys.argv) > 3 else '0'
-        print(build(tag, REPO + '/ui/app/views/js/monitoring.topology.view.js.php', REPO + '/ui/app/views/monitoring.topology.view.php', dump, collapsed))
+        print(build(tag, REPO + '/ui/app/views/js/monitoring.topology.view.js.php', REPO + '/ui/app/views/monitoring.topology.graph.php', dump, collapsed))

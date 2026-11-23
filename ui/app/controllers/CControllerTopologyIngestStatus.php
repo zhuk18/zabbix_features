@@ -28,6 +28,8 @@ class CControllerTopologyIngestStatus extends CController {
 		if (CWebUser::getType() == USER_TYPE_SUPER_ADMIN) {
 			$status['reporters_new_data'] = CTopologyRun::reportersNewData();
 		}
+		// the time of the last run in the format of the user, as the header of the page writes it at its load (2.98)
+		$status['finished_at_text'] = ($status['finished_at'] ?? null) ? zbx_date2str(DATE_TIME_FORMAT_SECONDS, (int) $status['finished_at']) : '';
 		$status['requested_at'] = $state['requested_at'] ?: null;
 		$status['requested'] = $state['requested'];
 		$status['running'] = $state['locked'] && ($status['status'] ?? '') === 'running';

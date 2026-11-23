@@ -43,7 +43,7 @@
 		if (time) {
 			parts.push(t.last.replace('%1$s', time));
 		}
-		return parts.join(' — ');
+		return parts.join(' · ');
 	}
 
 	/** The same line in parts, for the page (2.72: the time is the link to the last run view): {note: "N reporters have…" or '', before: "Last run: ", time, after: ''}. */

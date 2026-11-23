@@ -12,8 +12,8 @@ const ok = (condition, text, detail) => {
 // ---- the line "<N> reporters have new data since the last run" (FR-C V-21) ----
 const t = {one: '%1$s reporter has new data since the last run', many: '%1$s reporters have new data since the last run', last: 'Last run: %1$s'};
 ok(G.runInfoText(0, '10:00', t) === 'Last run: 10:00', 'N = 0: only the time of the last run');
-ok(G.runInfoText(1, '10:00', t) === '1 reporter has new data since the last run — Last run: 10:00', 'N = 1: "1 reporter has"');
-ok(G.runInfoText(2, '10:00', t) === '2 reporters have new data since the last run — Last run: 10:00', 'N = 2: "2 reporters have"');
+ok(G.runInfoText(1, '10:00', t) === '1 reporter has new data since the last run · Last run: 10:00', 'N = 1: "1 reporter has"');
+ok(G.runInfoText(2, '10:00', t) === '2 reporters have new data since the last run · Last run: 10:00', 'N = 2: "2 reporters have"');
 ok(G.runInfoText(0, '', t) === '', 'N = 0 and no run yet: nothing');
 
 {

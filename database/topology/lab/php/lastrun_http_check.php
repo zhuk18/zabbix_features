@@ -68,8 +68,8 @@ $dashboard = $admin->request('zabbix.php?action=dashboard.view');
 check(str_contains($dashboard, 'action=topology.view"'), 'the main menu of a Super admin has Monitoring → Topology');
 check(preg_match('/action=map\.view">Maps<\/a><\/li><li><a href="zabbix\.php\?action=topology\.view">Topology</', $dashboard) === 1, 'the item follows Maps');
 $page = $admin->request('zabbix.php?action=topology.view');
-check(str_contains($page, 'topology-canvas') && str_contains($page, 'action=topology.lastrun'), 'the topology page opens and has the link "Last run"');
-$lastrun = $admin->request('zabbix.php?action=topology.lastrun');
+check(str_contains($page, 'topology-canvas') && str_contains($page, 'action=topology.view&view=lastrun'), 'the topology page opens and has the link "Last run"');
+$lastrun = $admin->request('zabbix.php?action=topology.view&view=lastrun');
 check(str_contains($lastrun, 'topology-lastrun-summary') && str_contains($lastrun, 'topology-lastrun-list'), 'the last run view opens');
 
 echo "\n=== a run requested from the page: started_by ===\n";
@@ -108,20 +108,20 @@ $ambiguous = array_values(array_filter($all, static fn (array $o): bool => $o['o
 check($ambiguous === [] || ($ambiguous[0]['reason']['type'] ?? null) === 'other_neighbors', 'an ambiguous observation has its reason (the other neighbors of the port)');
 
 echo "\n=== the view: the links of the outcome numbers and the filters ===\n";
-$summary_page = $admin->request('zabbix.php?action=topology.lastrun');
+$summary_page = $admin->request('zabbix.php?action=topology.view&view=lastrun');
 foreach (['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'] as $outcome) {
 	check(str_contains($summary_page, 'topology-lastrun-outcome-'.$outcome) && str_contains($summary_page, 'filter_outcomes%5B0%5D='.$outcome), 'the number of '.$outcome.' is a link that sets the filter');
 }
 check(str_contains($summary_page, 'only_duplicates=1') && str_contains($summary_page, 'action=topology.view'), 'the number of duplicate candidates opens the graph with "Possible duplicates only"');
-$ambiguous_page = $admin->request('zabbix.php?action=topology.lastrun&filter_set=1&filter_outcomes[0]=ambiguous');
+$ambiguous_page = $admin->request('zabbix.php?action=topology.view&view=lastrun&filter_set=1&filter_outcomes[0]=ambiguous');
 check(substr_count($ambiguous_page, '<td>ambiguous</td>') === count(array_filter($all, static fn (array $o): bool => $o['outcome'] === 'ambiguous'))
 	&& !str_contains($ambiguous_page, '<td>applied</td>'), 'a click on the number of ambiguous: the list has the ambiguous observations only');
-$device_page = $admin->request('zabbix.php?action=topology.lastrun&device_id='.$device);
+$device_page = $admin->request('zabbix.php?action=topology.view&view=lastrun&device_id='.$device);
 check(substr_count($device_page, '<td>applied</td>') + substr_count($device_page, '<td>ambiguous</td>') + substr_count($device_page, '<td>conflict</td>') + substr_count($device_page, '<td>shadowed</td>') + substr_count($device_page, '<td>device_only</td>') === count($by_device),
 	'the link of a Device: the list has its observations, with every outcome', count($by_device));
-check(str_contains($admin->request('zabbix.php?action=topology.lastrun&filter_rst=1'), 'topology-lastrun-list'), 'the filter is reset');
-check(str_contains($admin->request('zabbix.php?action=topology.lastrun&filter_set=1&filter_outcomes[0]=nonsense'), 'no permissions') === false
-	&& !str_contains($admin->request('zabbix.php?action=topology.lastrun&filter_set=1&filter_outcomes[0]=nonsense'), 'topology-lastrun-list'), 'a wrong outcome is refused');
+check(str_contains($admin->request('zabbix.php?action=topology.view&view=lastrun&filter_rst=1'), 'topology-lastrun-list'), 'the filter is reset');
+check(str_contains($admin->request('zabbix.php?action=topology.view&view=lastrun&filter_set=1&filter_outcomes[0]=nonsense'), 'no permissions') === false
+	&& !str_contains($admin->request('zabbix.php?action=topology.view&view=lastrun&filter_set=1&filter_outcomes[0]=nonsense'), 'topology-lastrun-list'), 'a wrong outcome is refused');
 
 echo "\n=== a user that is not a Super admin ===\n";
 $token = (string) getenv('ZBX_TOKEN');
@@ -151,7 +151,7 @@ else {
 			$home = $plain->request('zabbix.php?action=dashboard.view');
 			check(str_contains($home, 'Monitoring') && !str_contains($home, 'action=topology.view"'), 'the main menu of that user has no Topology item',
 				[strlen($home), preg_match('/.{60}topology\.view.{40}/s', $home, $near) ? $near[0] : substr(strip_tags($home), 0, 200)]);
-			foreach (['topology.view', 'topology.lastrun'] as $action) {
+			foreach (['topology.view', 'topology.view&view=lastrun'] as $action) {
 				$denied = $plain->request('zabbix.php?action='.$action);
 				check(str_contains($denied, 'You have no permissions to access this page') && !str_contains($denied, 'topology-canvas') && !str_contains($denied, 'topology-lastrun-summary'),
 					$action.': the standard "no permissions" page');

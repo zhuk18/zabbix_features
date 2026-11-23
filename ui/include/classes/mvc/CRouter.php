@@ -415,7 +415,6 @@ final class CRouter {
 		'token.list'								=> [CControllerTokenList::class,								ZBX_LAYOUT_HTMLPAGE,	'administration.token.list'],
 		'token.update'								=> [CControllerTokenUpdate::class,								ZBX_LAYOUT_JSON,		null],
 		'topology.view'								=> [CControllerTopologyView::class,								ZBX_LAYOUT_HTMLPAGE,	'monitoring.topology.view'],
-		'topology.lastrun'							=> [CControllerTopologyLastRun::class,							ZBX_LAYOUT_HTMLPAGE,	'monitoring.topology.lastrun'],
 		'topology.devices.get'						=> [CControllerTopologyDevicesGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.neighbors.get'					=> [CControllerTopologyNeighborsGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.ports.get'						=> [CControllerTopologyPortsGet::class,							ZBX_LAYOUT_JSON,		null],

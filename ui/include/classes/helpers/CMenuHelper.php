@@ -70,7 +70,6 @@ class CMenuHelper {
 			array_splice($submenu_monitoring, 4, 0, [
 				(new CMenuItem(_('Topology')))
 					->setAction('topology.view')
-					->setAliases(['topology.lastrun'])
 			]);
 		}
 		$submenu_monitoring = array_filter($submenu_monitoring);

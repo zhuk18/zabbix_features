@@ -1,18 +1,19 @@
 <?php
 
 /**
- * The view "last run" of the topology (topology-1-model.md §12.7): the run summary and the list of the observations. Every string that a neighbor announced is data:
- * it goes through the tag classes, which escape it (§13); nothing is written as HTML here.
+ * The view "last run" of the topology page (topology-1-model.md §12.7): the run summary and the list of the observations. Every string that a neighbor announced is data:
+ * it goes through the tag classes, which escape it (§13); nothing is written as HTML here. Included by monitoring.topology.view.php, which builds the header (`$html_page`).
  *
  * @var CView $this
  * @var array $data
+ * @var CHtmlPage $html_page
  */
 
 $summary = $data['summary'];
 $status = $data['status'];
 $result = $data['result'];
 
-$lastrun_url = (new CUrl('zabbix.php'))->setArgument('action', 'topology.lastrun');
+$lastrun_url = (new CUrl('zabbix.php'))->setArgument('action', 'topology.view')->setArgument('view', CControllerTopologyView::VIEW_LASTRUN);
 $time = static fn (?int $clock): string => $clock ? zbx_date2str(DATE_TIME_FORMAT_SECONDS, $clock) : '–';
 
 $result_labels = [
@@ -62,14 +63,6 @@ if ($summary !== null) {
 	}
 	$summary_table->addRow([_('Observations by outcome'), $outcomes]);
 }
-
-$html_page = (new CHtmlPage())
-	->setTitle(_('Topology: last run'))
-	->setControls((new CTag('nav', true,
-		(new CList())->addItem(
-			new CLink(_('Graph'), (new CUrl('zabbix.php'))->setArgument('action', 'topology.view'))
-		)
-	))->setAttribute('aria-label', _('Content controls')));
 
 $html_page->addItem((new CDiv([
 	(new CTag('h4', true, _('Run summary'))),
@@ -159,7 +152,8 @@ foreach (['device_id', 'port_id'] as $name) {
 		$filter_form->addVar($name, $filter[$name]);
 	}
 }
-$filter_form->addVar('action', 'topology.lastrun');
+$filter_form->addVar('action', 'topology.view');
+$filter_form->addVar('view', CControllerTopologyView::VIEW_LASTRUN);
 $html_page->addItem($filter_form);
 
 // ---- the observation list ----
@@ -209,4 +203,4 @@ foreach ($data['rows'] as $row) {
 	]);
 }
 
-$html_page->addItem($list)->show();
+$html_page->addItem($list);

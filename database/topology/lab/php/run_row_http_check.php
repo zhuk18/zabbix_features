@@ -108,7 +108,7 @@ $status = $admin->json('topology.ingest.status');
 check(in_array($status['status'] ?? '', ['done'], true) && ($status['requested'] ?? true) === false && ($status['started_by'] ?? '') === $user && $status['run_id'] !== $before['run_id'],
 	'the status is done, the request is cleared, started_by is the user of the request', $status);
 check(in_array($status['result'] ?? null, ['done', 'done_with_warnings'], true) && is_array($status['summary']['attention'] ?? null), 'the status has the result and the list "Needs attention" (read from the row)');
-$last = $admin->request('zabbix.php?action=topology.lastrun');
+$last = $admin->request('zabbix.php?action=topology.view&view=lastrun');
 check(str_contains($last, 'topology-lastrun-result') && str_contains($last, $user), 'the last run view shows the run of the row');
 
 echo "\n=== 2. a request that no run took for 5 minutes: executor_missing ===\n";
