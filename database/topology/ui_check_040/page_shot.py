@@ -395,7 +395,7 @@ CHECKS = {
         }
         const pr = panel.getBoundingClientRect();
         const panel_right = pr.left + panel.clientLeft + panel.clientWidth;
-        const labels = Array.from(panel.querySelectorAll('.topology-identity .topology-address-identity th'));  // 2.75: the identity is in the section Identity, Addresses is inside it
+        const labels = Array.from(panel.querySelectorAll('.topology-identity .topology-address-identity label'));  // 2.75: the identity is in the section Identity, Addresses is inside it
         const r = {window: document.documentElement.clientWidth + 'x' + document.documentElement.clientHeight,
             labels: labels.map(t => t.textContent),
             labels_cut: labels.filter(t => t.scrollWidth > t.clientWidth + 1).map(t => t.textContent),
@@ -432,7 +432,8 @@ CHECKS = {
         r.badges_filtered = document.querySelectorAll('#topology-canvas .topology-duplicate-badge').length;
         r.pair_lines = document.querySelectorAll('#topology-canvas .topology-pair-line').length;
         r.pair_labels = Array.from(document.querySelectorAll('#topology-canvas .topology-pair-line text')).map(t => t.textContent);
-        r.ok = !!r.reason_text && r.actions.every(n => n > 0) && r.duplicate_nodes > 0 && r.badges_filtered === r.duplicate_nodes
+        r.ok = !!r.reason_text && r.actions[0] > 0 && r.actions[1] > 0 && r.actions[2] === 0 &&      // Delete Device is in the menu of the label (task 117 section 3), not in the panel
+             r.duplicate_nodes > 0 && r.badges_filtered === r.duplicate_nodes
             && r.pair_lines > 0 && r.pair_labels.every(t => /^(same address|same name|same HW-ID|same device ID|possible hardware replacement)/.test(t));
         return r;
     })()''',
