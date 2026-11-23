@@ -1786,7 +1786,7 @@ const view = new class {
 		const line2 = [`<span class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(row.label)}</span>`,
 			statuses.filter(status => status).length ? `<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.filter(status => status).map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>` : null,
 			first.source_text ? `<span class="topology-link-source">${esc(first.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
-		const toggle = `<button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
+		const toggle = `<button type="button" class="btn-link topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
 		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, line2}) +
 			members.map(member => this.linkEntryHtml(member, {member: true})).join('');
 	}

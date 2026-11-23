@@ -31,7 +31,7 @@ $page_styles = '
 .topology-wrap{display:block;white-space:normal}
 .topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
 .topology-more[hidden]{display:none}
-.topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;cursor:pointer;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
+.topology-panel-toggle{position:absolute;top:10px;right:10px;z-index:1}
 .topology-workspace.topology-panel-collapsed{grid-template-columns:minmax(0,1fr) 34px}
 .topology-workspace.topology-panel-collapsed .topology-panel{padding:10px 4px;overflow:hidden}
 .topology-workspace.topology-panel-collapsed .topology-panel h2,
@@ -135,7 +135,7 @@ $page_styles = '
 .topology-link-row.topology-row-hover td{background:#e3f0fa}
 .topology-neighbor{cursor:pointer}
 span.topology-neighbor{cursor:default}
-.topology-bundle-toggle{border:0;background:none;cursor:pointer;padding:0 3px 0 0}
+.topology-bundle-toggle{padding:0 3px 0 0}
 .topology-link-member td.topology-link-main{padding-left:18px}
 .topology-problem-counts{margin:4px 0}
 .topology-problems-table{width:100%;border-collapse:collapse}
@@ -231,6 +231,7 @@ $html_page
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
 					(new CButton('topology-panel-toggle', '»'))
+						->addClass(ZBX_STYLE_BTN_ALT)
 						->addClass('topology-panel-toggle')
 						->setHint(_('Collapse'), '', false),
 					(new CTag('h2', true, _('Device details')))->setId('topology-details-title'),
