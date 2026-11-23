@@ -3259,7 +3259,7 @@ const view = new class {
 		};
 		// the highlight under the line of a hovered node (§12.3 "Hover"): its own element, so the channels of the link itself do not change
 		const glows = scene.append('g').selectAll('path').data(simulation_links).join('path')
-			.attr('class', 'topology-link-glow').style('stroke-width', link => link_style.width(link) + 6);
+			.attr('class', 'topology-link-glow').style('stroke-width', link => link_style.width(link) + 4);
 		const links = scene.append('g').selectAll('path').data(simulation_links).join('path')
 			.attr('class', 'topology-link')
 			.style('fill', 'none')
@@ -3777,7 +3777,7 @@ const view = new class {
 				const glow = entry.glow();
 				glow.__width = glow.__width ?? parseFloat(glow.style.strokeWidth);
 				glow.classList.add('topology-link-selected');
-				glow.style.strokeWidth = (glow.__width + 6) + 'px';
+				glow.style.strokeWidth = (glow.__width + 2) + 'px';
 			});
 			const hit = target.entries[0].hit;
 			const middle = hit.getPointAtLength(hit.getTotalLength() / 2);
