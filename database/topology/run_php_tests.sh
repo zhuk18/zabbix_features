@@ -252,6 +252,7 @@ else
 		page_test "page: real double click folds a group" /tmp/topo_t_dblclick.log python3 "$here/ui_check_040/dblclick_check.py"
 		page_test "page: selection after Apply (focus host selected; without a focus host nothing, no panel; first load nothing)" /tmp/topo_t_selection.log python3 "$here/ui_check_040/selection_check.py"
 		page_test "page: one header for the graph and the last run view (2.98: title, switch, Back, Neighbor reports, warning box, kiosk, width)" /tmp/topo_t_header.log python3 "$here/ui_check_040/header_check.py"
+		page_test "page: the menu of a node name (host menu and section Topology; Device without host; neighbor name in Links)" /tmp/topo_t_menu.log python3 "$here/ui_check_040/menu_check.py"
 		# the pointer 5 px beside a line hovers it; the nearest of parallel lines (the pairs of SW12, a bundle and a manual link) (092)
 		page_test "page: hit area of a line (real mouse events)" /tmp/topo_t_hit.log python3 "$here/ui_check_040/hit_check.py"
 		page_test "page: node panel structure, row and line hover, host menu, Focus, Unlink confirmation (real mouse events)" /tmp/topo_t_panel.log python3 "$here/ui_check_040/panel_check.py"

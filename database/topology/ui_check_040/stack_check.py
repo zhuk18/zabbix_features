@@ -51,6 +51,12 @@ def select(js, label, kind=None):
 BACK = "(() => { const b = document.querySelector('#topology-details .topology-back-button'); return b ? b.textContent.trim() : null; })()"
 TOGGLE = "(() => { const b = document.querySelector('#topology-details [data-parent]'); return b ? b.textContent.trim() : null; })()"
 TITLE = "(() => { const t = document.querySelector('#topology-details .topology-node-title, #topology-details .topology-host-name'); return t ? t.textContent.trim() : null; })()"
+
+
+def show_details():
+    # task 117 section 3: the name of a neighbor opens its menu; "Show details" selects the neighbor and opens its panel (with the Back button)
+    P.until(js, "document.querySelector('.menu-popup-item')", 'the menu of the neighbor name is open')
+    js("Array.from(document.querySelectorAll('.menu-popup-item')).find(e => e.textContent.trim() === 'Show details').click()")
 GROUP_ROWS = "Array.from(document.querySelectorAll('#topology-details tr.topology-group-row')).map(r => r.textContent.trim())"
 
 chrome, ws, js = session()
@@ -101,6 +107,7 @@ try:
     js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-toggle').click()")
     open_members = js("Array.from(document.querySelectorAll('#topology-details .topology-bundle-toggle')).map(b => b.getAttribute('aria-expanded'))")
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
+    show_details()
     P.after_input(js)
     check(js(TITLE).startswith('SW18') and js(BACK) == '← Back to SW12-10-CORE-6000-48G', 'a neighbor in Links: the panel of SW18 with "← Back to SW12-10-CORE-6000-48G"', [js(TITLE), js(BACK)])
     js("document.querySelector('#topology-details tr.topology-link-member .topology-link-details').click()")
@@ -116,6 +123,7 @@ try:
     print('=== a click on the graph starts a new stack ===')
     js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-details') && 1")
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
+    show_details()
     P.after_input(js)
     check(js(BACK) is not None, 'SW18 from SW12: Back is there')
     js("""(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith('SW13'));
@@ -124,6 +132,7 @@ try:
     check(js(TITLE).startswith('SW13') and js(BACK) is None, 'a click on a node in the graph: its panel has no Back', [js(TITLE), js(BACK)])
     # Apply starts a new stack too
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]'))[0]; l.click(); })()""")
+    show_details()
     P.after_input(js)
     check(js(BACK) is not None, 'a neighbor of SW13: Back is there')
     js("document.getElementById('topology-filter-apply').click()")
@@ -161,6 +170,7 @@ try:
         with open(shot, 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
+    show_details()
     P.after_input(js)
     check(ring_on('SW18'), 'a neighbor in Links: the ring moves to SW18', js(RING))
     js("document.querySelector('#topology-details .topology-back-button').click()")
@@ -174,6 +184,7 @@ try:
     out = js(BOX % json.dumps('SW12'))
     check(out['left'] > 1500, 'SW12 is out of the window after the pan', out)
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
+    show_details()
     P.after_input(js)
     box = js(BOX % json.dumps('SW12'))
     inside = js("(() => { const b = document.getElementById('topology-canvas').getBoundingClientRect(); return [b.left, b.right, b.top, b.bottom]; })()")
@@ -217,6 +228,7 @@ try:
     host_panel('a click on SW12: Host panel, Problems, Focus, selection on the drawn node', 'SW12')
     click_node('SW13')
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
+    show_details()
     P.after_input(js)
     host_panel("SW12 opened from SW13's Links: Host panel", 'SW12')
     js("document.querySelector('#topology-details .topology-back-button').click()")

@@ -849,8 +849,8 @@ const view = new class {
 	}
 
 	// Runs `open` (a function that shows another panel) as a step from the panel that is shown now.
-	openFromPanel(open) {
-		this.panel_from = this.current_panel ? {...this.current_panel, state: this.capturePanelState()} : null;
+	openFromPanel(open, state = null) {
+		this.panel_from = this.current_panel ? {...this.current_panel, state: state ?? this.capturePanelState()} : null;
 		return open();
 	}
 
@@ -1457,6 +1457,38 @@ const view = new class {
 		return TopologyGraph.cutMiddle(String(text ?? ''), max_px, 12, (value, font) => this.measureText(value, font));
 	}
 
+	// The menu of a node name (task 117 section 3, model §12.5). A Host: the standard host menu of the frontend (the same code as every host name: the answer of menu.popup and
+	// getMenuPopupHost, as the user's rights allow), then the section "Topology" with "Focus on this device", "Unfold" (the Device has folded neighbors) and "Show details" (select the node and
+	// open its panel). A Device without a host: the section Topology only.
+	async openNodeMenu(anchor, native_event, target) {
+		this.closeMenus();
+		const $anchor = jQuery(anchor);
+		// the state of the panel as it is when the name is clicked: the menu popup of Zabbix resets the aria-expanded of the open elements of the page, so a state read later (at "Show details") would lose the open bundles
+		const panel_state = this.capturePanelState();
+		let sections = [];
+		if (target.type === 'host' && target.hostid) {
+			const answer = await jQuery.ajax({url: 'zabbix.php?action=menu.popup&type=host', method: 'POST', data: {data: {hostid: String(target.hostid)}}, dataType: 'json'});
+			if ('error' in answer) {
+				throw new Error((answer.error.messages ?? []).join('\n') || answer.error.title);
+			}
+			sections = getMenuPopupHost(answer.data, $anchor);
+		}
+		const items = [];
+		if (target.type === 'host' && target.hostid && String(this.applied_hostid ?? '') !== String(target.hostid)) {
+			items.push({label: <?= json_encode(_('Focus on this device')) ?>, clickCallback: () => {
+				jQuery('#hostid').multiSelect('clean');
+				jQuery('#hostid').multiSelect('addData', [{id: String(target.hostid), name: target.name ?? target.label}]);
+				document.getElementById('topology-filter-apply').click();
+			}});
+		}
+		if ((this.leaf_groups ?? []).some(group => String(group.parent) === String(target.id)) && !this.unfolded.has(String(target.id))) {
+			items.push({label: <?= json_encode(_('Unfold')) ?>, clickCallback: () => this.unfoldGroup(target.id)});
+		}
+		items.push({label: <?= json_encode(_('Show details')) ?>, clickCallback: () => this.guard(() => this.openFromPanel(() => this.selectNode(target), panel_state))});
+		sections.push({label: <?= json_encode(_('Topology')) ?>, items});
+		$anchor.menuPopup(sections, jQuery.Event(native_event), {});
+	}
+
 	// The menu "⋯": a button and a list of items, each {label, href, cls, attrs}; no item → no menu. The list opens at the button (fixed position: the panel scrolls).
 	menuHtml(items, title) {
 		if (!items.length) {
@@ -1685,9 +1717,8 @@ const view = new class {
 		const icon_name = G.iconOf(node);
 		const icon = icon_name ? `<svg class="topology-node-icon" width="26" height="22" viewBox="0 0 44 26"><g transform="translate(22,13)">${G.iconMarkup(icon_name, '#1f2937', 1.3)}</g></svg>` : '';
 		const label = node.label ?? node.name;
-		const name = node.type === 'host' && node.hostid
-			? `<a class="topology-host-name link-action" href="javascript:void(0)" data-menu-popup="${esc(JSON.stringify({type: 'host', data: {hostid: String(node.hostid)}}))}" aria-haspopup="true" aria-expanded="false">${esc(label)}</a>`
-			: `<span class="topology-node-title">${esc(label)}</span>`;
+		// task 117 section 3: the name is a link that opens the menu of the node on a click (as the name of a host does in Zabbix): the standard host menu for a Host, then the section Topology
+		const name = `<a class="${node.type === 'host' && node.hostid ? 'topology-host-name' : 'topology-node-title'} topology-node-menu-link link-action" href="javascript:void(0)" data-node="${esc(node.id)}" aria-haspopup="true" aria-expanded="false">${esc(label)}</a>`;
 		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>,
 			device: node.manual ? <?= json_encode(_('Not a Zabbix host · manual')) ?> : <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
 		const badges = [];
@@ -1815,10 +1846,13 @@ const view = new class {
 			document.getElementById('topology-filter-apply').click();
 		});
 		// a neighbor of a row: select it on the graph and open its panel
-		on('.topology-neighbor[data-node]', event => {
+		// the name of a neighbor in a row, and the name of the node in the header: the menu of the node (task 117 section 3); "Show details" of the menu selects the node and opens its panel
+		on('.topology-neighbor[data-node], .topology-node-menu-link', event => {
+			event.preventDefault();
+			event.stopPropagation();      // the click on a name is no click on its row (a bundle row folds and unfolds on a click)
 			const target = this.nodes.get(event.currentTarget.dataset.node);
 			if (target) {
-				this.guard(() => this.openFromPanel(() => this.selectNode(target)));
+				this.guard(() => this.openNodeMenu(event.currentTarget, event, target));
 			}
 		});
 		on('.topology-link-details', event => {
