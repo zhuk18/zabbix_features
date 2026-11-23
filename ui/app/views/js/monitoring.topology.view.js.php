@@ -1802,7 +1802,8 @@ const view = new class {
 
 	buildIdentitySection(node, device, addresses, open) {
 		const esc = value => this.escape(value);
-		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${esc(text)}" title="${esc(label)}">${esc(<?= json_encode(_('Copy')) ?>)}</button>`;
+		// task 117 section 8: Copy is the standard copy icon button of the frontend (the icon font), not a text button
+		const copy = (text, label) => `<button type="button" class="btn-icon zi-copy topology-copy-button" data-copy="${esc(text)}" title="${esc(label)}" aria-label="${esc(<?= json_encode(_('Copy')) ?>)}"></button>`;
 		const name = TopologyGraph.iconOf(device);
 		const bits = (device.device_class_bits ?? []).join(', ');
 		// a manual Device: the class that the operator chose (§12.2, 2.80)
@@ -1813,22 +1814,21 @@ const view = new class {
 		const class_html = device.manual || !class_bits.length ? esc(class_text)
 			: `${esc(this.classLabel(name))} (${class_bits.map((bit, i) => `<span class="topology-nowrap">${esc(bit)}${i < class_bits.length - 1 ? ',' : ''}</span>`).join(' ')})`;
 		const rows = [[<?= json_encode(_('System name')) ?>, addresses?.sysname, true], [<?= json_encode(_('Hardware ID')) ?>, addresses?.chassis_id, true], [<?= json_encode(_('Device class')) ?>, class_text, false, class_html]]
-			.filter(([, value]) => value).map(([label, value, can_copy, html]) => `<tr><th>${esc(label)}</th><td class="topology-address-value${html ? ' topology-class-value' : ''}" title="${esc(value)}">${html ?? esc(value)}</td><td>${can_copy ? copy(value, label) : ''}</td></tr>`).join('');
+			.filter(([, value]) => value).map(([label, value, can_copy, html]) => `<label>${esc(label)}</label><div class="form-field topology-address-value${html ? ' topology-class-value' : ''}" title="${esc(value)}">${html ?? esc(value)}${can_copy ? ' ' + copy(value, label) : ''}</div>`).join('');
 		// the Addresses are part of it: open for a Device without association, folded for a Host or a Proxy (§12.5)
 		const addresses_html = addresses ? this.buildAddressesFragment(addresses, node.type === 'device') : '';
 		return `<details class="topology-section topology-identity" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Identity')) ?>)}</summary>` +
-			`<table class="topology-address-identity"><tbody>${rows}</tbody></table>${addresses_html}</details>`;
+			`<div class="form-grid topology-address-identity">${rows}</div>${addresses_html}</details>`;
 	}
 
 	// The header of a node panel: class icon, name (a Host: the standard Zabbix host menu), kind mark, badges, actions, summary.
 	buildNodeHeader(node, device, groups, entries, problems) {
 		const esc = value => this.escape(value);
 		const G = TopologyGraph;
-		const icon_name = G.iconOf(node);
-		const icon = icon_name ? `<svg class="topology-node-icon" width="26" height="22" viewBox="0 0 44 26"><g transform="translate(22,13)">${G.iconMarkup(icon_name, '#1f2937', 1.3)}</g></svg>` : '';
 		const label = node.label ?? node.name;
 		// the name is plain text (task 117 section 3): the actions are in the menu of the label of the node on the graph
-		const name = `<span class="${node.type === 'host' && node.hostid ? 'topology-host-name ' : ''}topology-node-title">${esc(label)}</span>`;
+		// task 117 section 8: the name has the style of the title of a Zabbix dialog (h4); no class icon before it
+		const name = `<h4 class="${node.type === 'host' && node.hostid ? 'topology-host-name ' : ''}topology-node-title">${esc(label)}</h4>`;
 		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>,
 			device: node.manual ? <?= json_encode(_('Not a Zabbix host · manual')) ?> : <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
 		const badges = [];
@@ -1863,9 +1863,10 @@ const view = new class {
 		// task 117 section 6: the problems of a Host as the counters of its summary line, the standard element of the "Problems" column of Monitoring → Hosts: one count for each severity that has problems
 		// (the highest first), nothing when there are none; a click opens Monitoring → Problems for the host. A Device without a host has none.
 		const counters = this.problemCounters(node, problems);
-		return `<div class="topology-node-head"><div class="topology-node-name">${icon}${name} <span class="topology-node-kind">${esc(kind)}</span></div>` +
+		return `<div class="topology-node-head"><div class="topology-node-name">${name}</div>` +
 			(badges.length ? `<div class="topology-node-badges">${badges.map(text => `<span class="topology-text-badge">${esc(text)}</span>`).join('')}</div>` : '') +
-			(summary !== '' || counters !== '' ? `<div class="topology-node-summary">${esc(summary)}${summary !== '' && counters !== '' ? ' · ' : ''}${counters}</div>` : '') + `</div>`;
+			// task 117 section 8: the kind of the node is grey text at the start of the summary line, not a badge (a badge looks like a Zabbix tag)
+			`<div class="topology-node-summary"><span class="grey">${esc([kind, summary].filter(text => text !== '').join(' · '))}</span>${counters !== '' ? ' ' + counters : ''}</div>` + `</div>`;
 	}
 
 	problemCounters(node, problems) {
@@ -2201,7 +2202,7 @@ const view = new class {
 	// escaped (§13): nothing here is markup.
 	buildAddressesFragment(data, open = true) {
 		const escape = value => this.escape(value);
-		const copy = (text, label) => `<button type="button" class="btn-alt topology-copy-button" data-copy="${escape(text)}" title="${escape(label)}">${escape(<?= json_encode(_('Copy')) ?>)}</button>`;
+		const copy = (text, label) => `<button type="button" class="btn-icon zi-copy topology-copy-button" data-copy="${escape(text)}" title="${escape(label)}" aria-label="${escape(<?= json_encode(_('Copy')) ?>)}"></button>`;
 		const monitoring = (m) => {
 			const name = item => item ? (item.name ?? item.id) : null;
 			if (m.mode === 'proxy_group') {
@@ -2255,9 +2256,7 @@ const view = new class {
 				document.execCommand('copy');
 				area.remove();
 			}
-			const label = button.textContent;
-			button.textContent = <?= json_encode(_('Copied')) ?>;
-			setTimeout(() => button.textContent = label, 1200);
+			button.dispatchEvent(new CustomEvent('topology-copied'));
 		}));
 	}
 

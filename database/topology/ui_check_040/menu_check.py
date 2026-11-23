@@ -49,7 +49,7 @@ check(js("document.getElementById('topology-canvas').querySelectorAll('.topology
 
 print('=== the icon: select and open the panel ===')
 click_icon(js, 'SW12-10-CORE-6000-48G', 'host')
-panel = js("""(() => { const d = document.getElementById('topology-details'); return {title: (d.querySelector('.topology-node-title') || {}).textContent, plain_name: !!d.querySelector('span.topology-node-title') && !d.querySelector('a.topology-node-title, a.topology-host-name'),
+panel = js("""(() => { const d = document.getElementById('topology-details'); return {title: (d.querySelector('.topology-node-title') || {}).textContent, plain_name: !!d.querySelector('h4.topology-node-title') && !d.querySelector('a.topology-node-title, a.topology-host-name'),
     actions: d.querySelectorAll('.topology-node-actions, .topology-focus-button, .topology-menu-button, .topology-node-reports, .topology-menu-list').length, problems_section: !!d.querySelector('details.topology-problems'),
     neighbors: d.querySelectorAll('a.topology-neighbor[data-node]').length, summary: (d.querySelector('.topology-node-summary') || {}).textContent}; })()""")
 check(panel['title'] == 'SW12-10-CORE-6000-48G' and panel['plain_name'], 'a click on the icon selects the node and opens its panel; the name is plain text', panel)
@@ -110,6 +110,21 @@ ghost = js("""(() => view.lineMenuItems({ghost: {entry: {edge_id: 7}, shadow: {h
 check(ghost == ['Link details', 'Keep manual', 'Accept discovery'], 'a ghost line (a manual link that discovery contradicts): Link details, Keep manual, Accept discovery', ghost)
 manual = js("""(() => view.lineMenuItems({link: {type: 'device_link', edge_id: 9, source: {id: '1', name: 'A'}, target: {id: '2', name: 'B'}, source_port_id: null, target_port_id: null}, open() {}}).map(i => i.label))()""")
 check(manual == ['Link details', 'Unlink'], 'a manual device link: Link details and Unlink (with the confirmation)', manual)
+print('=== the panel: the Zabbix font, no kind badge, no class icon (task 117 section 8) ===')
+click_icon(js, 'SW12-10-CORE-6000-48G', 'host')
+js("Array.from(document.querySelectorAll('#topology-details details.topology-identity')).forEach(d => { d.open = true; })")
+P.idle(js)
+fonts = js("""(() => { const d = document.getElementById('topology-details'); const body = getComputedStyle(document.body).fontFamily;
+    const families = new Set(Array.from(d.querySelectorAll('*')).filter(e => e.textContent.trim() !== '' && e.children.length === 0).map(e => getComputedStyle(e).fontFamily));
+    const label = d.querySelector('.topology-identity .form-grid label'); const copy = d.querySelector('.topology-identity button.zi-copy');
+    return {body, families: Array.from(families), mono: Array.from(families).some(f => /mono|courier/i.test(f)), label_weight: label ? getComputedStyle(label).fontWeight : null, label: label ? label.textContent : null,
+        copy_icon: !!copy, copy_text: copy ? copy.textContent.trim() : null, text_copy_buttons: d.querySelectorAll('button.btn-alt.topology-copy-button').length, kind_badge: !!d.querySelector('.topology-node-kind'), class_icon: !!d.querySelector('.topology-node-icon'),
+        kind_grey: !!d.querySelector('.topology-node-summary .grey'), form_view: !!d.querySelector('.topology-identity .form-grid')}; })()""")
+check(fonts['families'] == [fonts['body']] and not fonts['mono'], 'one font in the panel: the font of the frontend, no monospace', fonts)
+check(fonts['form_view'] and fonts['label'] is not None and int(fonts['label_weight']) <= 400, 'Identity: label and value as in a Zabbix form view (the label in the left column, normal weight)', fonts)
+check(fonts['copy_icon'] and fonts['copy_text'] == '' and fonts['text_copy_buttons'] == 0, 'Copy is the standard copy icon button', fonts)
+check(not fonts['kind_badge'] and fonts['kind_grey'] and not fonts['class_icon'], 'no kind badge (the kind is grey text in the summary line) and no class icon before the name', fonts)
+
 print('=== the hint box (task 117 section 7) ===')
 js("document.body.click()")
 js("view.unfolded.clear(); view.render()")

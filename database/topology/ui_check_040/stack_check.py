@@ -196,7 +196,7 @@ try:
     check(js(BAND) == [] and ring_on('SW13'), 'a node after a line: the band is gone, the ring is on the node')
 
     print('=== The panel of a host is the Host panel, however it is opened (task 101 §1, model §12.5 2.85) ===')
-    HOSTPANEL = """(() => { const d = document.getElementById('topology-details'); const k = d.querySelector('.topology-node-kind'); return {kind: k ? k.textContent.trim() : null, title: (d.querySelector('.topology-host-name, .topology-node-title') || {}).textContent,
+    HOSTPANEL = """(() => { const d = document.getElementById('topology-details'); const k = d.querySelector('.topology-node-summary .grey'); return {kind: k ? k.textContent.split(' · ')[0].trim() : null, title: (d.querySelector('.topology-host-name, .topology-node-title') || {}).textContent,
         problems: !!d.querySelector('details.topology-problems'), focus: !!d.querySelector('.topology-focus-button'), not_in_view: !!d.querySelector('.topology-not-in-view'), ring: document.querySelectorAll('#topology-canvas g.topology-node.topology-selected').length}; })()"""
 
     def host_panel(text, label, focus=True):

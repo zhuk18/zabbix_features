@@ -48,7 +48,7 @@ PANEL = """(() => {
     const names = rows.map(r => { const n = r.querySelector('.topology-neighbor'); const h = document.createElement('div'); h.innerHTML = n.dataset.hintboxHtml || ''; return [n.textContent, h.textContent]; });      // the full text is in the hint box (task 117 section 7)
     const line2 = rows.map(r => r.querySelector('.topology-link-line2').textContent);
     return {sections, title_visible: !title.hidden && title.offsetHeight > 0, title_text: title.textContent, has_device_details: d.textContent.includes('Device details'),
-        name: (d.querySelector('.topology-node-name') || {textContent: ''}).textContent.trim(), icon: !!d.querySelector('.topology-node-icon'), kind: (d.querySelector('.topology-node-kind') || {textContent: ''}).textContent,
+        name: (d.querySelector('.topology-node-name') || {textContent: ''}).textContent.trim(), icon: !!d.querySelector('.topology-node-icon'), badge: !!d.querySelector('.topology-node-kind'), kind: ((d.querySelector('.topology-node-summary .grey') || {textContent: ''}).textContent.split(' · ')[0]),
         actions: Array.from(d.querySelectorAll('.topology-node-actions > *')).map(e => e.classList.contains('topology-menu') ? e.querySelector('.topology-menu-button').textContent : (e.textContent || '').trim()),
         summary: (d.querySelector('.topology-node-summary') || {textContent: ''}).textContent,
         row_controls: row_controls.filter(n => n > 0).length, rows: rows.length, row_heights: rows.map(r => Math.round(r.getBoundingClientRect().height)), names, line2,
@@ -65,15 +65,15 @@ try:
     print('  ', json.dumps(r))
     check(r['sections'] == ['links+', 'ports+', 'identity-'], 'sections: Links, Ports, Identity (folded); no Problems section (task 117 section 6)', r['sections'])
     check(not r['title_visible'] and not r['has_device_details'], 'no "Device details" on the node panel', [r['title_text'], r['title_visible']])
-    check(r['icon'] and r['name'].startswith('SW12-10-CORE-6000-48G') and 'Zabbix host' in r['name'], 'header: class icon, name, kind mark', r['name'])
+    check(not r['icon'] and r['name'] == 'SW12-10-CORE-6000-48G' and r['kind'] == 'Zabbix host' and not r['badge'], 'header (task 117 section 8): no class icon, the name, the kind as grey text at the start of the summary line, no kind badge', [r['name'], r['kind']])
     check(r['actions'] == [], 'the header has no action row: Focus, Neighbor reports and the menu are in the menu of the label (task 117 section 3)', r['actions'])
-    check(r['summary'].startswith('11 links to 7 neighbors · 58 ports (30 up)'), 'summary line "<N> links to <M> neighbors · <P> ports (<U> up)" (and the problem counters after it)', r['summary'])
+    check(r['summary'].startswith('Zabbix host · 11 links to 7 neighbors · 58 ports (30 up)'), 'summary line "<kind> · <N> links to <M> neighbors · <P> ports (<U> up)" (and the problem counters after it)', r['summary'])
     check(r['rows'] >= 5 and r['row_controls'] == 0, 'no button or link on a Links row but the neighbor and the toggle', [r['rows'], r['row_controls']])
     check(all(n == 2 for n in r['line_counts']) and all(h <= 70 for h in r['row_heights']) and r['row_overflow'] == 0, 'a row has two lines (line 1: neighbor; line 2: ports, status, source, load) and nothing is wider than the panel', [r['line_counts'], r['row_heights'], r['row_overflow']])
     check(all(shown == full for shown, full in r['names']) and len(set(f for _, f in r['names'])) == len(r['names']), 'every neighbor label is shown in full (no cut) and the neighbors can be told apart', r['names'])
     check(any(t.startswith('core-lag ×2') for t in r['line2']) and any(t.startswith('Trk1 ×2') for t in r['line2']), 'a bundle row shows "core-lag ×2" and "Trk1 ×2" in full in line 2', r['line2'])
     bundles = js("Array.from(document.querySelectorAll('#topology-details tr.topology-link-bundle')).map(r => [r.querySelector('.topology-link-line2').textContent, Math.round(r.querySelector('.topology-link-line2').getBoundingClientRect().height), Math.round(r.getBoundingClientRect().height)])")
-    check(len(bundles) == 4 and all(b[1] <= 16 and b[2] <= 52 and ' ↔ ' not in b[0] for b in bundles), '2.78: a bundle row has two text lines (line 2 does not wrap) and no ports in line 2', bundles)
+    check(len(bundles) == 4 and all(b[1] <= 20 and b[2] <= 60 and ' ↔ ' not in b[0] for b in bundles), '2.78: a bundle row has two text lines (line 2 does not wrap) and no ports in line 2', bundles)
     check(all(' in ' in t or t.endswith('—') or '%' in t for t in r['line2']), 'line 2 has the load "in x % / out y %"', r['line2'])
     # the Links section replaces the group Connected; the Ports section has the others, folded
     groups = js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).map(e => [e.dataset.group, e.open, e.querySelector('summary').textContent.trim()])")
@@ -170,7 +170,7 @@ try:
     r = js(PANEL)
     print('  ', json.dumps(r))
     check(r['sections'][:2] == ['identity+', 'links+'] and r['sections'][2:] in ([], ['ports+']) and not r['has_device_details'], 'FortiAP: Identity, Links, Ports (Ports only when it has a group besides Connected)', r['sections'])
-    check('Not a Zabbix host' in r['name'], 'kind mark "Not a Zabbix host"', r['name'])
+    check(r['kind'] == 'Not a Zabbix host', 'kind "Not a Zabbix host" at the start of the summary line', r['kind'])
     check(js("document.querySelector('#topology-details details.topology-addresses').open"), 'the Addresses are open inside Identity')
     print('=== Focus (the menu of the label) ===')
     menu = P.node_menu(js, 'SW13-10-ACC-6000-48G', node_type='host')

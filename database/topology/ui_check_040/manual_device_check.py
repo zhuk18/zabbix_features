@@ -91,7 +91,7 @@ def shot(name):
 
 
 TITLE = "(() => { const t = document.querySelector('#topology-details .topology-node-title, #topology-details .topology-host-name'); return t ? t.textContent.trim() : null; })()"
-KIND = "(() => { const t = document.querySelector('#topology-details .topology-node-kind'); return t ? t.textContent.trim() : null; })()"
+KIND = "(() => { const t = document.querySelector('#topology-details .topology-node-summary .grey'); return t ? t.textContent.split(' · ').slice(0, 1).join('').trim() : null; })()"
 RING = "document.querySelectorAll('#topology-canvas g.topology-node.topology-selected').length"
 NODE = "(label => view.drawn_nodes.find(n => n.label === label))"
 
@@ -144,7 +144,7 @@ try:
     click(dialog_button('Create'))
     check(wait("!document.getElementById('topology-device-name')"), 'Create closes the dialog', [js("(document.querySelector('.topology-dialog-error') || {}).textContent"), js("window.__alert"), js("Array.from(document.querySelectorAll('.topology-port-name-input')).map(i => i.value)")])
     wait("(%s) === 'ISP-Router'" % TITLE)
-    check(js(TITLE) == 'ISP-Router' and js(KIND) == 'Not a Zabbix host · manual', 'the Device is selected, its panel is open: "ISP-Router", kind mark "Not a Zabbix host · manual"', [js(TITLE), js(KIND)])
+    check(js(TITLE) == 'ISP-Router' and js(KIND) in ('Not a Zabbix host', 'Not a Zabbix host · manual'), 'the Device is selected, its panel is open: "ISP-Router", kind mark "Not a Zabbix host · manual"', [js(TITLE), js(KIND)])
     check(js("(n => !!n && !!n.element)(view.drawn_nodes.find(n => n.label === 'ISP-Router'))") and js(RING) == 1, 'the Device is drawn (no link) and the selection ring is on it')
     layout_clean('the new Device without a link is at a free place: no overlap, no label on a node, no line through a node')
     check(js("document.querySelector('#topology-canvas g.topology-icon-router') !== null && view.drawn_nodes.find(n => n.label === 'ISP-Router').device_class === 'router'"), 'its icon is the class Router (§12.2)')

@@ -29,9 +29,9 @@ $page_styles = '
 .topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
 .topology-wrap{display:block;white-space:normal}
-.topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;font-size:12px;color:#1f5a8a;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
+.topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
 .topology-more[hidden]{display:none}
-.topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;line-height:1.4;font-size:13px;cursor:pointer;color:#1f2c33;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
+.topology-panel-toggle{position:absolute;top:10px;right:10px;padding:2px 8px;cursor:pointer;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
 .topology-workspace.topology-panel-collapsed{grid-template-columns:minmax(0,1fr) 34px}
 .topology-workspace.topology-panel-collapsed .topology-panel{padding:10px 4px;overflow:hidden}
 .topology-workspace.topology-panel-collapsed .topology-panel h2,
@@ -41,11 +41,11 @@ $page_styles = '
 .topology-node.host rect{fill:#fff;stroke:#1f2937;stroke-width:2}
 .topology-node.proxy rect{fill:#fff;stroke:#1f2937;stroke-width:2}
 .topology-legend{position:absolute;left:8px;bottom:8px;z-index:3;max-width:300px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.topology-legend-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 8px;cursor:pointer;font-weight:600;user-select:none}
+.topology-legend-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 8px;cursor:pointer;user-select:none}
 .topology-legend-body{padding:2px 8px 8px;max-height:46vh;overflow:auto}
 .topology-legend.topology-legend-collapsed .topology-legend-body{display:none}
 .topology-map-controls{position:absolute;left:8px;top:8px;z-index:3;display:flex;flex-direction:column;gap:4px}
-.topology-legend h4{margin:8px 0 3px;font-size:11px;text-transform:uppercase;color:#55606b}
+.topology-legend h4{margin:8px 0 3px;text-transform:uppercase}
 .topology-legend-row{display:flex;align-items:center;gap:8px;margin:3px 0}
 .topology-legend-row svg{flex:0 0 44px}
 .topology-label{font-size:12px;pointer-events:none}
@@ -53,53 +53,52 @@ $page_styles = '
 .topology-label-link:hover{text-decoration:underline}
 .topology-link{stroke:#77818d;stroke-width:2}
 .topology-group{margin:14px 0}
-.topology-group h3{font-size:14px;margin:0 0 6px}
+.topology-group h3{margin:0 0 6px}
 .topology-address-list{list-style:none;margin:0;padding:0}
 .topology-address{padding:6px 0;border-bottom:1px solid #e5e7eb}
 .topology-address-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.topology-address-value{font-family:monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;word-break:break-all}
+.topology-address-value{overflow:hidden;text-overflow:ellipsis;word-break:break-all}
 .topology-address-value.topology-class-value{word-break:normal;overflow-wrap:normal}
 .topology-nowrap{white-space:nowrap}
-.topology-address-count{font-size:11px;color:#55606b;cursor:pointer}
-.topology-address-source{font-size:11px;color:#55606b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;font-size:11.5px;margin-bottom:6px}
-.topology-address-identity th{text-align:left;font-weight:600;padding:3px 6px 3px 0;white-space:nowrap;width:1%}
+.topology-address-count{cursor:pointer}
+.topology-address-source{margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topology-address-identity{width:100%;table-layout:auto;border-collapse:collapse;margin-bottom:6px}
+.topology-address-identity th{text-align:left;padding:3px 6px 3px 0;white-space:nowrap;width:1%}
 .topology-group .topology-address-identity{table-layout:auto}
 .topology-group .topology-address-identity th{overflow:visible;text-overflow:clip}
 .topology-address-identity td{padding:3px 4px 3px 0;vertical-align:middle}
-.topology-copy-button{font-size:10px;padding:1px 7px;white-space:nowrap;margin-left:auto}
-.topology-group-help{font-size:11.5px;color:var(--topology-muted,#666);margin:0 0 6px}
-.topology-group table{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px}
+.topology-copy-button{padding:1px 7px;white-space:nowrap;margin-left:auto}
+.topology-group-help{margin:0 0 6px}
+.topology-group table{width:100%;table-layout:fixed;border-collapse:collapse}
 .topology-col-port{width:22%}
 .topology-col-status{width:18%}
 .topology-col-source{width:58px}
 .topology-col-action{width:58px}
 .topology-group th,.topology-group td{padding:6px 6px;border-bottom:1px solid #e5e7eb;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
-.topology-group td.topology-mac-list{white-space:normal;word-break:break-all;font-family:monospace;font-size:11px}
-.topology-port-name{font-family:monospace;font-size:11px}
+.topology-group td.topology-mac-list{white-space:normal;word-break:break-all}
 .topology-status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 .topology-status-up{background:#2ecc71}
 .topology-status-down{background:#e74c3c}
 .topology-status-disabled{background:#94a3b8}
-.topology-source-badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;background:#eef0f3;color:#3d4650;white-space:nowrap}
-.topology-source-lldp{background:#e3edf7;color:#1f5a8a}
-.topology-source-manual{background:#fdf1de;color:#8a5a1f}
+.topology-source-badge{display:inline-block;padding:1px 6px;border-radius:3px;background:#eef0f3;white-space:nowrap}
+.topology-source-lldp{background:#e3edf7}
+.topology-source-manual{background:#fdf1de}
 .topology-promote{margin-top:14px}
 .topology-promote-search{width:100%;box-sizing:border-box;margin-bottom:4px}
 .topology-promote-results{max-height:140px;overflow-y:auto;border:1px solid #d9d9d9;border-radius:3px;margin-bottom:6px}
 .topology-promote-results:empty{display:none;border:none}
-.topology-promote-result{padding:5px 8px;font-size:12px;cursor:pointer}
+.topology-promote-result{padding:5px 8px;cursor:pointer}
 .topology-promote-result:hover,.topology-promote-result.selected{background:#eef6fc}
-.topology-promote-result-proxy::before{content:"P ";font-weight:bold;color:#6b46c1}
-.topology-promote-selected{font-size:12px;color:#3d556a;margin-bottom:6px}
-.topology-severity-badge{display:inline-block;padding:2px 8px;border-radius:3px;color:#fff;font-size:11px;font-weight:bold}
-.topology-empty{color:#768d99;font-style:italic;padding:8px 0}
-.topology-port-reports{display:block;font-size:11px;line-height:1.15;white-space:normal;overflow:visible;text-overflow:clip;font-family:inherit}
-.topology-device-reports{margin-bottom:6px;font-size:12px}
-.topology-link-pick{font-size:12px;color:#3d556a;background:#eef6fc;border:1px solid #bcd9ee;border-radius:4px;padding:6px 10px}
+.topology-promote-result-proxy::before{content:"P "}
+.topology-promote-selected{margin-bottom:6px}
+.topology-severity-badge{display:inline-block;padding:2px 8px;border-radius:3px}
+.topology-empty{padding:8px 0}
+.topology-port-reports{display:block;white-space:normal;overflow:visible;text-overflow:clip}
+.topology-device-reports{margin-bottom:6px}
+.topology-link-pick{background:#eef6fc;border:1px solid #bcd9ee;border-radius:4px;padding:6px 10px}
 .topology-link-pick:empty{display:none}
-.topology-link-pick a{margin-left:8px;color:#2b7dbc;cursor:pointer}
-.topology-link-button,.topology-unlink-button{font-size:10px;padding:2px 7px;white-space:nowrap}
+.topology-link-pick a{margin-left:8px;cursor:pointer}
+.topology-link-button,.topology-unlink-button{padding:2px 7px;white-space:nowrap}
 .topology-filter-bar{display:flex;align-items:center;gap:8px 12px;flex-wrap:nowrap;flex:0 0 auto;margin-bottom:12px;padding:6px 10px;border:1px solid #d9d9d9;background:#fbfbfb}
 .topology-filter-field{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap}
 .topology-filter-bar label{font-size:12px;color:#1f2933;margin-right:4px}
@@ -108,49 +107,47 @@ $page_styles = '
 .topology-link-glow{fill:none;stroke:transparent;pointer-events:none}
 .topology-link-glow.topology-link-hover{stroke:#2b7dbc;stroke-opacity:.45}
 .topology-link-glow.topology-link-selected{stroke:#0275b8;stroke-opacity:.8}
-.topology-not-in-view{margin:0 0 6px;color:#6b7280;font-style:italic}
+.topology-not-in-view{margin:0 0 6px}
 .topology-node-head{margin-bottom:10px}
-.topology-node-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:16px;font-weight:bold;padding-right:30px}
+.topology-node-name{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-right:30px}
 .topology-node-icon{flex:0 0 auto}
-.topology-host-name,.topology-node-title{font-size:16px;font-weight:bold;word-break:break-all}
-.topology-node-kind{font-size:11px;font-weight:normal;color:#3d556a;background:#eef2f5;border:1px solid #d6dde2;border-radius:3px;padding:1px 6px}
+.topology-host-name,.topology-node-title{word-break:break-all}
+.topology-node-kind{background:#eef2f5;border:1px solid #d6dde2;border-radius:3px;padding:1px 6px}
 .topology-node-badges{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
-.topology-text-badge{font-size:11px;color:#7c2d12;background:#fff4e5;border:1px solid #f0c78a;border-radius:3px;padding:1px 6px}
-.topology-node-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:12px}
-.topology-node-summary{margin-top:6px;font-size:12px;color:#3d4650}
+.topology-text-badge{background:#fff4e5;border:1px solid #f0c78a;border-radius:3px;padding:1px 6px}
+.topology-node-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+.topology-node-summary{margin-top:6px}
 .topology-menu{position:relative;display:inline-block}
-.topology-menu-button{padding:0 5px;font-size:16px;line-height:1.3;cursor:pointer;color:#1f2c33;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
+.topology-menu-button{padding:0 5px;cursor:pointer;background:#fff;border:1px solid #d9d9d9;border-radius:3px}
 .topology-menu-list{position:fixed;z-index:1001;margin:0;padding:4px 0;list-style:none;min-width:140px;background:#fff;border:1px solid #b9c4cc;border-radius:3px;box-shadow:0 3px 10px rgba(0,0,0,.2)}
 .topology-menu-list[hidden]{display:none}
-.topology-menu-item{display:block;width:100%;box-sizing:border-box;text-align:left;padding:5px 12px;font-size:12px;color:#1f2c33;background:none;border:0;cursor:pointer;text-decoration:none;white-space:nowrap}
+.topology-menu-item{display:block;width:100%;box-sizing:border-box;text-align:left;padding:5px 12px;background:none;border:0;cursor:pointer;text-decoration:none;white-space:nowrap}
 .topology-menu-item:hover{background:#eef6fc}
 .topology-section{margin:10px 0;border-top:1px solid #e1e6ea;padding-top:6px}
-.topology-section>summary{cursor:pointer;font-weight:bold;font-size:13px;padding:2px 0}
-.topology-port-group>summary{cursor:pointer;font-weight:bold;font-size:12px;margin:6px 0 2px}
-.topology-links-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+.topology-section>summary{cursor:pointer;padding:2px 0}
+.topology-port-group>summary{cursor:pointer;margin:6px 0 2px}
+.topology-links-table{width:100%;border-collapse:collapse;table-layout:fixed}
 .topology-links-table td.topology-link-main{padding:4px 3px;border-bottom:1px solid #eef1f3;overflow:visible}
 .topology-links-table tr[hidden]{display:none}
 .topology-link-line1{display:flex;align-items:center;justify-content:space-between;gap:6px;white-space:nowrap}
-.topology-link-name{min-width:0;overflow:hidden;font-size:13px}
-.topology-link-line2{margin-top:1px;font-size:11px;color:#6b7782;line-height:1.35}
-.topology-link-line2 .topology-sep{color:#9aa5ae}
-.topology-link-mark{color:#7c2d12}
+.topology-link-name{min-width:0;overflow:hidden}
+.topology-link-line2{margin-top:1px}
 .topology-link-row.topology-row-hover td{background:#e3f0fa}
-.topology-neighbor{color:#2b7dbc;cursor:pointer}
-span.topology-neighbor{color:inherit;cursor:default}
-.topology-bundle-toggle{border:0;background:none;cursor:pointer;padding:0 3px 0 0;font-size:11px;color:#3d556a}
+.topology-neighbor{cursor:pointer}
+span.topology-neighbor{cursor:default}
+.topology-bundle-toggle{border:0;background:none;cursor:pointer;padding:0 3px 0 0}
 .topology-link-member td.topology-link-main{padding-left:18px}
 .topology-problem-counts{margin:4px 0}
-.topology-problems-table{width:100%;border-collapse:collapse;font-size:12px}
+.topology-problems-table{width:100%;border-collapse:collapse}
 .topology-problems-table td{padding:2px 3px;border-bottom:1px solid #eef1f3;white-space:nowrap}
-.topology-problems-all{margin-top:4px;font-size:12px}
+.topology-problems-all{margin-top:4px}
 .topology-identity>summary~table{margin-top:4px}
 .topology-group-fold{margin:8px 0}
 .topology-back{margin:0 0 6px}
 .topology-back-button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .topology-dialog-error{display:block;margin:0 0 8px;padding:6px 8px;color:#fff;background:#e45959;border-radius:2px}
 .topology-dialog-error[hidden]{display:none}
-.topology-port-table th{text-align:left;font-weight:normal;color:#768d99;padding:0 4px 2px 0}
+.topology-port-table th{text-align:left;padding:0 4px 2px 0}
 .topology-port-table td{padding:0 4px 4px 0}
 .topology-port-table input{width:150px}
 .topology-group-row{cursor:pointer}
