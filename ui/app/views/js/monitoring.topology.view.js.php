@@ -1439,7 +1439,11 @@ const view = new class {
 			return;
 		}
 		const top = page.getBoundingClientRect().top + window.scrollY;
-		let height = Math.max(520, Math.floor(window.innerHeight - top - 8));
+		// task 117 section 5: down to the standard Zabbix footer, which is not changed: the window, minus what is above the page, minus the room that main keeps below it, minus the footer
+		const footer = document.querySelector('footer');
+		const main = document.querySelector('main');
+		const below = (main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0) + (footer ? footer.getBoundingClientRect().height : 0);
+		let height = Math.max(520, Math.floor(window.innerHeight - top - below));
 		page.style.height = `${height}px`;
 		// what Zabbix puts below the page (the footer) must fit too: Zabbix scrolls .wrapper, not the document
 		const wrapper = document.querySelector('.wrapper');

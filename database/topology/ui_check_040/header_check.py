@@ -156,6 +156,23 @@ js("document.getElementById('topology-legend-head').click()")      # back to wha
 P.idle(js)
 chrome.close()
 
+print('=== the graph area reaches the standard footer, at 1366 x 768 and 1920 x 1080, and follows a resize (task 117 section 5) ===')
+FOOT = """(() => { const r = e => e.getBoundingClientRect(); const p = r(document.querySelector('.topology-prototype')), f = r(document.querySelector('footer')), panel = r(document.getElementById('topology-panel')), w = document.querySelector('.wrapper');
+    return {gap: Math.round(f.top - p.bottom), panel_to_page: Math.round(p.bottom - panel.bottom), footer_visible: f.bottom <= innerHeight + 1, scroll_y: w.scrollHeight - w.clientHeight, win: innerHeight}; })()"""
+for width, height in ((1366, 768), (1920, 1080)):
+    chrome, ws, js = graph(width, height)
+    st = js(FOOT)
+    # the menu open takes 232 px: at 1366 the content is narrower than the minimum width of Zabbix, so the page has its own horizontal scroll bar; the footer is then above it
+    check(0 <= st['gap'] <= 16 and st['panel_to_page'] <= 2 and st['scroll_y'] <= 0, 'at %d x %d the graph area and the panel end at the footer (the room of main only: %s px)' % (width, height, st['gap']), st)
+    chrome.close()
+chrome, ws, js = graph(1920, 1080)
+ws.call('Emulation.setDeviceMetricsOverride', width=1366, height=700, deviceScaleFactor=1, mobile=False)
+P.until(js, "innerHeight === 700", 'the window is 700 px high')
+P.until(js, "(() => { const p = document.querySelector('.topology-prototype').getBoundingClientRect(), f = document.querySelector('footer').getBoundingClientRect(); return Math.abs(f.top - p.bottom) <= 16; })()", 'the graph area follows the resize down to the footer')
+st = js(FOOT)
+check(st['win'] == 700 and 0 <= st['gap'] <= 16, 'the graph area follows a resize of the window (1920 x 1080 to 1366 x 700)', st)
+chrome.close()
+
 print('=== kiosk mode ===')
 KIOSK_ON = "document.readyState === 'complete' && !!document.querySelector('.layout-mode[data-layout-mode=\"0\"]')"      # the button "Normal view" is there
 KIOSK_OFF = "document.readyState === 'complete' && !!document.querySelector('.layout-mode[data-layout-mode=\"1\"]') && !!document.querySelector('nav[aria-label=\"Content controls\"] input[type=radio][name=view]')"
