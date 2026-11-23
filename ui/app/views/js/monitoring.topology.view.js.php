@@ -3283,8 +3283,8 @@ const view = new class {
 		const link_tooltip = link => {
 			if (link.type === 'lag_bundle') {
 				// 2.73: "LAG <name> ×<N>: <A> ↔ <B>", then a line per member: its two ports, its status and the load of side A (§4.8); the link panel has both sides
-				return G.bundleTooltip(link, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
-					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
+				return {html: this.bundleHintHtml(G.bundleHintParts(link, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
+					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)}))};
 			}
 			if (link.type === 'physical_link') {
 				const marks = [];
@@ -3299,8 +3299,9 @@ const view = new class {
 					marks.push(`${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.`);
 				}
 				const source = link.discovered_via === 'manual' ? <?= json_encode(_('manual')) ?> : this.sourceText(link.discovery_source || 'lldp');
-				return G.linkTooltip({...link, source_text: source, marks}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>, no_data: <?= json_encode(_('no data')) ?>,
-					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)});
+				const near_load = TopologyGraph.loadText(link.source_load ?? link.target_load, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>});
+				return {html: this.linkHintHtml(G.linkHintParts({...link, source_text: source, marks}, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>, no_data: <?= json_encode(_('no data')) ?>,
+					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)}), near_load !== '—' ? near_load : '')};
 			}
 			if (link.type === 'device_link') {
 				return this.deviceLinkTooltip(link);
@@ -3842,10 +3843,25 @@ const view = new class {
 		return `<table class="list-table"><tbody>${rows.join('')}</tbody></table>`;
 	}
 
-	showHint(event, target, text) {
+	// A link: three kinds of rows, not columns (§12.3, task 117 section 7): the ports; in grey, in the order of the Links row (§12.5), the status of both ends · the source · the load; the load of each
+	// end; then the notes (stale, superseded, lost precision), which wrap. The box keeps the standard maximum width of the hint box.
+	linkHintHtml(parts, load) {
+		const esc = value => this.escape(value);
+		const meta = [parts.statuses, parts.source, load].filter(Boolean).join(' · ');
+		return `<div>${esc(parts.ports)}</div>${meta !== '' ? `<div class="grey">${esc(meta)}</div>` : ''}` +
+			parts.loads.map(line => `<div class="grey">${esc(line)}</div>`).join('') + parts.marks.map(line => `<div>${esc(line)}</div>`).join('');
+	}
+
+	// A LAG bundle: the title, a table for the member rows only (ports, status, load); the notes of a bundle, if any, come below the table.
+	bundleHintHtml(parts) {
+		const esc = value => this.escape(value);
+		return `<div>${esc(parts.title)}</div><table class="list-table"><tbody>${parts.members.map(member => `<tr><td>${esc(member.ports)}</td><td>${esc(member.state ?? '')}</td><td>${esc(member.load ?? '')}</td></tr>`).join('')}</tbody></table>`;
+	}
+
+	showHint(event, target, content) {
 		this.hideHint();
 		this.hint_target = target;
-		hintBox.showHint(event, target, this.hintHtml(text), '', false);
+		hintBox.showHint(event, target, typeof content === 'object' && content !== null ? content.html : this.hintHtml(content), '', false);
 	}
 
 	hideHint() {

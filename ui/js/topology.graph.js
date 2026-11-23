@@ -1169,11 +1169,11 @@
 	 * The tooltip of a LAG bundle (§12.3, 2.73): the first line "LAG <name> ×<N>: <node A> ↔ <node B>", then one line per member: "<port A> ↔ <port B> · <status> · in <x> / out <y> of <speed>" (the
 	 * load of side A; the link panel has both sides). Text only (§13): the caller writes it with text(). `words` = {in, out, of, status: {up, down, disabled}, speed: bps -> text}.
 	 */
-	function bundleTooltip(bundle, words) {
+	// The parts of the tooltip of a LAG bundle (task 117 section 7): the title and one {ports, state, load} for each member (the rows of the table of the hint box).
+	function bundleHintParts(bundle, words) {
 		const name = bundle.lag_name ? bundle.lag_name + ' ' : '';
 		const node = side => side?.name ?? side?.label ?? '';
-		const lines = [`LAG ${name}×${bundle.members.length}: ${node(bundle.source)} ↔ ${node(bundle.target)}`];
-		bundle.members.forEach(member => {
+		const members = bundle.members.map(member => {
 			const status = side => (side ? (words.status[side] ?? side) : null);
 			const a = status(member.source_status);
 			const b = status(member.target_status);
@@ -1181,17 +1181,17 @@
 			const load = member.source_load;
 			const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
 			const has_load = load && (load.in !== null && load.in !== undefined || load.out !== null && load.out !== undefined);
-			const parts = [`${member.source_port ?? '?'} ↔ ${member.target_port ?? '?'}`];
-			if (state !== null) {
-				parts.push(state);
-			}
-			if (has_load) {
-				parts.push(`${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : ''));
-			}
-			lines.push(parts.join(' · '));
+			return {ports: `${member.source_port ?? '?'} ↔ ${member.target_port ?? '?'}`, state,
+				load: has_load ? `${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '') : null};
 		});
 
-		return lines.join('\n');
+		return {title: `LAG ${name}×${bundle.members.length}: ${node(bundle.source)} ↔ ${node(bundle.target)}`, members};
+	}
+
+	function bundleTooltip(bundle, words) {
+		const parts = bundleHintParts(bundle, words);
+
+		return [parts.title, ...parts.members.map(member => [member.ports, member.state, member.load].filter(part => part !== null && part !== undefined).join(' · '))].join('\n');
 	}
 
 	// ---- the side panel of a node (§12.5 "Structure of a node panel", 2.75, task 094) ----
@@ -1236,23 +1236,30 @@
 	 * marks, each on its own line. Text only (§13). `link` has source/target (nodes with name), source_port/target_port, source_status/target_status, source_load/target_load, source_text, `marks` (the
 	 * caller's texts). `words`: {in, out, of, status: {up, down, disabled}, speed: bps -> text}.
 	 */
-	function linkTooltip(link, words) {
-		const lines = [`${link.source?.name ?? '?'} ${link.source_port ?? '?'} ↔ ${link.target?.name ?? '?'} ${link.target_port ?? '?'}`];
+	// The parts of the tooltip of a link (task 117 section 7): the ports, the status of both ends, the source, the load of each end, the notes (stale, superseded, lost precision).
+	function linkHintParts(link, words) {
+		const ports = `${link.source?.name ?? '?'} ${link.source_port ?? '?'} ↔ ${link.target?.name ?? '?'} ${link.target_port ?? '?'}`;
 		const state = side => (side ? (words.status[side] ?? side) : null);
 		const statuses = [state(link.source_status), state(link.target_status)].filter(Boolean).join(' / ');
-		lines.push([link.source_text, statuses].filter(Boolean).join(' · '));
 		const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
+		const loads = [];
 		[[link.source, link.source_load, link.source_load_reason], [link.target, link.target_load, link.target_load_reason]].forEach(([node, load, reason]) => {
 			if (load && ((load.in !== null && load.in !== undefined) || (load.out !== null && load.out !== undefined))) {
-				lines.push(`${node?.name ?? '?'}: ${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '')
+				loads.push(`${node?.name ?? '?'}: ${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '')
 					+ (load.percent !== null && load.percent !== undefined ? ` (${load.percent} %)` : ''));
 			}
 			else if (reason) {
 				// FR-C V-12 item 2 (model 2.93): a side that has no items says so (the link panel says why)
-				lines.push(`${node?.name ?? '?'}: ${words.no_data ?? 'no data'}`);
+				loads.push(`${node?.name ?? '?'}: ${words.no_data ?? 'no data'}`);
 			}
 		});
-		(link.marks ?? []).forEach(mark => lines.push(mark));
+
+		return {ports, statuses, source: link.source_text ?? '', loads, marks: [...(link.marks ?? [])]};
+	}
+
+	function linkTooltip(link, words) {
+		const parts = linkHintParts(link, words);
+		const lines = [parts.ports, [parts.source, parts.statuses].filter(Boolean).join(' · '), ...parts.loads, ...parts.marks];
 
 		return lines.filter(line => line !== '').join('\n');
 	}
@@ -1345,5 +1352,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, linkHintParts, bundleHintParts, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

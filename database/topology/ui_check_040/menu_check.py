@@ -139,13 +139,14 @@ def line_point(entry_js):
     return js("""(() => { const e = %s; const p = e.hit.getPointAtLength(e.hit.getTotalLength() * 0.5); const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y}; })()""" % entry_js)
 
 
-HINT = "(() => { const h = document.querySelector('.hintbox'); return h ? {rows: h.querySelectorAll('tr').length, table: !!h.querySelector('table.list-table'), text: h.textContent} : null; })()"
+HINT = "(() => { const h = document.querySelector('.hintbox'); return h ? {rows: h.querySelectorAll('tr').length, table: !!h.querySelector('table.list-table'), text: h.textContent, divs: Array.from(h.querySelectorAll('.hintbox-container > div')).map(d => [d.textContent, d.className])} : null; })()"
 point = line_point(LINK)
 hover(point['x'] - 3, point['y'] - 3)
 hover(point['x'], point['y'])
 P.until(js, "document.querySelector('.hintbox')", 'the hint box of the link line is shown')
 hint = js(HINT)
-check(hint['table'] and hint['rows'] >= 2 and '↔' in hint['text'], 'a link line: the standard hint box with rows (ports, state, load), not an own element', hint)
+check(not hint['table'] and len(hint['divs']) >= 2 and '↔' in hint['divs'][0][0] and hint['divs'][1][1] == 'grey' and ' · ' in hint['divs'][1][0],
+      'a link line (task 117 section 7): rows, not columns: the ports; in grey the status of both ends · the source · the load', hint)
 check(js("!document.getElementById('topology-tooltip') && document.querySelectorAll('.topology-tooltip').length === 0"), 'there is no own tooltip element')
 hover(5, 5)
 P.until(js, "!document.querySelector('.hintbox')", 'the hint box closes when the pointer leaves the line')
@@ -155,7 +156,7 @@ hover(point['x'], point['y'])
 P.until(js, "document.querySelector('.hintbox')", 'the hint box of the bundle line is shown')
 hint = js(HINT)
 members = js("%s.link.members.length" % BUNDLE)
-check(hint['table'] and hint['rows'] == 1 + members, 'a bundle line: one row for the LAG and one row for each member (%d members)' % members, hint)
+check(hint['table'] and hint['rows'] == members and hint['divs'][0][0].startswith('LAG'), 'a bundle line: the title, and a table of the member rows only (%d members: ports, status, load)' % members, hint)
 hover(5, 5)
 P.until(js, "!document.querySelector('.hintbox')", 'the hint box closes')
 box = js("""(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === 'SW12-10-CORE-6000-48G'); const b = g.querySelector('rect.topology-shape').getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2}; })()""")
@@ -196,7 +197,7 @@ name_point = js("""(() => { const a = document.querySelector('#topology-details 
 check(name_point['title'] is None and name_point['html'], 'a text of the panel that was a `title` is a hint of the same box (data-hintbox)', name_point)
 hover(name_point['x'] - 1, name_point['y'] - 1)
 hover(name_point['x'], name_point['y'])
-P.until(js, "document.querySelector('.hintbox')", 'the hint box of a name in the panel is shown')
+P.until(js, "document.querySelector('.hintbox table.list-table')", 'the hint box of a name in the panel is shown')
 check(js("!!document.querySelector('.hintbox table.list-table')"), 'the panel hint is the same box')
 hover(5, 5)
 chrome.close()
