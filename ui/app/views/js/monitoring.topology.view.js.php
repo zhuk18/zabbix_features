@@ -3667,10 +3667,16 @@ const view = new class {
 			}
 			return notes.length ? `${full} — ${notes.join(' ')}` : full;
 		};
-		// the tooltip of a node and of a group node: the hint box (task 117 section 7); the text of a node is "<name> — <notes>", of a group "<name>: <counts>"
-		const hint_of = node => (node.type === 'group' ? describeSubject(node).replace(': ', '\n') : describeSubject(node).split(' — ').join('\n'));
-		node_selection.on('mouseenter.hint', (event, node) => this.showHint(event, event.currentTarget, hint_of(node)))
-			.on('mouseleave.hint', () => this.hideHint());
+		// task 117 section 7 (updated): a node (icon and label) has no hint box, the panel and the menu show the same; a label that is cut shows its full name, and only the name. A group node
+		// keeps its hint box (its name and the count by class).
+		node_selection.on('mouseenter.hint', (event, node) => {
+			if (node.type === 'group') {
+				this.showHint(event, event.currentTarget, describeSubject(node).replace(': ', '\n'));
+			}
+			else if (has_menu(node) && node.label_text !== (node.label ?? node.name)) {
+				this.showHint(event, event.currentTarget, String(node.label ?? node.name));
+			}
+		}).on('mouseleave.hint', () => this.hideHint());
 
 		const draw_positions = () => {
 			links.attr('d', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d);
