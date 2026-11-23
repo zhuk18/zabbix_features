@@ -110,6 +110,61 @@ ghost = js("""(() => view.lineMenuItems({ghost: {entry: {edge_id: 7}, shadow: {h
 check(ghost == ['Link details', 'Keep manual', 'Accept discovery'], 'a ghost line (a manual link that discovery contradicts): Link details, Keep manual, Accept discovery', ghost)
 manual = js("""(() => view.lineMenuItems({link: {type: 'device_link', edge_id: 9, source: {id: '1', name: 'A'}, target: {id: '2', name: 'B'}, source_port_id: null, target_port_id: null}, open() {}}).map(i => i.label))()""")
 check(manual == ['Link details', 'Unlink'], 'a manual device link: Link details and Unlink (with the confirmation)', manual)
+print('=== the hint box (task 117 section 7) ===')
+js("document.body.click()")
+js("view.unfolded.clear(); view.render()")
+P.idle(js)
+
+
+def hover(x, y):
+    ws.call('Input.dispatchMouseEvent', type='mouseMoved', x=x, y=y, button='none', buttons=0)
+
+
+def line_point(entry_js):
+    return js("""(() => { const e = %s; const p = e.hit.getPointAtLength(e.hit.getTotalLength() * 0.5); const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM()); return {x: t.x, y: t.y}; })()""" % entry_js)
+
+
+HINT = "(() => { const h = document.querySelector('.hintbox'); return h ? {rows: h.querySelectorAll('tr').length, table: !!h.querySelector('table.list-table'), text: h.textContent} : null; })()"
+point = line_point(LINK)
+hover(point['x'] - 3, point['y'] - 3)
+hover(point['x'], point['y'])
+P.until(js, "document.querySelector('.hintbox')", 'the hint box of the link line is shown')
+hint = js(HINT)
+check(hint['table'] and hint['rows'] >= 2 and '↔' in hint['text'], 'a link line: the standard hint box with rows (ports, state, load), not an own element', hint)
+check(js("!document.getElementById('topology-tooltip') && document.querySelectorAll('.topology-tooltip').length === 0"), 'there is no own tooltip element')
+hover(5, 5)
+P.until(js, "!document.querySelector('.hintbox')", 'the hint box closes when the pointer leaves the line')
+point = line_point(BUNDLE)
+hover(point['x'] - 3, point['y'] - 3)
+hover(point['x'], point['y'])
+P.until(js, "document.querySelector('.hintbox')", 'the hint box of the bundle line is shown')
+hint = js(HINT)
+members = js("%s.link.members.length" % BUNDLE)
+check(hint['table'] and hint['rows'] == 1 + members, 'a bundle line: one row for the LAG and one row for each member (%d members)' % members, hint)
+hover(5, 5)
+P.until(js, "!document.querySelector('.hintbox')", 'the hint box closes')
+box = js("""(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === 'SW12-10-CORE-6000-48G'); const b = g.querySelector('rect.topology-shape').getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2}; })()""")
+hover(box['x'] - 2, box['y'] - 2)
+hover(box['x'], box['y'])
+P.until(js, "document.querySelector('.hintbox')", 'the hint box of the node is shown')
+hint = js(HINT)
+check(hint['table'] and 'SW12-10-CORE-6000-48G' in hint['text'], 'a node: the hint box with its name', hint)
+label = js("""(() => { const t = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === 'SW12-10-CORE-6000-48G').querySelector('text.topology-label'); const b = t.getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2}; })()""")
+hover(label['x'], label['y'])
+P.node_menu(js, 'SW12-10-CORE-6000-48G', node_type='host')
+check(js("!document.querySelector('.hintbox')"), 'the hint box closes when the menu opens')
+close_menu(js)
+select_name = js("document.querySelector('#topology-details .topology-node-title') && 1")
+click_icon(js, 'SW12-10-CORE-6000-48G', 'host')
+name_point = js("""(() => { const a = document.querySelector('#topology-details a.topology-neighbor[data-node]'); const b = a.getBoundingClientRect(); return {x: b.left + b.width / 2, y: b.top + b.height / 2, title: a.getAttribute('title'), html: !!a.dataset.hintboxHtml}; })()""")
+check(name_point['title'] is None and name_point['html'], 'a text of the panel that was a `title` is a hint of the same box (data-hintbox)', name_point)
+hover(name_point['x'] - 1, name_point['y'] - 1)
+hover(name_point['x'], name_point['y'])
+P.until(js, "document.querySelector('.hintbox')", 'the hint box of a name in the panel is shown')
+check(js("!!document.querySelector('.hintbox table.list-table')"), 'the panel hint is the same box')
+hover(5, 5)
+chrome.close()
+
 chrome.close()
 
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All menu checks passed.'))

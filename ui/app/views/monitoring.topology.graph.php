@@ -153,8 +153,6 @@ span.topology-neighbor{color:inherit;cursor:default}
 .topology-port-table th{text-align:left;font-weight:normal;color:#768d99;padding:0 4px 2px 0}
 .topology-port-table td{padding:0 4px 4px 0}
 .topology-port-table input{width:150px}
-.topology-tooltip{position:fixed;z-index:1000;max-width:420px;padding:5px 8px;font-size:12px;line-height:1.35;color:#fff;background:rgba(31,41,55,.95);border-radius:3px;white-space:pre-line;pointer-events:none}
-.topology-tooltip[hidden]{display:none}
 .topology-group-row{cursor:pointer}
 .topology-group-row:hover{background:#eef6fc}
 ';
@@ -229,15 +227,15 @@ $html_page
 			(new CDiv([
 				// the controls of the graph, in the corner of the graph area (like the zoom controls of the Geomap widget): zoom in, zoom out, Fit (task 117 section 2)
 				(new CDiv([
-					(new CSimpleButton())->setId('topology-zoom-in')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_PLUS)->setAttribute('title', _('Zoom in'))->setAttribute('aria-label', _('Zoom in')),
-					(new CSimpleButton())->setId('topology-zoom-out')->addClass(ZBX_STYLE_BTN_ICON)->addClass('zi-minimize')->setAttribute('title', _('Zoom out'))->setAttribute('aria-label', _('Zoom out')),
-					(new CSimpleButton())->setId('topology-fit')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_EXPAND)->setAttribute('title', _('Fit'))->setAttribute('aria-label', _('Fit'))
+					(new CSimpleButton())->setId('topology-zoom-in')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_PLUS)->setHint(_('Zoom in'), '', false)->setAttribute('aria-label', _('Zoom in')),
+					(new CSimpleButton())->setId('topology-zoom-out')->addClass(ZBX_STYLE_BTN_ICON)->addClass('zi-minimize')->setHint(_('Zoom out'), '', false)->setAttribute('aria-label', _('Zoom out')),
+					(new CSimpleButton())->setId('topology-fit')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_EXPAND)->setHint(_('Fit'), '', false)->setAttribute('aria-label', _('Fit'))
 				]))->setId('topology-map-controls')->addClass('topology-map-controls'),
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
 					(new CButton('topology-panel-toggle', '»'))
 						->addClass('topology-panel-toggle')
-						->setAttribute('title', _('Collapse')),
+						->setHint(_('Collapse'), '', false),
 					(new CTag('h2', true, _('Device details')))->setId('topology-details-title'),
 					(new CDiv(_('Select a device to inspect its ports, a host to see its active problems, or a link to see its details.')))->setId('topology-details'),
 					(new CDiv('▾ '._('more below')))->setId('topology-more-hint')->addClass('topology-more')->setAttribute('hidden', 'hidden')

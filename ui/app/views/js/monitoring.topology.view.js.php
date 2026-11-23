@@ -104,6 +104,8 @@ const view = new class {
 		// Device details panel: collapsible so a wide canvas/graph gets the room back when the
 		// panel isn't needed — purely a CSS class toggle (topology-panel-collapsed on the grid
 		// container shrinks the panel's column), nothing about the loaded data changes.
+		// the texts of the panel that were `title` attributes are hints of the standard hint box (section 7): they are converted when the panel is built
+		new MutationObserver(() => this.hintify(document.getElementById('topology-panel'))).observe(document.getElementById('topology-panel'), {childList: true, subtree: true});
 		const panel_toggle = document.getElementById('topology-panel-toggle');
 		const workspace = document.querySelector('.topology-workspace');
 		// topology-1-model.md §12.1 "Layout": the graph area reaches the bottom of the window, whatever the side panel holds (the panel scrolls by itself)
@@ -115,7 +117,7 @@ const view = new class {
 		panel_toggle.addEventListener('click', () => {
 			const collapsed = workspace.classList.toggle('topology-panel-collapsed');
 			panel_toggle.textContent = collapsed ? '«' : '»';      // the glyph shows where the panel goes on a click: expanded »  (to the right), collapsed «  (back to the left)
-			panel_toggle.title = collapsed ? <?= json_encode(_('Expand')) ?> : <?= json_encode(_('Collapse')) ?>;
+			panel_toggle.dataset.hintboxHtml = this.hintHtml(collapsed ? <?= json_encode(_('Expand')) ?> : <?= json_encode(_('Collapse')) ?>);
 			// The CSS transition resizes the canvas column; re-render once it's settled so the
 			// graph actually uses the space instead of sitting at its old (now stale) viewBox
 			// until some unrelated interaction happens to trigger the next render().
@@ -1466,6 +1468,7 @@ const view = new class {
 	// A Host: the standard host menu of the frontend (the answer of menu.popup and getMenuPopupHost, as the rights of the user allow), then the section "Topology" with the actions that apply.
 	// A Device without a host and a Proxy: the section Topology only.
 	async openMenu(native_event, anchor, hostid, items) {
+		this.hideHint();      // the hint box closes when the menu opens
 		this.closeMenus();
 		const $anchor = jQuery(anchor);
 		let sections = [];
@@ -3372,7 +3375,8 @@ const view = new class {
 		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
 			.style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text('!');
-		link_badges.append('title').text(link => this.contradictionSummary(this.contradictionOf(link.edge_id)));
+		link_badges.on('mouseenter.hint', (event, link) => this.showHint(event, event.currentTarget, this.contradictionSummary(this.contradictionOf(link.edge_id))))
+			.on('mouseleave.hint', () => this.hideHint());
 
 		// ---- the hit lines (§12.3 "Hit area of a line", 2.72) ----
 		// Every drawn line (link, LAG bundle, group line, ghost, duplicate pair line) has an invisible hit line along it, 12 px wide, in a layer under the nodes. The pointer on a hit line is
@@ -3609,7 +3613,8 @@ const view = new class {
 			group.append('circle').attr('r', node => node.size === 'small' ? 6 : 8).style('fill', fill).style('stroke', stroke).style('stroke-width', 1.6);
 			group.append('text').attr('y', node => node.size === 'small' ? 3 : 4).attr('text-anchor', 'middle')
 				.style('font-size', node => node.size === 'small' ? '8px' : '11px').style('font-weight', 'bold').style('fill', '#ffffff').style('pointer-events', 'none').text(letter);
-			group.append('title').text(text_of);
+			group.on('mouseenter.hint', (event, node) => { event.stopPropagation(); this.showHint(event, event.currentTarget, text_of(node)); })
+				.on('mouseleave.hint', () => this.hideHint());
 			return group;
 		};
 		badge(node_selection.filter(node => node.type === 'host' && node.blind_spot), 1, -1, '#f59e0b', '#7c2d12', '?',
@@ -3663,7 +3668,10 @@ const view = new class {
 			}
 			return notes.length ? `${full} — ${notes.join(' ')}` : full;
 		};
-		node_selection.append('title').attr('class', 'topology-label-title').text(node => describeSubject(node));
+		// the tooltip of a node and of a group node: the hint box (task 117 section 7); the text of a node is "<name> — <notes>", of a group "<name>: <counts>"
+		const hint_of = node => (node.type === 'group' ? describeSubject(node).replace(': ', '\n') : describeSubject(node).split(' — ').join('\n'));
+		node_selection.on('mouseenter.hint', (event, node) => this.showHint(event, event.currentTarget, hint_of(node)))
+			.on('mouseleave.hint', () => this.hideHint());
 
 		const draw_positions = () => {
 			links.attr('d', link => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d);
@@ -3809,25 +3817,49 @@ const view = new class {
 		if (this.hover_entry && this.hover_entry !== entry) {
 			d3.select(this.hover_entry.glow()).classed('topology-link-hover', false);
 		}
+		const changed = this.hover_entry !== entry;
 		this.hover_entry = entry;
-		this.tooltip ??= (() => {
-			const element = document.createElement('div');
-			element.id = 'topology-tooltip';
-			element.className = 'topology-tooltip';
-			element.hidden = true;
-			document.body.appendChild(element);
-			return element;
-		})();
 		if (!entry) {
-			this.tooltip.hidden = true;
+			this.hideHint();
 			return;
 		}
 		d3.select(entry.glow()).classed('topology-link-hover', true);
-		this.tooltip.textContent = entry.tooltip();
-		this.tooltip.hidden = false;
-		const width = this.tooltip.offsetWidth;
-		this.tooltip.style.left = `${Math.min(event.clientX + 14, window.innerWidth - width - 8)}px`;
-		this.tooltip.style.top = `${Math.min(event.clientY + 14, window.innerHeight - this.tooltip.offsetHeight - 8)}px`;
+		if (changed) {
+			this.showHint(event, entry.hit, entry.tooltip());
+		}
+	}
+
+	// ---- The hint box (task 117 section 7) ----
+	// Every tooltip of the page is the standard hint box of the frontend (hintBox of main.js: the one of the hover hints of Monitoring → Problems and of the maps), through its own code. The text
+	// of a tooltip is lines; each line is a row of the table of the hint box, and the parts of a line (" · ") are its columns, as the member lines of a bundle.
+	hintHtml(text) {
+		const rows = String(text ?? '').split('\n').filter(line => line !== '').map(line => `<tr>${line.split(' · ').map(cell => `<td>${this.escape(cell)}</td>`).join('')}</tr>`);
+		return `<table class="list-table"><tbody>${rows.join('')}</tbody></table>`;
+	}
+
+	showHint(event, target, text) {
+		this.hideHint();
+		this.hint_target = target;
+		hintBox.showHint(event, target, this.hintHtml(text), '', false);
+	}
+
+	hideHint() {
+		if (this.hint_target) {
+			hintBox.hideHint(this.hint_target, false);
+			this.hint_target = null;
+		}
+	}
+
+	// The tooltips of the panel (cut text, the status dot, ...): the texts that were `title` attributes are hints of the same box, set by the standard attributes of the frontend (data-hintbox).
+	hintify(container) {
+		container.querySelectorAll('[title]').forEach(element => {
+			const text = element.getAttribute('title');
+			element.removeAttribute('title');
+			if (text !== '') {
+				element.dataset.hintbox = '1';
+				element.dataset.hintboxHtml = this.hintHtml(text);
+			}
+		});
 	}
 
 	// "Fit" (§12.1 "Fit", 2.72): the zoom is set so that the whole drawn graph is in the window, and the graph is centred.

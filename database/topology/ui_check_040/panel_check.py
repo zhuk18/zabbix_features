@@ -45,7 +45,7 @@ PANEL = """(() => {
     const rows = Array.from(d.querySelectorAll('.topology-links-table tr.topology-link-row')).filter(r => !r.hidden);
     const row_controls = rows.map(r => Array.from(r.querySelectorAll('button, a')).filter(e => !e.closest('.topology-menu-list')
         && !e.classList.contains('topology-menu-button') && !e.classList.contains('topology-bundle-toggle') && !e.classList.contains('topology-neighbor')).length);
-    const names = rows.map(r => { const n = r.querySelector('.topology-neighbor'); return [n.textContent, n.getAttribute('title')]; });
+    const names = rows.map(r => { const n = r.querySelector('.topology-neighbor'); const h = document.createElement('div'); h.innerHTML = n.dataset.hintboxHtml || ''; return [n.textContent, h.textContent]; });      // the full text is in the hint box (task 117 section 7)
     const line2 = rows.map(r => r.querySelector('.topology-link-line2').textContent);
     return {sections, title_visible: !title.hidden && title.offsetHeight > 0, title_text: title.textContent, has_device_details: d.textContent.includes('Device details'),
         name: (d.querySelector('.topology-node-name') || {textContent: ''}).textContent.trim(), icon: !!d.querySelector('.topology-node-icon'), kind: (d.querySelector('.topology-node-kind') || {textContent: ''}).textContent,

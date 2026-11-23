@@ -66,11 +66,11 @@ try:
         mouse('mouseMoved', point['x'] - 3, point['y'] - 3)
         mouse('mouseMoved', point['x'], point['y'])
         P.next_frames(js)
-        try:      # a point that is not on the line shows no tooltip: this loop looks for a point that is on it, so a miss is not an error (20 s for a slow VM)
-            P.until(js, "(() => { const t = document.getElementById('topology-tooltip'); return t && !t.hidden && t.textContent.indexOf(%s) >= 0; })()" % json.dumps(END_DEVICE), 'the tooltip of the line shows %s' % END_DEVICE, 20)
+        try:      # a point that is not on the line shows no hint box: this loop looks for a point that is on it, so a miss is not an error (20 s for a slow VM)
+            P.until(js, "(() => { const t = document.querySelector('.hintbox'); return t && t.textContent.indexOf(%s) >= 0; })()" % json.dumps(END_DEVICE), 'the tooltip of the line shows %s' % END_DEVICE, 20)
         except P.WaitTimeout:
             pass
-        tip = js("(() => { const t = document.getElementById('topology-tooltip'); return t && !t.hidden ? t.textContent : null; })()")
+        tip = js("(() => { const t = document.querySelector('.hintbox'); return t ? t.textContent : null; })()")
         if tip and END_DEVICE in tip:
             break
     check(tip is not None and ' of ' in tip and 'bps' in tip and (END_DEVICE + ': no data') in tip, 'the tooltip of the line shows the load of the %s side and says that the %s side has no data' % (SWITCH, END_DEVICE), tip)
