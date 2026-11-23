@@ -35,11 +35,8 @@ def click_icon(js, label, kind):
 
 
 chrome, ws, js = P.open_page(cookie, 'menu', 9600)
-# the legend of the user may be open over the graph (its state is kept in the profile) and covers nodes: it is closed for the check and put back at the end
-legend_was_open = not js("document.getElementById('topology-legend').classList.contains('topology-legend-collapsed')")
-if legend_was_open:
-    js("document.getElementById('topology-legend-head').click()")
-    P.idle(js)
+# the legend of the user may be open over the graph (its state is kept in the profile) and covers nodes: it is hidden for the check in this page only, nothing is written
+js("document.getElementById('topology-legend').style.display = 'none'")
 
 print('=== the label of a Host: the host menu and the section Topology ===')
 check(js("(() => { const t = document.querySelector('#topology-canvas g.topology-node.host text.topology-label'); const s = getComputedStyle(t); return s.cursor === 'pointer' && s.pointerEvents !== 'none'; })()"),
@@ -209,9 +206,6 @@ check(js("!!document.querySelector('.hintbox table.list-table')"), 'the panel hi
 hover(5, 5)
 chrome.close()
 
-if legend_was_open:
-    js("document.getElementById('topology-legend-head').click()")
-    P.idle(js)
 chrome.close()
 
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All menu checks passed.'))
