@@ -1461,36 +1461,177 @@ const view = new class {
 		return TopologyGraph.cutMiddle(String(text ?? ''), max_px, 12, (value, font) => this.measureText(value, font));
 	}
 
-	// The menu of a node name (task 117 section 3, model §12.5). A Host: the standard host menu of the frontend (the same code as every host name: the answer of menu.popup and
-	// getMenuPopupHost, as the user's rights allow), then the section "Topology" with "Focus on this device", "Unfold" (the Device has folded neighbors) and "Show details" (select the node and
-	// open its panel). A Device without a host: the section Topology only.
-	async openNodeMenu(anchor, native_event, target) {
+	// ---- Menus of the graph (task 117 section 3, model §12.5) ----
+	// A click on the label of a node, or on a line, opens a menu, as a click on an element of a Zabbix map does; the device panel is for information only.
+	// A Host: the standard host menu of the frontend (the answer of menu.popup and getMenuPopupHost, as the rights of the user allow), then the section "Topology" with the actions that apply.
+	// A Device without a host and a Proxy: the section Topology only.
+	async openMenu(native_event, anchor, hostid, items) {
 		this.closeMenus();
 		const $anchor = jQuery(anchor);
-		// the state of the panel as it is when the name is clicked: the menu popup of Zabbix resets the aria-expanded of the open elements of the page, so a state read later (at "Show details") would lose the open bundles
-		const panel_state = this.capturePanelState();
 		let sections = [];
-		if (target.type === 'host' && target.hostid) {
-			const answer = await jQuery.ajax({url: 'zabbix.php?action=menu.popup&type=host', method: 'POST', data: {data: {hostid: String(target.hostid)}}, dataType: 'json'});
+		if (hostid) {
+			const answer = await jQuery.ajax({url: 'zabbix.php?action=menu.popup&type=host', method: 'POST', data: {data: {hostid: String(hostid)}}, dataType: 'json'});
 			if ('error' in answer) {
 				throw new Error((answer.error.messages ?? []).join('\n') || answer.error.title);
 			}
 			sections = getMenuPopupHost(answer.data, $anchor);
 		}
+		items = await items;
+		if (items.length) {
+			sections.push({label: <?= json_encode(_('Topology')) ?>, items});
+		}
+		if (!sections.length) {
+			return;
+		}
+		const where = {preventDefault() {}, pageX: native_event.pageX, pageY: native_event.pageY, clientX: native_event.clientX, clientY: native_event.clientY};
+		$anchor.menuPopup(sections, jQuery.Event(native_event), {position: {of: where, my: 'left top', at: 'left bottom', collision: 'fit flip'}});
+	}
+
+	// The actions of a node that apply to it, for the menu of its label. An action that does not apply is not in the list.
+	nodeMenuItems(node) {
+		const device = node.type === 'device' ? node : (node.device ?? null);
 		const items = [];
-		if (target.type === 'host' && target.hostid && String(this.applied_hostid ?? '') !== String(target.hostid)) {
-			items.push({label: <?= json_encode(_('Focus on this device')) ?>, clickCallback: () => {
+		const item = (label, callback) => items.push({label, clickCallback: callback});
+		// those that are forms of the panel (Promote to host, the duplicates): the panel of the node opens, then the form
+		const in_panel = action => () => this.guard(async () => {
+			if (this.selected_node !== node) {
+				this.panel_from = null;
+				await this.selectNode(node);
+			}
+			action();
+		});
+		if (node.type === 'host' && node.hostid && String(this.applied_hostid ?? '') !== String(node.hostid)) {
+			item(<?= json_encode(_('Focus')) ?>, () => {
 				jQuery('#hostid').multiSelect('clean');
-				jQuery('#hostid').multiSelect('addData', [{id: String(target.hostid), name: target.name ?? target.label}]);
+				jQuery('#hostid').multiSelect('addData', [{id: String(node.hostid), name: node.name ?? node.label}]);
 				document.getElementById('topology-filter-apply').click();
-			}});
+			});
 		}
-		if ((this.leaf_groups ?? []).some(group => String(group.parent) === String(target.id)) && !this.unfolded.has(String(target.id))) {
-			items.push({label: <?= json_encode(_('Unfold')) ?>, clickCallback: () => this.unfoldGroup(target.id)});
+		const group = (this.leaf_groups ?? []).find(candidate => String(candidate.parent) === String(node.id));
+		if (group) {
+			item(this.groupToggleText(group.parent, group.devices.length), () => this.guard(() => this.toggleGroup(group.parent)));
 		}
-		items.push({label: <?= json_encode(_('Show details')) ?>, clickCallback: () => this.guard(() => this.openFromPanel(() => this.selectNode(target), panel_state))});
-		sections.push({label: <?= json_encode(_('Topology')) ?>, items});
-		$anchor.menuPopup(sections, jQuery.Event(native_event), {});
+		if (device) {
+			item(<?= json_encode(_('Neighbor reports')) ?>, () => {
+				window.location.href = `zabbix.php?action=topology.view&view=lastrun&device_id=${encodeURIComponent(device.id)}`;
+			});
+		}
+		if (device && ((device.duplicates ?? []).length || (device.dismissed ?? []).length)) {
+			item(<?= json_encode(_('Possible duplicates')) ?>, in_panel(() => {
+				const block = this.details.querySelector('.topology-duplicates-block');
+				block.hidden = false;
+				block.scrollIntoView({block: 'nearest'});
+			}));
+		}
+		if (device && !device.represented) {
+			item(<?= json_encode(_('Promote to host')) ?>, in_panel(() => {
+				const form = this.details.querySelector('.topology-promote-form');
+				form.hidden = false;
+				form.querySelector('.topology-promote-search')?.focus();
+			}));
+		}
+		if (device && device.represented) {
+			item(<?= json_encode(_('Depromote')) ?>, () => this.guard(async () => {
+				await this.request('topology.depromote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id})});
+				await this.loadDevices();
+			}));
+		}
+		if (device && !device.represented) {
+			item(<?= json_encode(_('Delete Device')) ?>, () => this.guard(() => this.duplicateAction('delete', {device: device.id})));
+		}
+		// a manual Device (§9.7): the same dialog edits it, ports are added with it; a pick of a link waits for the other end
+		if (device && device.manual) {
+			item(<?= json_encode(_('Edit device')) ?>, () => this.guard(() => this.deviceDialog(device)));
+			item(<?= json_encode(_('Add port')) ?>, () => this.guard(() => this.portDialog(device, node, null)));
+		}
+		if (device && this.link_pick && String(this.link_pick.device_id) !== String(device.id)) {
+			item(<?= json_encode(_('Link to this device (port unknown)')) ?>, () => this.guard(async () => {
+				await this.request('topology.devicelink.create', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({port_id: this.link_pick.id, device_id: device.id})});
+				this.link_pick = null;
+				this.renderLinkPick();
+				await this.loadDevices();
+			}));
+		}
+		return items;
+	}
+
+	// The menu of a line (§12.3): Link details (the link panel, as a click opened it before), Neighbor reports of the port, Unlink (a manual link, with the confirmation). A LAG bundle: Link details
+	// (the bundle panel); Unlink is in its members. A ghost line (a manual link that discovery contradicts): Open link, Keep manual, Accept discovery.
+	lineMenuItems(entry) {
+		const items = [];
+		const item = (label, callback) => items.push({label, clickCallback: callback});
+		const link = entry.link ?? null;
+		if (entry.ghost) {
+			item(<?= json_encode(_('Link details')) ?>, () => entry.open());
+			if (entry.ghost.shadow.hidden_device_id !== null) {
+				item(<?= json_encode(_('Keep manual')) ?>, () => this.guard(() => this.manualAction('keep', entry.ghost.entry.edge_id, entry.ghost.shadow.hidden_device_id)));
+			}
+			item(<?= json_encode(_('Accept discovery')) ?>, () => this.guard(() => this.manualAction('accept', entry.ghost.entry.edge_id)));
+			return items;
+		}
+		item(<?= json_encode(_('Link details')) ?>, () => entry.open());
+		if (link && link.type !== 'lag_bundle') {
+			[[link.source, link.source_port, link.source_port_id], [link.target, link.target_port, link.target_port_id]].forEach(([end, port, port_id]) => {
+				if (port_id) {
+					item(<?= json_encode(_('Neighbor reports')) ?> + ` (${end?.name ?? '?'} ${port ?? '?'})`, () => {
+						window.location.href = `zabbix.php?action=topology.view&view=lastrun&port_id=${encodeURIComponent(port_id)}`;
+					});
+				}
+			});
+			if (link.type === 'device_link' && link.edge_id !== null && link.edge_id !== undefined) {
+				item(<?= json_encode(_('Unlink')) ?>, () => this.guard(() => this.removeDeviceLink(link.edge_id, String(link.source.id))));
+			}
+			else if (link.type === 'physical_link' && link.discovered_via === 'manual' && link.source_port_id && link.target_port_id) {
+				item(<?= json_encode(_('Unlink')) ?>, () => this.guard(() => this.unlinkPorts(link.source_port_id, link.target_port_id, String(link.source.id))));
+			}
+		}
+		return items;
+	}
+
+	// A manual link of a manual Device that a host represents: its port can be bound to an interface of the host. The binding is read with the ports of the Device (the same answer as the panel reads).
+	async lineMenuItemsWithBinding(entry) {
+		const items = this.lineMenuItems(entry);
+		const link = entry.link ?? null;
+		if (!link || link.type !== 'physical_link' || link.discovered_via !== 'manual') {
+			return items;
+		}
+		for (const [end, port_id] of [[link.source, link.source_port_id], [link.target, link.target_port_id]]) {
+			const device = end?.type === 'device' ? end : end?.device;
+			if (!device || !device.manual || !device.represented || !port_id) {
+				continue;
+			}
+			const groups = (await this.request(`topology.ports.get&id=${encodeURIComponent(device.id)}`)).groups ?? {};
+			const port = Object.values(groups).flat().find(candidate => String(candidate.id) === String(port_id));
+			if (!port || !port.manual) {      // a reported port (a PORTS row took it) has no binding to make
+				continue;
+			}
+			if (!port.binding || port.binding.missing) {
+				items.push({label: <?= json_encode(_('Bind to interface')) ?> + ` (${port.port})`, clickCallback: () => this.guard(() => this.bindDialog(device, end, {id: port.id, name: port.port}))});
+			}
+			if (port.binding) {
+				items.push({label: <?= json_encode(_('Unbind')) ?> + ` (${port.port})`, clickCallback: () => this.guard(async () => {
+					await this.request('topology.ports.unbind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: port.id})});
+					await this.selectNode(end);
+				})});
+			}
+		}
+		return items;
+	}
+
+	async removeDeviceLink(edge_id, device_id) {
+		if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
+			return;
+		}
+		await this.request('topology.link.remove', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: edge_id})});
+		await this.loadDevices({reselect_device: device_id});
+	}
+
+	async unlinkPorts(port_id, linked_port_id, device_id) {
+		if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
+			return;
+		}
+		await this.request('topology.ports.unlink', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: port_id, dst_id: linked_port_id})});
+		await this.loadDevices({reselect_device: device_id});
 	}
 
 	// The menu "⋯": a button and a list of items, each {label, href, cls, attrs}; no item → no menu. The list opens at the button (fixed position: the panel scrolls).
@@ -1585,19 +1726,19 @@ const view = new class {
 
 	// The width that a neighbor label may have in line 1 of a Links row: the panel without the menu and the toggle.
 	linkNameBudget(toggle) {
-		return Math.max(90, (this.details.clientWidth || 340) - 62 - (toggle ? 16 : 0));
+		return Math.max(90, (this.details.clientWidth || 340) - 40 - (toggle ? 16 : 0));
 	}
 
 	// A row of the Links section has two lines (§12.5, 2.77): line 1 the neighbor (the full width, cut in the middle only when wider) and the menu; line 2, smaller and grey, the ports, the status, the
 	// source, the load and the marks.
-	linkRowHtml({edges, cls = '', hidden = false, toggle = '', neighbor_text, neighbor_node_id, items, line2}) {
+	linkRowHtml({edges, cls = '', hidden = false, toggle = '', neighbor_text, neighbor_node_id, line2}) {
 		const esc = value => this.escape(value);
 		const cut = esc(this.cutText(neighbor_text ?? '?', this.linkNameBudget(toggle !== '')));
 		const neighbor = neighbor_node_id !== null && neighbor_node_id !== undefined
 			? `<a class="topology-neighbor" data-node="${esc(neighbor_node_id)}" title="${esc(neighbor_text ?? '?')}">${cut}</a>`
 			: `<span class="topology-neighbor" title="${esc(neighbor_text ?? '?')}">${cut}</span>`;
 		return `<tr class="topology-link-row ${cls}" data-edges="${esc(edges)}"${hidden ? ' hidden' : ''}><td class="topology-link-main">` +
-			`<div class="topology-link-line1"><span class="topology-link-name">${toggle}${neighbor}</span>${this.menuHtml(items, <?= json_encode(_('Link actions')) ?>)}</div>` +
+			`<div class="topology-link-line1"><span class="topology-link-name">${toggle}${neighbor}</span></div>` +
 			`<div class="topology-link-line2">${TopologyGraph.joinParts(line2, '<span class="topology-sep"> · </span>')}</div></td></tr>`;
 	}
 
@@ -1614,23 +1755,6 @@ const view = new class {
 		else if (entry.stale) {
 			marks.push(entry.last_seen ? <?= json_encode(_('not confirmed since %1$s')) ?>.replace('%1$s', this.formatDate(entry.last_seen)) : <?= json_encode(_('not confirmed recently')) ?>);
 		}
-		const items = [];
-		const relation = this.links.find(link => link.edge_id !== null && link.edge_id !== undefined && String(link.edge_id) === String(entry.edge_id));
-		if (relation) {
-			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-link-details', attrs: `data-edge="${esc(entry.edge_id)}"`});
-		}
-		if (entry.port_id) {
-			items.push({label: <?= json_encode(_('Neighbor reports')) ?>, href: `zabbix.php?action=topology.view&view=lastrun&port_id=${encodeURIComponent(entry.port_id)}`});
-		}
-		if (entry.device_link_id) {
-			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-remove-link-button', attrs: `data-edge-id="${esc(entry.device_link_id)}"`});
-		}
-		else if (entry.linked_port_id) {
-			items.push({label: <?= json_encode(_('Unlink')) ?>, cls: 'topology-unlink-button', attrs: `data-port-id="${esc(entry.port_id)}" data-linked-port-id="${esc(entry.linked_port_id)}"`});
-		}
-		if (entry.manual) {
-			items.push(...this.bindItems(entry.port_id, entry.port, entry.binding));
-		}
 		const own_port = this.boundPortText(entry.port ?? '?', entry.binding);
 		const ports_text = `${own_port} ↔ ${entry.remote_port ?? '?'}`;
 		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(own_port, 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
@@ -1640,7 +1764,7 @@ const view = new class {
 		if (marks.length) {
 			line2.push(`<span class="topology-link-mark">${esc(marks.join(' · '))}</span>`);
 		}
-		return this.linkRowHtml({edges: String(entry.edge_id ?? ''), cls: member ? 'topology-link-member' : '', hidden: member, neighbor_text: entry.connected_to, neighbor_node_id: neighbor_node?.id ?? null, items, line2});
+		return this.linkRowHtml({edges: String(entry.edge_id ?? ''), cls: member ? 'topology-link-member' : '', hidden: member, neighbor_text: entry.connected_to, neighbor_node_id: neighbor_node?.id ?? null, line2});
 	}
 
 	linkBundleHtml(row, index) {
@@ -1655,17 +1779,12 @@ const view = new class {
 		const statuses = [...new Set(members.map(member => member.status))];
 		const neighbor_node = first.remote_device_id !== null ? this.nodeOfDevice(first.remote_device_id) : null;
 		const edge_ids = members.map(member => String(member.edge_id));
-		const items = [];
-		const drawn = (this.drawn_links ?? []).find(link => link.type === 'lag_bundle' && (link.members ?? []).some(member => edge_ids.includes(String(member.edge_id))));
-		if (drawn) {
-			items.push({label: <?= json_encode(_('Link details')) ?>, cls: 'topology-bundle-details', attrs: `data-edges="${esc(edge_ids.join(','))}"`});
-		}
 		// line 2 of a bundle row (§12.5, 2.78): "<LAG name> ×<N> · <status> · <source> · <load>"; the ports are in the member rows
 		const line2 = [`<span class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(row.label)}</span>`,
 			statuses.filter(status => status).length ? `<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.filter(status => status).map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>` : null,
 			first.source_text ? `<span class="topology-link-source">${esc(first.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
 		const toggle = `<button type="button" class="topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
-		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, items, line2}) +
+		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, line2}) +
 			members.map(member => this.linkEntryHtml(member, {member: true})).join('');
 	}
 
@@ -1676,22 +1795,6 @@ const view = new class {
 			? `<table class="topology-links-table"><tbody>${rows.map((row, i) => (row.type === 'bundle' ? this.linkBundleHtml(row, i) : this.linkEntryHtml(row.entry))).join('')}</tbody></table>`
 			: `<div class="topology-empty">${esc(<?= json_encode(_('No links')) ?>)}</div>`;
 		return `<details class="topology-section topology-links" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Links')) ?>)} (${count})</summary>${body}</details>`;
-	}
-
-	buildProblemsSection(problems, node, open) {
-		const esc = value => this.escape(value);
-		const summary = TopologyGraph.problemSummary(problems ?? []);
-		let body;
-		if (summary.total === 0) {
-			body = `<div class="topology-empty">${esc(<?= json_encode(_('No problems')) ?>)}</div>`;
-		}
-		else {
-			body = `<div class="topology-problem-counts">${summary.by_severity.map(entry => `<span class="topology-severity-badge" style="background:${this.cssColor(entry.color)}" title="${esc(entry.severity_name)}">${esc(entry.severity_name)} ${entry.count}</span>`).join(' ')}</div>` +
-				`<table class="topology-problems-table"><tbody>${summary.newest.map(problem => `<tr><td><span class="topology-severity-badge" style="background:${this.cssColor(problem.color)}" title="${esc(problem.severity_name)}">${esc(problem.severity_name)}</span></td>` +
-					`<td title="${esc(problem.name)}">${esc(this.cutText(problem.name, 170))}</td><td>${esc(this.formatAge(problem.age))}</td></tr>`).join('')}</tbody></table>`;
-		}
-		const all = summary.total === 0 ? '' : `<div class="topology-problems-all"><a href="zabbix.php?action=problem.view&filter_name=&hostids%5B%5D=${encodeURIComponent(node.hostid ?? '')}&filter_set=1">${esc(<?= json_encode(_('All problems')) ?>)}</a></div>`;
-		return `<details class="topology-section topology-problems" ${open ? 'open' : ''}><summary>${esc(<?= json_encode(_('Problems')) ?>)}${summary.total ? ` (${summary.total})` : ''}</summary>${body}${all}</details>`;
 	}
 
 	buildIdentitySection(node, device, addresses, open) {
@@ -1715,14 +1818,14 @@ const view = new class {
 	}
 
 	// The header of a node panel: class icon, name (a Host: the standard Zabbix host menu), kind mark, badges, actions, summary.
-	buildNodeHeader(node, device, groups, entries) {
+	buildNodeHeader(node, device, groups, entries, problems) {
 		const esc = value => this.escape(value);
 		const G = TopologyGraph;
 		const icon_name = G.iconOf(node);
 		const icon = icon_name ? `<svg class="topology-node-icon" width="26" height="22" viewBox="0 0 44 26"><g transform="translate(22,13)">${G.iconMarkup(icon_name, '#1f2937', 1.3)}</g></svg>` : '';
 		const label = node.label ?? node.name;
-		// task 117 section 3: the name is a link that opens the menu of the node on a click (as the name of a host does in Zabbix): the standard host menu for a Host, then the section Topology
-		const name = `<a class="${node.type === 'host' && node.hostid ? 'topology-host-name' : 'topology-node-title'} topology-node-menu-link link-action" href="javascript:void(0)" data-node="${esc(node.id)}" aria-haspopup="true" aria-expanded="false">${esc(label)}</a>`;
+		// the name is plain text (task 117 section 3): the actions are in the menu of the label of the node on the graph
+		const name = `<span class="${node.type === 'host' && node.hostid ? 'topology-host-name ' : ''}topology-node-title">${esc(label)}</span>`;
 		const kind = {host: <?= json_encode(_('Zabbix host')) ?>, proxy: <?= json_encode(_('Proxy')) ?>,
 			device: node.manual ? <?= json_encode(_('Not a Zabbix host · manual')) ?> : <?= json_encode(_('Not a Zabbix host')) ?>}[node.type];
 		const badges = [];
@@ -1744,37 +1847,6 @@ const view = new class {
 		if (device && (device.duplicates ?? []).length) {
 			badges.push(<?= json_encode(_('Possible duplicate')) ?> + ': ' + device.duplicates.map(candidate => this.markLabel(candidate)).join(', '));
 		}
-		// actions: Focus (Host only), Neighbor reports (the node's), and the menu of the node actions that apply
-		const actions = [];
-		// Focus: not shown when this host is already the Focus host (§12.5, 2.78)
-		if (node.type === 'host' && node.hostid && String(this.applied_hostid ?? '') !== String(node.hostid)) {
-			actions.push(`<button type="button" class="btn-alt topology-focus-button" data-hostid="${esc(node.hostid)}">${esc(<?= json_encode(_('Focus')) ?>)}</button>`);
-		}
-		if (device) {
-			actions.push(`<a class="topology-node-reports" href="zabbix.php?action=topology.view&view=lastrun&device_id=${encodeURIComponent(device.id)}">${esc(<?= json_encode(_('Neighbor reports')) ?>)}</a>`);
-		}
-		const items = [];
-		// a manual Device (§9.7, 2.80): the same dialog edits it, ports are added here
-		if (device && device.manual) {
-			items.push({label: <?= json_encode(_('Edit device')) ?>, cls: 'topology-menu-edit-device'});
-			items.push({label: <?= json_encode(_('Add port')) ?>, cls: 'topology-menu-add-port'});
-		}
-		if (device && !device.represented) {
-			items.push({label: <?= json_encode(_('Promote to host')) ?>, cls: 'topology-menu-promote'});
-		}
-		if (device && device.represented) {
-			items.push({label: <?= json_encode(_('Depromote')) ?>, cls: 'topology-depromote-button'});
-		}
-		if (device && ((device.duplicates ?? []).length || (device.dismissed ?? []).length)) {
-			items.push({label: <?= json_encode(_('Possible duplicates')) ?>, cls: 'topology-menu-duplicates'});
-		}
-		if (device && !device.represented) {
-			items.push({label: <?= json_encode(_('Delete Device')) ?>, cls: 'topology-delete-device-button', attrs: `data-topology-dup="delete" data-device="${esc(device.id)}"`});
-		}
-		if (device && this.link_pick && String(this.link_pick.device_id) !== String(device.id)) {
-			items.push({label: <?= json_encode(_('Link to this device (port unknown)')) ?>, cls: 'topology-link-device-button'});
-		}
-		actions.push(this.menuHtml(items, <?= json_encode(_('Node actions')) ?>));
 		// the summary line (§12.5): "<N> links · <L> LAG · <P> ports (<U> up)"
 		let summary = '';
 		if (groups) {
@@ -1785,10 +1857,22 @@ const view = new class {
 				{link: <?= json_encode(_('%1$s link')) ?>, links: <?= json_encode(_('%1$s links')) ?>, neighbor: <?= json_encode(_('%1$s neighbor')) ?>, neighbors: <?= json_encode(_('%1$s neighbors')) ?>,
 					to: <?= json_encode(_('%1$s to %2$s')) ?>, port: <?= json_encode(_('%1$s port')) ?>, ports: <?= json_encode(_('%1$s ports')) ?>, up: <?= json_encode(_('%1$s up')) ?>});
 		}
+		// task 117 section 6: the problems of a Host as the counters of its summary line, the standard element of the "Problems" column of Monitoring → Hosts: one count for each severity that has problems
+		// (the highest first), nothing when there are none; a click opens Monitoring → Problems for the host. A Device without a host has none.
+		const counters = this.problemCounters(node, problems);
 		return `<div class="topology-node-head"><div class="topology-node-name">${icon}${name} <span class="topology-node-kind">${esc(kind)}</span></div>` +
 			(badges.length ? `<div class="topology-node-badges">${badges.map(text => `<span class="topology-text-badge">${esc(text)}</span>`).join('')}</div>` : '') +
-			`<div class="topology-node-actions">${actions.join('')}</div>` +
-			(summary !== '' ? `<div class="topology-node-summary">${esc(summary)}</div>` : '') + `</div>`;
+			(summary !== '' || counters !== '' ? `<div class="topology-node-summary">${esc(summary)}${summary !== '' && counters !== '' ? ' · ' : ''}${counters}</div>` : '') + `</div>`;
+	}
+
+	problemCounters(node, problems) {
+		if (node.type !== 'host' || !node.hostid || !problems || !problems.length) {
+			return '';
+		}
+		// the status classes of the severities (CSeverityHelper::getStatusStyle: not classified, information, warning, average, high, disaster)
+		const styles = ['status-na-bg', 'status-info-bg', 'status-warning-bg', 'status-average-bg', 'status-high-bg', 'status-disaster-bg'];
+		const items = TopologyGraph.problemSummary(problems).by_severity.map(entry => `<span class="problem-icon-list-item ${this.escape(styles[entry.severity] ?? '')}" title="${this.escape(entry.severity_name ?? '')}">${entry.count}</span>`).join('');
+		return `<a class="problem-icon-link topology-problem-counters" href="zabbix.php?action=problem.view&hostids%5B%5D=${encodeURIComponent(node.hostid)}&filter_set=1">${items}</a>`;
 	}
 
 	showNodePanel(node, {device, problems, groups, addresses}) {
@@ -1798,9 +1882,6 @@ const view = new class {
 		const entries = device && groups ? this.linkEntries(device, groups) : [];
 		const rows = G.linkRows(entries);
 		const sections = G.panelSections(node.type, Boolean(device)).map(section => {
-			if (section.id === 'problems') {
-				return this.buildProblemsSection(problems, node, section.open);
-			}
 			if (section.id === 'links') {
 				return this.buildLinksSection(rows, section.open);
 			}
@@ -1815,48 +1896,20 @@ const view = new class {
 			`<button type="button" class="btn-alt topology-promote-button" disabled>${this.escape(<?= json_encode(_('Promote to host')) ?>)}</button></div>` : '';
 		const duplicates = device ? `<div class="topology-duplicates-block" hidden>${this.duplicatesFragment(device)}</div>` : '';
 		const hidden_by = device ? this.hiddenByFragment(device.id) : '';
-		this.details.innerHTML = this.buildNodeHeader(node, device, groups, entries) + promote + duplicates + hidden_by + sections;
+		this.details.innerHTML = this.buildNodeHeader(node, device, groups, entries, problems) + promote + duplicates + hidden_by + sections;
 		this.wireNodePanel(node, device);
-		this.addFoldControl(node);
 	}
 
 	wireNodePanel(node, device) {
 		this.wireMenus();
 		this.wireCopyButtons();
 		const on = (selector, handler) => this.details.querySelectorAll(selector).forEach(element => element.addEventListener('click', handler));
-		on('.topology-menu-edit-device', () => this.guard(async () => {
-			this.closeMenus();
-			await this.deviceDialog(device);
-		}));
-		on('.topology-menu-add-port', () => this.guard(async () => {
-			this.closeMenus();
-			await this.portDialog(device, node, null);
-		}));
-		on('.topology-menu-promote', () => {
-			const form = this.details.querySelector('.topology-promote-form');
-			form.hidden = false;
-			form.querySelector('.topology-promote-search')?.focus();
-		});
-		on('.topology-menu-duplicates', () => {
-			const block = this.details.querySelector('.topology-duplicates-block');
-			block.hidden = false;
-			block.scrollIntoView({block: 'nearest'});
-		});
-		// Focus (Host only): the Focus host of the filter becomes this host, and the filter is applied
-		on('.topology-focus-button', event => {
-			const button = event.currentTarget;
-			jQuery('#hostid').multiSelect('clean');
-			jQuery('#hostid').multiSelect('addData', [{id: button.dataset.hostid, name: node.name ?? node.label}]);
-			document.getElementById('topology-filter-apply').click();
-		});
 		// a neighbor of a row: select it on the graph and open its panel
-		// the name of a neighbor in a row, and the name of the node in the header: the menu of the node (task 117 section 3); "Show details" of the menu selects the node and opens its panel
-		on('.topology-neighbor[data-node], .topology-node-menu-link', event => {
-			event.preventDefault();
-			event.stopPropagation();      // the click on a name is no click on its row (a bundle row folds and unfolds on a click)
+		// a neighbor of a row: select it on the graph and open its panel (navigation, not an action)
+		on('.topology-neighbor[data-node]', event => {
 			const target = this.nodes.get(event.currentTarget.dataset.node);
 			if (target) {
-				this.guard(() => this.openNodeMenu(event.currentTarget, event, target));
+				this.guard(() => this.openFromPanel(() => this.selectNode(target)));
 			}
 		});
 		on('.topology-link-details', event => {
@@ -2091,13 +2144,6 @@ const view = new class {
 				await this.loadDevices();
 			}));
 		}
-		const depromote_button = this.details.querySelector('.topology-depromote-button');
-		if (depromote_button) {
-			depromote_button.addEventListener('click', () => this.guard(async () => {
-				await this.request('topology.depromote', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: device.id})});
-				await this.loadDevices();
-			}));
-		}
 		this.details.querySelectorAll('.topology-link-button').forEach(link_button => {
 			link_button.addEventListener('click', () => this.guard(async () => {
 				const port_id = link_button.dataset.portId;
@@ -2144,42 +2190,6 @@ const view = new class {
 			await this.request('topology.ports.delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: item.dataset.portId})});
 			await this.selectNode(reselect_node);
 		})));
-		const link_device_button = this.details.querySelector('.topology-link-device-button');
-		if (link_device_button) {
-			link_device_button.addEventListener('click', () => this.guard(async () => {
-				await this.request('topology.devicelink.create', {
-					method: 'POST', headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify({port_id: this.link_pick.id, device_id: device.id})
-				});
-				this.link_pick = null;
-				this.renderLinkPick();
-				await this.loadDevices();
-			}));
-		}
-		this.details.querySelectorAll('.topology-remove-link-button').forEach(remove_button => {
-			remove_button.addEventListener('click', () => this.guard(async () => {
-				if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
-					return;
-				}
-				await this.request('topology.link.remove', {
-					method: 'POST', headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify({id: remove_button.dataset.edgeId})
-				});
-				await this.loadDevices({reselect_device: device.id});
-			}));
-		});
-		this.details.querySelectorAll('.topology-unlink-button').forEach(unlink_button => {
-			unlink_button.addEventListener('click', () => this.guard(async () => {
-				if (!confirm(<?= json_encode(_('Unlink these ports? The link is removed.')) ?>)) {
-					return;
-				}
-				await this.request('topology.ports.unlink', {
-					method: 'POST', headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify({id: unlink_button.dataset.portId, dst_id: unlink_button.dataset.linkedPortId})
-				});
-				await this.loadDevices({reselect_device: device.id});
-			}));
-		});
 	}
 
 	// topology-1-model.md §12.5 "Addresses": the addresses of a Device without association as its neighbors report them (topology.addresses.get), above the port table: the
@@ -3378,6 +3388,7 @@ const view = new class {
 			const junction_node = ['junction_link', 'junction_member'].includes(link.type) ? (link.source.type === 'junction' ? link.source : link.target) : null;
 			line_entries.push({
 				link,
+				menu: ['physical_link', 'device_link', 'lag_bundle'].includes(link.type),      // a click opens the menu of the line (task 117 section 3); a group line and a Junction line open their panel
 				d: () => G.curve(link.source, link.target, link.parallel.index, link.parallel.count).d,
 				glow: () => glows.nodes()[i],
 				tooltip: () => group_node ? describeSubject(group_node) : (junction_node ? describeSubject(junction_node) : link_tooltip(link)),
@@ -3406,7 +3417,7 @@ const view = new class {
 		ghost_data.forEach(ghost => {
 			const d = () => straight(ghost.from, ghost.to);
 			const glow = glow_of(8, d);
-			line_entries.push({d, glow: () => glow, tooltip: () => this.shadowText(ghost.shadow), open: () => this.manualAction('open', ghost.entry.edge_id)});
+			line_entries.push({d, ghost, menu: true, glow: () => glow, tooltip: () => this.shadowText(ghost.shadow), open: () => this.manualAction('open', ghost.entry.edge_id)});
 		});
 		pair_data.forEach(pair => {
 			const d = () => straight(pair.from, pair.to);
@@ -3441,7 +3452,15 @@ const view = new class {
 		};
 		hits.on('mousemove', (event, entry) => this.hoverLine(event, nearest_entry(event) ?? entry))
 			.on('mouseleave', () => this.hoverLine(null, null))
-			.on('click', (event, entry) => (nearest_entry(event) ?? entry).open());
+			.on('click', (event, entry) => {
+				const target = nearest_entry(event) ?? entry;
+				if (target.menu) {
+					this.guard(() => this.openMenu(event, target.hit, null, this.lineMenuItemsWithBinding(target)));
+				}
+				else {
+					target.open();
+				}
+			});
 		this.line_entries = line_entries;
 
 		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind. Fill = the severity
@@ -3567,9 +3586,18 @@ const view = new class {
 			});
 		});
 		// the label: under the shape, one line, at most 160 px, cut in the middle (the full text is in the tooltip); written with text(), so a value from the network is never markup (§13)
-		node_selection.append('text').attr('class', 'topology-label').attr('text-anchor', 'middle')
+		// task 117 section 3: the label of a Host, a Proxy and a Device is a link: a click opens the menu of the node (the icon selects it and opens the panel); a group and a Junction have no menu
+		const has_menu = node => ['host', 'proxy', 'device'].includes(node.type);
+		node_selection.append('text').attr('class', node => `topology-label${has_menu(node) ? ' topology-label-link' : ''}`).attr('text-anchor', 'middle')
 			.attr('y', node => node.shape_h / 2 + 3 + node.font)
-			.style('font-size', node => `${node.font}px`).style('fill', '#1f2937').style('pointer-events', 'none')
+			.style('font-size', node => `${node.font}px`).style('fill', '#1f2937').style('pointer-events', node => has_menu(node) ? 'all' : 'none')
+			.on('click', (event, node) => {
+				if (!has_menu(node)) {
+					return;
+				}
+				event.stopPropagation();
+				this.guard(() => this.openMenu(event, event.currentTarget, node.type === 'host' ? node.hostid : null, this.nodeMenuItems(node)));
+			})
 			.style('paint-order', 'stroke').style('stroke', halo_colour).style('stroke-width', '3px').style('stroke-linejoin', 'round')
 			.text(node => node.label_text);
 

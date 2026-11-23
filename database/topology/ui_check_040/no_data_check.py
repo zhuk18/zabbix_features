@@ -82,6 +82,9 @@ try:
     mouse('mouseMoved', point['x'], point['y'])
     mouse('mousePressed', point['x'], point['y'])
     mouse('mouseReleased', point['x'], point['y'])
+    # task 117 section 3: a click on a line opens the menu of the line; "Link details" opens the link panel
+    P.until(js, "document.querySelector('.menu-popup-item')", 'the menu of the line is open')
+    js("Array.from(document.querySelectorAll('.menu-popup-item')).find(e => e.textContent.trim() === 'Link details').click()")
     P.after_input(js)
     panel = js("""Array.from(document.querySelectorAll('#topology-details tr')).map(r => r.textContent.trim().replace(/\\s+/g, ' '))""")
     title = js("(document.getElementById('topology-details-title') || {textContent: ''}).textContent.trim()")

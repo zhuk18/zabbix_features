@@ -49,6 +49,8 @@ $page_styles = '
 .topology-legend-row{display:flex;align-items:center;gap:8px;margin:3px 0}
 .topology-legend-row svg{flex:0 0 44px}
 .topology-label{font-size:12px;pointer-events:none}
+.topology-label-link{cursor:pointer}
+.topology-label-link:hover{text-decoration:underline}
 .topology-link{stroke:#77818d;stroke-width:2}
 .topology-group{margin:14px 0}
 .topology-group h3{font-size:14px;margin:0 0 6px}

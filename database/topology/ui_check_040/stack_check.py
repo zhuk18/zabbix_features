@@ -53,10 +53,6 @@ TOGGLE = "(() => { const b = document.querySelector('#topology-details [data-par
 TITLE = "(() => { const t = document.querySelector('#topology-details .topology-node-title, #topology-details .topology-host-name'); return t ? t.textContent.trim() : null; })()"
 
 
-def show_details():
-    # task 117 section 3: the name of a neighbor opens its menu; "Show details" selects the neighbor and opens its panel (with the Back button)
-    P.until(js, "document.querySelector('.menu-popup-item')", 'the menu of the neighbor name is open')
-    js("Array.from(document.querySelectorAll('.menu-popup-item')).find(e => e.textContent.trim() === 'Show details').click()")
 GROUP_ROWS = "Array.from(document.querySelectorAll('#topology-details tr.topology-group-row')).map(r => r.textContent.trim())"
 
 chrome, ws, js = session()
@@ -67,14 +63,17 @@ try:
     print('=== the toggle: %s, %d devices ===' % (parent['label'], count))
     js("(() => { view.unfolded.delete('%s'); view.render(); })()" % parent['id'])
     select(js, parent['label'], 'host')
-    check(js(TOGGLE) == 'Unfold %d devices' % count, 'parent panel, group folded: "Unfold %d devices"' % count, js(TOGGLE))
-    js("document.querySelector('#topology-details [data-parent]').click()")
+    text = P.node_menu(js, parent['label'], node_type='host')
+    check('Unfold %d devices' % count in text, 'menu of the parent, group folded: "Unfold %d devices"' % count, text)
+    js("document.body.click()")
+    P.node_menu(js, parent['label'], choose='Unfold %d devices' % count, node_type='host')
     P.after_input(js)
-    check(js("view.unfolded.has('%s')" % parent['id']) and js(TOGGLE) == 'Fold %d devices' % count, 'the press unfolds the group; the button reads "Fold %d devices"' % count, [js(TOGGLE)])
+    check(js("view.unfolded.has('%s')" % parent['id']) and 'Fold %d devices' % count in P.node_menu(js, parent['label'], node_type='host'), 'the item unfolds the group; the menu reads "Fold %d devices"' % count, [js(TOGGLE)])
     check(js(TITLE) == parent['label'], 'the parent panel stays', js(TITLE))
-    js("document.querySelector('#topology-details [data-parent]').click()")
+    js("document.body.click()")
+    P.node_menu(js, parent['label'], choose='Fold %d devices' % count, node_type='host')
     P.after_input(js)
-    check(not js("view.unfolded.has('%s')" % parent['id']) and js(TOGGLE) == 'Unfold %d devices' % count, 'a second press folds it; "Unfold %d devices"' % count, [js(TOGGLE)])
+    check(not js("view.unfolded.has('%s')" % parent['id']), 'a second press folds it', [js(TOGGLE)])
     # the group panel
     js("(() => { view.panel_from = null; view.showGroup(view.group_nodes.get('%s')); })()" % parent['id'])
     P.after_input(js)
@@ -100,30 +99,21 @@ try:
     P.after_input(js)
     check(js(BACK) is None and js(GROUP_ROWS) == rows and ' devices at ' in js("document.getElementById('topology-details-title').textContent"), 'Back: the group panel with the same list, no Back', [js(BACK), js(GROUP_ROWS)])
 
-    print('=== Back: SW12 -> SW18 -> Link details of a member ===')
+    print('=== Back: SW12 -> SW18 -> Back (the bundle stays unfolded) ===')
     js("(() => { view.unfolded.delete('%s'); view.render(); })()" % parent['id'])
     select(js, 'SW12-10-CORE-6000-48G', 'host')
     check(js(BACK) is None, 'SW12 opened as the first panel: no Back')
     js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-toggle').click()")
     open_members = js("Array.from(document.querySelectorAll('#topology-details .topology-bundle-toggle')).map(b => b.getAttribute('aria-expanded'))")
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
-    show_details()
     P.after_input(js)
     check(js(TITLE).startswith('SW18') and js(BACK) == '← Back to SW12-10-CORE-6000-48G', 'a neighbor in Links: the panel of SW18 with "← Back to SW12-10-CORE-6000-48G"', [js(TITLE), js(BACK)])
-    js("document.querySelector('#topology-details tr.topology-link-member .topology-link-details').click()")
-    P.after_input(js)
-    check('↔' in js("document.querySelector('#topology-details h2').textContent") and js(BACK) is not None and js(BACK).startswith('← Back to SW18'), 'Link details of a member: "← Back to SW18…"', js(BACK))
-    js("document.querySelector('#topology-details .topology-back-button').click()")
-    P.after_input(js)
-    check(js(TITLE).startswith('SW18') and js(BACK) == '← Back to SW12-10-CORE-6000-48G', 'Back: SW18, and its own Back to SW12', [js(TITLE), js(BACK)])
     js("document.querySelector('#topology-details .topology-back-button').click()")
     P.after_input(js)
     now = js("Array.from(document.querySelectorAll('#topology-details .topology-bundle-toggle')).map(b => b.getAttribute('aria-expanded'))")
     check(js(TITLE).startswith('SW12') and js(BACK) is None and now == open_members and 'true' in now, 'Back: SW12 with the bundle still unfolded, no Back', [js(TITLE), now, open_members])
     print('=== a click on the graph starts a new stack ===')
-    js("document.querySelector('#topology-details tr.topology-link-bundle .topology-bundle-details') && 1")
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
-    show_details()
     P.after_input(js)
     check(js(BACK) is not None, 'SW18 from SW12: Back is there')
     js("""(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label).startsWith('SW13'));
@@ -132,7 +122,6 @@ try:
     check(js(TITLE).startswith('SW13') and js(BACK) is None, 'a click on a node in the graph: its panel has no Back', [js(TITLE), js(BACK)])
     # Apply starts a new stack too
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]'))[0]; l.click(); })()""")
-    show_details()
     P.after_input(js)
     check(js(BACK) is not None, 'a neighbor of SW13: Back is there')
     js("document.getElementById('topology-filter-apply').click()")
@@ -168,7 +157,6 @@ try:
         with open(shot, 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW18')); l.click(); })()""")
-    show_details()
     P.after_input(js)
     check(ring_on('SW18'), 'a neighbor in Links: the mark moves to SW18', js(RING))
     js("document.querySelector('#topology-details .topology-back-button').click()")
@@ -182,7 +170,6 @@ try:
     out = js(BOX % json.dumps('SW12'))
     check(out['left'] > 1500, 'SW12 is out of the window after the pan', out)
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
-    show_details()
     P.after_input(js)
     box = js(BOX % json.dumps('SW12'))
     inside = js("(() => { const b = document.getElementById('topology-canvas').getBoundingClientRect(); return [b.left, b.right, b.top, b.bottom]; })()")
@@ -214,7 +201,7 @@ try:
 
     def host_panel(text, label, focus=True):
         p = js(HOSTPANEL)
-        check(p['kind'] == 'Zabbix host' and (p['title'] or '').startswith(label) and p['problems'] and p['focus'] == focus and not p['not_in_view'] and p['ring'] == 1, text, p)
+        check(p['kind'] == 'Zabbix host' and (p['title'] or '').startswith(label) and not p['problems'] and not p['focus'] and not p['not_in_view'] and p['ring'] == 1, text, p)
 
     js("window.confirm = () => true; window.alert = text => { window.__alert = text; }")
     # model 2.95 §12.1: Apply without a focus host selects nothing (until 2.94 it selected the first Device of the list, task 101: its Host panel); the panels below come from clicks
@@ -223,10 +210,9 @@ try:
     check(not js("document.querySelector('#topology-details .topology-node-head') !== null"), 'the first load and Apply without a focus host: no panel (nothing is selected)')
     js("(() => { view.unfolded.clear(); view.render(); })()")
     click_node('SW12')
-    host_panel('a click on SW12: Host panel, Problems, Focus, selection on the drawn node', 'SW12')
+    host_panel('a click on SW12: Host panel (no Problems section, no Focus button), selection on the drawn node', 'SW12')
     click_node('SW13')
     js("""(() => { const l = Array.from(document.querySelectorAll('#topology-details .topology-neighbor[data-node]')).find(e => String(view.nodes.get(e.dataset.node).label).startsWith('SW12')); l.click(); })()""")
-    show_details()
     P.after_input(js)
     host_panel("SW12 opened from SW13's Links: Host panel", 'SW12')
     js("document.querySelector('#topology-details .topology-back-button').click()")
@@ -249,7 +235,8 @@ try:
     made = manual_edge_ids() - manual_before
     MADE_BY_THIS_CHECK.update(made)
     check(len(made) == 1, 'the Link made one manual link (its id is %s)' % sorted(made), [sorted(made), sorted(manual_before)])
-    js("""(() => { const id = '%s'; const row = Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => (r.dataset.edges || '').split(',').includes(id)); row.querySelector('.topology-unlink-button').click(); })()""" % (sorted(made)[0] if made else ''))
+    # the Unlink of the manual link: the menu of its line (task 117 section 3), the confirmation is accepted
+    P.line_menu(js, "view.line_entries.find(e => e.link && String(e.link.edge_id) === '%s')" % sorted(made)[0], choose='Unlink')
     P.after_input(js)
     host_panel('after an Unlink (the view is read again): the Host panel of SW13', 'SW13')
     check(not (manual_edge_ids() & MADE_BY_THIS_CHECK) and manual_before <= manual_edge_ids(), 'the link that this check made is gone; the manual links that were there before are untouched', [sorted(manual_edge_ids()), sorted(MADE_BY_THIS_CHECK), sorted(manual_before)])

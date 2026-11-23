@@ -422,11 +422,11 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 // ---- the side panel of a node (2.75, task 094) ----
 {
 	const ids = (kind, has) => G.panelSections(kind, has).map(x => x.id).join();
-	ok(ids('host', true) === 'problems,links,ports,identity' && G.panelSections('host', true)[3].open === false, 'Host: Problems, Links, Ports, Identity (folded)');
+	ok(ids('host', true) === 'links,ports,identity' && G.panelSections('host', true)[2].open === false && ids('host', false) === '', 'Host: Links, Ports, Identity (folded); no Problems section (task 117 section 6)');
 	ok(ids('device', false) === 'identity,links,ports' && G.panelSections('device', false)[0].open === true, 'Device without association: Identity (with Addresses, open), Links, Ports');
 	ok(ids('proxy', true) === 'links,ports,identity' && G.panelSections('proxy', true)[2].open === false, 'Proxy with a Device: Links, Ports, Identity (folded)');
 	ok(ids('proxy', false) === '', 'a Proxy without a Device: the header only (no section)');
-	ok(ids('host', false) === 'problems', 'a Host without a Device: Problems only');
+	ok(ids('host', false) === '', 'a Host without a Device: the header only (no section; its problems are the counters of the summary line)');
 	const w = {link: '%1$s link', links: '%1$s links', neighbor: '%1$s neighbor', neighbors: '%1$s neighbors', to: '%1$s to %2$s', port: '%1$s port', ports: '%1$s ports', up: '%1$s up'};
 	ok(G.summaryLine({links: 11, neighbors: 7, ports: 58, up: 30}, w) === '11 links to 7 neighbors · 58 ports (30 up)', 'summary line: all parts (SW12)');
 	ok(G.summaryLine({links: 0, neighbors: 0, ports: 48, up: 14}, w) === '48 ports (14 up)', 'a part that is 0 is left out (links)');

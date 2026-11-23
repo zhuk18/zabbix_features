@@ -27,9 +27,14 @@ def sql(statement):
 
 def panel(*extra):
     # the host is selected (its transient node `host:<hostid>`), as a click does: the panel, its problems section and the Focus button
-    expr = '''(async () => { await window.__topo_wait(() => view.idle && document.querySelector('#topology-details .topology-node-name'), 'the panel of the selected host'); const d = document.getElementById('topology-details'); const focus = d.querySelector('.topology-focus-button'); const head = d.querySelector('.topology-node-name');
-        const out = {title: head ? head.textContent : '', problems: !!d.querySelector('.topology-problems, [data-section="problems"], details'), focus: !!focus, node: view.selected_node ? String(view.selected_node.id) : null};
-        if (focus) { const loads = view.loads_done; focus.click(); await window.__topo_wait(() => view.loads_done > loads && view.idle, 'the load after Focus'); out.focus_host = (jQuery('#hostid').multiSelect('getData')[0] || {}).name || null; out.after = view.selected_node ? view.selected_node.label : null; } return out; })()'''
+    # task 117 section 3: the Focus action is in the menu of the label of the node, not in the panel
+    expr = '''(async () => { await window.__topo_wait(() => view.idle && document.querySelector('#topology-details .topology-node-name'), 'the panel of the selected host'); const d = document.getElementById('topology-details'); const head = d.querySelector('.topology-node-name');
+        const out = {title: head ? head.textContent : '', problems: !!d.querySelector('.topology-problems, [data-section="problems"], details'), node: view.selected_node ? String(view.selected_node.id) : null, panel_focus: !!d.querySelector('.topology-focus-button')};
+        const text = Array.from(document.querySelectorAll('#topology-canvas g.topology-node text.topology-label')).find(t => t.textContent === %s);
+        const b = text.getBoundingClientRect(); text.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2}));
+        await window.__topo_wait(() => document.querySelector('.menu-popup-item'), 'the menu of the label');
+        const focus = Array.from(document.querySelectorAll('.menu-popup-item')).find(e => e.textContent.trim() === 'Focus'); out.focus = !!focus;
+        if (focus) { const loads = view.loads_done; focus.click(); await window.__topo_wait(() => view.loads_done > loads && view.idle, 'the load after Focus'); out.focus_host = (jQuery('#hostid').multiSelect('getData')[0] || {}).name || null; out.after = view.selected_node ? view.selected_node.label : null; } return out; })()''' % json.dumps(HOST)
     out = subprocess.run([sys.executable, HERE + '/page_shot.py', '--width', '1500', '--height', '900', '--menu', 'open', '--select', HOST, '--eval', expr, '--out', '/tmp/nolink.png', *extra],
                          capture_output=True, text=True, timeout=240)
     line = next((l for l in out.stdout.split('\n') if l.startswith('eval:')), None)
@@ -76,7 +81,7 @@ try:
     as_focus = drawn('--host', HOST, '--depth', '1')
     check(as_focus == 1, 'as the focus host: drawn', as_focus)
     shown = panel('--group', GROUP, '--depth', '1', '--unlinked')
-    check(shown is not None and shown['node'] == 'host:%s' % host and shown['title'].startswith(HOST) and shown['focus'], 'the panel of the transient node (host:<hostid>) opens with the name and the Focus button', shown)
+    check(shown is not None and shown['node'] == 'host:%s' % host and shown['title'].startswith(HOST) and shown['focus'] and not shown['panel_focus'], 'the panel of the transient node (host:<hostid>) opens with the name; its label menu has Focus (no button in the panel)', shown)
     check(shown is not None and shown.get('focus_host') == HOST and shown.get('after') == HOST, 'Focus on it sets the focus host and selects it (Apply with a focus host)', shown)
     check(sql('select count(*) from topo_nodes where type=\'host\' and host_ref=%d' % int(host)) == '0' and sql('select count(*) from topo_nodes where represented_by_node_id in (select id from topo_nodes where host_ref=%d)' % int(host)) == '0',
           'after the reads the host still has no Host node and no Device (a read writes nothing)')

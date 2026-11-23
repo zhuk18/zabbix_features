@@ -173,6 +173,31 @@ def idle(js, what='the page is idle (no load, no action, no request)', timeout=6
     return settled(js.ws, js, what, timeout)
 
 
+def node_menu(js, label, choose=None, node_type=None):
+    """Task 117 section 3: a click on the label of a node on the graph opens its menu. Returns the text of the menu; with `choose`, the item with that text is clicked and the page is awaited."""
+    js("""(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === %s%s); const t = g.querySelector('text.topology-label');
+        const b = t.getBoundingClientRect(); t.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2})); })()""" % (json.dumps(label), (" && e.__data__.type === %s" % json.dumps(node_type)) if node_type else ''))
+    return _menu_choose(js, choose)
+
+
+def line_menu(js, entry_js, choose=None):
+    """A click on a line of the graph (`entry_js`: an expression for its line entry, view.line_entries[...]) opens the menu of the line."""
+    js("""(() => { const e = %s; const p = e.hit.getPointAtLength(e.hit.getTotalLength() * 0.5); const t = new DOMPoint(p.x, p.y).matrixTransform(e.hit.getScreenCTM());
+        e.hit.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: t.x, clientY: t.y})); })()""" % entry_js)
+    return _menu_choose(js, choose)
+
+
+def _menu_choose(js, choose):
+    until(js, "document.querySelector('.menu-popup-item')", 'the menu is open')
+    text = js("(() => { const m = document.querySelector('.menu-popup'); return m.textContent.replace(/\\s+/g, ' ').trim(); })()")
+    if choose is not None:
+        found = js("(() => { const e = Array.from(document.querySelectorAll('.menu-popup-item')).find(e => e.textContent.trim().startsWith(%s)); if (!e) return false; e.click(); return true; })()" % json.dumps(choose))
+        if not found:
+            raise AssertionError('the menu has no item "%s": %s' % (choose, text))
+        idle(js)
+    return text
+
+
 def after_input(js, what='the page is idle after the input (no load, no action, no request)'):
     """After a click, a key or a mouse move: the browser has drawn the frames that apply the styles, and the page has finished what the input started (a load, a guarded action).
     The input handlers run before dispatchMouseEvent (or a click()) returns, so a request that an input starts is already counted when this is called."""

@@ -141,6 +141,7 @@ def row_menu(expr_row):
 
 
 LINKS_ROW = "(port => Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => r.querySelector('.topology-link-ports') && r.querySelector('.topology-link-ports').textContent.trim().startsWith(port)))"
+LINE_P1 = "view.line_entries.find(e => e.link && e.link.type === 'physical_link' && e.link.discovered_via === 'manual' && (String(e.link.source_port) === 'p1' || String(e.link.target_port) === 'p1'))"
 PORTS_ROW = "(port => Array.from(document.querySelectorAll('#topology-details tr')).find(r => r.querySelector('.topology-port-name') && r.querySelector('.topology-port-name').textContent.trim().startsWith(port)))"
 
 
@@ -184,8 +185,7 @@ try:
     print('=== Promote to %s ===' % hostname)
     click("(() => { const g = Array.from(document.querySelectorAll('#topology-canvas g.topology-node')).find(e => String(e.__data__.label) === 'BIND-TEST'); return g.querySelector('rect.topology-shape'); })()")
     wait("(%s) === 'BIND-TEST'" % TITLE)
-    click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
-    click("document.querySelector('#topology-details .topology-menu-promote')")
+    P.node_menu(js, 'BIND-TEST', choose='Promote to host', node_type='device')
     type_into('.topology-promote-search', hostname)
     wait("document.querySelector('.topology-promote-result-host')")
     click("Array.from(document.querySelectorAll('.topology-promote-result-host')).find(e => e.textContent.trim() === %s)" % json.dumps(hostname))
@@ -194,13 +194,13 @@ try:
     js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
     P.after_input(js)
     check(js("document.querySelectorAll('#topology-details tr.topology-link-row').length") >= 1, 'the panel of the host has the Links row of p1')
-    menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
-    check('Bind to interface' in menu and 'Unbind' not in menu, 'the Links row of p1 has "Bind to interface" (and no Unbind) in its menu', menu)
+    menu = P.line_menu(js, LINE_P1)
+    check('Bind to interface' in menu and 'Unbind' not in menu, 'the menu of the line of p1 has "Bind to interface" (and no Unbind)', menu)
+    js("document.body.click()")
 
     print('=== Bind p1 ===')
     write_history(hostid, 1, 8000000, 4000000, 1000000000)
-    row_menu("(%s)('p1')" % LINKS_ROW)
-    click("(%s)('p1').querySelector('.topology-port-bind')" % LINKS_ROW)
+    P.line_menu(js, LINE_P1, choose='Bind to interface')
     check(wait("!!document.querySelector('.topology-bind-table')"), 'the dialog "Bind to interface" opens with the list of interfaces')
     names = js("Array.from(document.querySelectorAll('.topology-bind-row')).map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()).filter(Boolean).join(' '))")
     check(names == ['%s 1' % NAMES[0], '%s 2' % NAMES[1]], 'the list shows the name and the index of each interface of %s' % hostname, names)
@@ -215,8 +215,9 @@ try:
     check('p1 → %s' % NAMES[0] in text, 'the Links row shows "p1 → %s"' % NAMES[0], text)
     check('in 0.8 %' in text and 'out 0.4 %' in text, 'the Links row shows the load of the interface (8 Mbit/s in and 4 Mbit/s out of 1 Gbit/s: in 0.8 % / out 0.4 %)', text)
     shot('107-bound-port.png')
-    menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
+    menu = P.line_menu(js, LINE_P1)
     check('Unbind' in menu and 'Bind to interface' not in menu, 'a bound port offers Unbind, not Bind to interface', menu)
+    js("document.body.click()")
 
     print('=== Bind p2 to the same interface ===')
     js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group')).forEach(d => { d.open = true; })")
@@ -232,12 +233,12 @@ try:
     wait("!document.querySelector('.topology-bind-table')")
 
     print('=== Unbind p1 ===')
-    row_menu("(%s)('p1')" % LINKS_ROW)
-    click("(%s)('p1').querySelector('.topology-port-unbind')" % LINKS_ROW)
+    P.line_menu(js, LINE_P1, choose='Unbind')
     wait("!(%s)('p1').querySelector('.topology-link-ports').textContent.includes('→')" % LINKS_ROW, 20)
     check('→' not in js("(%s)('p1').textContent" % LINKS_ROW) and db("select json_extract(attrs, '$.if_index') from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'") in ('', 'NULL'), 'Unbind: the row shows p1 only, the index is cleared')
-    menu = js("Array.from((%s)('p1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
+    menu = P.line_menu(js, LINE_P1)
     check('Bind to interface' in menu and 'Unbind' not in menu, 'after Unbind the menu offers "Bind to interface" again', menu)
+    js("document.body.click()")
 
     print('=== a Port that a PORTS row took is a reported port (task 108) ===')
     js("""(async () => { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', if_index: 2})}); return 1; })()""" % db("select id from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'"))
@@ -247,18 +248,18 @@ try:
     P.after_input(js)
     wait("(%s)('Gi0/1')" % LINKS_ROW, 15)
     text = js("(%s)('Gi0/1').textContent" % LINKS_ROW)
-    menu = js("Array.from((%s)('Gi0/1').querySelectorAll('.topology-menu-item')).map(e => e.textContent.trim())" % LINKS_ROW)
+    menu = P.line_menu(js, "view.line_entries.find(e => e.link && e.link.type === 'physical_link' && (String(e.link.source_port) === 'Gi0/1' || String(e.link.target_port) === 'Gi0/1'))")
+    js("document.body.click()")
     check('Gi0/1' in text and '→ Gi' not in text and 'p1' not in text, 'the reported Port shows its reported name only (no "→")', text)
-    check(not [m for m in menu if m in ('Rename', 'Delete', 'Bind to interface', 'Unbind')], 'it has no Rename, Delete, Bind or Unbind', menu)
+    check(not any(word in menu for word in ('Rename', 'Delete', 'Bind to interface', 'Unbind')), 'its line menu has no Rename, Delete, Bind or Unbind', menu)
 
     print('=== Depromote, delete the Device ===')
-    click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
-    click("document.querySelector('#topology-details .topology-depromote-button')")
+    P.node_menu(js, hostname, choose='Depromote', node_type='host')
     wait("view.drawn_nodes.some(n => n.label === 'BIND-TEST')", 20)
     js("(async () => { const n = view.drawn_nodes.find(n => n.label === 'BIND-TEST'); await view.selectNode(n); return 1; })()")
     P.after_input(js)
-    click("document.querySelector('#topology-details .topology-node-actions .topology-menu-button')")
-    click("document.querySelector('#topology-details .topology-delete-device-button')")
+    js("window.confirm = () => true")
+    P.node_menu(js, 'BIND-TEST', choose='Delete Device', node_type='device')
     check(wait("view.drawn_nodes.every(n => n.label !== 'BIND-TEST')", 20), 'Delete Device: BIND-TEST is not drawn any more')
     P.after_input(js)
 finally:

@@ -1204,7 +1204,8 @@
 	 */
 	function panelSections(kind, has_device) {
 		if (kind === 'host') {
-			return has_device ? [{id: 'problems', open: true}, {id: 'links', open: true}, {id: 'ports', open: true}, {id: 'identity', open: false}] : [{id: 'problems', open: true}];
+			// task 117 section 6: no Problems section; the problems are the counters of the summary line, and "Problems" of the host menu
+			return has_device ? [{id: 'links', open: true}, {id: 'ports', open: true}, {id: 'identity', open: false}] : [];
 		}
 		if (kind === 'proxy') {
 			return has_device ? [{id: 'links', open: true}, {id: 'ports', open: true}, {id: 'identity', open: false}] : [];
