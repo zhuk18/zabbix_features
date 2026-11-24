@@ -40,6 +40,15 @@ $page_styles = '
 .topology-node.device rect{fill:#f3f4f6;stroke:#697386;stroke-width:2;stroke-dasharray:6 4}
 .topology-node.host rect{fill:#fff;stroke:#1f2937;stroke-width:2}
 .topology-node.proxy rect{fill:#fff;stroke:#1f2937;stroke-width:2}
+.topology-find{position:absolute;left:48px;top:8px;z-index:3;width:300px}
+.topology-find-input{width:100%}
+.topology-find-results{margin-top:2px;max-height:60vh;overflow:auto;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.topology-find-row{display:flex;align-items:center;gap:8px;padding:4px 8px;cursor:pointer}
+.topology-find-row svg{flex:0 0 22px}
+.topology-find-row .topology-find-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topology-find-row .topology-find-matched{flex:0 1 auto;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topology-find-row.topology-find-active,.topology-find-row:hover{background:#e8f1fb}
+.topology-find-note{padding:5px 8px}
 .topology-legend{position:absolute;left:8px;bottom:8px;z-index:3;max-width:300px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .topology-legend-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:5px 8px;cursor:pointer;user-select:none}
 .topology-legend-body{padding:2px 8px 8px;max-height:46vh;overflow:auto}
@@ -228,6 +237,12 @@ $html_page
 					(new CSimpleButton())->setId('topology-zoom-out')->addClass(ZBX_STYLE_BTN_ICON)->addClass('zi-minimize')->setHint(_('Zoom out'), '', false)->setAttribute('aria-label', _('Zoom out')),
 					(new CSimpleButton())->setId('topology-fit')->addClass(ZBX_STYLE_BTN_ICON)->addClass(ZBX_ICON_EXPAND)->setHint(_('Fit'), '', false)->setAttribute('aria-label', _('Fit'))
 				]))->setId('topology-map-controls')->addClass('topology-map-controls'),
+				// Find a device (model 2.100 §12.1, FR-C V-24): an overlay at the top left of the graph area, next to the controls (not a row of the filter)
+				(new CDiv([
+					(new CTextBox('topology-find', '', false))->setId('topology-find-input')->addClass('topology-find-input')->setAttribute('placeholder', _('Find a device'))
+						->setAttribute('autocomplete', 'off')->setAttribute('aria-label', _('Find a device'))->setAttribute('title', _('Name, MAC address or IP address')),
+					(new CDiv())->setId('topology-find-results')->addClass('topology-find-results')->setAttribute('hidden', 'hidden')->setAttribute('role', 'listbox')
+				]))->setId('topology-find')->addClass('topology-find'),
 				(new CTag('svg', true))->setId('topology-canvas'),
 				(new CDiv([
 					(new CButton('topology-panel-toggle', '»'))

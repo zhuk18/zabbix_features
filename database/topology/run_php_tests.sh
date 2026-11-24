@@ -58,7 +58,7 @@ areas_of() {
 		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*) a="native" ;;
 		lab/*|corpus/*) a="lab" ;;
 		ui/tests/*) a="api" ;;
-		*test_topology_graph.js*|*test_node_label*|*test_leaf_groups*|*test_hop_scope*|*test_freshness*|*test_lazy_host_nodes*) a="view" ;;
+		*test_topology_graph.js*|*test_find_device*|*test_node_label*|*test_leaf_groups*|*test_hop_scope*|*test_freshness*|*test_lazy_host_nodes*) a="view" ;;
 		page*|*page_shot*|*_check.py*|*nolink_host*) a="page" ;;
 		*) a="other" ;;
 	esac
@@ -193,7 +193,7 @@ if selected discovery/test_manual_link_busy_port.php; then
 fi
 
 # ---- 2. PHP tests without a database ----
-for t in test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php test_device_class.php; do
+for t in test_find_device.php test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php test_device_class.php; do
 	exec_test "$t" "/tmp/topo_t_$(basename "$t" .php).log" php "$here/$t"
 done
 
@@ -323,6 +323,8 @@ else
 		page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
 		# Bind to interface (107): create, link, Promote to a lab host, Bind / Unbind with real mouse events, the load of the interface, the refusal, Depromote, Delete; nothing is left
 		page_test "page: Bind to interface (dialog, bound port, load, refusal, Unbind)" /tmp/topo_t_bind_page.log python3 "$here/ui_check_040/bind_check.py"
+		# Find a device (task 119 section 2, model 2.100 §12.1): name, MAC, IP, the limit, a hidden Device found and shown, the filter unchanged
+		page_test "page: Find a device (name, MAC in all forms, IP, markup, the limit; a hidden Device drawn, selected, panned to; the filter does not change)" /tmp/topo_t_find.log python3 "$here/ui_check_040/find_check.py"
 		page_test "page: Bind to interface by name (a host of the agent template: no index, load, refusal, Unbind)" /tmp/topo_t_bind_name_page.log python3 "$here/ui_check_040/bind_check.py" --by-name
 	# the load of the side that has items, "no data" and the reason for the side that has none (110, FR-C V-12)
 	page_test "page: a link to an end device: the load of one side, no data on the other (real mouse events)" /tmp/topo_t_nodata.log python3 "$here/ui_check_040/no_data_check.py"

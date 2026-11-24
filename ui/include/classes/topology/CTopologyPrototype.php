@@ -228,20 +228,7 @@ class CTopologyPrototype {
 		// the bits are data from the network: the caller escapes them. A Device without the field has no class (the generic icon).
 		$device_ids = array_column(array_filter($nodes, static fn (array $node): bool => $node['type'] === 'device'), 'id');
 		if ($device_ids) {
-			// 2.96 (§12.2): the own capabilities of a reporter's Device (`attrs.sys_cap`, from its DEVICE row) are used instead of the neighbors'
-			$own_caps = [];
-			foreach (DBfetchArray(DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $device_ids).
-					' AND attrs LIKE '.zbx_dbstr('%sys_cap%'))) as $own_row) {
-				$own_attrs = json_decode((string) $own_row['attrs'], true);
-
-				if (is_array($own_attrs) && isset($own_attrs['sys_cap']) && is_string($own_attrs['sys_cap']) && trim($own_attrs['sys_cap']) !== '') {
-					$own_caps[(string) $own_row['id']] = $own_attrs['sys_cap'];
-				}
-			}
-			$classes = CTopologyDeviceClass::ofObservations(DBfetchArray(DBselect(
-				'SELECT device_id,remote_attrs FROM topo_observations WHERE device_id IS NOT NULL AND '.dbConditionId('device_id', $device_ids).
-				' AND remote_attrs LIKE '.zbx_dbstr('%rem_sys_cap%')
-			)), $own_caps);
+			$classes = self::classesOfDevices($device_ids);
 			foreach ($nodes as &$node) {
 				if ($node['type'] === 'device' && isset($classes[(string) $node['id']])) {
 					$node['device_class'] = $classes[(string) $node['id']]['class'];
@@ -787,20 +774,29 @@ class CTopologyPrototype {
 	 * The answer of topology.devices.get (the view page, topology-1-model.md §12.1): the nodes and relations of the view scope and the contradictions.
 	 * $hops null: no limit. Nothing selected: every node.
 	 */
-	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false, array $include = []): array {
+	public static function getView(array $groupids, string $hostid, ?int $hops, bool $duplicates = false, array $include = [], array $include_hostids = []): array {
 		[$node_ids, $transient_hostids] = self::splitScope(self::resolveScope($groupids, $hostid, $hops));
-		// 2.80 (§12.1): a manual Device that the operator just created is in the view until the filter is applied (only manual Devices can be added this way)
+		// 2.80 (§12.1): a manual Device that the operator just created is in the view until the filter is applied. 2.100: a node that the operator chose in the search ("Find a device") is in
+		// the view the same way: the Devices of `$include` (with the Host or Proxy that represents them) and the Host without a Host node (`$include_hostids`)
 		if ($node_ids !== null && $include) {
-			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $include));
+			$result = DBselect('SELECT id,represented_by_node_id FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $include));
 			while ($row = DBfetch($result, false)) {
-				if ((self::attrs($row)['source'] ?? null) === 'manual') {
-					$node_ids[] = (string) $row['id'];
+				$node_ids[] = (string) $row['id'];
+				if ($row['represented_by_node_id'] !== null) {
+					$node_ids[] = (string) $row['represented_by_node_id'];
 				}
 			}
 			$node_ids = array_values(array_unique($node_ids));
 		}
 		if ($duplicates) {
+			$result = DBselect('SELECT id FROM topo_nodes WHERE type IN ('.zbx_dbstr('host').','.zbx_dbstr('proxy').') AND '.dbConditionId('id', $include));
+			while ($row = DBfetch($result, false)) {
+				$node_ids[] = (string) $row['id'];
+			}
 			$node_ids = self::duplicatesScope($node_ids);
+		}
+		if ($include_hostids) {
+			$transient_hostids = array_values(array_unique(array_merge($transient_hostids, array_map('strval', $include_hostids))));
 		}
 
 		// §12.6 (task 104): the Junction projections of the Ports of the view; the Devices behind a projection are in the view with it (they have no link of their own). The filter
@@ -948,6 +944,267 @@ class CTopologyPrototype {
 
 	/** The id of a transient Host node (model 2.95 §12.1): `host:<hostid>`; it is never a topo_nodes.id. */
 	public const TRANSIENT_PREFIX = 'host:';
+
+	/**
+	 * The class and the bits of Devices for the icon (model §12.2): the union of `rem_sys_cap` of their current observations; the own capabilities of a reporter's Device (`attrs.sys_cap`, 2.96) are used
+	 * instead of the neighbors'. The bits are data from the network: the caller escapes them.
+	 *
+	 * @return array  Device id => ['class', 'bits']; a Device with no capabilities is not in it
+	 */
+	private static function classesOfDevices(array $device_ids): array {
+		if (!$device_ids) {
+			return [];
+		}
+		$own_caps = [];
+		foreach (DBfetchArray(DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', $device_ids).
+				' AND attrs LIKE '.zbx_dbstr('%sys_cap%'))) as $own_row) {
+			$own_attrs = json_decode((string) $own_row['attrs'], true);
+
+			if (is_array($own_attrs) && isset($own_attrs['sys_cap']) && is_string($own_attrs['sys_cap']) && trim($own_attrs['sys_cap']) !== '') {
+				$own_caps[(string) $own_row['id']] = $own_attrs['sys_cap'];
+			}
+		}
+
+		return CTopologyDeviceClass::ofObservations(DBfetchArray(DBselect(
+			'SELECT device_id,remote_attrs FROM topo_observations WHERE device_id IS NOT NULL AND '.dbConditionId('device_id', $device_ids).
+			' AND remote_attrs LIKE '.zbx_dbstr('%rem_sys_cap%')
+		)), $own_caps);
+	}
+
+	/** At most this many results of the search (model §12.1 "Find a device"); more: "refine the search". */
+	public const FIND_LIMIT = 20;
+
+	/**
+	 * Find a device (model 2.100 §12.1, FR-C V-24): Devices, Hosts and Proxies by (1) name: `sysname` of a Device, host name and visible name of a Host, proxy name (substring, any case); (2) hardware ID
+	 * or port MAC: the text is read as a MAC in any common form and compared with the `chassis_id` keys of the Devices and the `mac` of their Ports (a placeholder MAC finds nothing); (3) IP address
+	 * (exact): `mgmt_ip` and the addresses that neighbors report (V-15). One answer for one input; nothing is written. The names, MACs and addresses come from the network: the caller escapes them.
+	 *
+	 * @return array  ['results' => [['node' => the id of the node that the graph draws, 'type' => device|host|proxy, 'name', 'device_class'?, 'matched' => [text], 'include' => [topo_nodes.id],
+	 *                'include_hostids' => [hostid of a transient Host node]]], 'more' => bool]
+	 */
+	public static function findDevices(string $text): array {
+		$text = trim($text);
+		if (mb_strlen($text) < 2) {
+			return ['results' => [], 'more' => false];
+		}
+
+		$device_hits = [];      // Device id => [reason]
+		$host_hits = [];        // hostid => [reason]
+		$proxy_hits = [];       // proxyid => [reason]
+		$add = static function (array &$list, $id, string $reason): void {
+			$id = (string) $id;
+			if (!in_array($reason, $list[$id] ?? [], true)) {
+				$list[$id][] = $reason;
+			}
+		};
+		$like = static function (string $value): string {
+			return zbx_dbstr('%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $value).'%').' ESCAPE '.zbx_dbstr('!');
+		};
+
+		// 1. name
+		// (the column may compare case-sensitively: both sides are lower case; the name is compared again in PHP below)
+		$needles = array_unique([mb_strtolower($text), mb_strtolower(substr(json_encode($text), 1, -1))]);
+		$conditions = array_map(static fn (string $needle): string => 'LOWER(attrs) LIKE '.$like($needle), $needles);
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND ('.implode(' OR ', $conditions).')');
+		while ($row = DBfetch($result, false)) {
+			if (mb_stripos((string) (self::attrs($row)['sysname'] ?? ''), $text) !== false) {
+				$add($device_hits, $row['id'], _('name'));
+			}
+		}
+		foreach (API::Host()->get(['output' => ['hostid'], 'search' => ['host' => $text, 'name' => $text], 'searchByAny' => true, 'limit' => 200]) as $host) {
+			$add($host_hits, $host['hostid'], _('name'));
+		}
+		foreach (API::Proxy()->get(['output' => ['proxyid'], 'search' => ['name' => $text], 'limit' => 200]) as $proxy) {
+			$add($proxy_hits, $proxy['proxyid'], _('name'));
+		}
+
+		// 2. hardware ID or the MAC of a port
+		$mac = CTopologyAddress::searchMac($text);
+		if ($mac !== null) {
+			$result = DBselect('SELECT k.device_id FROM topo_identity_keys k JOIN topo_nodes d ON d.id=k.device_id AND d.type='.zbx_dbstr('device').
+				' WHERE k.'.self::keyColumn().'='.zbx_dbstr('chassis:mac:'.$mac).' AND k.replaced=0');
+			while ($row = DBfetch($result, false)) {
+				$add($device_hits, $row['device_id'], _('hardware ID'));
+			}
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND attrs LIKE '.$like($mac));
+			while ($row = DBfetch($result, false)) {
+				if (strtolower((string) (self::attrs($row)['chassis_id'] ?? '')) === $mac) {
+					$add($device_hits, $row['id'], _('hardware ID'));
+				}
+			}
+			$result = DBselect('SELECT id,device_id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id IS NOT NULL AND attrs LIKE '.$like($mac));
+			while ($row = DBfetch($result, false)) {
+				$attrs = self::attrs($row);
+				if (strtolower((string) ($attrs['mac'] ?? '')) === $mac) {
+					$add($device_hits, $row['device_id'], sprintf(_('port %1$s MAC'), (string) ($attrs['name'] ?? '')));
+				}
+			}
+		}
+
+		// 3. IP address (exact)
+		$ip = CTopologyAddress::ipText($text);
+		if ($ip !== null && !CTopologyAddress::isHidden($ip)) {
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND attrs LIKE '.$like($ip));
+			while ($row = DBfetch($result, false)) {
+				if ((string) (self::attrs($row)['mgmt_ip'] ?? '') === $ip) {
+					$add($device_hits, $row['id'], _('management address'));
+				}
+			}
+			$where = ['remote_attrs LIKE '.$like('rem_mgmt_ip'), 'remote_attrs LIKE '.$like('rem_man_addrs')];
+			if (!str_contains($ip, ':')) {
+				// IPv4: the dotted text is in rem_mgmt_ip and in the LLDP entries; a CDP entry has the hex octets
+				$where = ['remote_attrs LIKE '.$like($ip), 'remote_attrs LIKE '.$like('cdp:1:'.implode(':', array_map(static fn (string $o): string => sprintf('%02x', (int) $o), explode('.', $ip))))];
+			}
+			$result = DBselect('SELECT device_id,remote_attrs FROM topo_observations WHERE device_id IS NOT NULL AND ('.implode(' OR ', $where).')');
+			while ($row = DBfetch($result, false)) {
+				$remote = json_decode((string) $row['remote_attrs'], true);
+				$found = [];
+				if (is_array($remote)) {
+					if (is_string($remote['rem_man_addrs'] ?? null)) {
+						$found = array_column(CTopologyAddress::decodeEntries($remote['rem_man_addrs']), 'address');
+					}
+					if (is_string($remote['rem_mgmt_ip'] ?? null) && ($address = CTopologyAddress::ipText($remote['rem_mgmt_ip'])) !== null) {
+						$found[] = $address;
+					}
+				}
+				if (in_array($ip, $found, true)) {
+					$add($device_hits, $row['device_id'], _('reported address'));
+				}
+			}
+		}
+
+		// the subjects: the node that the graph draws (a Device that a Host or a Proxy represents is drawn as that Host or Proxy; a Host without a Host node is the transient node `host:<hostid>`)
+		$visible = array_flip(self::getVisibleHostIds());
+		$subjects = [];      // drawn node id => ['node', 'type', 'device_id', 'host_node_id', 'hostid', 'proxyid', 'reasons']
+		$subject = static function (array &$subjects, string $key, array $init): void {
+			$subjects[$key] ??= $init + ['device_id' => null, 'include' => [], 'include_hostids' => [], 'reasons' => []];
+		};
+		$device_rows = [];
+		if ($device_hits) {
+			$result = DBselect('SELECT d.id,d.attrs,d.represented_by_node_id,t.type AS target_type,t.host_ref,t.proxy_ref,t.id AS target_id'.
+				' FROM topo_nodes d LEFT JOIN topo_nodes t ON t.id=d.represented_by_node_id'.
+				' WHERE d.type='.zbx_dbstr('device').' AND '.dbConditionId('d.id', array_keys($device_hits)));
+			while ($row = DBfetch($result, false)) {
+				$device_rows[(string) $row['id']] = $row;
+				$reasons = $device_hits[(string) $row['id']];
+				if ($row['target_type'] === 'host') {
+					if (!isset($visible[$row['host_ref']])) {
+						continue;       // the host of a represented Device is not for this user to see: nothing of it is found
+					}
+					$key = (string) $row['target_id'];
+					$subject($subjects, $key, ['node' => $key, 'type' => 'host', 'hostid' => (string) $row['host_ref']]);
+					$subjects[$key]['device_id'] = (string) $row['id'];
+					$subjects[$key]['include'] = [(string) $row['id'], $key];
+				}
+				elseif ($row['target_type'] === 'proxy') {
+					$key = (string) $row['target_id'];
+					$subject($subjects, $key, ['node' => $key, 'type' => 'proxy', 'proxyid' => (string) $row['proxy_ref']]);
+					$subjects[$key]['device_id'] = (string) $row['id'];
+					$subjects[$key]['include'] = [(string) $row['id'], $key];
+				}
+				else {
+					$key = (string) $row['id'];
+					$subject($subjects, $key, ['node' => $key, 'type' => 'device']);
+					$subjects[$key]['device_id'] = $key;
+					$subjects[$key]['include'] = [$key];
+				}
+				$subjects[$key]['reasons'] = array_merge($subjects[$key]['reasons'], $reasons);
+			}
+		}
+		if ($host_hits) {
+			$nodes = [];
+			$result = DBselect('SELECT n.id,n.host_ref,d.id AS device_id FROM topo_nodes n LEFT JOIN topo_nodes d ON d.type='.zbx_dbstr('device').' AND d.represented_by_node_id=n.id'.
+				' WHERE n.type='.zbx_dbstr('host').' AND '.dbConditionId('n.host_ref', array_keys($host_hits)));
+			while ($row = DBfetch($result, false)) {
+				$nodes[(string) $row['host_ref']] = $row;
+			}
+			foreach ($host_hits as $hostid => $reasons) {
+				if (!isset($visible[$hostid])) {
+					continue;
+				}
+				if (isset($nodes[$hostid])) {
+					$key = (string) $nodes[$hostid]['id'];
+					$subject($subjects, $key, ['node' => $key, 'type' => 'host', 'hostid' => (string) $hostid]);
+					$subjects[$key]['device_id'] ??= $nodes[$hostid]['device_id'] !== null ? (string) $nodes[$hostid]['device_id'] : null;
+					$subjects[$key]['include'] = array_values(array_unique(array_filter(array_merge($subjects[$key]['include'], [$key, $subjects[$key]['device_id']]), static fn ($id): bool => $id !== null)));
+				}
+				else {
+					$key = self::TRANSIENT_PREFIX.$hostid;
+					$subject($subjects, $key, ['node' => $key, 'type' => 'host', 'hostid' => (string) $hostid]);
+					$subjects[$key]['include_hostids'] = [(string) $hostid];
+				}
+				$subjects[$key]['reasons'] = array_merge($subjects[$key]['reasons'], $reasons);
+			}
+		}
+		if ($proxy_hits) {
+			$result = DBselect('SELECT n.id,n.proxy_ref,d.id AS device_id FROM topo_nodes n JOIN topo_nodes d ON d.type='.zbx_dbstr('device').' AND d.represented_by_node_id=n.id'.
+				' WHERE n.type='.zbx_dbstr('proxy').' AND '.dbConditionId('n.proxy_ref', array_keys($proxy_hits)));
+			while ($row = DBfetch($result, false)) {
+				$key = (string) $row['id'];
+				$subject($subjects, $key, ['node' => $key, 'type' => 'proxy', 'proxyid' => (string) $row['proxy_ref']]);
+				$subjects[$key]['device_id'] ??= (string) $row['device_id'];
+				$subjects[$key]['include'] = [(string) $row['device_id'], $key];
+				$subjects[$key]['reasons'] = array_merge($subjects[$key]['reasons'], $proxy_hits[(string) $row['proxy_ref']]);
+			}
+		}
+
+		// the names (what the graph shows as the label) and the classes of the Devices
+		$names = [];
+		$host_names = [];
+		$host_ids = array_filter(array_column($subjects, 'hostid'));
+		if ($host_ids) {
+			foreach (API::Host()->get(['output' => ['hostid', 'name'], 'hostids' => array_values($host_ids)]) as $host) {
+				$host_names[(string) $host['hostid']] = $host['name'];
+			}
+		}
+		$proxy_names = [];
+		$proxy_ids = array_filter(array_column($subjects, 'proxyid'));
+		if ($proxy_ids) {
+			foreach (API::Proxy()->get(['output' => ['proxyid', 'name'], 'proxyids' => array_values($proxy_ids)]) as $proxy) {
+				$proxy_names[(string) $proxy['proxyid']] = $proxy['name'];
+			}
+		}
+		$device_attrs = [];
+		$ids = array_filter(array_column($subjects, 'device_id'));
+		if ($ids) {
+			$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('device').' AND '.dbConditionId('id', array_values($ids)));
+			while ($row = DBfetch($result, false)) {
+				$device_attrs[(string) $row['id']] = self::attrs($row);
+			}
+		}
+		foreach ($subjects as $key => &$entry) {
+			if ($entry['type'] === 'host') {
+				$entry['name'] = self::nodeLabel('host', $host_names[$entry['hostid']] ?? '');
+			}
+			elseif ($entry['type'] === 'proxy') {
+				$entry['name'] = self::nodeLabel('proxy', $proxy_names[$entry['proxyid']] ?? '');
+			}
+			else {
+				$attrs = $device_attrs[$entry['device_id']] ?? [];
+				$entry['name'] = self::nodeLabel('device', null, $attrs['sysname'] ?? null, $attrs['chassis_id'] ?? null, $attrs['mgmt_ip'] ?? null);
+			}
+		}
+		unset($entry);
+		uasort($subjects, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']) ?: strcmp($a['node'], $b['node']));
+		$more = count($subjects) > self::FIND_LIMIT;
+		$subjects = array_slice($subjects, 0, self::FIND_LIMIT, true);
+
+		$classes = self::classesOfDevices(array_values(array_filter(array_column($subjects, 'device_id'))));
+		$results = [];
+		foreach ($subjects as $entry) {
+			$row = ['node' => (string) $entry['node'], 'type' => $entry['type'], 'name' => $entry['name'], 'matched' => array_values(array_unique($entry['reasons'])),
+				'include' => array_values(array_unique($entry['include'])), 'include_hostids' => $entry['include_hostids']];
+			if ($entry['device_id'] !== null && isset($classes[(string) $entry['device_id']])) {
+				$row['device_class'] = $classes[(string) $entry['device_id']]['class'];
+			}
+			if ($entry['device_id'] !== null && (($device_attrs[$entry['device_id']]['source'] ?? null) === 'manual') && ($device_attrs[$entry['device_id']]['device_class'] ?? 'other') !== 'other') {
+				$row['device_class'] = $device_attrs[$entry['device_id']]['device_class'];
+			}
+			$results[] = $row;
+		}
+
+		return ['results' => $results, 'more' => $more];
+	}
 
 	/** @return array [the stored node ids, the hostids of the transient nodes] of a scope of resolveScope(); null stays null */
 	private static function splitScope(?array $node_ids): array {

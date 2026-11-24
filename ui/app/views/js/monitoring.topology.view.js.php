@@ -87,7 +87,9 @@ const view = new class {
 		this.current_panel = null;
 		this.new_manual = new Set();      // manual Devices created in this page and not dragged: when one gets its first link it is placed next to the linked node (§9.7, 2.84)
 		this.replace_ids = new Set();      // the Devices that lose their place at the next reload
-		this.include_ids = new Set();      // manual Devices created in this view stay in a scoped view until the filter is applied (§12.1, 2.80)
+		this.include_ids = new Set();      // manual Devices created in this view stay in a scoped view until the filter is applied (§12.1, 2.80); 2.100: the nodes chosen in the search too
+		this.include_hostids = new Set();  // 2.100: a Host without a Host node that was chosen in the search (a transient node of the answer)
+		this.pinned = new Set();           // 2.100: the nodes chosen in the search are drawn also without a link, until the filter is applied
 		this.leaf_groups = [];
 		this.relayout = true;
 		// the filter of the URL (§12.1 "Page header", 2.98): the server has set the controls; the page starts with what they show
@@ -130,6 +132,7 @@ const view = new class {
 		document.getElementById('topology-zoom-in').addEventListener('click', () => this.zoomBy(1.4));
 		document.getElementById('topology-zoom-out').addEventListener('click', () => this.zoomBy(1 / 1.4));
 		document.getElementById('topology-create-device')?.addEventListener('click', () => this.guard(() => this.deviceDialog(null)));
+		this.initFind();
 		// Manual links contradicted by discovery (topology-1-model.md "Contradiction"): the buttons live in
 		// the details panel, which is rebuilt on every selection, so one delegated handler serves them all.
 		this.details.addEventListener('click', event => {
@@ -173,7 +176,7 @@ const view = new class {
 		document.getElementById('topology-filter-apply').addEventListener('click', () => this.guard(async () => {
 			this.only_duplicates = document.getElementById('topology-filter-duplicates').checked;
 			this.show_unlinked = document.getElementById('topology-filter-unlinked').checked;
-			this.include_ids.clear();
+			this.clearFound();
 			this.writeFilterToUrl();
 			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
@@ -186,7 +189,7 @@ const view = new class {
 			document.getElementById('topology-filter-unlinked').checked = false;
 			this.only_duplicates = false;
 			this.show_unlinked = false;
-			this.include_ids.clear();
+			this.clearFound();
 			this.writeFilterToUrl();
 			await this.loadDevices({reset_layout: true, select_focus: true});
 		}));
@@ -392,6 +395,9 @@ const view = new class {
 		}
 		this.include_ids.forEach(id => {
 			query += `&include[]=${encodeURIComponent(id)}`;
+		});
+		this.include_hostids.forEach(id => {
+			query += `&include_hostids[]=${encodeURIComponent(id)}`;
 		});
 		return query;
 	}
@@ -2753,7 +2759,7 @@ const view = new class {
 		const focus_id = this.focusNodeId(nodes);
 		// (the rule is for every node: a Host without a Device too; a Proxy is in the view by the view scope rules)
 		nodes = nodes.filter(node => G.isDrawn(node, {has_link: link_count.has(String(node.id)), show_unlinked: this.show_unlinked, only_duplicates: this.only_duplicates,
-			is_focus: String(node.id) === focus_id}));
+			is_focus: String(node.id) === focus_id, is_pinned: this.pinned.has(String(node.id))}));
 		nodes.push(...group_nodes.filter(group_node => nodes.some(node => String(node.id) === group_node.parent)));
 		// a projection is drawn with its reporter and at least two of its Devices (the others of the view may be folded into a group or hidden)
 		const drawn_before = new Set(nodes.map(node => String(node.id)));
@@ -3917,3 +3923,175 @@ const view = new class {
 	}
 };
 </script>
+	// ---- Find a device (model 2.100 §12.1, FR-C V-24) ----
+	// The search field at the top left of the graph area: after 300 ms without typing and with 2 characters or more, one request `topology.devices.find`; the answer is a list of at most 20
+	// rows. Choosing a row draws the node (also when "Show devices without links" is off or it is outside the host groups of the filter), selects it, pans to it and opens its panel. The filter does
+	// not change; the node stays in the view until the filter is applied. Every text of a row comes from the network or from Zabbix and is escaped.
+	initFind() {
+		const input = document.getElementById('topology-find-input');
+		const list = document.getElementById('topology-find-results');
+		if (!input || !list) {
+			return;
+		}
+		this.find_seq = 0;
+		this.find_answers = 0;       // the number of lists drawn (for the checks: the state "the answer of the search is on the page")
+		this.find_timer = null;
+		this.find_rows = [];
+		this.find_active = -1;
+		input.addEventListener('input', () => {
+			clearTimeout(this.find_timer);
+			const text = input.value.trim();
+			if ([...text].length < 2) {
+				this.find_seq++;
+				this.closeFind();
+				return;
+			}
+			this.find_timer = setTimeout(() => this.runFind(text), 300);
+		});
+		input.addEventListener('keydown', event => {
+			if (event.key === 'Escape') {
+				this.closeFind();
+				input.blur();
+			}
+			else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+				if (this.find_rows.length) {
+					event.preventDefault();
+					this.find_active = (this.find_active + (event.key === 'ArrowDown' ? 1 : -1) + this.find_rows.length) % this.find_rows.length;
+					this.markFindActive();
+				}
+			}
+			else if (event.key === 'Enter') {
+				event.preventDefault();
+				const row = this.find_rows[Math.max(0, this.find_active)];
+				if (row) {
+					this.guard(() => this.chooseFound(row));
+				}
+			}
+		});
+		list.addEventListener('mousedown', event => {
+			// (mousedown, not click: the input loses its focus before a click and the list would be closed)
+			const element = event.target.closest('[data-find-index]');
+			if (element) {
+				event.preventDefault();
+				const row = this.find_rows[Number(element.dataset.findIndex)];
+				if (row) {
+					this.guard(() => this.chooseFound(row));
+				}
+			}
+		});
+		input.addEventListener('blur', () => setTimeout(() => this.closeFind(), 150));
+	}
+
+	async runFind(text) {
+		const seq = ++this.find_seq;
+		this.busy++;
+		try {
+			let answer = null;
+			try {
+				answer = await this.request(`topology.devices.find&q=${encodeURIComponent(text)}`);
+			}
+			catch (exception) {
+				answer = null;
+			}
+			if (seq === this.find_seq) {       // (a newer input is on its way: this answer is dropped)
+				this.renderFind(answer?.results ?? [], Boolean(answer?.more), answer === null);
+			}
+		}
+		finally {
+			this.busy--;
+		}
+	}
+
+	renderFind(results, more, failed) {
+		const list = document.getElementById('topology-find-results');
+		this.find_rows = results;
+		this.find_active = results.length ? 0 : -1;
+		const kinds = {proxy: 'proxy'};
+		const rows = results.map((row, index) => {
+			const name = kinds[row.type] ?? (TopologyGraph.CLASS_ORDER.includes(row.device_class) ? row.device_class : 'generic');
+			const icon = `<svg width="22" height="22" viewBox="-11 -11 22 22" aria-hidden="true">${TopologyGraph.iconMarkup(name, '#1f2937', 0.7)}</svg>`;
+			return `<div class="topology-find-row" data-find-index="${index}" role="option">${icon}<span class="topology-find-name">${this.escape(row.name)}</span>`+
+				`<span class="topology-find-matched grey">${this.escape((row.matched ?? []).join(', '))}</span></div>`;
+		});
+		let note = '';
+		if (failed) {
+			note = <?= json_encode(_('The search failed.')) ?>;
+		}
+		else if (!results.length) {
+			note = <?= json_encode(_('No devices found.')) ?>;
+		}
+		else if (more) {
+			note = <?= json_encode(_('There are more results: refine the search.')) ?>;
+		}
+		this.find_answers++;
+		list.innerHTML = rows.join('') + (note !== '' ? `<div class="topology-find-note grey">${this.escape(note)}</div>` : '');
+		list.hidden = false;
+		this.markFindActive();
+	}
+
+	markFindActive() {
+		document.querySelectorAll('#topology-find-results .topology-find-row').forEach((element, index) => {
+			element.classList.toggle('topology-find-active', index === this.find_active);
+		});
+	}
+
+	closeFind() {
+		const list = document.getElementById('topology-find-results');
+		if (list) {
+			list.hidden = true;
+			list.innerHTML = '';
+		}
+		this.find_rows = [];
+		this.find_active = -1;
+	}
+
+	// the nodes chosen in the search stay until the filter is applied (like a manual Device that was just created)
+	clearFound() {
+		this.include_ids.clear();
+		this.include_hostids.clear();
+		this.pinned.clear();
+	}
+
+	async chooseFound(row) {
+		clearTimeout(this.find_timer);
+		this.find_seq++;
+		this.closeFind();
+		const node_id = String(row.node);
+		(row.include ?? []).forEach(id => this.include_ids.add(String(id)));
+		(row.include_hostids ?? []).forEach(id => this.include_hostids.add(String(id)));
+		this.pinned.add(node_id);
+		// a node inside a folded leaf group is shown by unfolding the group of its parent (a UI state, nothing is stored)
+		(this.leaf_groups ?? []).forEach(group => {
+			if ((group.devices ?? []).map(String).includes(node_id)) {
+				this.unfolded.add(String(group.parent));
+			}
+		});
+		this.user_moved = true;       // the view does not jump to the centre again; the node is brought to the middle below
+		await this.loadDevices();
+		// the answer of the load may group the node again (a leaf of a group the load has just made known)
+		(this.leaf_groups ?? []).forEach(group => {
+			if ((group.devices ?? []).map(String).includes(node_id) && !this.unfolded.has(String(group.parent))) {
+				this.unfolded.add(String(group.parent));
+				this.render();
+			}
+		});
+		const node = this.nodes.get(node_id);
+		if (!node) {
+			return;
+		}
+		await this.selectNode(node);
+		this.panToNode(String(node.id));
+	}
+
+	// The node is brought to the middle of the graph area; the zoom stays.
+	panToNode(node_id) {
+		const drawn = (this.drawn_nodes ?? []).find(candidate => String(candidate.id) === String(node_id));
+		if (!drawn) {
+			return;
+		}
+		const bounds = this.canvas.node().getBoundingClientRect();
+		const k = d3.zoomTransform(this.canvas.node()).k;
+		this.user_moved = true;
+		this.canvas.call(this.zoom.transform, d3.zoomIdentity.translate(bounds.width / 2 - k * drawn.x, bounds.height / 2 - k * drawn.y).scale(k));
+	}
+

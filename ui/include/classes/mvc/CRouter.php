@@ -445,6 +445,7 @@ final class CRouter {
 		'topology.addresses.get'					=> [CControllerTopologyAddressesGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.promote'							=> [CControllerTopologyPromote::class,							ZBX_LAYOUT_JSON,		null],
 		'topology.depromote'						=> [CControllerTopologyDepromote::class,						ZBX_LAYOUT_JSON,		null],
+		'topology.devices.find'						=> [CControllerTopologyDevicesFind::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.hosts.search'						=> [CControllerTopologyHostsSearch::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.proxies.search'					=> [CControllerTopologyProxiesSearch::class,					ZBX_LAYOUT_JSON,		null],
 		'topology.ingest.run'						=> [CControllerTopologyIngestRun::class,						ZBX_LAYOUT_JSON,		null],

@@ -278,6 +278,19 @@ class CTopologyAddress {
 	}
 
 	/**
+	 * The text of the search field as a MAC (model 2.100 §12.1 "Find a device"): any common form, with `:`, `-`, `.` (the Cisco dotted form) or none, in any case, with spaces around;
+	 * the 12 hex digits as `aa:bb:cc:dd:ee:ff`. Null when the text is not a MAC or is a placeholder MAC (all zero, all ones: it finds nothing, normalization §4.1).
+	 */
+	public static function searchMac(string $text): ?string {
+		$text = trim($text);
+		if (preg_match('/^[0-9a-f]{12}$/i', $text) === 1) {
+			$text = implode(':', str_split($text, 2));
+		}
+		// macFormId() is the one place of the forms: six octets with `:` or `-`, or the dotted form; a placeholder gives null
+		return self::macFormId($text);
+	}
+
+	/**
 	 * A CDP device id in MAC form (normalization §4.1: six octets with `:` or `-`, or the Cisco form `xxxx.xxxx.xxxx`) that is not a placeholder: the MAC in normal
 	 * form, which is the claim's hardware ID (model §6.7.1, 2.48); else null. The text of any other form is a name.
 	 */
