@@ -9,6 +9,7 @@ base: lab-office-demo.yaml
 #   step 4  SW15-10-POE-6000-24G:1/1/1                                    the R1 step 3 deviation (new chassis of NA12501003431)
 #   step 5  SW21-07-ACC-2530-48G                                          an access switch with one uplink (SW20:42) and two endpoints: its links are easy to see
 #   step 6  SW22-07-ACC-2530-48G:41                                       a port that is up and has no neighbor row in the capture (real, not changed)
+#   step 7  SW12-10-CORE-6000-48G:1/1/41 - SW15-10-POE-6000-24G:1/1/21   a trunk whose SW15 end reports 100 Mbit/s (ifHighSpeed.21) while the SW12 end reports 1000: the mark "speed mismatch" (task 119 section 3)
 # `poll_all: true` in every step: with a short freshness threshold every reporter that a step does not poll becomes old (task 078); the show then ends with all fresh.
 # The threshold (180 s) is the step key of step 5 (lab spec 8.5, 2.28; task 105): steps 0-4 run with the default and do not fade during a demo.
 settings: {freshness_seconds: null, transport: null, sources: null}
@@ -76,3 +77,9 @@ steps:
     poll_all: true
     assert:
       - {link: ["SW22-07-ACC-2530-48G:41", "ISP-Router:lan0"], state: active, type: physical_link}
+  - id: 7
+    note: a trunk runs at 100 Mbit/s on one end only (SW12 1/1/41 - SW15 1/1/21), both ends up
+    deviations: {enable: [speed-mismatch-sw15-21], disable: []}
+    poll_all: true
+    assert:
+      - {link: [SW12-10-CORE-6000-48G:1/1/41, SW15-10-POE-6000-24G:1/1/21], state: active, type: physical_link}

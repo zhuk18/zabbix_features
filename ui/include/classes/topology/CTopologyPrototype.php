@@ -567,6 +567,9 @@ class CTopologyPrototype {
 					'source_lag_id' => $port_a['lag_id'] ?? null, 'source_lag' => $port_a['lag_name'] ?? null,
 					'target_lag_id' => $port_b['lag_id'] ?? null, 'target_lag' => $port_b['lag_name'] ?? null,
 					'source_speed' => $port_a['speed'] ?? null, 'target_speed' => $port_b['speed'] ?? null,
+					'source_alias' => $port_a['alias'] ?? null, 'target_alias' => $port_b['alias'] ?? null,
+					// 2.100 (§12.3, V-25): both ends are up reporter ports with different speeds (bps), not for a superseded link; computed here, never stored
+					'speed_mismatch' => $superseded_at === null ? (($m = CTopologySpeed::mismatch($port_a, $port_b)) === null ? null : ['source' => $m['a'], 'target' => $m['b']]) : null,
 					// staleness indicator (topology-1-model.md "Disappearance and staleness"): rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
 					'stale' => self::isLinkStale($last_seen, $superseded_at),
@@ -786,17 +789,17 @@ class CTopologyPrototype {
 					$node_ids[] = (string) $row['represented_by_node_id'];
 				}
 			}
-			$node_ids = array_values(array_unique($node_ids));
-		}
-		if ($duplicates) {
 			$result = DBselect('SELECT id FROM topo_nodes WHERE type IN ('.zbx_dbstr('host').','.zbx_dbstr('proxy').') AND '.dbConditionId('id', $include));
 			while ($row = DBfetch($result, false)) {
 				$node_ids[] = (string) $row['id'];
 			}
-			$node_ids = self::duplicatesScope($node_ids);
+			$node_ids = array_values(array_unique($node_ids));
 		}
 		if ($include_hostids) {
 			$transient_hostids = array_values(array_unique(array_merge($transient_hostids, array_map('strval', $include_hostids))));
+		}
+		if ($duplicates) {
+			$node_ids = self::duplicatesScope($node_ids);
 		}
 
 		// §12.6 (task 104): the Junction projections of the Ports of the view; the Devices behind a projection are in the view with it (they have no link of their own). The filter
@@ -941,9 +944,6 @@ class CTopologyPrototype {
 
 		return array_merge(CTopologyHopScope::neighborhood($seed_ids, $hops ?? PHP_INT_MAX, self::getAdjacency(), self::getRepresentedPairs()), $transient);
 	}
-
-	/** The id of a transient Host node (model 2.95 §12.1): `host:<hostid>`; it is never a topo_nodes.id. */
-	public const TRANSIENT_PREFIX = 'host:';
 
 	/**
 	 * The class and the bits of Devices for the icon (model §12.2): the union of `rem_sys_cap` of their current observations; the own capabilities of a reporter's Device (`attrs.sys_cap`, 2.96) are used
@@ -1205,6 +1205,9 @@ class CTopologyPrototype {
 
 		return ['results' => $results, 'more' => $more];
 	}
+
+	/** The id of a transient Host node (model 2.95 §12.1): `host:<hostid>`; it is never a topo_nodes.id. */
+	public const TRANSIENT_PREFIX = 'host:';
 
 	/** @return array [the stored node ids, the hostids of the transient nodes] of a scope of resolveScope(); null stays null */
 	private static function splitScope(?array $node_ids): array {
@@ -1767,6 +1770,12 @@ class CTopologyPrototype {
 				'last_seen' => $row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null),
 				'stale' => self::isLinkStale($row['linkid'] !== null ? (isset($link_attrs_of_row['last_seen']) ? (int) $link_attrs_of_row['last_seen'] : null) : ($device_link['last_seen'] ?? null)),
 				'speed' => self::speedBps($attrs['speed'] ?? null),
+				// 2.100: the port alias (ifAlias) of this port and of the far port, shown only; the mark "speed mismatch" of a port-level link whose ends are up reporter ports with different speeds (V-25)
+				'alias' => ($attrs['alias'] ?? '') !== '' ? (string) $attrs['alias'] : null,
+				'remote_alias' => $row['linkid'] !== null ? ($far_details[$row['linked_port_id']]['alias'] ?? null) : null,
+				'speed_mismatch' => $row['linkid'] !== null && self::supersededAt($link_attrs_of_row) === null
+					&& ($m = CTopologySpeed::mismatch(self::portFacts($attrs) + ['oper_status' => $attrs['oper_status'] ?? null], $far_details[$row['linked_port_id']] ?? [])) !== null
+					? ['local' => $m['a'], 'remote' => $m['b']] : null,
 				// (no `load` key on a port that is not in the Links section, set below)
 				// A device-level link: the link's id and why its far port is unknown (null for a port-level one).
 				'device_link_id' => $device_link['id'] ?? null,
@@ -4438,9 +4447,9 @@ class CTopologyPrototype {
 			if ($load['items'] === ['in' => null, 'out' => null, 'speed' => null]) {
 				continue;
 			}
-			if ($load['speed'] !== null && $load['speed'] > 0 && ($load['in'] !== null || $load['out'] !== null)) {
-				$load['percent'] = round(100 * max($load['in'] ?? 0, $load['out'] ?? 0) / $load['speed'], 1);
-			}
+			// task 119 section 5: an interface with no speed (`veth`, `docker0`, `lo` give -1 in /sys/class/net/<name>/speed) has no speed and no percent, not a negative speed
+			$load['speed'] = CTopologySpeed::known($load['speed']);
+			$load['percent'] = CTopologySpeed::percent($load['in'], $load['out'], $load['speed']);
 			$result[$port_id] = $load;
 		}
 
@@ -4637,6 +4646,19 @@ class CTopologyPrototype {
 	 * the map are actually built from. One query for however many port ids are given, same
 	 * batching precedent as getLinkedDeviceNames()/getRepresentedIds().
 	 */
+	/**
+	 * What the speed mismatch (V-25) and the port alias (V-14) need of the attrs of a Port. A Port of a reporter is not a pseudo Port (made from an advertisement) and not a manual Port. The alias
+	 * is text from the network (the page escapes it).
+	 */
+	private static function portFacts(array $attrs): array {
+		return [
+			'if_type' => $attrs['if_type'] ?? null,
+			'reporter' => empty($attrs['pseudo']) && ($attrs['source'] ?? null) !== 'manual',
+			'alias' => ($attrs['alias'] ?? '') !== '' ? (string) $attrs['alias'] : null,
+			'speed' => self::speedBps($attrs['speed'] ?? null)
+		];
+	}
+
 	private static function getPortDetails(array $portids): array {
 		$portids = array_values(array_unique(array_filter($portids, static fn($id) => $id !== null)));
 		if (!$portids) {
@@ -4663,8 +4685,7 @@ class CTopologyPrototype {
 				'name' => $attrs['name'] ?? null,
 				'oper_status' => $attrs['oper_status'] ?? null,
 				'admin_status' => $attrs['admin_status'] ?? null,
-				'speed' => self::speedBps($attrs['speed'] ?? null)
-			];
+			] + self::portFacts($attrs);
 		}
 
 		return $details;

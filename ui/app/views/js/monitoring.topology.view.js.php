@@ -460,6 +460,8 @@ const view = new class {
 			source_port_id: relation.source_port_id, target_port_id: relation.target_port_id,
 			source_status: relation.source_status, target_status: relation.target_status,
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
+			// 2.100: the port alias (ifAlias) of each end and the mark "speed mismatch" (V-25; the speeds of the two ends in bps), both decided by the server
+			source_alias: relation.source_alias ?? null, target_alias: relation.target_alias ?? null, speed_mismatch: relation.speed_mismatch ?? null,
 			// the LAG of each end (2.72, §12.3 "LAG bundle"): the id and the name, when known
 			source_lag_id: relation.source_lag_id ?? null, source_lag: relation.source_lag ?? null, target_lag_id: relation.target_lag_id ?? null, target_lag: relation.target_lag ?? null,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
@@ -1055,7 +1057,8 @@ const view = new class {
 			// flagged on both speed rows plus its own note, rather than folded into the line
 			// color: that channel already carries connectivity, and stacking a second meaning
 			// onto the same color would make neither one reliably readable at a glance.
-			const speed_mismatch = link.source_speed && link.target_speed && link.source_speed !== link.target_speed;
+			// 2.100 (V-25): the server decides (both ends are up reporter ports with known, different speeds; not for a LAG aggregate); the mark is the same text as in the tooltip and the Links row
+			const speed_mismatch = Boolean(link.speed_mismatch);
 			if (link.source_speed) {
 				rows.push([`${this.escape(link.source.name)} ${<?= json_encode(_('speed')) ?>}`,
 					this.formatSpeed(link.source_speed) + (speed_mismatch ? ' ⚠' : '')]);
@@ -1065,7 +1068,7 @@ const view = new class {
 					this.formatSpeed(link.target_speed) + (speed_mismatch ? ' ⚠' : '')]);
 			}
 			if (speed_mismatch) {
-				rows.push([<?= json_encode(_('Note')) ?>, <?= json_encode(_('Speed mismatch between the two ends.')) ?>]);
+				rows.push([<?= json_encode(_('Note')) ?>, this.speedMismatchText(link.speed_mismatch.source, link.speed_mismatch.target)]);
 			}
 			// load of each side: numbers and the graphs of the port items; no colour (§4.8)
 			[[link.source, link.source_load, link.source_load_reason], [link.target, link.target_load, link.target_load_reason]].forEach(([node, load, reason]) => {
@@ -1703,7 +1706,8 @@ const view = new class {
 				status: port.status, source: port.source === 'Manual' ? 'Manual' : 'LLDP', source_text: this.sourceText(port.source === 'Manual' ? 'manual' : relation?.discovery_source ?? 'lldp'),
 				load: port.load ?? null, stale: Boolean(port.stale), last_seen: port.last_seen ?? null, superseded_at: null, lag_id: port.lag_id ?? null, lag: port.lag ?? null,
 				remote_lag_id: port.remote_lag_id ?? null, remote_lag: port.remote_lag ?? null, device_link_id: port.device_link_id ?? null, linked_port_id: port.linked_port_id ?? null,
-				severity: relation?.severity ?? null, color: relation?.color ?? null, manual: Boolean(port.manual), binding: port.binding ?? null
+				severity: relation?.severity ?? null, color: relation?.color ?? null, manual: Boolean(port.manual), binding: port.binding ?? null,
+				alias: port.alias ?? null, remote_alias: port.remote_alias ?? null, speed_mismatch: port.speed_mismatch ?? null
 			};
 		});
 		const known = new Set(entries.map(entry => String(entry.edge_id)));
@@ -1764,9 +1768,12 @@ const view = new class {
 		else if (entry.stale) {
 			marks.push(entry.last_seen ? <?= json_encode(_('not confirmed since %1$s')) ?>.replace('%1$s', this.formatDate(entry.last_seen)) : <?= json_encode(_('not confirmed recently')) ?>);
 		}
-		const own_port = this.boundPortText(entry.port ?? '?', entry.binding);
-		const ports_text = `${own_port} ↔ ${entry.remote_port ?? '?'}`;
-		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${esc(this.cutText(own_port, 70))} ↔ ${esc(this.cutText(entry.remote_port ?? '?', 70))}</span>`,
+		if (entry.speed_mismatch) {
+			marks.push(this.speedMismatchText(entry.speed_mismatch.local, entry.speed_mismatch.remote));
+		}
+		// the port name is never cut; the name of the interface of a bound port and the alias (model 2.100 §12.5, ifAlias) are cut and have the full text in the hint box
+		const ports_text = `${this.portSideText(entry.port ?? '?', entry.binding, entry.alias)} ↔ ${this.portSideText(entry.remote_port ?? '?', null, entry.remote_alias)}`;
+		const line2 = [`<span class="topology-link-ports" title="${esc(ports_text)}">${this.portSideHtml(entry.port ?? '?', entry.binding, entry.alias)} ↔ ${this.portSideHtml(entry.remote_port ?? '?', null, entry.remote_alias)}</span>`,
 			// a part with no value is left out with its separator (§12.5, 2.84)
 			status !== '' ? `<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>` : null,
 			entry.source_text ? `<span class="topology-link-source">${esc(entry.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
@@ -2013,6 +2020,26 @@ const view = new class {
 	}
 
 	// "Bind to interface" (§9.7, 2.91): the text of a manual port that is bound, "lan0 → Gi0/1", or "lan0 (interface not found)" when its items are gone
+	// One side of the ports of a link or a row of the Ports section (model 2.100 §12.5): "<port name>" and, after it, "→ <interface>" (a bound manual port) or "· <alias>" in grey. The name of the
+	// port is never cut; the interface and the alias are cut and their full text is in the hint box (the `title` of the element). The names come from the network: escaped.
+	portSideText(port, binding, alias) {
+		return `${this.boundPortText(port, binding)}${alias ? ` · ${alias}` : ''}`;
+	}
+
+	portSideHtml(port, binding, alias) {
+		const esc = value => this.escape(value);
+		let html = esc(port);
+		if (binding) {
+			const name = String(binding.name ?? binding.if_index);
+			html += binding.missing ? ` (${esc(<?= json_encode(_('interface not found')) ?>)})` : ` → <span title="${esc(name)}">${esc(this.cutText(name, 90))}</span>`;
+		}
+		if (alias) {
+			html += ` <span class="grey topology-port-alias" title="${esc(alias)}">· ${esc(this.cutText(alias, 150))}</span>`;
+		}
+
+		return html;
+	}
+
 	boundPortText(port, binding) {
 		if (!binding) {
 			return port;
@@ -2073,7 +2100,7 @@ const view = new class {
 			</colgroup><thead><tr>${[<?= json_encode(_('Port')) ?>, <?= json_encode(_('Status')) ?>, <?= json_encode(_('Connected to')) ?>, <?= json_encode(_('Source')) ?>]
 				.map(header => `<th title="${this.escape(header)}">${this.escape(header)}</th>`).join('')}<th></th></tr></thead><tbody>
 			${ports.map(port => `<tr>
-				<td class="topology-port-name" title="${this.escape(this.boundPortText(port.port, port.binding))}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.escape(this.boundPortText(port.port, port.binding))}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
+				<td class="topology-port-name" title="${this.escape(this.portSideText(port.port, port.binding, port.alias))}${port.lag ? ` (${this.escape(port.lag)})` : ''}">${this.portSideHtml(port.port, port.binding, port.alias)}${port.lag ? ` <em>(${this.escape(port.lag)})</em>` : ''}</td>
 				<td title="${this.escape(port.status ?? '')}${port.admin_status === 'down' ? ` (${this.escape(<?= json_encode(_('admin down')) ?>)})` : ''}">${status_cell(port)}</td>
 				<td${port.group === 'mac_only' ? ' class="topology-mac-list"' : ''} title="${this.escape(port.group === 'mac_only' ? (port.learned_macs ?? []).join(' ') : (port.connected_to ?? ''))}">${connected_cell(port)}</td>
 				<td title="${port.source === '-' ? '' : this.escape(port.source)}">${port.source === '-' ? '–' : `<span class="topology-source-badge ${source_classes[port.source] ?? ''}">${this.escape(port.source)}</span>`}</td>
@@ -3293,7 +3320,8 @@ const view = new class {
 			if (link.type === 'lag_bundle') {
 				// 2.73: "LAG <name> ×<N>: <A> ↔ <B>", then a line per member: its two ports, its status and the load of side A (§4.8); the link panel has both sides
 				return {html: this.bundleHintHtml(G.bundleHintParts(link, {in: <?= json_encode(_('in')) ?>, out: <?= json_encode(_('out')) ?>, of: <?= json_encode(_('of')) ?>,
-					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps)}))};
+					status: {up: <?= json_encode(_('Up')) ?>, down: <?= json_encode(_('DOWN')) ?>, disabled: <?= json_encode(_('Disabled')) ?>}, speed: bps => this.formatSpeed(bps),
+					mismatch: m => this.speedMismatchText(m.source, m.target)}))};
 			}
 			if (link.type === 'physical_link') {
 				const marks = [];
@@ -3304,6 +3332,9 @@ const view = new class {
 					marks.push(<?= json_encode(_('Not recently reconfirmed.')) ?>);
 				}
 				marks.push(...this.lostPrecisionNotes(link));
+				if (link.speed_mismatch) {
+					marks.push(this.speedMismatchText(link.speed_mismatch.source, link.speed_mismatch.target));
+				}
 				if (link.severity !== null && link.severity !== undefined) {
 					marks.push(`${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.`);
 				}
@@ -3862,9 +3893,14 @@ const view = new class {
 	}
 
 	// A LAG bundle: the title, a table for the member rows only (ports, status, load); the notes of a bundle, if any, come below the table.
+	// the mark of V-25 (model 2.100 §12.3): the speeds of the two ends with the unit of §4.8
+	speedMismatchText(a, b) {
+		return <?= json_encode(_('speed mismatch: %1$s / %2$s')) ?>.replace('%1$s', this.formatSpeed(a)).replace('%2$s', this.formatSpeed(b));
+	}
+
 	bundleHintHtml(parts) {
 		const esc = value => this.escape(value);
-		return `<div>${esc(parts.title)}</div><table class="list-table"><tbody>${parts.members.map(member => `<tr><td>${esc(member.ports)}</td><td>${esc(member.state ?? '')}</td><td>${esc(member.load ?? '')}</td></tr>`).join('')}</tbody></table>`;
+		return `<div>${esc(parts.title)}</div><table class="list-table"><tbody>${parts.members.map(member => `<tr><td>${esc(member.ports)}</td><td>${esc(member.state ?? '')}</td><td>${esc(member.load ?? '')}</td>${parts.members.some(m => m.mismatch) ? `<td>${esc(member.mismatch ?? '')}</td>` : ''}</tr>`).join('')}</tbody></table>`;
 	}
 
 	showHint(event, target, content) {
@@ -3892,37 +3928,6 @@ const view = new class {
 		});
 	}
 
-	// "Fit" (§12.1 "Fit", 2.72): the zoom is set so that the whole drawn graph is in the window, and the graph is centred.
-	// zoom in / zoom out of the buttons: around the middle of the graph area, inside the limits of the zoom
-	zoomBy(factor) {
-		this.user_moved = true;
-		this.canvas.call(this.zoom.scaleBy, factor);
-	}
-
-	fit() {
-		const nodes = this.drawn_nodes ?? [];
-		if (!nodes.length) {
-			return;
-		}
-		const left = Math.min(...nodes.map(node => node.x - node.box.w / 2));
-		const right = Math.max(...nodes.map(node => node.x + node.box.w / 2));
-		const top = Math.min(...nodes.map(node => node.y + node.box.top));
-		const bottom = Math.max(...nodes.map(node => node.y + node.box.bottom));
-		const bounds = this.canvas.node().getBoundingClientRect();
-		const pad = 24;
-		const k = Math.max(0.15, Math.min(2, (bounds.width - 2 * pad) / (right - left), (bounds.height - 2 * pad) / (bottom - top)));
-		const transform = d3.zoomIdentity.translate(bounds.width / 2 - k * (left + right) / 2, bounds.height / 2 - k * (top + bottom) / 2).scale(k);
-		this.user_moved = true;
-		this.canvas.call(this.zoom.transform, transform);
-	}
-
-	// Hover (§12.3): the node and its drawn links get a highlight outline, nothing else changes (the opacity stays the channel of stale links).
-	highlight(node, on) {
-		d3.select(node.element).classed('topology-hover', on);
-		this.glow_selection?.classed('topology-link-hover', link => on && (link.source === node || link.target === node));
-	}
-};
-</script>
 	// ---- Find a device (model 2.100 §12.1, FR-C V-24) ----
 	// The search field at the top left of the graph area: after 300 ms without typing and with 2 characters or more, one request `topology.devices.find`; the answer is a list of at most 20
 	// rows. Choosing a row draws the node (also when "Show devices without links" is off or it is outside the host groups of the filter), selects it, pans to it and opens its panel. The filter does
@@ -4095,3 +4100,34 @@ const view = new class {
 		this.canvas.call(this.zoom.transform, d3.zoomIdentity.translate(bounds.width / 2 - k * drawn.x, bounds.height / 2 - k * drawn.y).scale(k));
 	}
 
+	// "Fit" (§12.1 "Fit", 2.72): the zoom is set so that the whole drawn graph is in the window, and the graph is centred.
+	// zoom in / zoom out of the buttons: around the middle of the graph area, inside the limits of the zoom
+	zoomBy(factor) {
+		this.user_moved = true;
+		this.canvas.call(this.zoom.scaleBy, factor);
+	}
+
+	fit() {
+		const nodes = this.drawn_nodes ?? [];
+		if (!nodes.length) {
+			return;
+		}
+		const left = Math.min(...nodes.map(node => node.x - node.box.w / 2));
+		const right = Math.max(...nodes.map(node => node.x + node.box.w / 2));
+		const top = Math.min(...nodes.map(node => node.y + node.box.top));
+		const bottom = Math.max(...nodes.map(node => node.y + node.box.bottom));
+		const bounds = this.canvas.node().getBoundingClientRect();
+		const pad = 24;
+		const k = Math.max(0.15, Math.min(2, (bounds.width - 2 * pad) / (right - left), (bounds.height - 2 * pad) / (bottom - top)));
+		const transform = d3.zoomIdentity.translate(bounds.width / 2 - k * (left + right) / 2, bounds.height / 2 - k * (top + bottom) / 2).scale(k);
+		this.user_moved = true;
+		this.canvas.call(this.zoom.transform, transform);
+	}
+
+	// Hover (§12.3): the node and its drawn links get a highlight outline, nothing else changes (the opacity stays the channel of stale links).
+	highlight(node, on) {
+		d3.select(node.element).classed('topology-hover', on);
+		this.glow_selection?.classed('topology-link-hover', link => on && (link.source === node || link.target === node));
+	}
+};
+</script>

@@ -1182,7 +1182,8 @@
 			const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));
 			const has_load = load && (load.in !== null && load.in !== undefined || load.out !== null && load.out !== undefined);
 			return {ports: `${member.source_port ?? '?'} ↔ ${member.target_port ?? '?'}`, state,
-				load: has_load ? `${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '') : null};
+				load: has_load ? `${words.in} ${rate(load.in)} / ${words.out} ${rate(load.out)}` + (load.speed ? ` ${words.of} ${words.speed(load.speed)}` : '') : null,
+				mismatch: member.speed_mismatch && words.mismatch ? words.mismatch(member.speed_mismatch) : null};
 		});
 
 		return {title: `LAG ${name}×${bundle.members.length}: ${node(bundle.source)} ↔ ${node(bundle.target)}`, members};
@@ -1191,7 +1192,7 @@
 	function bundleTooltip(bundle, words) {
 		const parts = bundleHintParts(bundle, words);
 
-		return [parts.title, ...parts.members.map(member => [member.ports, member.state, member.load].filter(part => part !== null && part !== undefined).join(' · '))].join('\n');
+		return [parts.title, ...parts.members.map(member => [member.ports, member.state, member.load, member.mismatch].filter(part => part !== null && part !== undefined).join(' · '))].join('\n');
 	}
 
 	// ---- the side panel of a node (§12.5 "Structure of a node panel", 2.75, task 094) ----
@@ -1238,7 +1239,9 @@
 	 */
 	// The parts of the tooltip of a link (task 117 section 7): the ports, the status of both ends, the source, the load of each end, the notes (stale, superseded, lost precision).
 	function linkHintParts(link, words) {
-		const ports = `${link.source?.name ?? '?'} ${link.source_port ?? '?'} ↔ ${link.target?.name ?? '?'} ${link.target_port ?? '?'}`;
+		// 2.100 (§12.5): the port alias (ifAlias) follows the port name: "Gi0/5 · uplink to core"
+		const side = (node, port, alias) => `${node?.name ?? '?'} ${port ?? '?'}${alias ? ` · ${alias}` : ''}`;
+		const ports = `${side(link.source, link.source_port, link.source_alias)} ↔ ${side(link.target, link.target_port, link.target_alias)}`;
 		const state = side => (side ? (words.status[side] ?? side) : null);
 		const statuses = [state(link.source_status), state(link.target_status)].filter(Boolean).join(' / ');
 		const rate = value => (value === null || value === undefined ? '–' : (value === 0 ? '0 bps' : words.speed(value)));

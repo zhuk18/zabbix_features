@@ -1,6 +1,6 @@
 # Demo script — typical network problems on the topology graph (stand "office-demo", scenario D1)
 
-For the person who shows it. Six situations, one step each, on the real office stand (12 switches, 2 gateways). Every step is one command; the stand then stays up and
+For the person who shows it. Seven situations, one step each, on the real office stand (12 switches, 2 gateways). Every step is one command; the stand then stays up and
 Zabbix keeps polling it, so the page can be opened and clicked as in a real network. Screenshots of every step are in the handoff folder (`104-d1-step0.png` …
 `104-d1-step6.png`, plus `104-d1-step3-before.png` and `104-d1-step6-before.png`) as a fallback if the live demo fails.
 
@@ -60,6 +60,13 @@ To go back to the plain office stand (no demo rows): `labsim down`, then `labsim
 - Look: the same view: a new device `ISP-Router` on port 41; click it.
 - Say: some devices say nothing about themselves. A person can add such a device by hand and connect it to the port; it is shown like the others, with a dashed line to mark that a person drew it.
   Adding a device by hand is planned for the next release; in this demo it is done by the script, through the same code as the page will use.
+
+### 7 — A trunk runs at the wrong speed (task 119)
+- Command: `labsim show D1 --step 7 --reset`
+- Look: *Focus host* `SW15-10-POE-6000-24G`, depth 1: the trunk to SW12 (SW12 1/1/41 - SW15 1/1/21). Hover the line, or open it: the mark "speed mismatch: 1 Gbit/s / 100 Mbit/s" is in the tooltip,
+  the link panel and the Links row of SW15. The line itself does not change.
+- Say: both ends of the cable are up, but one of them agreed on 100 Mbit/s. Nothing is down, so no alarm fires; this is what a bad cable or a failed autonegotiation looks like.
+  (The office stand R1 has no such link; the deviation `speed-mismatch-sw15-21` of this stand sets `ifHighSpeed` of SW15 port 21 to 100.)
 
 ## After the demo
 
