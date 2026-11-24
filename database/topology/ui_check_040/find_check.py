@@ -21,6 +21,7 @@ MARKUP = 'FIND-CHECK-<i>X</i>'
 CHASSIS = 'aa:bb:cc:00:11:22'
 PORT_MAC = 'aa:bb:cc:00:11:23'
 IP = '192.0.2.250'
+REPORTED_IP = '198.51.100.77'      # a neighbor row reports this address for the Device; the Device has IP as its own (task 120 section 2)
 
 
 def check(condition, text, detail=None):
@@ -41,6 +42,9 @@ def make_data():
     out = db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '%s', 0, 0); SELECT LAST_INSERT_ID();" % attrs_json(sysname=NAME, chassis_id=CHASSIS, mgmt_ip=IP))
     device = out.split('\n')[-1]
     db("INSERT INTO topo_identity_keys (device_id, `key`, kind, first_seen, replaced) VALUES (%s, 'chassis:mac:%s', 'chassis', 0, 0)" % (device, CHASSIS))
+    # the observation of a neighbor row that reports another address for the Device (the observation needs an item: any one)
+    db("INSERT INTO topo_observations (itemid, local_port_ref, remote_key, remote_attrs, outcome, device_id, first_seen, last_seen) SELECT MIN(itemid), 'FIND-CHECK', 'find-check', '%s', 'linked', %s, 0, 0 FROM items"
+       % (attrs_json(rem_mgmt_ip=REPORTED_IP, rem_sysname=NAME), device))
     db("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', %s, '%s', 0, 0)" % (device, attrs_json(if_index=1, name='ge-0/0/9', mac=PORT_MAC, pseudo=False, if_type='physical', admin_status='up', oper_status='up', speed='1000')))
     db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '%s', 0, 0)" % attrs_json(sysname=MARKUP))
     db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES %s" % ', '.join("('device', '%s', 0, 0)" % attrs_json(sysname='FIND-LIMIT-%02d' % i) for i in range(1, 23)))
@@ -48,13 +52,14 @@ def make_data():
 
 
 def remove_data():
+    db("DELETE FROM topo_observations WHERE local_port_ref = 'FIND-CHECK' AND remote_key = 'find-check'")
     db("DELETE FROM topo_identity_keys WHERE device_id IN (SELECT id FROM topo_nodes WHERE type = 'device' AND (attrs LIKE '%FIND-CHECK-%' OR attrs LIKE '%FIND-LIMIT-%'))")
     db("DELETE FROM topo_nodes WHERE type = 'port' AND device_id IN (SELECT id FROM (SELECT id FROM topo_nodes WHERE type = 'device' AND (attrs LIKE '%FIND-CHECK-%' OR attrs LIKE '%FIND-LIMIT-%')) x)")
     db("DELETE FROM topo_nodes WHERE type = 'device' AND (attrs LIKE '%FIND-CHECK-%' OR attrs LIKE '%FIND-LIMIT-%')")
 
 
 def left_over():
-    return db("SELECT (SELECT COUNT(*) FROM topo_nodes WHERE attrs LIKE '%FIND-CHECK-%' OR attrs LIKE '%FIND-LIMIT-%') + (SELECT COUNT(*) FROM topo_identity_keys WHERE `key` LIKE '%aa:bb:cc:00:11:2%')")
+    return db("SELECT (SELECT COUNT(*) FROM topo_nodes WHERE attrs LIKE '%FIND-CHECK-%' OR attrs LIKE '%FIND-LIMIT-%') + (SELECT COUNT(*) FROM topo_identity_keys WHERE `key` LIKE '%aa:bb:cc:00:11:2%') + (SELECT COUNT(*) FROM topo_observations WHERE local_port_ref = 'FIND-CHECK')")
 
 
 remove_data()
@@ -145,13 +150,9 @@ try:
     check([r['name'] for r in rows['rows']] == [NAME] and 'management address' in rows['rows'][0]['matched'], 'the management address finds the Device: "management address"', rows['rows'])
     rows = search('192.0.2.25')
     check(rows['rows'] == [], 'a part of an address finds nothing (exact)', rows['rows'])
-    reported = db("SELECT d.id, JSON_UNQUOTE(JSON_EXTRACT(o.remote_attrs, '$.rem_mgmt_ip')) FROM topo_observations o JOIN topo_nodes d ON d.id = o.device_id "
-                  "WHERE JSON_EXTRACT(o.remote_attrs, '$.rem_mgmt_ip') IS NOT NULL AND (JSON_EXTRACT(d.attrs, '$.mgmt_ip') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(d.attrs, '$.mgmt_ip')) <> JSON_UNQUOTE(JSON_EXTRACT(o.remote_attrs, '$.rem_mgmt_ip'))) LIMIT 1")
-    if reported:
-        rows = search(reported.split('\t')[1])
-        check(rows['rows'] and any('reported address' in r['matched'] for r in rows['rows']), 'an address that a neighbor reports finds the Device: "reported address"', rows['rows'])
-    else:
-        print('  note: R1 has no neighbor that reports an address that the Device does not have as its own: "reported address" is not checked here')
+    rows = search(REPORTED_IP)
+    check([r['name'] for r in rows['rows']] == [NAME] and 'reported address' in rows['rows'][0]['matched'] and 'management address' not in rows['rows'][0]['matched'],
+          'an address that a neighbor reports (and the Device does not have as its own) finds the Device: "reported address"', rows['rows'])
 
     print('-- the markup of a name is text; the limit')
     rows = search('FIND-CHECK-<')

@@ -23,6 +23,7 @@ MIB_ROOTS = {
 # a column that an `override_oid` of a step can change (lab spec 4.4, 2.27): its own labmultiplex subtree when a step changes it; not a MIB that `omit_mib` can remove
 STEP_ROOTS = {
     'ifoper': [(1, 3, 6, 1, 2, 1, 2, 2, 1, 8)],            # ifOperStatus.<ifIndex>
+    'ifhighspeed': [(1, 3, 6, 1, 2, 1, 31, 1, 1, 1, 15)],  # ifHighSpeed.<ifIndex> (task 120: the demo step 7 changes it; task 119 forgot to list it, so the deviation did nothing)
 }
 LLDP_LOC_PORT_ID = (1, 0, 8802, 1, 1, 2, 1, 3, 7, 1, 3)       # lldpLocPortId.<lldpLocPortNum>
 LLDP_REM_ENTRY = (1, 0, 8802, 1, 1, 2, 1, 4, 1, 1)             # lldpRemEntry.<column>.<timeMark>.<lldpRemLocalPortNum>.<lldpRemIndex>

@@ -210,3 +210,14 @@ class StepRoots(Base):
         self.assertEqual(open(os.path.join(dev['mux']['ifoper']['dir'], '00000.snmprec')).read().strip(), '1.3.6.1.2.1.2.2.1.8.1|2|1')
         self.assertEqual(open(os.path.join(dev['mux']['ifoper']['dir'], '00001.snmprec')).read().strip(), '1.3.6.1.2.1.2.2.1.8.1|2|2')
         self.assertEqual(dev['step_masters'][1], ['core'])
+
+    def test_a_speed_override_of_a_step_goes_through_a_subtree(self):
+        # task 120: ifHighSpeed is changed by a step (D1 step 7): its column is a labmultiplex subtree too (task 119 forgot it: the deviation did nothing)
+        text = VALID.replace(CDP, '1.3.6.1.2.1.31.1.1.1.15.1|66|1000\n' + CDP)
+        dv = {'id': 'd', 'reason': 'r', 'type': 'override_oid', 'device': 'R1', 'oid': '1.3.6.1.2.1.31.1.1.1.15.1', 'value': 100}
+        sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
+        manifest = gen.generate(sc, os.path.join(self.tmp.name, 'out'))
+        dev = manifest['devices']['R1']
+        self.assertIn('ifhighspeed', dev['mux'])
+        self.assertEqual(open(os.path.join(dev['mux']['ifhighspeed']['dir'], '00000.snmprec')).read().strip(), '1.3.6.1.2.1.31.1.1.1.15.1|66|1000')
+        self.assertEqual(open(os.path.join(dev['mux']['ifhighspeed']['dir'], '00001.snmprec')).read().strip(), '1.3.6.1.2.1.31.1.1.1.15.1|66|100')

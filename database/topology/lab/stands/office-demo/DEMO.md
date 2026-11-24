@@ -63,10 +63,10 @@ To go back to the plain office stand (no demo rows): `labsim down`, then `labsim
 
 ### 7 — A trunk runs at the wrong speed (task 119)
 - Command: `labsim show D1 --step 7 --reset`
-- Look: *Focus host* `SW15-10-POE-6000-24G`, depth 1: the trunk to SW12 (SW12 1/1/41 - SW15 1/1/21). Hover the line, or open it: the mark "speed mismatch: 1 Gbit/s / 100 Mbit/s" is in the tooltip,
-  the link panel and the Links row of SW15. The line itself does not change.
+- Look: *Focus host* `SW15-10-POE-6000-24G`, depth 1: the trunk to SW12 (SW12 1/1/41 - SW15 1/1/21). A small warning sign (task 120) is in the middle of the line, with no hover. Hover it, or click it: the mark "speed mismatch: 1 Gbit/s / 100 Mbit/s" is in the tooltip
+  and the link panel; the Links row of SW15 has the short mark "speed mismatch" (both speeds in its hint box). The line itself does not change (colour, dash, width, opacity).
 - Say: both ends of the cable are up, but one of them agreed on 100 Mbit/s. Nothing is down, so no alarm fires; this is what a bad cable or a failed autonegotiation looks like.
-  (The office stand R1 has no such link; the deviation `speed-mismatch-sw15-21` of this stand sets `ifHighSpeed` of SW15 port 21 to 100.)
+  (The office stand R1 has no such link; the deviation `speed-mismatch-sw15-21` of this stand sets `ifHighSpeed` of SW15 port 21 to 100. The page check of this step is `ui_check_040/d1_mark_check.py`, run with the stand up at step 7.)
 
 ## After the demo
 

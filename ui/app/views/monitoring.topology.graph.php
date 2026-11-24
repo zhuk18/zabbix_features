@@ -29,6 +29,7 @@ $page_styles = '
 .topology-panel{grid-column:2;grid-row:1;min-width:0;min-height:0;overflow:auto;border-left:1px solid #d9d9d9;padding:16px;position:relative;transition:width .15s ease}
 .topology-panel h2{margin-top:0;padding-right:28px}
 .topology-wrap{display:block;white-space:normal}
+.topology-group .topology-full-rows th,.topology-group .topology-full-rows td{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 .topology-more{position:sticky;bottom:-16px;margin:0 -16px -16px;padding:6px 16px;text-align:center;cursor:pointer;background:linear-gradient(rgba(255,255,255,0),#fff 40%)}
 .topology-more[hidden]{display:none}
 .topology-panel-toggle{position:absolute;top:10px;right:10px;z-index:1}

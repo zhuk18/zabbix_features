@@ -131,7 +131,10 @@ def natural_state(conn):
         if e['type'] == 'physical_link':
             parts.sort(key=lambda x: x[0])
         ends = [x[0] for x in parts]
-        links.append({'id': e['id'], 'type': e['type'], 'ends': ends, 'discovered_via': a.get('discovered_via'),
+        # task 120: both ends are ports that are up with known, different speeds (model 2.100 §12.3 "Speed mismatch"; the page marks it, CTopologySpeed::mismatch)
+        ends_up = [nodes[x]['a'] for x in (e['src_id'], e['dst_id']) if nodes[x]['type'] == 'port' and nodes[x]['a'].get('oper_status') == 'up']
+        speeds = [int(p['speed']) for p in ends_up if str(p.get('speed', '')).lstrip('-').isdigit() and int(p['speed']) > 0]
+        links.append({'id': e['id'], 'type': e['type'], 'ends': ends, 'discovered_via': a.get('discovered_via'), 'speed_mismatch': len(speeds) == 2 and speeds[0] != speeds[1],
                       'state': 'superseded' if a.get('superseded_at') else 'active',
                       'far_port_reason': a.get('far_port_reason'), 'attrs': a,
                       'end_devices': [x[1] for x in parts], 'end_ports': [x[2] for x in parts]})

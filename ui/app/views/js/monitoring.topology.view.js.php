@@ -1096,7 +1096,8 @@ const view = new class {
 			this.deviceLinkRows(link).forEach(([label, value]) => rows.push([label, value, false, true]));
 			device_link_actions = this.deviceLinkActions(link);
 		}
-		const table = `<section class="topology-group"><table><tbody>${rows.map(([label, value, raw, label_escaped]) =>
+		// task 120 section 2: the rows of the link panel show their full text (a long value wraps; the Note of a speed mismatch was cut)
+		const table = `<section class="topology-group"><table class="topology-full-rows"><tbody>${rows.map(([label, value, raw, label_escaped]) =>
 			`<tr><th>${label_escaped ? label : this.escape(label)}</th><td>${raw ? value : this.escape(value)}</td></tr>`).join('')}</tbody></table></section>` +
 			(['physical_link', 'device_link'].includes(link.type) && link.discovered_via === 'manual' && link.edge_id !== null && link.edge_id !== undefined
 				? this.manualLinkFragment(link.edge_id) : '');

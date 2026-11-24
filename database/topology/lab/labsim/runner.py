@@ -244,6 +244,8 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
             ls = [l for l in ls if l['discovered_via'] == a['discovered_via']]
         if a.get('far_port_reason'):
             ls = [l for l in ls if l['far_port_reason'] == a['far_port_reason']]
+        if 'speed_mismatch' in a:      # task 120: both ends are up ports with known, different speeds (the page draws the warning mark)
+            ls = [l for l in ls if l['speed_mismatch'] == bool(a['speed_mismatch'])]
         want = a.get('state', 'active')
         if want == 'stale' or 'stale' in a:
             by_edge = {l['edge_id']: l for l in derived()['links']}

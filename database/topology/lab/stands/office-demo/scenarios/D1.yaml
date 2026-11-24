@@ -82,4 +82,4 @@ steps:
     deviations: {enable: [speed-mismatch-sw15-21], disable: []}
     poll_all: true
     assert:
-      - {link: [SW12-10-CORE-6000-48G:1/1/41, SW15-10-POE-6000-24G:1/1/21], state: active, type: physical_link}
+      - {link: [SW12-10-CORE-6000-48G:1/1/41, SW15-10-POE-6000-24G:1/1/21], state: active, type: physical_link, speed_mismatch: true}
