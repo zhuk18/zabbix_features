@@ -1,4 +1,6 @@
-"""task 107 §3 (model 2.91 §9.7 "Bind to interface", §12.5): "Bind to interface" on the real page, 1500 x 900, office stand, real mouse and keyboard events (DevTools Input domain).
+"""task 118 (model 2.99): with `--by-name` the same flow on a host of "Linux by Zabbix agent" (the interface items have names in their keys: net.if.in["enp0s3"]; DevLinux, the Zabbix server host of the lab):
+Bind p1 by name (no index in the dialog: "—"; interface_name only), the load of the values that the check writes (errors items of the interface do not change it), p2 on the same interface refused, Unbind.
+task 107 §3 (model 2.91 §9.7 "Bind to interface", §12.5): "Bind to interface" on the real page, 1500 x 900, office stand, real mouse and keyboard events (DevTools Input domain).
 Create "BIND-TEST" (Switch, ports p1, p2), link p1 to a free port of SW12, Promote to a lab host that has the interface template and is not a reporter of another Device (the check takes the first host of
 the default lab with two discovered interfaces and no node of its own, Router1 when `labsim provision S6` ran; it fails with a message when none fits), bind p1 to an interface (the Links row shows
 "p1 -> Gi0/0" and the load of that interface: the check writes a last value for the items of the interface and removes it at the end), bind p2 to the same interface (the dialog shows it taken by p1,
@@ -14,6 +16,7 @@ if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     sys.exit(2)
 cookie = P.login()
 failed = 0
+BY_NAME = '--by-name' in sys.argv
 
 
 def check(condition, text, detail=None):
@@ -97,6 +100,12 @@ TITLE = "(() => { const t = document.querySelector('#topology-details .topology-
 
 
 def pick_host():
+    if BY_NAME:
+        # a host with the interface items of the agent template (the name in the key), no Device of its own and no snapshot
+        rows = db("select h.hostid, h.host from hosts h where h.status = 0 and h.host = 'DevLinux' "
+                  "and (select count(*) from items i join item_discovery d on d.itemid = i.itemid where i.hostid = h.hostid and i.key_ regexp '^net[.]if[.]in\\\\[\"[^\"]*\"\\\\]$') >= 2 "
+                  "and not exists (select 1 from topo_nodes n where n.type = 'device' and n.host_ref = h.hostid) and not exists (select 1 from topo_lld_snapshot s where s.hostid = h.hostid) order by h.hostid")
+        return rows.split('\n')[0].split('\t') if rows else None
     # the first host of the default lab with two discovered interfaces, no Device of its own (a Host node is allowed: the view makes it when it reads the scope, task 111) and no snapshot (so it is not a reporter of another Device)
     rows = db("select h.hostid, h.host from hosts h where h.status = 0 and h.host in ('Router1', 'Switch1', 'Switch2', 'AccessSwitch1', 'UPS1') "
               "and (select count(*) from items i join item_discovery d on d.itemid = i.itemid where i.hostid = h.hostid and i.key_ like 'net.if.in[%') >= 2 "
@@ -105,6 +114,12 @@ def pick_host():
 
 
 def interface_names(hostid):
+    if BY_NAME:
+        # the names (tag `interface`) of the interfaces with the name in the key, in the order of the dialog (natural order, case insensitive): the first two
+        rows = db("select t.value from items i join item_tag t on t.itemid = i.itemid and t.tag = 'interface' where i.hostid = %s and i.flags = 4 and i.key_ regexp '^net[.]if[.]in\\\\[\"[^\"]*\"\\\\]$'" % hostid)
+        import re
+        key = lambda text: [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', text.lower())]
+        return sorted([line for line in rows.split('\n') if line and len(line) <= 10], key=key)[:2]      # short names: the Links row cuts a long one
     # the names (tag `interface`) of the interface items of the host, by index: the first two
     rows = db("select cast(substring_index(substring_index(i.key_, '.', -1), ']', 1) as unsigned) as idx, t.value from items i join item_tag t on t.itemid = i.itemid and t.tag = 'interface' "
               "where i.hostid = %s and i.flags = 4 and i.key_ like 'net.if.in[%%' order by idx" % hostid)
@@ -113,6 +128,12 @@ def interface_names(hostid):
 
 def interface_items(hostid, index):
     out = {}
+    if BY_NAME:
+        for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[\"%s\"]', 'net.if.out[\"%s\"]', 'net.if.in[\"%s\",errors]')" % (hostid, index, index, index)).split('\n'):
+            if line:
+                itemid, key, vt = line.split('\t')
+                out['errors' if 'errors' in key else key.split('[')[0]] = (itemid, vt)
+        return out
     for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[ifInOctets.%d]', 'net.if.out[ifOutOctets.%d]', 'net.if.speed[ifSpeed.%d]')" % (hostid, index, index, index)).split('\n'):
         if line:
             itemid, key, vt = line.split('\t')
@@ -128,8 +149,10 @@ def history_rows(hostid):
 
 
 def write_history(hostid, index, rate_in, rate_out, speed):
-    now = int(time.time())
-    for name, value in (('net.if.in', rate_in), ('net.if.out', rate_out), ('net.if.speed', speed)):
+    # by name the host is polled live by the server: the rows of the check are dated ahead, so that they are the last values until the check removes them
+    now = int(time.time()) + (600 if BY_NAME else 0)
+    # by name: the agent template has no speed item; the counter of errors gets a value too (it must not be taken for the load)
+    for name, value in ((('net.if.in', rate_in), ('net.if.out', rate_out), ('errors', 99)) if BY_NAME else (('net.if.in', rate_in), ('net.if.out', rate_out), ('net.if.speed', speed))):
         itemid, vt = interface_items(hostid, index)[name]
         table = 'history_uint' if vt == '3' else 'history'
         db("insert into %s (itemid, clock, value, ns) values (%s, %d, %s, 0)" % (table, itemid, now, value))
@@ -141,6 +164,7 @@ def row_menu(expr_row):
 
 
 LINKS_ROW = "(port => Array.from(document.querySelectorAll('#topology-details tr.topology-link-row')).find(r => r.querySelector('.topology-link-ports') && r.querySelector('.topology-link-ports').textContent.trim().startsWith(port)))"
+RADIO = "Array.from(document.querySelectorAll('.topology-bind-row')).find(r => r.querySelector('label').textContent === %s).querySelector('input')"
 LINE_P1 = "view.line_entries.find(e => e.link && e.link.type === 'physical_link' && e.link.discovered_via === 'manual' && (String(e.link.source_port) === 'p1' || String(e.link.target_port) === 'p1'))"
 PORTS_ROW = "(port => Array.from(document.querySelectorAll('#topology-details tr')).find(r => r.querySelector('.topology-port-name') && r.querySelector('.topology-port-name').textContent.trim().startsWith(port)))"
 
@@ -199,22 +223,39 @@ try:
     js("document.body.click()")
 
     print('=== Bind p1 ===')
-    write_history(hostid, 1, 8000000, 4000000, 1000000000)
+    write_history(hostid, NAMES[0] if BY_NAME else 1, 8000000, 4000000, 1000000000)
     P.line_menu(js, LINE_P1, choose='Bind to interface')
     check(wait("!!document.querySelector('.topology-bind-table')"), 'the dialog "Bind to interface" opens with the list of interfaces')
     names = js("Array.from(document.querySelectorAll('.topology-bind-row')).map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim()).filter(Boolean).join(' '))")
-    check(names == ['%s 1' % NAMES[0], '%s 2' % NAMES[1]], 'the list shows the name and the index of each interface of %s' % hostname, names)
-    shot('107-bind-dialog.png')
-    click("document.getElementById('topology-bind-1')")
+    if BY_NAME:
+        shown = [t for t in names if t.split(' ')[0] in NAMES]
+        check(shown == ['%s —' % NAMES[0], '%s —' % NAMES[1]], 'the list shows the interfaces found by name with "—" in the index column (%d interfaces in all)' % len(names), [shown, names[:4]])
+        shot('118-bind-by-name.png')
+        click(RADIO % json.dumps(NAMES[0]))
+    else:
+        check(names == ['%s 1' % NAMES[0], '%s 2' % NAMES[1]], 'the list shows the name and the index of each interface of %s' % hostname, names)
+        shot('107-bind-dialog.png')
+        click("document.getElementById('topology-bind-1')")
     click(dialog_button('Bind'))
     check(wait("!document.querySelector('.topology-bind-table')"), 'Bind closes the dialog')
     at = db("select json_extract(attrs, '$.if_index'), json_unquote(json_extract(attrs, '$.interface_name')), json_extract(attrs, '$.zabbix_itemids') from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
-    check(at.split('\t')[0] == '1' and at.split('\t')[1] == NAMES[0] and at.split('\t')[2] == 'NULL', 'p1 has if_index 1 and the interface name; the items are not stored (found when the graph is read)', at)
-    wait("(%s)('p1') && (%s)('p1').querySelector('.topology-link-ports').textContent.includes('p1 → %s')" % (LINKS_ROW, LINKS_ROW, NAMES[0]), 20)
-    text = js("(%s)('p1').textContent" % LINKS_ROW)
+    if BY_NAME:
+        check(at.split('\t')[0] == 'NULL' and at.split('\t')[1] == NAMES[0] and at.split('\t')[2] == 'NULL', 'p1 has the interface name and no if_index; the items are not stored (found when the graph is read)', at)
+    else:
+        check(at.split('\t')[0] == '1' and at.split('\t')[1] == NAMES[0] and at.split('\t')[2] == 'NULL', 'p1 has if_index 1 and the interface name; the items are not stored (found when the graph is read)', at)
+    # (the row cuts a long text in the middle; the full text is in its hint box)
+    wait("(%s)('p1') && (%s)('p1').querySelector('.topology-link-ports').dataset.hintboxHtml.includes('p1 → %s')" % (LINKS_ROW, LINKS_ROW, NAMES[0]), 20)
+    text = js("(%s)('p1').textContent + ' | ' + (%s)('p1').querySelector('.topology-link-ports').dataset.hintboxHtml" % (LINKS_ROW, LINKS_ROW))
     check('p1 → %s' % NAMES[0] in text, 'the Links row shows "p1 → %s"' % NAMES[0], text)
-    check('in 0.8 %' in text and 'out 0.4 %' in text, 'the Links row shows the load of the interface (8 Mbit/s in and 4 Mbit/s out of 1 Gbit/s: in 0.8 % / out 0.4 %)', text)
-    shot('107-bound-port.png')
+    if BY_NAME:
+        # the agent template has no speed item: the row has no percent; the load is what ports.get reads from the bytes items (the errors item has another value)
+        load = js("""(async () => { const host = view.drawn_nodes.find(n => n.label === %s); const answer = await view.request('topology.ports.get&id=' + encodeURIComponent(host.device.id)); const port = Object.values(answer.groups).flat().find(p => p.port === 'p1'); return port.load; })()""" % json.dumps(hostname))
+        check(load is not None and load['in'] == 8000000 and load['out'] == 4000000 and load['speed'] is None, 'the load of the interface by name: in 8 Mbit/s, out 4 Mbit/s (the values that the check wrote; the errors item does not change them)', load)
+        hint = js("""(() => { const e = %s; return e.tooltip().html; })()""" % LINE_P1)
+        check('in 8 Mbps / out 4 Mbps' in hint, 'the hint box of the line shows the load of the values that the check wrote (in 8 Mbps / out 4 Mbps)', hint)
+    else:
+        check('in 0.8 %' in text and 'out 0.4 %' in text, 'the Links row shows the load of the interface (8 Mbit/s in and 4 Mbit/s out of 1 Gbit/s: in 0.8 % / out 0.4 %)', text)
+        shot('107-bound-port.png')
     menu = P.line_menu(js, LINE_P1)
     check('Unbind' in menu and 'Bind to interface' not in menu, 'a bound port offers Unbind, not Bind to interface', menu)
     js("document.body.click()")
@@ -224,10 +265,10 @@ try:
     row_menu("(%s)('p2')" % PORTS_ROW)
     click("(%s)('p2').querySelector('.topology-port-bind')" % PORTS_ROW)
     wait("!!document.querySelector('.topology-bind-table')")
-    taken = js("(() => { const r = document.getElementById('topology-bind-1'); return [r.disabled, r.closest('tr').textContent.trim()]; })()")
+    taken = js("(() => { const r = %s; return [r.disabled, r.closest('tr').textContent.trim()]; })()" % (RADIO % json.dumps(NAMES[0]) if BY_NAME else "document.getElementById('topology-bind-1')"))
     check(taken[0] is True and 'used by p1' in taken[1], 'the interface of p1 is shown with p1 and is not selectable', taken)
     p2 = db("select id from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p2'")
-    refused = js("""(async () => { try { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', if_index: 1})}); return 'bound'; } catch (e) { return e.message; } })()""" % p2)
+    refused = js("""(async () => { try { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', %s})}); return 'bound'; } catch (e) { return e.message; } })()""" % (p2, ('name: ' + json.dumps(NAMES[0])) if BY_NAME else 'if_index: 1'))
     check('p1 already has this interface' in refused and db("select json_extract(attrs, '$.if_index') from topo_nodes where id = %s" % p2) in ('', 'NULL'), 'the server refuses p2 on the same interface: "p1 already has this interface"', refused)
     click(dialog_button('Cancel'))
     wait("!document.querySelector('.topology-bind-table')")
@@ -240,18 +281,19 @@ try:
     check('Bind to interface' in menu and 'Unbind' not in menu, 'after Unbind the menu offers "Bind to interface" again', menu)
     js("document.body.click()")
 
-    print('=== a Port that a PORTS row took is a reported port (task 108) ===')
-    js("""(async () => { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', if_index: 2})}); return 1; })()""" % db("select id from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'"))
-    # the ingest step of the same change is tested on the server (test_bind_interface.php); here the page gets the data of such a Port: source reported, no binding
-    db("update topo_nodes set attrs = json_set(json_remove(attrs, '$.interface_name'), '$.source', 'reported', '$.name', 'Gi0/1') where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
-    js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
-    P.after_input(js)
-    wait("(%s)('Gi0/1')" % LINKS_ROW, 15)
-    text = js("(%s)('Gi0/1').textContent" % LINKS_ROW)
-    menu = P.line_menu(js, "view.line_entries.find(e => e.link && e.link.type === 'physical_link' && (String(e.link.source_port) === 'Gi0/1' || String(e.link.target_port) === 'Gi0/1'))")
-    js("document.body.click()")
-    check('Gi0/1' in text and '→ Gi' not in text and 'p1' not in text, 'the reported Port shows its reported name only (no "→")', text)
-    check(not any(word in menu for word in ('Rename', 'Delete', 'Bind to interface', 'Unbind')), 'its line menu has no Rename, Delete, Bind or Unbind', menu)
+    if not BY_NAME:      # (the ingest of a PORTS row that takes a port bound by name is tested on the server, test_bind_interface.php section 11)
+        print('=== a Port that a PORTS row took is a reported port (task 108) ===')
+        js("""(async () => { await view.request('topology.ports.bind', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: '%s', if_index: 2})}); return 1; })()""" % db("select id from topo_nodes where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'"))
+        # the ingest step of the same change is tested on the server (test_bind_interface.php); here the page gets the data of such a Port: source reported, no binding
+        db("update topo_nodes set attrs = json_set(json_remove(attrs, '$.interface_name'), '$.source', 'reported', '$.name', 'Gi0/1') where type = 'port' and json_unquote(json_extract(attrs, '$.name')) = 'p1'")
+        js("(async () => { const n = view.drawn_nodes.find(n => n.label === %s); await view.selectNode(n); return 1; })()" % json.dumps(hostname))
+        P.after_input(js)
+        wait("(%s)('Gi0/1')" % LINKS_ROW, 15)
+        text = js("(%s)('Gi0/1').textContent" % LINKS_ROW)
+        menu = P.line_menu(js, "view.line_entries.find(e => e.link && e.link.type === 'physical_link' && (String(e.link.source_port) === 'Gi0/1' || String(e.link.target_port) === 'Gi0/1'))")
+        js("document.body.click()")
+        check('Gi0/1' in text and '→ Gi' not in text and 'p1' not in text, 'the reported Port shows its reported name only (no "→")', text)
+        check(not any(word in menu for word in ('Rename', 'Delete', 'Bind to interface', 'Unbind')), 'its line menu has no Rename, Delete, Bind or Unbind', menu)
 
     print('=== Depromote, delete the Device ===')
     P.node_menu(js, hostname, choose='Depromote', node_type='host')
@@ -270,6 +312,11 @@ finally:
 check(left_over() == '0' and db("select count(*) from topo_edges e left join topo_nodes a on a.id = e.src_id where a.id is null") == '0', 'nothing of this check is left: no BIND-TEST Device, no port of it, no dangling link', left_over())
 if host:
     check(db("select count(*) from topo_nodes where type = 'host' and host_ref = %s and represented_by_node_id is null" % host[0]) in ('0', '1') and db("select count(*) from topo_nodes where represented_by_node_id is not null and type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual'") == '0', 'the host is not represented by a manual Device any more')
-    check(history_rows(host[0]) == HISTORY_BEFORE, 'no history row of the check is left (%s rows of the host before and after)' % HISTORY_BEFORE, history_rows(host[0]))
+    if BY_NAME:
+        # the host is polled live: its row count changes by itself; the rows of the check are found by their item and clock
+        left = sum(int(db("select count(*) from %s where itemid = %s and clock = %d" % (table, itemid, clock))) for table, itemid, clock in HISTORY)
+        check(left == 0 and len(HISTORY) == 3, 'no history row of the check is left (the three rows that it wrote: in, out, errors)', [left, len(HISTORY)])
+    else:
+        check(history_rows(host[0]) == HISTORY_BEFORE, 'no history row of the check is left (%s rows of the host before and after)' % HISTORY_BEFORE, history_rows(host[0]))
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All Bind to interface page checks passed.'))
 sys.exit(1 if failed else 0)

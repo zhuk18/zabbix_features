@@ -737,6 +737,16 @@ $same_name = $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'port' AN
 check($r['code'] === 0 && (int) $same_name === 1 && ($at['source'] ?? null) === 'reported' && !array_key_exists('interface_name', $at) && ($at['if_index'] ?? null) === 2 && binding_of($lp['eth0'], $LD)['binding'] === null,
 	'a PORTS row with the name takes the Port bound by name, as any manual Port ("A port follows its name"): one Port, reported, no binding', [$r['code'], $same_name, $at]);
 
+echo "\n=== 12. the load of a Zabbix agent interface counts bytes only (task 118) ===\n";
+$bytes_key = static function (string $key): bool {
+	$method = new ReflectionMethod(CTopologyPrototype::class, 'isBytesKey');
+	$method->setAccessible(true);
+	return $method->invoke(null, $key);
+};
+check($bytes_key('net.if.in["eth0"]') && $bytes_key('net.if.out["eth0", bytes]') && $bytes_key('net.if.in["eth0","bytes"]') && $bytes_key('net.if.in[ifHCInOctets.17]') && $bytes_key('net.if.speed[ifSpeed.2]'),
+	'an agent key without a mode, with the mode bytes, and an SNMP key are the load');
+check(!$bytes_key('net.if.in["eth0",errors]') && !$bytes_key('net.if.out["eth0",dropped]') && !$bytes_key('net.if.in["eth0", overruns]'), 'a key with another mode (errors, dropped) is not the load: its counter would replace the bytes');
+
 echo "\nAll Bind to interface checks passed.\n";
 
 function reporter_host(PDO $pdo, int $hostid, string $chassis): array {

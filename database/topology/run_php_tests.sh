@@ -264,6 +264,7 @@ else
 		page_test "page: manual Device (create, port, link, edit, delete; real mouse and keyboard events)" /tmp/topo_t_manual_device.log python3 "$here/ui_check_040/manual_device_check.py"
 		# Bind to interface (107): create, link, Promote to a lab host, Bind / Unbind with real mouse events, the load of the interface, the refusal, Depromote, Delete; nothing is left
 		page_test "page: Bind to interface (dialog, bound port, load, refusal, Unbind)" /tmp/topo_t_bind_page.log python3 "$here/ui_check_040/bind_check.py"
+		page_test "page: Bind to interface by name (a host of the agent template: no index, load, refusal, Unbind)" /tmp/topo_t_bind_name_page.log python3 "$here/ui_check_040/bind_check.py" --by-name
 	# the load of the side that has items, "no data" and the reason for the side that has none (110, FR-C V-12)
 	page_test "page: a link to an end device: the load of one side, no data on the other (real mouse events)" /tmp/topo_t_nodata.log python3 "$here/ui_check_040/no_data_check.py"
 		# the first layout is the same at every load: 10 loads at each size, positions equal within 1 px, the overlap check passes every time (101)
