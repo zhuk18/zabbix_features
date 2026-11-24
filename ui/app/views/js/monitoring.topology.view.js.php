@@ -1416,7 +1416,7 @@ const view = new class {
 				[line('#64748b', 2, '0', 0.45), <?= json_encode(_('Faded: stale or superseded')) ?>],
 				[line('#64748b', 3, '1 4'), <?= json_encode(_('Dotted: device-level link (far port unknown)')) ?>],
 				// 2.101 (§12.3): the warning mark on the line, the same shape and colours as the mark that is drawn
-				[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)"><path d="M0,-7 L7,6 L-7,6 Z" style="fill:#f59e0b;stroke:#92400e;stroke-width:1.4;stroke-linejoin:round"/><path d="M0,-2.5 V1.5 M0,3.8 V3.9" style="fill:none;stroke:#1f2937;stroke-width:1.6;stroke-linecap:round"/></g></svg>`,
+				[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)"><path d="M0,-7 L7,6 L-7,6 Z" style="fill:#374151;stroke:#f9fafb;stroke-width:1.4;stroke-linejoin:round"/><path d="M0,-2.5 V1.5 M0,3.8 V3.9" style="fill:none;stroke:#ffffff;stroke-width:1.6;stroke-linecap:round"/></g></svg>`,
 					<?= json_encode(_('Speed mismatch: the data is wrong, or a device that is not on the graph is between the ports')) ?>]
 			]]
 		];
@@ -3111,10 +3111,10 @@ const view = new class {
 					});
 					// the places of the bundle labels now: the nodes that are moved off a line do not go onto a label (else the room for the label takes the node back across the line)
 					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes);
+					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes, drawn_lines);
 					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 40, label_boxes);
 					// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none is stretched, after every change of the layout
-					const room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+					const room = G.makeLabelRoom(nodes, bundles, {width, height, padding}, 60, drawn_lines);
 					held.forEach(node => {
 						node.fx = undefined;
 						node.fy = undefined;
@@ -3139,7 +3139,7 @@ const view = new class {
 						node.fy = node.y;
 					});
 					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes);
+					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes, drawn_lines);
 					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_boxes, 8, 5);
 					held.forEach(node => {
 						node.fx = undefined;
@@ -3151,26 +3151,26 @@ const view = new class {
 					node.fx = node.x;
 					node.fy = node.y;
 				});
-				const final_room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+				const final_room = G.makeLabelRoom(nodes, bundles, {width, height, padding}, 60, drawn_lines);
 				if (!final_room) {
 					// the moves for the lines left a label without a free point: the best layout that had room for every label stays (before the moves, if none had)
 					nodes.forEach((node, i) => {
 						node.x = best.positions[i][0];
 						node.y = best.positions[i][1];
 					});
-					G.makeLabelRoom(nodes, bundles, {width, height, padding});
+					G.makeLabelRoom(nodes, bundles, {width, height, padding}, 60, drawn_lines);
 				}
 				// the room for the labels can bring a crossing back: one search more, that keeps off the labels; it stays only when every label still has its free point
 				if (G.linesThrough(nodes, drawn_lines, 2).length > 0) {
 					const label_places = () => {
 						const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-						return G.placeLabelsAndMarks(bundles, node_boxes);
+						return G.placeLabelsAndMarks(bundles, node_boxes, drawn_lines);
 					};
 					const saved = nodes.map(node => [node.x, node.y]);
 					const crossings_before = G.linesThrough(nodes, drawn_lines, 2).length;
 					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_places(), 8, 5);
 					// the room for a label that the move took is made again; the result stays when every label has its point and there are fewer crossings than before
-					const room_again = G.makeLabelRoom(nodes, bundles, {width, height, padding});
+					const room_again = G.makeLabelRoom(nodes, bundles, {width, height, padding}, 60, drawn_lines);
 					if (!(room_again && label_places().every(item => item.free) && G.linesThrough(nodes, drawn_lines, 2).length < crossings_before)) {
 						nodes.forEach((node, i) => {
 							node.x = saved[i][0];
@@ -3505,7 +3505,9 @@ const view = new class {
 				}
 			});
 		this.line_entries = line_entries;
-		// ---- the warning mark of a speed mismatch (§12.3, 2.101; FR-C V-4, V-25) ----
+		// ---- the warning mark of a speed mismatch (§12.3, 2.101, 2.102; FR-C V-4, V-25) ----
+		// 2.102: dark grey (#374151) with a near-white outline and a white "!": the severity colours of §4.8 are the Zabbix ones (#97AAB3 not classified, #7499FF information, #FFC859 warning, #FFA059 average,
+		// #E97659 high, #E45959 disaster); colour is the severity channel, so the mark has none of them, in the light and in the dark theme (the outline separates it from a dark background and from the line)
 		// A small warning sign at the middle of the line of a link with a speed mismatch, or of a LAG bundle with a member that has one (next to the label, never on it). The line keeps its
 		// colour, dash, width and opacity. Visible with no hover; a click opens the panel of the link, as the line does; the hover has the tooltip of the line.
 		const mark_data = simulation_links.filter(link => G.markOf(link) !== null);
@@ -3513,12 +3515,20 @@ const view = new class {
 			.attr('class', 'topology-speed-mark').style('cursor', 'pointer')
 			.attr('data-link', link => `${link.source.id}>${link.target.id}`);
 		speed_marks.append('path').attr('d', `M0,${-G.MARK_SIZE / 2} L${G.MARK_SIZE / 2},${G.MARK_SIZE / 2 - 1} L${-G.MARK_SIZE / 2},${G.MARK_SIZE / 2 - 1} Z`)
-			.style('fill', '#f59e0b').style('stroke', '#92400e').style('stroke-width', '1.4px').style('stroke-linejoin', 'round');
-		speed_marks.append('path').attr('d', 'M0,-2.5 V1.5 M0,3.8 V3.9').style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', '1.6px').style('stroke-linecap', 'round');
+			.style('fill', '#374151').style('stroke', '#f9fafb').style('stroke-width', '1.4px').style('stroke-linejoin', 'round');
+		speed_marks.append('path').attr('d', 'M0,-2.5 V1.5 M0,3.8 V3.9').style('fill', 'none').style('stroke', '#ffffff').style('stroke-width', '1.6px').style('stroke-linecap', 'round');
 		const entry_of = link => line_entries.find(entry => entry.link === link);
+		// 2.102: a click on the mark acts as a click on the line: the line menu (a bundle: the bundle menu); "Link details" of the menu opens the panel
 		speed_marks.on('click', (event, link) => {
 			event.stopPropagation();
-			entry_of(link)?.open();
+			const target = entry_of(link);
+			if (target?.menu) {
+				this.hideHint();
+				this.guard(() => this.openMenu(event, target.hit, null, this.lineMenuItemsWithBinding(target)));
+			}
+			else {
+				target?.open();
+			}
 		}).on('mouseenter.hint', (event, link) => {
 			const tooltip = link_tooltip(link);
 			if (tooltip !== '') {
@@ -3596,7 +3606,7 @@ const view = new class {
 						// 2.84 (§12.1 "No line through a node"): after a drag the nodes that a line crosses are moved off it (the dragged node and the other fixed nodes stay)
 						for (let pass = 0; pass < 8; pass++) {
 							G.clearThroughLines(nodes, all_lines, {width, height, padding});
-							const room = G.makeLabelRoom(nodes, bundle_lines, {width, height, padding});
+							const room = G.makeLabelRoom(nodes, bundle_lines, {width, height, padding}, 60, all_lines);
 							if (room && G.linesThrough(nodes, all_lines, 2).length === 0) {
 								break;
 							}
@@ -3767,8 +3777,10 @@ const view = new class {
 			this.lag_label_places = view_places;
 			// 2.101: the warning marks after the labels: each one at the middle of its line, or at the free point nearest to it (the label of a bundle is an obstacle, a mark is never on it)
 			const mark_places = [];
+			const drawn_line_list = simulation_links.map(line => ({a: line.source, b: line.target, index: line.parallel.index, count: line.parallel.count}));
 			speed_marks.each(function (link) {
-				const place = G.placeMark(G.curve(link.source, link.target, link.parallel.index, link.parallel.count).at, [...node_boxes, ...placed]);
+				const place = G.placeMark(G.curve(link.source, link.target, link.parallel.index, link.parallel.count).at, [...node_boxes, ...placed], 0.01,
+					G.otherCurves(drawn_line_list, link.source, link.target, link.parallel.index, link.parallel.count));
 				placed.push(place.box);
 				d3.select(this).attr('transform', `translate(${place.x},${place.y})`);
 				mark_places.push({source: String(link.source.id), target: String(link.target.id), type: link.type, u: Math.round(place.u * 100), free: place.free});

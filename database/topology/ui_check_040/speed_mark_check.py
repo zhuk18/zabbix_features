@@ -6,7 +6,7 @@ The check makes its own Devices (MK-*; the names are used by no scenario) and re
   MK-B and MK-G also have a link to MK-Z, so that they are no leaves.
 Checks: the mark is visible with no hover, on the right lines only, the line keeps its channels; a click on it opens the panel of the link; the tooltip of the bundle names the member; no overlap of a mark with a node
 box, a label or a mark after the layout, after an unfold and after a drag; the legend row; the short mark in the Links row with both speeds in its hint box.
-Screenshots when SHOTS_DIR is set: 120-mark.png, 120-mark-bundle.png. Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome, the database login of the harness. Exit code 1 when a check fails."""
+Screenshots when SHOTS_DIR is set: 120-mark.png, 120-mark-bundle.png (names kept; task 121 makes 121-mark-menu.png, 121-marks-crossing.png). Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome, the database login of the harness. Exit code 1 when a check fails."""
 import atexit, base64, json, os, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
@@ -132,14 +132,14 @@ def line_style(a, b):
 
 def overlaps():
     r = js(P.CHECKS['overlap'])
-    return {'overlaps': r['overlaps'], 'bundle_label_overlaps': r['bundle_label_overlaps'], 'mark_overlaps': r['mark_overlaps'], 'mark_places': r['mark_places'], 'speed_marks': r['speed_marks'],
+    return {'overlaps': r['overlaps'], 'bundle_label_overlaps': r['bundle_label_overlaps'], 'mark_overlaps': r['mark_overlaps'], 'mark_line_hits': r['mark_line_hits'], 'mark_gaps': r['mark_gaps'], 'mark_places': r['mark_places'], 'speed_marks': r['speed_marks'],
             'lines_through_nodes': r['lines_through_nodes']}
 
 
 def overlap_ok(tag, expected_marks=2):
     r = overlaps()
-    check(r['speed_marks'] == expected_marks and not r['overlaps'] and not r['bundle_label_overlaps'] and not r['mark_overlaps'] and not r['mark_places'],
-          'overlap check %s: %d marks, none on a node box, a label or another mark, every mark has a free point' % (tag, expected_marks), r)
+    check(r['speed_marks'] == expected_marks and not r['overlaps'] and not r['bundle_label_overlaps'] and not r['mark_overlaps'] and not r['mark_line_hits'] and not r['mark_gaps'] and not r['mark_places'],
+          'overlap check %s: %d marks, none on a node box, a label, another mark (8 px apart) or another line, every mark has a free point' % (tag, expected_marks), r)
 
 
 def select(label):
@@ -192,6 +192,7 @@ try:
     label = js("(() => { const t = Array.from(document.querySelectorAll('#topology-canvas text.topology-lag-label')).find(t => t.textContent.startsWith('Trk9')); const b = t.getBoundingClientRect(); return {l: b.left, r: b.right, t: b.top, b: b.bottom}; })()")
     check(not (m2['x'] - m2['w'] / 2 < label['r'] and label['l'] < m2['x'] + m2['w'] / 2 and m2['y'] - m2['h'] / 2 < label['b'] and label['t'] < m2['y'] + m2['h'] / 2), 'the mark of the bundle is next to its label, not on it', [m2, label])
     shot('120-mark-bundle.png', {'x': m2['x'], 'y': m2['y']})
+    shot('121-marks-crossing.png', {'x': (m1['x'] + m2['x']) / 2, 'y': (m1['y'] + m2['y']) / 2})
 
     print('-- the tooltip of the bundle names the member')
     hover(5, 5)
@@ -202,18 +203,33 @@ try:
     check('p2 ↔ p2' in hint and mm in hint and 'p1 ↔ p1' in hint, 'the tooltip lists the members and names p2 ↔ p2 with the mark', hint)
     hover(5, 5)
 
-    print('-- a click on the mark opens the panel of the link')
+    print('-- a click on the mark acts as a click on the line: the line menu; "Link details" opens the panel')
     mouse('mousePressed', m1['x'], m1['y'])
     mouse('mouseReleased', m1['x'], m1['y'])
-    P.idle(js)
+    menu = P._menu_choose(js, None)
+    check('Link details' in menu and 'Neighbor reports' in menu, 'the click on the mark of HUB-B opens the line menu (Link details, Neighbor reports ...)', menu)
+    check(js("!document.getElementById('topology-details').textContent.includes('MK-B')") or 'MK-B' not in panel_text().split('\n')[0], 'the click did not open the panel by itself', panel_text()[:100])
+    shot('121-mark-menu.png', {'x': m1['x'], 'y': m1['y']})
+    P._menu_choose(js, 'Link details')
     text = panel_text()
-    check('MK-HUB' in text and 'MK-B' in text and mm in text, 'the click on the mark of HUB-B opens its panel with the mark', text[:300])
+    check('MK-HUB' in text and 'MK-B' in text and mm in text, '"Link details" of the menu opens the panel of the link with the mark', text[:300])
     hover(5, 5)
     mouse('mousePressed', m2['x'], m2['y'])
     mouse('mouseReleased', m2['x'], m2['y'])
-    P.idle(js)
+    menu = P._menu_choose(js, None)
+    check('Link details' in menu and 'Neighbor reports' not in menu, 'the click on the mark of the bundle opens the bundle menu (Link details only)', menu)
+    P._menu_choose(js, 'Link details')
     text = panel_text()
-    check('MK-C' in text and 'MK-D' in text and 'p2' in text, 'the click on the mark of the bundle opens the panel of the bundle', text[:300])
+    check('MK-C' in text and 'MK-D' in text and 'p2' in text, '"Link details" opens the panel of the bundle', text[:300])
+
+    print('-- the colour is not a severity colour')
+    SEVERITY = ['97aab3', '7499ff', 'ffc859', 'ffa059', 'e97659', 'e45959']
+    fill = js("(() => { const p = document.querySelector('#topology-canvas g.topology-speed-mark path'); const c = getComputedStyle(p).fill.match(/\\d+/g).map(Number); return c; })()")
+    dist = min(sum((a - int(h[i * 2:i * 2 + 2], 16)) ** 2 for i, a in enumerate(fill[:3])) ** 0.5 for h in SEVERITY)
+    check(max(fill[:3]) < 100 and dist > 80, 'the mark is dark grey (%s), far from every severity colour of §4.8 (distance %d)' % (fill[:3], dist), [fill, dist])
+    legend_fill = js("(() => { const p = document.querySelector('#topology-legend .topology-legend-row svg path[style*=\"stroke-linejoin\"]'); return p ? getComputedStyle(p).fill : null; })()")
+    check(legend_fill == js("getComputedStyle(document.querySelector('#topology-canvas g.topology-speed-mark path')).fill"), 'the legend swatch has the same colour', legend_fill)
+    hover(5, 5)
 
     print('-- the Links row: the short mark, both speeds in the hint box')
     ROWS = """Array.from(document.querySelectorAll('#topology-details .topology-link-row')).map(r => { const l2 = r.querySelector('.topology-link-line2'); const mark = l2.querySelector('.topology-link-mark');
@@ -235,7 +251,7 @@ try:
     print('-- the legend')
     legend = js("document.getElementById('topology-legend').textContent")
     check('Speed mismatch: the data is wrong, or a device that is not on the graph is between the ports' in legend, 'the legend has the row of the mark', legend[-200:])
-    check(js("document.querySelectorAll('#topology-legend .topology-legend-row svg path[style*=\"f59e0b\"]').length") == 1, 'the legend swatch is the mark (one row)')
+    check(js("document.querySelectorAll('#topology-legend .topology-legend-row svg path[style*=\"374151\"]').length") == 1, 'the legend swatch is the mark (one row)')
 
     print('-- unfold and drag')
     group = js("view.leaf_groups.map(g => String(g.parent))")

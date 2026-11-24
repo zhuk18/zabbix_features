@@ -573,10 +573,10 @@
 	/**
 	 * Room for the labels of the LAG bundles (§12.3, 2.73) in a layout that the collision step has made: a bundle whose label has no free point on its line (every point between 30 % and 70 %
 	 * touches a node box or a label placed before) is stretched: a node that is on the line (not an end, not fixed) moves 18 px across the line, away from it; with none, the node at one end that is not fixed moves 14 px away from the other end along
-	 * the line; the collision step makes room for it, and the labels are tried again (up to `rounds` times). `bundles` = [{a, b, width, index, count, mark, mark_only}] (2.101: `mark` = the line has a warning mark, `mark_only` = it has no label: a link with a mark; a and b are node objects, the line is as G.curve draws it). Returns true when every
+	 * the line; the collision step makes room for it, and the labels are tried again (up to `rounds` times). `bundles` = [{a, b, width, index, count, mark, mark_only}] (2.102: `lines` = every drawn line {a, b, index, count}, a mark keeps off the lines other than its own; 2.101: `mark` = the line has a warning mark, `mark_only` = it has no label: a link with a mark; a and b are node objects, the line is as G.curve draws it). Returns true when every
 	 * label has a free point.
 	 */
-	function makeLabelRoom(nodes, bundles, bounds, rounds = 60) {
+	function makeLabelRoom(nodes, bundles, bounds, rounds = 60, lines = []) {
 		const fixed = node => node.fx !== undefined && node.fx !== null;
 		for (let round = 0; round < rounds; round++) {
 			const boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
@@ -616,7 +616,7 @@
 				}
 			});
 			bundles.filter(({mark}) => mark).forEach(({a, b, index, count}) => {
-				const place = placeMark(curve(a, b, index, count).at, [...boxes, ...placed]);
+				const place = placeMark(curve(a, b, index, count).at, [...boxes, ...placed], 0.01, otherCurves(lines, a, b, index, count));
 				placed.push(place.box);
 				if (!place.free) {
 					stretch(a, b, markWidth(), index, count);
@@ -1079,14 +1079,23 @@
 	 *
 	 * @return object  {u, x, y, free, box}; (x, y) is the middle of the mark
 	 */
-	function placeMark(at, obstacles, step = 0.01) {
-		const half = markWidth() / 2 + 2;
+	function placeMark(at, obstacles, step = 0.01, others = []) {
+		// 2.102: a gap of 4 px round the sign: two marks never touch (8 px between them), and no other line passes through the box of the sign
+		const half = markWidth() / 2 + 4;
 		const boxAt = u => {
 			const p = at(u);
 
 			return {u, x: p.x, y: p.y, box: {left: p.x - half, right: p.x + half, top: p.y - half, bottom: p.y + half}};
 		};
-		const touches = box => obstacles.some(o => box.left < o.right && o.left < box.right && box.top < o.bottom && o.top < box.bottom);
+		// the points of the lines other than the own line (a line as a polyline of 41 points): a box that contains one touches that line
+		const points = [];
+		others.forEach(other => {
+			for (let k = 0; k <= 40; k++) {
+				points.push(other(k / 40));
+			}
+		});
+		const touches = box => obstacles.some(o => box.left < o.right && o.left < box.right && box.top < o.bottom && o.top < box.bottom)
+			|| points.some(p => p.x > box.left && p.x < box.right && p.y > box.top && p.y < box.bottom);
 		for (let k = 0; k <= Math.round(0.2 / step); k++) {
 			for (const u of k === 0 ? [0.5] : [0.5 + k * step, 0.5 - k * step]) {
 				const place = boxAt(u);
@@ -1099,18 +1108,23 @@
 		return {...boxAt(0.5), free: false};
 	}
 
+	/** The curves (u -> point) of the drawn lines other than the line (a, b, index, count): `lines` = [{a, b, index, count}]. */
+	function otherCurves(lines, a, b, index, count) {
+		return lines.filter(line => !(line.a === a && line.b === b && line.index === index && line.count === count)).map(line => curve(line.a, line.b, line.index, line.count).at);
+	}
+
 	/**
 	 * The places of the labels of the bundles and of the warning marks (2.101) on the node boxes: the labels first, then the marks, each one without touching a node box or a place made before.
 	 * `entries` = [{a, b, width, index, count, mark, mark_only}] as `makeLabelRoom` has them. Returns [{box, owners: [a, b], free, mark}] (the boxes of the labels, then of the marks).
 	 */
-	function placeLabelsAndMarks(entries, node_boxes) {
+	function placeLabelsAndMarks(entries, node_boxes, lines = []) {
 		const placed = [];
 		entries.filter(({mark_only}) => !mark_only).forEach(({a, b, width, index, count}) => {
 			const place = placeLabel(curve(a, b, index, count).at, width, [...node_boxes, ...placed.map(item => item.box)]);
 			placed.push({box: place.box, owners: [a, b], free: place.free, mark: false});
 		});
 		entries.filter(({mark}) => mark).forEach(({a, b, index, count}) => {
-			const place = placeMark(curve(a, b, index, count).at, [...node_boxes, ...placed.map(item => item.box)]);
+			const place = placeMark(curve(a, b, index, count).at, [...node_boxes, ...placed.map(item => item.box)], 0.01, otherCurves(lines, a, b, index, count));
 			placed.push({box: place.box, owners: [a, b], free: place.free, mark: true});
 		});
 
@@ -1433,5 +1447,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, linkHintParts, bundleHintParts, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, placeMark, placeLabelsAndMarks, markWidth, markOf, MARK_SIZE, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, linkHintParts, bundleHintParts, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, placeMark, otherCurves, placeLabelsAndMarks, markWidth, markOf, MARK_SIZE, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

@@ -501,9 +501,25 @@ CHECKS = {
         r.speed_marks = marks.length;
         r.mark_overlaps = [];
         marks.forEach((a, i) => { boxes.concat(lag).forEach(c => { if (hit(a, c)) r.mark_overlaps.push([a.name, c.name]); }); marks.slice(i + 1).forEach(c => { if (hit(a, c)) r.mark_overlaps.push([a.name, c.name]); }); });
+        // task 121 (model 2.102 §12.3): a mark touches no line other than its own (the hit path of every other line has no point inside the box of the mark), and two marks are at least 6 px apart
+        r.mark_line_hits = [];
+        const mark_nodes = Array.from(document.querySelectorAll('#topology-canvas g.topology-speed-mark'));
+        mark_nodes.forEach(g => {
+            const b = g.getBoundingClientRect();
+            (view.line_entries || []).forEach(entry => {
+                if (!entry.link || !entry.hit || entry.link === g.__data__) { return; }
+                const length = entry.hit.getTotalLength(), matrix = entry.hit.getScreenCTM();
+                for (let at = 0; at <= length; at += 2) {
+                    const p = entry.hit.getPointAtLength(at), t = new DOMPoint(p.x, p.y).matrixTransform(matrix);
+                    if (t.x > b.left && t.x < b.right && t.y > b.top && t.y < b.bottom) { r.mark_line_hits.push([g.getAttribute('data-link'), (entry.link.source.label || entry.link.source.name) + ' - ' + (entry.link.target.label || entry.link.target.name)]); break; }
+                }
+            });
+        });
+        r.mark_gaps = [];
+        marks.forEach((a, i) => marks.slice(i + 1).forEach(c => { const gx = Math.max(a.left - c.right, c.left - a.right), gy = Math.max(a.top - c.bottom, c.top - a.bottom); if (Math.max(gx, gy) < 6) r.mark_gaps.push([a.name, c.name, Math.round(Math.max(gx, gy) * 10) / 10]); }));
         r.mark_places = (view.speed_mark_places || []).filter(p => !p.free).map(p => p.source + '-' + p.target + ' (no free point)');
         r.lines_through_nodes = linesThrough();
-        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.mark_overlaps.length === 0 && r.mark_places.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.mark_overlaps.length === 0 && r.mark_line_hits.length === 0 && r.mark_gaps.length === 0 && r.mark_places.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         if (!r.ok) {
             r.evidence = collect('overlap');
         }
