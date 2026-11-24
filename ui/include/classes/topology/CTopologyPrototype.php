@@ -3460,20 +3460,38 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * The interfaces of ONE host that the user can bind a port to (§9.7): those with a numeric LLD value (the `if_index`).
+	 * The interfaces of ONE host that the user can bind a port to (§9.7, 2.99): the same lookup as the graph reading (interfacesOfHosts, §3.2), no second one. An interface with a numeric LLD value has
+	 * an `if_index` (SNMP templates); one whose LLD value is a name (Zabbix agent templates, `net.if.in["eth0"]`) has `if_index = null` and the name.
 	 *
-	 * @return array  [index => ['if_index' => int, 'name' => string, 'itemids' => [int, ...]]]
+	 * @return array  list of ['if_index' => int|null, 'name' => string, 'itemids' => [int, ...]]: the interfaces with an index first (by index), then those found by name (by name)
 	 */
 	private static function hostInterfaces(string $hostid): array {
-		$interfaces = [];
+		$by_index = [];
+		$by_name = [];
 		foreach (self::interfacesOfHosts([$hostid])[$hostid] ?? [] as $interface) {
+			$entry = ['if_index' => $interface['if_index'], 'name' => $interface['name'], 'itemids' => $interface['itemids']];
 			if ($interface['if_index'] !== null) {
-				$interfaces[$interface['if_index']] = ['if_index' => $interface['if_index'], 'name' => $interface['name'], 'itemids' => $interface['itemids']];
+				$by_index[$interface['if_index']] = $entry;
+			}
+			else {
+				$by_name[] = $entry;      // (a list: two interfaces can have the same name, and then none is found by it)
 			}
 		}
-		ksort($interfaces);
+		ksort($by_index);
+		usort($by_name, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
 
-		return $interfaces;
+		return array_merge(array_values($by_index), $by_name);
+	}
+
+	/** The interface of the list with this index, or null. */
+	private static function interfaceByIndex(array $interfaces, int $if_index): ?array {
+		foreach ($interfaces as $interface) {
+			if ($interface['if_index'] === $if_index) {
+				return $interface;
+			}
+		}
+
+		return null;
 	}
 
 	/** Name cleaning (FR-B D-39): no trailing NUL, no white space at the start or the end, one pair of surrounding quotes; '' = no value. */
@@ -3577,12 +3595,32 @@ class CTopologyPrototype {
 		return $ports;
 	}
 
-	/** GET /topo/ports/{id}/interfaces (§9.7, §11): the interfaces of the host of the port's Device, with the Port of the Device that has the index, if any. */
+	/** The Ports of a Device that have the interface by name (2.99): a manual Port bound by name (`interface_name`, no `if_index`), or a Port without an index whose name is the name of the interface: [name => ['id' => id, 'name' => port name]]. */
+	private static function namedPortsOf(string $device_id): array {
+		$ports = [];
+		$result = DBselect('SELECT id,attrs FROM topo_nodes WHERE type='.zbx_dbstr('port').' AND device_id='.zbx_dbstr($device_id));
+		while ($row = DBfetch($result, false)) {
+			$attrs = self::attrs($row);
+			if (isset($attrs['if_index'])) {
+				continue;
+			}
+			$bound = (($attrs['source'] ?? null) === 'manual') ? self::cleanName($attrs['interface_name'] ?? null) : self::cleanName($attrs['name'] ?? null);
+			if ($bound !== '') {
+				$ports[$bound] ??= ['id' => (string) $row['id'], 'name' => (string) ($attrs['name'] ?? '')];
+			}
+		}
+
+		return $ports;
+	}
+
+	/** GET /topo/ports/{id}/interfaces (§9.7, §11): the interfaces of the host of the port's Device, with the Port of the Device that has the interface (by the index, or by the name), if any. */
 	public static function portInterfaces(string $port_id): array {
 		[$row, $hostid] = self::bindablePort($port_id);
-		$holders = self::indexedPortsOf((string) $row['device_id']);
+		$by_index = self::indexedPortsOf((string) $row['device_id']);
+		$by_name = self::namedPortsOf((string) $row['device_id']);
 
-		return array_values(array_map(static fn (array $interface): array => $interface + ['port' => $holders[$interface['if_index']] ?? null], self::hostInterfaces($hostid)));
+		return array_values(array_map(static fn (array $interface): array => $interface + ['port' => $interface['if_index'] !== null
+			? ($by_index[$interface['if_index']] ?? null) : ($by_name[self::cleanName($interface['name'])] ?? null)], self::hostInterfaces($hostid)));
 	}
 
 	/**
@@ -3595,7 +3633,7 @@ class CTopologyPrototype {
 		if ($holder !== null && $holder['id'] !== (string) $port_id) {
 			throw new Exception('The port '.$holder['name'].' already has this interface.');
 		}
-		$interface = self::hostInterfaces($hostid)[$if_index] ?? null;
+		$interface = self::interfaceByIndex(self::hostInterfaces($hostid), $if_index);
 		if ($interface === null) {
 			throw new Exception('The host has no interface with the index '.$if_index.' (or you may not read its items).');
 		}

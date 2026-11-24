@@ -652,6 +652,25 @@ check($items_of([$MP['p1']])[(string) $MP['p1']]['itemids'] === [] && binding_of
 // the stored attrs never have the items (2.93)
 check(!str_contains((string) scalar($pdo, "SELECT GROUP_CONCAT(attrs) FROM topo_nodes WHERE type = 'port'"), 'zabbix_itemids'), 'no Port has zabbix_itemids in its attrs');
 
+echo "\n=== 9. interfaces by name (task 118, model 2.99): the list ===\n";
+reset_all($pdo);
+API::$items = [];
+$ND = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'AGENT-PC', 'device_class' => 'station', 'ports' => [['name' => 'p1'], ['name' => 'p2'], ['name' => 'p3']]])['id'];
+$np = ports_of($pdo, $ND);
+add_host($pdo, 501, 'LX501', 'Linux 501', '10.0.5.1');
+$x_eth0 = $add_named($pdo, 501, 'eth0');
+$x_eth1 = $add_named($pdo, 501, 'eth1');
+$x_g3 = add_interface($pdo, 501, 3, 'Gi0/3');
+add_interface($pdo, 502, 1, 'OtherHost');
+CTopologyPrototype::promote((string) $ND, 'host', '501');
+$r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $np['p1']]);
+$names = array_map(static fn (array $i): string => ($i['if_index'] ?? '-').':'.$i['name'], $r['interfaces'] ?? []);
+check(!failed($r) && $names === ['3:Gi0/3', '-:eth0', '-:eth1'], 'the list has the interfaces whose LLD value is a name: no index, the name; those with an index first (by index), then by name; another host is not listed', [$names, $r]);
+check(($r['interfaces'][1]['itemids'] ?? null) === $x_eth0 && ($r['interfaces'][2]['itemids'] ?? null) === $x_eth1 && array_key_exists('if_index', $r['interfaces'][1] ?? []) && $r['interfaces'][1]['if_index'] === null
+	&& ($r['interfaces'][0]['itemids'] ?? null) === $x_g3 && $r['interfaces'][1]['port'] === null, 'the items of a name interface: in and out; the index is null; no Port has it', $r['interfaces'][1] ?? null);
+$before_items = $items_of(array_values($np));
+check(array_unique(array_column($before_items, 'reason')) === ['no_binding'], 'the graph reading is not changed: the ports of a manual Device that are not bound have no items', $before_items);
+
 echo "\nAll Bind to interface checks passed.\n";
 
 function reporter_host(PDO $pdo, int $hostid, string $chassis): array {
