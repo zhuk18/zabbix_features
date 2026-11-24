@@ -3,7 +3,7 @@
 Run it with the stand up at step 7:   cd database/topology/lab && ZBX_TOKEN=... python -m labsim --lab stands/office-demo/lab-office-demo.yaml show D1 --step 7 --reset
 then   ZBX_UI_USER=... ZBX_UI_PASSWORD=... python3 ui_check_040/d1_mark_check.py   (not in the harness: the harness runs on R1, where no link has a mismatch).
 Checks, on the page of the focus host SW12 (1 hop), real mouse events: the mark is on the line of that link and on no other, with no hover; the tooltip, the link panel and the Links row of SW12 have the mark
-(the row the short one, with both speeds in its hint box). Screenshot 120-d1.png when SHOTS_DIR is set. Exit code 1 when a check fails."""
+(the row the short one, with both speeds in its hint box). Screenshot 121-d1.png when SHOTS_DIR is set (task 120 made 120-d1.png). Exit code 1 when a check fails."""
 import base64, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
@@ -41,6 +41,8 @@ try:
     r = js(P.CHECKS['overlap'])
     check(r['speed_marks'] == 1 and not r['mark_overlaps'] and not r['mark_places'] and r['overlaps'] == 0, 'the mark touches no node box, label or mark', {k: r[k] for k in ('speed_marks', 'mark_overlaps', 'mark_places', 'overlaps')})
     m = marks[0]
+    fill = js("getComputedStyle(document.querySelector('#topology-canvas g.topology-speed-mark path')).fill")
+    check(fill == 'rgb(55, 65, 81)', 'the mark is dark grey (task 121), not a severity colour', fill)
     hover(5, 5)
     hover(m['x'] - 2, m['y'] - 2)
     hover(m['x'], m['y'])
@@ -50,9 +52,11 @@ try:
     hover(5, 5)
     ws.call('Input.dispatchMouseEvent', type='mousePressed', x=m['x'], y=m['y'], button='left', buttons=1, clickCount=1)
     ws.call('Input.dispatchMouseEvent', type='mouseReleased', x=m['x'], y=m['y'], button='left', buttons=0, clickCount=1)
-    P.idle(js)
+    menu = P._menu_choose(js, None)
+    check('Link details' in menu, 'a click on the mark opens the line menu (task 121)', menu)
+    P._menu_choose(js, 'Link details')
     panel = js("document.getElementById('topology-details').textContent")
-    check(mm in panel and '1/1/41' in panel, 'the link panel (a click on the mark) has the mark', panel[:300])
+    check(mm in panel and '1/1/41' in panel, '"Link details" of the menu opens the link panel with the mark', panel[:300])
     cut = js("Array.from(document.querySelectorAll('#topology-details td, #topology-details th')).filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent)")
     check(cut == [], 'no row of the link panel is cut', cut)
     js("(async () => { const n = Array.from(view.nodes.values()).find(n => n.label.startsWith('SW12')); await view.selectNode(n); return 1; })()")
@@ -64,9 +68,12 @@ try:
           'the Links row of SW12: the short mark on the row of port 1/1/41 only, both speeds in its hint box', bad)
     folder = os.environ.get('SHOTS_DIR')
     if folder:
-        js("view.panToNode(String(Array.from(view.nodes.values()).find(n => n.label.startsWith('SW15')).id))")
+        # task 121: SW12 in the middle: its link to SW13 (1/1/42) is down since step 1 and has a severity colour, next to the mark (an orange node or line near the mark)
+        js("view.panToNode(String(Array.from(view.nodes.values()).find(n => n.label.startsWith('SW12')).id))")
         P.idle(js)
-        with open(os.path.join(folder, '120-d1.png'), 'wb') as f:
+        hover(5, 5)
+        P.until(js, "!document.querySelector('.hintbox') && !document.querySelector('.menu-popup')", 'no hint box and no menu over the graph')
+        with open(os.path.join(folder, '121-d1.png'), 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
 finally:
     chrome.close()
