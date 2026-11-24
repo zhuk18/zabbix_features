@@ -221,5 +221,31 @@ foreach (json_decode((string) file_get_contents(__DIR__.'/decoding_cases.json'),
 	check($r['ok'] && count($r['rows'] ?? []) === 1 && !$bad, "[{$case['source']}] {$case['name']}", implode('; ', $bad).' | '.$r['text']);
 }
 
+echo "\n=== port alias (ifAlias, LLD spec 2.20, task 119) ===\n";
+$alias_walk = static function (?string $type, ?string $value) use ($if_mib): string {
+	return $if_mib.($type === null ? '' : line('1.3.6.1.2.1.31.1.1.1.18.1', $type, $value));
+};
+$alias_cases = [
+	['STRING', '"uplink to core"', 'uplink to core', 'a text alias'],
+	['Hex-STRING', '54 45 54 20 57 41 4E 20 49 53 50', 'TET WAN ISP', 'a Hex-STRING alias is decoded as text (the office data)'],
+	['Hex-STRING', '75 70 00', 'up', 'a Hex-STRING alias with a trailing NUL is text without it'],
+	['Hex-STRING', 'D0 9F D0 BE D1 80 D1 82', 'Порт', 'a Hex-STRING alias with UTF-8 text'],
+	['STRING', '"<b>x</b> & \\"q\\""', '<b>x</b> & "q"', 'markup is kept as text (escaping is the view\'s)'],
+	['Hex-STRING', 'FF FE 41', 'ff:fe:41', 'a Hex-STRING alias that is not valid UTF-8 stays in the hex form'],
+];
+
+foreach ($alias_cases as [$type, $value, $expected, $label]) {
+	$r = step($alias_walk($type, $value), 'ports');
+	check($r['ok'] && count($r['rows']) === 1 && ($r['rows'][0]['{#IFALIAS}'] ?? null) === $expected, "ports alias: {$label}", $r['text']);
+}
+
+foreach ([['STRING', '""', 'an empty alias'], ['Hex-STRING', '', 'an empty Hex-STRING alias'], [null, null, 'no ifAlias in the walk']] as [$type, $value, $label]) {
+	$r = step($alias_walk($type, $value), 'ports');
+	check($r['ok'] && count($r['rows']) === 1 && !array_key_exists('{#IFALIAS}', $r['rows'][0]), "ports alias: {$label} -> the macro is omitted", $r['text']);
+}
+
+$r = step($alias_walk('STRING', '"x"').line('1.3.6.1.2.1.2.2.1.1.2', 'INTEGER', '2').line('1.3.6.1.2.1.2.2.1.3.2', 'INTEGER', 'ethernetCsmacd(6)'), 'ports');
+check($r['ok'] && count($r['rows']) === 2 && ($r['rows'][1]['{#IFALIAS}'] ?? null) === null, 'ports alias: a port without an alias row has none; the other keeps its own', $r['text']);
+
 echo "\n".($failures === 0 ? "OK: {$checks} checks\n" : "FAILED: {$failures} of {$checks} checks\n");
 exit($failures === 0 ? 0 : 1);

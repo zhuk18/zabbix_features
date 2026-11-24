@@ -65,6 +65,7 @@ static const zbx_lld_topo_field_t	topo_ports[] = {
 	{"{#IFINDEX}",		"if_index",		ZBX_LLD_TOPO_UINT,	1, 0, NULL},
 	{"{#IFNAME}",		"name",			ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFDESCR}",		"descr",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#IFALIAS}",		"alias",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFTYPE}",		"if_type",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFMAC}",		"mac",			ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#IFADMINSTATUS}",	"admin_status",		ZBX_LLD_TOPO_STR,	0, 0, NULL},

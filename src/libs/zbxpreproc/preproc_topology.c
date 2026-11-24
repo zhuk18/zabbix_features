@@ -54,6 +54,7 @@
 #define OID_IF_ADMIN_STATUS		OID_IF_TABLE ".7"
 #define OID_IF_OPER_STATUS		OID_IF_TABLE ".8"
 #define OID_IF_NAME			"1.3.6.1.2.1.31.1.1.1.1"
+#define OID_IF_ALIAS			"1.3.6.1.2.1.31.1.1.1.18"
 #define OID_IF_HIGH_SPEED		"1.3.6.1.2.1.31.1.1.1.15"
 
 #define OID_LLDP_LOC_PORT_TABLE		"1.0.8802.1.1.2.1.3.7.1"
@@ -828,11 +829,12 @@ static char	*topo_rows_serialize(zbx_vector_topo_row_ptr_t *rows)
 static void	topo_source_ports(const zbx_snmp_value_cache_t *cache, const char *chassis, const char *chassis_type,
 		zbx_vector_topo_row_ptr_t *rows)
 {
-	topo_table_t	indexes, names, descr, phys, types, admin, oper, high_speed;
+	topo_table_t	indexes, names, descr, alias, phys, types, admin, oper, high_speed;
 
 	topo_table_load(cache, OID_IF_INDEX, &indexes);
 	topo_table_load(cache, OID_IF_NAME, &names);
 	topo_table_load(cache, OID_IF_DESCR, &descr);
+	topo_table_load(cache, OID_IF_ALIAS, &alias);
 	topo_table_load(cache, OID_IF_PHYS_ADDRESS, &phys);
 	topo_table_load(cache, OID_IF_TYPE, &types);
 	topo_table_load(cache, OID_IF_ADMIN_STATUS, &admin);
@@ -854,6 +856,9 @@ static void	topo_source_ports(const zbx_snmp_value_cache_t *cache, const char *c
 		/* the names as the walk has them: ingest cleans, compares and chooses (no fallback of ifName to ifDescr here) */
 		topo_row_add_owned(row, "{#IFNAME}", topo_table_name(&names, key));
 		topo_row_add_owned(row, "{#IFDESCR}", topo_table_name(&descr, key));
+
+		/* the port alias (LLD spec 2.20, FR-B D-57): a text column like ifName; an empty or missing value gives no macro (topo_row_add_owned omits it) */
+		topo_row_add_owned(row, "{#IFALIAS}", topo_table_name(&alias, key));
 
 		if (NULL != topo_table_get(&types, key))
 			topo_row_add_owned(row, "{#IFTYPE}", topo_table_text(&types, key));
@@ -878,6 +883,7 @@ static void	topo_source_ports(const zbx_snmp_value_cache_t *cache, const char *c
 	topo_table_clear(&indexes);
 	topo_table_clear(&names);
 	topo_table_clear(&descr);
+	topo_table_clear(&alias);
 	topo_table_clear(&phys);
 	topo_table_clear(&types);
 	topo_table_clear(&admin);
