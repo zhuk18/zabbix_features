@@ -4,13 +4,25 @@
 # reasons that are not in the code), then the Python tests, the JS rule tests, the step golden tests, the lab unit tests, the checks on the lab state and the API tests of the frontend.
 # The list of what is NOT in this run, and why, is in README-tests.md next to this file.
 #
-# Usage: run_php_tests.sh <database user> [password]     (MySQL on localhost; creates and drops topo_t_* databases)
+# Usage: run_php_tests.sh [--only <areas>] [--list] <database user> [password]     (MySQL on localhost; creates and drops topo_t_* databases)
+#   --only a,b   run only the tests of these areas (task 119 section 0a; the areas and what is in each are in README-tests.md, `--list` prints the area of every test); no --only: every test
 #   LABPY=<python with PyYAML and mysql-connector>   default ~/work/labenv/bin/python (lab unit tests, corpus converter test)
 #   PHPUNIT=<phpunit 8.5 phar>                       default ~/work/tools/phpunit-8.5.phar (the API tests; skipped when absent)
 #   ZBX_UI_USER, ZBX_UI_PASSWORD                     the login of the frontend for the checks of the real page (skipped when not set; never written to a file)
 # Exit status 0 when no test failed. A test that needs a state the lab does not have is SKIPPED with its reason (it does not fail the run and is not hidden: see the table).
 set -u
-user=${1:?usage: $0 <database user> [password]}
+only=""
+list_only=0
+while [ $# -gt 0 ]; do
+	case $1 in
+		--only) only=${2:?--only needs a list of areas}; shift 2 ;;
+		--only=*) only=${1#--only=}; shift ;;
+		--list) list_only=1; shift ;;
+		*) break ;;
+	esac
+done
+user=${1:-}
+[ -n "$user" ] || [ $list_only = 1 ] || { echo "usage: $0 [--only <areas>] [--list] <database user> [password]" >&2; exit 2; }
 password=${2:-}
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
@@ -31,6 +43,46 @@ restore_legend() {
 }
 trap 'rm -f "$results"; restore_legend' EXIT
 start_all=$(date +%s)
+
+# the areas of a test (task 119 section 0a): a test is in the areas that its name matches; a test with no area of its own is in `other`. `slow` marks a test that took 45 s or more in
+# the full run 502 (README-tests.md); `page` is every check of the real page (browser).
+areas_of() {
+	local a=""
+	case "$1" in
+		*test_bind_interface*|*"Bind to interface"*|*bind_check*) a="bind" ;;
+		*test_manual_device*|*manual_device_check*|*"manual Device"*) a="manual" ;;
+		*test_junction*|*"Junction projection"*|*junction_check*) a="junction" ;;
+		*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
+		*test_device_link*|*test_link_replacement*|*test_manual_contradiction*|*test_contradiction_rule*|*test_topology_model*) a="links" ;;
+		*test_identity*|*test_shared_identifier*|*test_cdp_device_key*|*test_chassis_subtypes*|*test_normalization*|*test_duplicate_candidates*|*test_addresses*|*test_device_last_seen*|*test_device_class*) a="identity" ;;
+		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*) a="native" ;;
+		lab/*|corpus/*) a="lab" ;;
+		ui/tests/*) a="api" ;;
+		*test_topology_graph.js*|*test_node_label*|*test_leaf_groups*|*test_hop_scope*|*test_freshness*|*test_lazy_host_nodes*) a="view" ;;
+		page*|*page_shot*|*_check.py*|*nolink_host*) a="page" ;;
+		*) a="other" ;;
+	esac
+	case "$1" in
+		*"lab/php/graph_page_check"*|*"lab/php/lastrun_http"*|*"lab/php/run_row_http"*|page*|*_check.py) case " $a " in *" page "*) ;; *) a="$a page" ;; esac ;;
+	esac
+	case "$1" in
+		*test_scenario_catalog*|*"deterministic first layout"*|*"one header for the graph"*|*"page escaping"*|*test_device_links.php|*"Bind to interface by name"*|*device_rows_check*|*run_row_http_check*|*test_far_device_lookup*|*test_link_replacement*|*"panel of SW12"*|*"selection after Apply"*) a="$a slow" ;;
+	esac
+	echo "$a"
+}
+selected() {   # selected <test name>: 0 when the test is in the run
+	local a x o
+	[ -z "$only" ] && return 0
+	a=$(areas_of "$1")
+	for o in ${only//,/ }; do
+		for x in $a; do [ "$x" = "$o" ] && return 0; done
+	done
+	return 1
+}
+if [ $list_only = 1 ]; then
+	{ grep -oE '(discovery/(lld_js/|step_golden/)?|lab/php/|ui_check_040/|corpus/)[A-Za-z_0-9]*\.(php|py|js)' "$0"; grep -oE '"?(test_[a-z_]+\.(php|js))' "$0" | tr -d '"'; echo "lab/tests (unittest discover)"; echo "ui/tests/api_json/testDiscoveryRule*.php"; } | sed 's#^here/##' | sort -u | while read -r t; do printf '%-60s %s\n' "$t" "$(areas_of "$t")"; done
+	exit 0
+fi
 
 fresh() {
 	mysql -u"$user" -e "DROP DATABASE IF EXISTS $1; CREATE DATABASE $1" || exit 2
@@ -65,6 +117,7 @@ record() {   # record <name> <PASS|FAIL|SKIP> <seconds> <log or reason>
 exec_test() {
 	local name=$1 log=$2 s rc
 	shift 2
+	selected "$name" || return 0
 	s=$(date +%s)
 	"$@" >"$log" 2>&1
 	rc=$?
@@ -85,6 +138,7 @@ page_infra() {   # page_infra <rc> <log>: 0 when the run was an infrastructure e
 page_test() {
 	local name=$1 log=$2 s rc attempt
 	shift 2
+	selected "$name" || return 0
 	s=$(date +%s)
 	for attempt in 1 2; do
 		timeout "${PAGE_TIMEOUT:-900}" "$@" >"$log" 2>&1
@@ -120,18 +174,23 @@ for t in discovery/test_device_links.php discovery/test_device_link_validation.p
 		discovery/test_link_replacement.php discovery/test_manual_contradiction.php \
 		discovery/test_topology_model.php discovery/test_manual_device.php discovery/test_bind_interface.php discovery/test_junction.php test_contradiction_rule.php test_lazy_host_nodes.php \
 		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_device_row.php discovery/test_run_summary.php discovery/test_old_snapshot.php discovery/test_allowed_age.php discovery/test_port_limit.php discovery/test_port_follows_name.php discovery/test_run_input.php discovery/test_two_ports_rules.php discovery/test_remote_attrs_cap.php discovery/test_chassis_subtypes.php discovery/test_claim_key.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
+	selected "$t" || continue
 	db=topo_t_$(basename "$t" .php | cut -c6-40)
 	fresh "$db"
 	php_test "$db" "$t"
 	[ $failed = 0 ] && mysql -u"$user" -e "DROP DATABASE $db"
 done
 
-fresh topo_t_ingest_lock
-php_test topo_t_ingest_lock discovery/test_snapshot_ingest.php
-php_test topo_t_ingest_lock discovery/test_ingest_lock.php
+if selected discovery/test_snapshot_ingest.php || selected discovery/test_ingest_lock.php; then
+	fresh topo_t_ingest_lock
+	php_test topo_t_ingest_lock discovery/test_snapshot_ingest.php
+	php_test topo_t_ingest_lock discovery/test_ingest_lock.php
+fi
 
-fresh topo_t_busy_port
-php_test topo_t_busy_port discovery/test_manual_link_busy_port.php name
+if selected discovery/test_manual_link_busy_port.php; then
+	fresh topo_t_busy_port
+	php_test topo_t_busy_port discovery/test_manual_link_busy_port.php name
+fi
 
 # ---- 2. PHP tests without a database ----
 for t in test_freshness.php test_node_label.php test_hop_scope.php test_leaf_groups.php test_device_class.php; do

@@ -11,6 +11,51 @@ It prints `pass` / `FAIL` / `SKIP` per file and a table with the number of check
 the lab does not have at that moment; the reason is in the line. Environment: `LABPY` (python with PyYAML and mysql-connector, default `~/work/labenv/bin/python`), `PHPUNIT` (phpunit 8.5 phar,
 default `~/work/tools/phpunit-8.5.phar`: 8.5 because `ui/tests/include/CTest.php` calls `TestCase::getAnnotations()`, which PHPUnit 9 removed).
 
+## Run by area (task 119 section 0a)
+
+`run_php_tests.sh --only <areas> <user>` runs only the tests of the areas, comma separated; `--list` prints every test with its areas (`run_php_tests.sh --list`). With no `--only` the run is the full one. The areas are
+given by the name of the test (function `areas_of` of the script); a test can be in more than one area.
+
+| area | what | examples |
+|---|---|---|
+| `ingest` | reconciliation, snapshot, ports of a snapshot | `test_scenario_catalog`, `test_snapshot_ingest`, `test_port_*`, `test_far_*` |
+| `links` | links, contradiction | `test_device_links`, `test_link_replacement`, `test_topology_model` |
+| `identity` | identity keys, normalization, candidates, classes | `test_identity_*`, `test_normalization`, `test_device_class` |
+| `bind` | Bind to interface | `test_bind_interface.php`, `bind_check.py` (both modes) |
+| `manual` | manual Device | `test_manual_device.php`, `manual_device_check.py` |
+| `junction` | the Junction projection | `test_junction.php`, `junction_check.py` |
+| `native` | the native step, the LLD JavaScript, push | `step_golden/*`, `test_generated`, `test_lld_js`, `test_push.py`, `device_rows_check.py` |
+| `view` | the graph code without a browser | `test_topology_graph.js`, `test_node_label`, `test_leaf_groups`, `test_freshness` |
+| `page` | every check of the real page (headless Chrome) and the HTTP checks of the page | `ui_check_040/*`, `lab/php/*_http_check.php`, `graph_page_check.php` |
+| `lab` | the lab unit tests, the corpus, the state of R1 | `lab/tests`, `corpus/*`, `view_scope_check.php` |
+| `api` | the API tests of the frontend (phpunit) | `ui/tests/api_json/*` |
+| `slow` | 45 s or more in the full run 502 | see the table below |
+
+Examples: level 1 of a task about Bind: `--only bind,view`. About the page: `--only page`. About ingest: `--only ingest,links,identity`. A test of a new area is added in `areas_of`.
+
+### Times of the full run 502 (2026-11-24, start 12:38:26, 94 passed, 1680 s; code of task 118)
+
+R1 `--reset` before the run: about 5 minutes (restore.sh: `labsim down`, `run R1 --reset`, `up R1`; 12:32 to 12:37:26).
+
+| s | test | what takes the time |
+|---|---|---|
+| 262 | `discovery/test_scenario_catalog.php` | 135 scenarios, each through the real `ingest.php` process, 3 more runs after the last step of each, and the reversed order |
+| 126 | page: deterministic first layout (10 + 10 loads) | 20 starts of Chrome and loads of the page |
+| 90 | page: one header for the graph and the last run view | Chrome, two views, kiosk, two window sizes, a resize |
+| 68 | page escaping | Chrome, one load of the page with the escaping data and the panels of every node |
+| 58 | `discovery/test_device_links.php` | 203 checks, each makes data in the database |
+| 57 | `discovery/device_rows_check.py` | makes a host, a rule and waits for the server to poll |
+| 54 | page: Bind to interface by name | Chrome, a host of the real DevLinux, the history rows |
+| 51 | `lab/php/run_row_http_check.php` | HTTP with the login of the frontend, a run row |
+| 50 | `discovery/test_far_device_lookup.php` | database |
+| 48 | `discovery/test_link_replacement.php` | database |
+
+Not in the table: `test_snapshot_ingest.php` and the rest of the PHP tests are each under 30 s. The 10 slowest are 864 s of the 1680 s. A run of `--only bind,view` on 2026-11-24 (14:34:50) took 652 s because of an external load on the VM (a load average of 17 from a docker container
+that restarted its `s6` scripts all the time, not of this work); its by-name check took 503 s instead of 54 s.
+
+Proposal (for Dima to decide): leave level 1 with `--only <areas of the task>,view` and take the `slow` tests out of it. `test_scenario_catalog` (262 s) and the two Chrome checks with 10 loads (`determinism_check`, 126 s) and `header_check` (90 s)
+are for level 2 or 3.
+
 ## Every test file of the topology code
 
 | Test | In the common run | Notes |
