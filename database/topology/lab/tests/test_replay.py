@@ -155,9 +155,9 @@ class Deviations(Base):
         sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
         self.assertEqual(gen.device_records(sc.states[0], 'R1')[(1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1)], ('2', '1'))
         self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 3, 6, 1, 2, 1, 2, 2, 1, 8, 1)], ('2', '2'))
-        dv = self.dv(type='override_oid', oid='1.3.6.1.2.1.31.1.1.1.1.1', value=2)
+        dv = self.dv(type='override_oid', oid='lldpRemSysName', value=2)      # task 121: a column that a step can change (lldp); ifName is not one
         sc = self.scenario([{}, {'deviations': {'enable': ['d']}}], {'deviations': [dv]})
-        self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 3, 6, 1, 2, 1, 31, 1, 1, 1, 1, 1)], ('4', '2'))
+        self.assertEqual(gen.device_records(sc.states[1], 'R1')[(1, 0, 8802, 1, 1, 2, 1, 4, 1, 1, 9, 0, 1, 1)], ('4', '2'))
 
     def test_other_deviation_type_name_check_for_omit_mib(self):
         with self.assertRaisesRegex(LabError, 'omit_mib'):
@@ -221,3 +221,16 @@ class StepRoots(Base):
         self.assertIn('ifhighspeed', dev['mux'])
         self.assertEqual(open(os.path.join(dev['mux']['ifhighspeed']['dir'], '00000.snmprec')).read().strip(), '1.3.6.1.2.1.31.1.1.1.15.1|66|1000')
         self.assertEqual(open(os.path.join(dev['mux']['ifhighspeed']['dir'], '00001.snmprec')).read().strip(), '1.3.6.1.2.1.31.1.1.1.15.1|66|100')
+
+    def test_an_override_in_a_column_that_no_step_changes_is_refused_at_load(self):
+        # lab spec 4.4 (2.38, task 121): ifSpeed is no step root (the deviation would do nothing); ifOperStatus and ifHighSpeed are
+        text = VALID.replace(FDB, '1.3.6.1.2.1.2.2.1.5.1|66|1000000000\n1.3.6.1.2.1.2.2.1.8.1|2|1\n' + FDB).replace(CDP, '1.3.6.1.2.1.31.1.1.1.15.1|66|1000\n' + CDP)
+        for oid, ok in (('1.3.6.1.2.1.2.2.1.5.1', False), ('1.3.6.1.2.1.2.2.1.8.1', True), ('1.3.6.1.2.1.31.1.1.1.15.1', True)):
+            dv = {'id': 'd', 'reason': 'r', 'type': 'override_oid', 'device': 'R1', 'oid': oid, 'value': 5}
+            if ok:
+                self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
+            else:
+                with self.assertRaises(model.LabError) as raised:
+                    self.scenario([{}, {'deviations': {'enable': ['d']}}], {'text': text, 'deviations': [dv]})
+                self.assertIn('1.3.6.1.2.1.2.2.1.5', str(raised.exception))
+                self.assertIn('no step', str(raised.exception))

@@ -216,3 +216,8 @@ def check_applies(records, dev, d):
             raise LabError('deviation %s: omit_mib on a replay device takes mib %s, got %r' % (d['id'], '/'.join(MIB_ROOTS), d.get('mib')))
     elif d['type'] == 'override_oid':
         override(records, dev, d)
+        # lab spec 4.4 (2.38, task 121): the column must be one that a step can change (a MIB of MIB_ROOTS or a column of STEP_ROOTS); else the deviation would do nothing when a step enables it
+        column = LLDP_REM_ENTRY + (LLDP_REM_COLUMNS[d['oid']],) if d['oid'] in LLDP_REM_COLUMNS else parse_oid(d['oid'])
+        if not _under(column, [r for roots in {**MIB_ROOTS, **STEP_ROOTS}.values() for r in roots]):
+            raise LabError('deviation %s: the column %s of device %s is changed by no step (a step can change the columns of %s and %s); the deviation would do nothing'
+                           % (d['id'], oid_str(column[:-1] if d['oid'] not in LLDP_REM_COLUMNS else column), dev, '/'.join(MIB_ROOTS), ', '.join(sorted(STEP_ROOTS))))
