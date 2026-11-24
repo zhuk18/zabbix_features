@@ -293,6 +293,9 @@ COLLECT_JS = '''
             const hit2 = (a, c) => a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5;
             const overlaps = [];
             nodes.forEach((a, i) => { nodes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'node-node', a: a.name, b: c.name, ...px(a, c)}); }); });
+            const mark_boxes = Array.from(document.querySelectorAll('#topology-canvas g.topology-speed-mark')).map(g => box('mark ' + g.getAttribute('data-link'), g));
+            mark_boxes.forEach((a, i) => { nodes.concat(lag_boxes).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'mark-box', a: a.name, b: c.name, ...px(a, c)}); });
+                mark_boxes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'mark-mark', a: a.name, b: c.name, ...px(a, c)}); }); });
             lag_boxes.forEach((a, i) => { nodes.forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-node', a: a.name, b: c.name, ...px(a, c)}); });
                 lag_boxes.slice(i + 1).forEach(c => { if (hit2(a, c)) overlaps.push({kind: 'label-label', a: a.name, b: c.name, ...px(a, c)}); }); });
             return {tag, lines_through_nodes: linesThrough(), window: [innerWidth, innerHeight], zoom: view.zoom_transform ? {k: view.zoom_transform.k, x: view.zoom_transform.x, y: view.zoom_transform.y} : null,
@@ -493,8 +496,14 @@ CHECKS = {
         r.bundle_label_overlaps = [];
         lag.forEach((a, i) => { boxes.forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); lag.slice(i + 1).forEach(c => { if (hit(a, c)) r.bundle_label_overlaps.push([a.name, c.name]); }); });
         r.bundle_label_places = (view.lag_label_places || []).map(p => p.source.slice(0, 4) + '-' + p.target.slice(0, 4) + ' ' + p.label + ': ' + p.u + ' %' + (p.free ? '' : ' (no free point)'));
+        // task 120 (model §12.3, 2.101): the warning mark of a speed mismatch touches no node box, no bundle label and no other mark
+        const marks = Array.from(document.querySelectorAll('#topology-canvas g.topology-speed-mark')).map(g => { const b = g.getBoundingClientRect(); return {name: 'mark ' + g.getAttribute('data-link'), left: b.left, right: b.right, top: b.top, bottom: b.bottom}; });
+        r.speed_marks = marks.length;
+        r.mark_overlaps = [];
+        marks.forEach((a, i) => { boxes.concat(lag).forEach(c => { if (hit(a, c)) r.mark_overlaps.push([a.name, c.name]); }); marks.slice(i + 1).forEach(c => { if (hit(a, c)) r.mark_overlaps.push([a.name, c.name]); }); });
+        r.mark_places = (view.speed_mark_places || []).filter(p => !p.free).map(p => p.source + '-' + p.target + ' (no free point)');
         r.lines_through_nodes = linesThrough();
-        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.mark_overlaps.length === 0 && r.mark_places.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         if (!r.ok) {
             r.evidence = collect('overlap');
         }

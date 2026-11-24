@@ -582,6 +582,41 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const unknown = G.linkTooltip({...links[0], source: {name: 'SW12'}, target: {name: 'PC1'}, source_load: null, target_load: null, source_load_reason: null, target_load_reason: null}, words);
 	ok(!unknown.includes('no data'), 'a side whose reason is not known (no answer yet) says nothing', unknown);
 }
+// ---- the warning mark of a speed mismatch (§12.3, 2.101; task 120) ----
+{
+	const link = (id, extra = {}) => ({type: 'physical_link', edge_id: id, source: 'A', target: 'B', source_lag_id: '3', source_lag: 'lag3', target_lag_id: '9', target_lag: 'Trk1',
+		discovered_via: 'lldp', stale: false, superseded_at: null, severity: null, color: null, speed_mismatch: null, ...extra});
+	const bad = {source: 1000000000, target: 100000000};
+	let lines = G.bundleLinks([link(1), link(2, {speed_mismatch: bad})]);
+	ok(lines.length === 1 && lines[0].type === 'lag_bundle', 'a member with a mismatch stays in its bundle (the mismatch is no channel)');
+	const mark = G.markOf(lines[0]);
+	ok(mark !== null && mark.member.edge_id === 2 && mark.mismatch === bad, 'a bundle with one member with a mismatch has the mark, and it names that member', mark);
+	lines = G.bundleLinks([link(1), link(2)]);
+	ok(G.markOf(lines[0]) === null, 'a bundle whose members are equal has no mark');
+	ok(G.markOf(link(1, {source_lag_id: null, target_lag_id: null, speed_mismatch: bad})) !== null && G.markOf(link(1, {source_lag_id: null, target_lag_id: null})) === null,
+		'a link: the mark with a mismatch, none without');
+	ok(G.markOf({type: 'device_link', speed_mismatch: bad}) === null && G.markOf({type: 'junction_link'}) === null, 'a line that is not a port-level link has no mark');
+	// the place: the middle when it is free, the nearest free point when not; never on a label or on a node
+	const at = u => ({x: 100 * u * 4, y: 0});
+	const free = G.placeMark(at, []);
+	ok(free.free && free.u === 0.5 && free.x === 200, 'placeMark: the middle of a free line', free);
+	const label = G.placeLabel(at, G.labelWidth('Trk1 ×2'), []);
+	const next = G.placeMark(at, [label.box]);
+	ok(next.free && !(next.box.left < label.box.right && label.box.left < next.box.right && next.box.top < label.box.bottom && label.box.top < next.box.bottom),
+		'placeMark: next to the label of a bundle, never on it', [label.box, next.box]);
+	const wide = G.placeMark(at, [{left: 100, right: 300, top: -50, bottom: 50}]);
+	ok(wide.free === false && wide.u === 0.5, 'placeMark: no free point between 30 % and 70 %: not free, the middle (the overlap check lists it)');
+	ok(G.markWidth() === G.MARK_SIZE && G.MARK_SIZE > 0, 'one width function for the mark');
+	// the layout makes room as for a label: two nodes and a third on the line of a link with a mark
+	const box = {w: 40, h: 20, top: -10, bottom: 10};
+	const a = {x: 0, y: 0, box}, b = {x: 400, y: 0, box}, c = {x: 200, y: 0, box: {w: 60, h: 20, top: -10, bottom: 10}};
+	const nodes = [a, b, c];
+	const room = G.makeLabelRoom(nodes, [{a, b, width: 0, index: 0, count: 1, mark: true, mark_only: true}], {width: 1200, height: 800, padding: 30});
+	const place = G.placeMark(G.curve(a, b, 0, 1).at, nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom})));
+	ok(room === true && place.free, 'makeLabelRoom: a node on the line of a mark is moved off, the mark has a free point', {room, place, c});
+	const both = G.placeLabelsAndMarks([{a, b, width: G.labelWidth('Trk1 ×2'), index: 0, count: 1, mark: true, mark_only: false}], []);
+	ok(both.length === 2 && both[0].mark === false && both[1].mark === true && both.every(item => item.free), 'placeLabelsAndMarks: the label, then the mark, both free');
+}
 // the start order (model §12.1, 2.90, task 106): the label, then the hardware ID, then the kind; a group node and a Junction after their parent; never the node id
 {
 	const nodes = [

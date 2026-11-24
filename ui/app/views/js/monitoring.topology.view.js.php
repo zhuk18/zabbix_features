@@ -1413,7 +1413,10 @@ const view = new class {
 				[line('#64748b', 2, '5 3'), <?= json_encode(_('Dashed: manual')) ?>],
 				[line('#e97659', 4, '0'), <?= json_encode(_('Colour: the severity of the problems on the port items')) ?>],
 				[line('#64748b', 2, '0', 0.45), <?= json_encode(_('Faded: stale or superseded')) ?>],
-				[line('#64748b', 3, '1 4'), <?= json_encode(_('Dotted: device-level link (far port unknown)')) ?>]
+				[line('#64748b', 3, '1 4'), <?= json_encode(_('Dotted: device-level link (far port unknown)')) ?>],
+				// 2.101 (§12.3): the warning mark on the line, the same shape and colours as the mark that is drawn
+				[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)"><path d="M0,-7 L7,6 L-7,6 Z" style="fill:#f59e0b;stroke:#92400e;stroke-width:1.4;stroke-linejoin:round"/><path d="M0,-2.5 V1.5 M0,3.8 V3.9" style="fill:none;stroke:#1f2937;stroke-width:1.6;stroke-linecap:round"/></g></svg>`,
+					<?= json_encode(_('Speed mismatch: the data is wrong, or a device that is not on the graph is between the ports')) ?>]
 			]]
 		];
 		const legend = document.createElement('div');
@@ -1768,8 +1771,10 @@ const view = new class {
 		else if (entry.stale) {
 			marks.push(entry.last_seen ? <?= json_encode(_('not confirmed since %1$s')) ?>.replace('%1$s', this.formatDate(entry.last_seen)) : <?= json_encode(_('not confirmed recently')) ?>);
 		}
-		if (entry.speed_mismatch) {
-			marks.push(this.speedMismatchText(entry.speed_mismatch.local, entry.speed_mismatch.remote));
+		// 2.101 (§12.3): the row has the short mark; both speeds are in its hint box
+		const mismatch_hint = entry.speed_mismatch ? this.speedMismatchText(entry.speed_mismatch.local, entry.speed_mismatch.remote) : null;
+		if (mismatch_hint !== null) {
+			marks.push(<?= json_encode(_('speed mismatch')) ?>);
 		}
 		// the port name is never cut; the name of the interface of a bound port and the alias (model 2.100 §12.5, ifAlias) are cut and have the full text in the hint box
 		const ports_text = `${this.portSideText(entry.port ?? '?', entry.binding, entry.alias)} ↔ ${this.portSideText(entry.remote_port ?? '?', null, entry.remote_alias)}`;
@@ -1778,7 +1783,7 @@ const view = new class {
 			status !== '' ? `<span class="topology-link-status" title="${esc(status_labels[status] ?? status)}"><span class="topology-status-dot topology-status-${esc(status)}"></span></span>` : null,
 			entry.source_text ? `<span class="topology-link-source">${esc(entry.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
 		if (marks.length) {
-			line2.push(`<span class="topology-link-mark">${esc(marks.join(' · '))}</span>`);
+			line2.push(`<span class="topology-link-mark"${mismatch_hint !== null ? ` title="${esc(mismatch_hint)}"` : ''}>${esc(marks.join(' · '))}</span>`);
 		}
 		return this.linkRowHtml({edges: String(entry.edge_id ?? ''), cls: member ? 'topology-link-member' : '', hidden: member, neighbor_text: entry.connected_to, neighbor_node_id: neighbor_node?.id ?? null, line2});
 	}
@@ -1799,6 +1804,11 @@ const view = new class {
 		const line2 = [`<span class="topology-link-ports" title="LAG ${esc(row.label)}">${esc(row.label)}</span>`,
 			statuses.filter(status => status).length ? `<span class="topology-link-status" title="${esc(statuses.join(' / '))}">${statuses.filter(status => status).map(status => `<span class="topology-status-dot topology-status-${esc(status)}"></span>`).join('')}</span>` : null,
 			first.source_text ? `<span class="topology-link-source">${esc(first.source_text)}</span>` : null, load !== '—' ? `<span class="topology-link-load">${esc(load)}</span>` : null];
+		// 2.101: a bundle with a member that has a speed mismatch has the short mark; its hint box names the member
+		const bad = members.filter(member => member.speed_mismatch);
+		if (bad.length) {
+			line2.push(`<span class="topology-link-mark" title="${esc(bad.map(member => `${member.port ?? '?'} ↔ ${member.remote_port ?? '?'}: ${this.speedMismatchText(member.speed_mismatch.local, member.speed_mismatch.remote)}`).join('\n'))}">${esc(<?= json_encode(_('speed mismatch')) ?>)}</span>`);
+		}
 		const toggle = `<button type="button" class="btn-link topology-bundle-toggle" data-bundle="${key}" aria-expanded="false" title="${esc(<?= json_encode(_('Members')) ?>)}">▸</button>`;
 		return this.linkRowHtml({edges: edge_ids.join(','), cls: 'topology-link-bundle', toggle, neighbor_text: first.connected_to, neighbor_node_id: neighbor_node?.id ?? null, line2}) +
 			members.map(member => this.linkEntryHtml(member, {member: true})).join('');
@@ -3080,8 +3090,10 @@ const view = new class {
 			const lines = G.bundleLinks(simulation_links.map(link => ({...link})), keep);
 			const placement = G.parallelIndex(lines);
 			const drawn_lines = lines.map((line, i) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), ...placement[i]})).filter(line => line.a && line.b);
-			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle')
-				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: G.labelWidth(line.label, label_measure), index, count}));
+			// the labels of the LAG bundles and (2.101) the warning marks of the lines with a speed mismatch: both need a free point on their line
+			const bundles = lines.map((line, i) => ({line, ...placement[i]})).filter(({line}) => line.type === 'lag_bundle' || G.markOf(line))
+				.map(({line, index, count}) => ({a: node_by_id.get(line.source), b: node_by_id.get(line.target), width: line.type === 'lag_bundle' ? G.labelWidth(line.label, label_measure) : 0, index, count,
+					mark: G.markOf(line) !== null, mark_only: line.type !== 'lag_bundle'}));
 			// the leaves of an arc and their parent keep their places (the arc is as it was made); the others make room
 			const held = new_arcs.flatMap(({parent, leaves}) => [parent, ...leaves]).filter(node => node.fx === undefined || node.fx === null);
 			const before_solver = nodes.map(node => [node.x, node.y]);
@@ -3098,11 +3110,7 @@ const view = new class {
 					});
 					// the places of the bundle labels now: the nodes that are moved off a line do not go onto a label (else the room for the label takes the node back across the line)
 					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-					const label_boxes = [];
-					bundles.forEach(({a, b, width: label_width, index, count}) => {
-						const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...label_boxes.map(item => item.box)]);
-						label_boxes.push({box: place.box, owners: [a, b]});
-					});
+					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes);
 					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 40, label_boxes);
 					// §12.3 (2.73, 2.76): the label of a LAG bundle needs a free point on its line; a layout that leaves none is stretched, after every change of the layout
 					const room = G.makeLabelRoom(nodes, bundles, {width, height, padding});
@@ -3130,11 +3138,7 @@ const view = new class {
 						node.fy = node.y;
 					});
 					const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-					const label_boxes = [];
-					bundles.forEach(({a, b, width: label_width, index, count}) => {
-						const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...label_boxes.map(item => item.box)]);
-						label_boxes.push({box: place.box, owners: [a, b]});
-					});
+					const label_boxes = G.placeLabelsAndMarks(bundles, node_boxes);
 					G.clearThroughLines(nodes, drawn_lines, {width, height, padding}, 80, label_boxes, 8, 5);
 					held.forEach(node => {
 						node.fx = undefined;
@@ -3159,13 +3163,7 @@ const view = new class {
 				if (G.linesThrough(nodes, drawn_lines, 2).length > 0) {
 					const label_places = () => {
 						const node_boxes = nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom}));
-						const placed = [];
-						bundles.forEach(({a, b, width: label_width, index, count}) => {
-							const place = G.placeLabel(G.curve(a, b, index, count).at, label_width, [...node_boxes, ...placed.map(item => item.box)]);
-							placed.push({box: place.box, owners: [a, b], free: place.free});
-						});
-
-						return placed;
+						return G.placeLabelsAndMarks(bundles, node_boxes);
 					};
 					const saved = nodes.map(node => [node.x, node.y]);
 					const crossings_before = G.linesThrough(nodes, drawn_lines, 2).length;
@@ -3506,6 +3504,26 @@ const view = new class {
 				}
 			});
 		this.line_entries = line_entries;
+		// ---- the warning mark of a speed mismatch (§12.3, 2.101; FR-C V-4, V-25) ----
+		// A small warning sign at the middle of the line of a link with a speed mismatch, or of a LAG bundle with a member that has one (next to the label, never on it). The line keeps its
+		// colour, dash, width and opacity. Visible with no hover; a click opens the panel of the link, as the line does; the hover has the tooltip of the line.
+		const mark_data = simulation_links.filter(link => G.markOf(link) !== null);
+		const speed_marks = scene.append('g').attr('class', 'topology-speed-mark-layer').selectAll('g').data(mark_data).join('g')
+			.attr('class', 'topology-speed-mark').style('cursor', 'pointer')
+			.attr('data-link', link => `${link.source.id}>${link.target.id}`);
+		speed_marks.append('path').attr('d', `M0,${-G.MARK_SIZE / 2} L${G.MARK_SIZE / 2},${G.MARK_SIZE / 2 - 1} L${-G.MARK_SIZE / 2},${G.MARK_SIZE / 2 - 1} Z`)
+			.style('fill', '#f59e0b').style('stroke', '#92400e').style('stroke-width', '1.4px').style('stroke-linejoin', 'round');
+		speed_marks.append('path').attr('d', 'M0,-2.5 V1.5 M0,3.8 V3.9').style('fill', 'none').style('stroke', '#1f2937').style('stroke-width', '1.6px').style('stroke-linecap', 'round');
+		const entry_of = link => line_entries.find(entry => entry.link === link);
+		speed_marks.on('click', (event, link) => {
+			event.stopPropagation();
+			entry_of(link)?.open();
+		}).on('mouseenter.hint', (event, link) => {
+			const tooltip = link_tooltip(link);
+			if (tooltip !== '') {
+				this.showHint(event, event.currentTarget, tooltip);
+			}
+		}).on('mouseleave.hint', () => this.hideHint());
 
 		// topology-1-model.md §12.2: one channel, one meaning. Outline = node kind (solid: Host or Proxy; dashed: Device without association). Icon = node kind. Fill = the severity
 		// of a Host only: white without problems, the severity colour with them, muted when the Host is disabled. A Proxy is neutral, a Device is always grey. Maintenance, blind
@@ -3570,8 +3588,9 @@ const view = new class {
 							// the area is full; the nodes stay as they are
 						}
 						// 2.76: the labels of the bundles get their room again (the dragged node and the other fixed nodes stay)
-						const bundle_lines = simulation_links.filter(link => link.type === 'lag_bundle')
-							.map(link => ({a: link.source, b: link.target, width: G.labelWidth(link.label, label_measure), index: link.parallel.index, count: link.parallel.count}));
+						const bundle_lines = simulation_links.filter(link => link.type === 'lag_bundle' || G.markOf(link))
+							.map(link => ({a: link.source, b: link.target, width: link.type === 'lag_bundle' ? G.labelWidth(link.label, label_measure) : 0, index: link.parallel.index, count: link.parallel.count,
+								mark: G.markOf(link) !== null, mark_only: link.type !== 'lag_bundle'}));
 						const all_lines = simulation_links.map(link => ({a: link.source, b: link.target, index: link.parallel.index, count: link.parallel.count}));
 						// 2.84 (§12.1 "No line through a node"): after a drag the nodes that a line crosses are moved off it (the dragged node and the other fixed nodes stay)
 						for (let pass = 0; pass < 8; pass++) {
@@ -3745,6 +3764,15 @@ const view = new class {
 				view_places.push({label: link.label, source: link.source.name, target: link.target.name, u: Math.round(place.u * 100), free: place.free});
 			});
 			this.lag_label_places = view_places;
+			// 2.101: the warning marks after the labels: each one at the middle of its line, or at the free point nearest to it (the label of a bundle is an obstacle, a mark is never on it)
+			const mark_places = [];
+			speed_marks.each(function (link) {
+				const place = G.placeMark(G.curve(link.source, link.target, link.parallel.index, link.parallel.count).at, [...node_boxes, ...placed]);
+				placed.push(place.box);
+				d3.select(this).attr('transform', `translate(${place.x},${place.y})`);
+				mark_places.push({source: String(link.source.id), target: String(link.target.id), type: link.type, u: Math.round(place.u * 100), free: place.free});
+			});
+			this.speed_mark_places = mark_places;
 			hits.attr('d', entry => entry.d());
 			extra_glows.selectAll('path').attr('d', function () {
 				return this.d_fn();
