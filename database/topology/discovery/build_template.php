@@ -19,14 +19,14 @@ declare(strict_types=1);
 $output = $argv[1] ?? __DIR__.'/template_topology_by_snmp.yaml';
 
 // The OID set of lld_js/walk_oids.txt plus CISCO-CDP-MIB (cdpCacheTable, cdpGlobalRun), split by refresh interval.
-$core_oids = ['1.3.6.1.2.1.1.5', '1.3.6.1.2.1.2.2.1', '1.3.6.1.2.1.31.1.1.1.1', '1.3.6.1.2.1.31.1.1.1.15',
+$core_oids = ['1.3.6.1.2.1.1.5', '1.3.6.1.2.1.2.2.1', '1.3.6.1.2.1.31.1.1.1.1', '1.3.6.1.2.1.31.1.1.1.15', '1.3.6.1.2.1.31.1.1.1.18',
 	'1.0.8802.1.1.2.1.3.2', '1.0.8802.1.1.2.1.3.7', '1.0.8802.1.1.2.1.4.1', '1.0.8802.1.1.2.1.4.2',
 	'1.2.840.10006.300.43.1.2.1.1.13', '1.3.6.1.4.1.9.9.23.1.2.1.1', '1.3.6.1.4.1.9.9.23.1.3.1',
 	'1.0.8802.1.1.2.1.3.3', '1.0.8802.1.1.2.1.3.6', '1.3.6.1.4.1.9.9.23.1.3.4', '1.0.8802.1.1.2.1.3.1'];
 $fdb_oids = ['1.3.6.1.2.1.17.1.4.1.2', '1.3.6.1.2.1.17.7.1.2.2.1', '1.3.6.1.2.1.17.4.3.1'];
 
 $listed = array_filter(array_map('trim', file(__DIR__.'/lld_js/walk_oids.txt')));
-$expected = array_merge(array_slice($core_oids, 0, 9), $fdb_oids);
+$expected = array_merge(array_slice($core_oids, 0, 10), $fdb_oids);
 
 if (array_values(array_diff($expected, $listed)) || array_values(array_diff($listed, $expected))) {
 	fwrite(STDERR, "lld_js/walk_oids.txt and the OID lists in build_template.php differ — keep them identical.\n");

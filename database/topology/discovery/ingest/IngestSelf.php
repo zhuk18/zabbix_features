@@ -538,10 +538,19 @@ class IngestSelf {
 				// model §9.7 "Host with a PORTS rule" (2.92, task 108): a manual Port that a row takes (by its bound index, or by its name, §6.6) is a reported port from now on: `source` is
 				// reported, the binding (`interface_name`) is gone; its name, index, items and attrs are the row's, its manual links stay
 				$taken = $snap_node_attrs($port_id);
+				$became = $taken;
 				if (($taken['source'] ?? null) === 'manual') {
-					$became = $taken;
 					$became['source'] = 'reported';
 					unset($became['interface_name']);
+				}
+				// model §6.6 (2.100, task 119): the port alias (ifAlias) is stored as the row gives it and is never the name, never a key; an empty or missing value clears it
+				if (($row['alias'] ?? '') !== '') {
+					$became['alias'] = (string) $row['alias'];
+				}
+				else {
+					unset($became['alias']);
+				}
+				if ($became !== $taken) {
 					$snap_write_attrs($port_id, $became, $taken);
 				}
 				$port_name = $snap_node_attrs($port_id)['name'] ?? '';
