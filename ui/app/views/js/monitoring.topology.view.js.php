@@ -2598,10 +2598,12 @@ const view = new class {
 		const interfaces = answer.interfaces ?? [];
 		const form = document.createElement('form');
 		form.setAttribute('autocomplete', 'off');
-		const rows = interfaces.map(item => {
+		// task 118 (2.99): an interface that is found by name has no index: its value is the name ("n:<name>"), the index column shows "—"; one with an index has "i:<index>"
+		const key_of = item => (item.if_index === null || item.if_index === undefined ? `n:${item.name}` : `i:${item.if_index}`);
+		const rows = interfaces.map((item, position) => {
 			const taken = item.port && String(item.port.id) !== String(port.id);
-			return `<tr class="topology-bind-row"><td><input type="radio" name="topology-bind-interface" value="${esc(item.if_index)}" id="topology-bind-${esc(item.if_index)}"${taken ? ' disabled' : ''}${item.port && !taken ? ' checked' : ''}></td>` +
-				`<td><label for="topology-bind-${esc(item.if_index)}">${esc(item.name)}</label></td><td>${esc(item.if_index)}</td>` +
+			return `<tr class="topology-bind-row"><td><input type="radio" name="topology-bind-interface" value="${esc(key_of(item))}" id="topology-bind-${esc(item.if_index ?? 'n' + position)}"${taken ? ' disabled' : ''}${item.port && !taken ? ' checked' : ''}></td>` +
+				`<td><label for="topology-bind-${esc(item.if_index ?? 'n' + position)}">${esc(item.name)}</label></td><td>${item.if_index === null || item.if_index === undefined ? '—' : esc(item.if_index)}</td>` +
 				`<td>${taken ? esc(<?= json_encode(_('used by %1$s')) ?>.replace('%1$s', item.port.name)) : ''}</td></tr>`;
 		}).join('');
 		form.innerHTML = `<output class="topology-dialog-error" hidden></output>` + (interfaces.length
@@ -2621,7 +2623,8 @@ const view = new class {
 						overlay.unsetLoading();
 						return false;
 					}
-					request('topology.ports.bind', {id: port.id, if_index: Number(chosen.value)}).then(async () => {
+					const body = chosen.value.startsWith('n:') ? {id: port.id, name: chosen.value.slice(2)} : {id: port.id, if_index: Number(chosen.value.slice(2))};
+					request('topology.ports.bind', body).then(async () => {
 						overlayDialogueDestroy(overlay.dialogueid);
 						await this.selectNode(reselect_node);
 					}).catch(exception => {

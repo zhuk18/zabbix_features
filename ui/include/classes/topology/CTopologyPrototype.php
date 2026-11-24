@@ -4169,7 +4169,8 @@ class CTopologyPrototype {
 					continue;
 				}
 				foreach (['in' => 'net.if.in[', 'out' => 'net.if.out[', 'speed' => 'net.if.speed['] as $name => $prefix) {
-					if (str_starts_with($item['key_'], $prefix)) {
+					// task 118: the Zabbix agent keys have a mode (`net.if.in["eth0",errors]`, `,dropped`): only the bytes (no mode, or `bytes`) are the load; the counters of errors are not
+					if (str_starts_with($item['key_'], $prefix) && self::isBytesKey($item['key_'])) {
 						$load['items'][$name] = $item['itemid'];
 						if (isset($item['lastclock'], $item['lastvalue']) && (int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
 							$load[$name] = (float) $item['lastvalue'];
@@ -4187,6 +4188,16 @@ class CTopologyPrototype {
 		}
 
 		return $result;
+	}
+
+	/** An item of the load (§4.8): `net.if.in` and `net.if.out` count bytes. A Zabbix agent key has a mode as its second parameter (`net.if.in["eth0",errors]`): only no mode or `bytes` is the load. */
+	private static function isBytesKey(string $key): bool {
+		if (!preg_match('/^net\.if\.(?:in|out)\[(.*)\]$/', $key, $match)) {
+			return true;
+		}
+		$params = str_getcsv($match[1], ',', '"', '');
+
+		return count($params) < 2 || strtolower(trim($params[1])) === 'bytes';
 	}
 
 	/**
