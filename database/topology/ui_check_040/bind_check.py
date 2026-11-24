@@ -129,10 +129,10 @@ def interface_names(hostid):
 def interface_items(hostid, index):
     out = {}
     if BY_NAME:
-        for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[\"%s\"]', 'net.if.out[\"%s\"]', 'net.if.in[\"%s\",errors]')" % (hostid, index, index, index)).split('\n'):
+        for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[\"%s\"]', 'net.if.out[\"%s\"]', 'net.if.in[\"%s\",errors]', 'vfs.file.contents[\"/sys/class/net/%s/speed\"]')" % (hostid, index, index, index, index)).split('\n'):
             if line:
                 itemid, key, vt = line.split('\t')
-                out['errors' if 'errors' in key else key.split('[')[0]] = (itemid, vt)
+                out['errors' if 'errors' in key else ('net.if.speed' if key.startswith('vfs.file') else key.split('[')[0])] = (itemid, vt)
         return out
     for line in db("select i.itemid, i.key_, i.value_type from items i where i.hostid = %s and i.flags = 4 and i.key_ in ('net.if.in[ifInOctets.%d]', 'net.if.out[ifOutOctets.%d]', 'net.if.speed[ifSpeed.%d]')" % (hostid, index, index, index)).split('\n'):
         if line:
@@ -151,8 +151,8 @@ def history_rows(hostid):
 def write_history(hostid, index, rate_in, rate_out, speed):
     # by name the host is polled live by the server: the rows of the check are dated ahead, so that they are the last values until the check removes them
     now = int(time.time()) + (600 if BY_NAME else 0)
-    # by name: the agent template has no speed item; the counter of errors gets a value too (it must not be taken for the load)
-    for name, value in ((('net.if.in', rate_in), ('net.if.out', rate_out), ('errors', 99)) if BY_NAME else (('net.if.in', rate_in), ('net.if.out', rate_out), ('net.if.speed', speed))):
+    # by name: the speed is the item vfs.file.contents["/sys/class/net/<name>/speed"] of the agent template (bit/s); the counter of errors gets a value too (it must not be taken for the load)
+    for name, value in ((('net.if.in', rate_in), ('net.if.out', rate_out), ('errors', 99), ('net.if.speed', speed)) if BY_NAME else (('net.if.in', rate_in), ('net.if.out', rate_out), ('net.if.speed', speed))):
         itemid, vt = interface_items(hostid, index)[name]
         table = 'history_uint' if vt == '3' else 'history'
         db("insert into %s (itemid, clock, value, ns) values (%s, %d, %s, 0)" % (table, itemid, now, value))
@@ -248,9 +248,11 @@ try:
     text = js("(%s)('p1').textContent + ' | ' + (%s)('p1').querySelector('.topology-link-ports').dataset.hintboxHtml" % (LINKS_ROW, LINKS_ROW))
     check('p1 → %s' % NAMES[0] in text, 'the Links row shows "p1 → %s"' % NAMES[0], text)
     if BY_NAME:
-        # the agent template has no speed item: the row has no percent; the load is what ports.get reads from the bytes items (the errors item has another value)
+        # the load is what ports.get reads from the bytes items and from the speed file of the agent template (the errors item has another value)
         load = js("""(async () => { const host = view.drawn_nodes.find(n => n.label === %s); const answer = await view.request('topology.ports.get&id=' + encodeURIComponent(host.device.id)); const port = Object.values(answer.groups).flat().find(p => p.port === 'p1'); return port.load; })()""" % json.dumps(hostname))
-        check(load is not None and load['in'] == 8000000 and load['out'] == 4000000 and load['speed'] is None, 'the load of the interface by name: in 8 Mbit/s, out 4 Mbit/s (the values that the check wrote; the errors item does not change them)', load)
+        check(load is not None and load['in'] == 8000000 and load['out'] == 4000000 and load['speed'] == 1000000000 and load['percent'] == 0.8,
+              'the load of the interface by name: in 8 Mbit/s, out 4 Mbit/s of 1 Gbit/s (the speed file of the agent template; the values that the check wrote; the errors item does not change them)', load)
+        check('in 0.8 %' in text and 'out 0.4 %' in text, 'the Links row shows the load of the interface by name: in 0.8 % / out 0.4 %', text)
         hint = js("""(() => { const e = %s; return e.tooltip().html; })()""" % LINE_P1)
         check('in 8 Mbps / out 4 Mbps' in hint, 'the hint box of the line shows the load of the values that the check wrote (in 8 Mbps / out 4 Mbps)', hint)
     else:
@@ -315,7 +317,7 @@ if host:
     if BY_NAME:
         # the host is polled live: its row count changes by itself; the rows of the check are found by their item and clock
         left = sum(int(db("select count(*) from %s where itemid = %s and clock = %d" % (table, itemid, clock))) for table, itemid, clock in HISTORY)
-        check(left == 0 and len(HISTORY) == 3, 'no history row of the check is left (the three rows that it wrote: in, out, errors)', [left, len(HISTORY)])
+        check(left == 0 and len(HISTORY) == 4, 'no history row of the check is left (the four rows that it wrote: in, out, errors, speed)', [left, len(HISTORY)])
     else:
         check(history_rows(host[0]) == HISTORY_BEFORE, 'no history row of the check is left (%s rows of the host before and after)' % HISTORY_BEFORE, history_rows(host[0]))
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All Bind to interface page checks passed.'))

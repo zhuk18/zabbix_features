@@ -3295,7 +3295,8 @@ class CTopologyPrototype {
 	}
 
 	/** The prefixes of the item keys of an interface (topology-1-model.md §4.8, §9.7 "Bind to interface"): the load items and the status item. */
-	private const INTERFACE_KEYS = ['net.if.in[', 'net.if.out[', 'net.if.speed[', 'net.if.status['];
+	// (task 118: the Zabbix agent template "Linux by Zabbix agent" keeps the speed and the operational status of an interface in `vfs.file.contents["/sys/class/net/<name>/speed"]` and `.../operstate"]`)
+	private const INTERFACE_KEYS = ['net.if.in[', 'net.if.out[', 'net.if.speed[', 'net.if.status[', 'vfs.file.contents["/sys/class/net/'];
 
 	/**
 	 * A manual port that can be bound (§9.7 "Bind to interface"): a manual port of a manual Device that is associated with a HOST. A discovered port, a Device without an association and a Device
@@ -4168,13 +4169,12 @@ class CTopologyPrototype {
 				if ($item === null) {
 					continue;
 				}
-				foreach (['in' => 'net.if.in[', 'out' => 'net.if.out[', 'speed' => 'net.if.speed['] as $name => $prefix) {
-					// task 118: the Zabbix agent keys have a mode (`net.if.in["eth0",errors]`, `,dropped`): only the bytes (no mode, or `bytes`) are the load; the counters of errors are not
-					if (str_starts_with($item['key_'], $prefix) && self::isBytesKey($item['key_'])) {
-						$load['items'][$name] = $item['itemid'];
-						if (isset($item['lastclock'], $item['lastvalue']) && (int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
-							$load[$name] = (float) $item['lastvalue'];
-						}
+				// task 118: the bytes keys of the SNMP template and of the Zabbix agent template (a mode other than bytes is not the load), the speed of either template
+				$name = self::loadKind($item['key_']);
+				if ($name !== null) {
+					$load['items'][$name] = $item['itemid'];
+					if (isset($item['lastclock'], $item['lastvalue']) && (int) $item['lastclock'] >= time() - self::LOAD_RECENT && is_numeric($item['lastvalue'])) {
+						$load[$name] = (float) $item['lastvalue'];
 					}
 				}
 			}
@@ -4188,6 +4188,23 @@ class CTopologyPrototype {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * What an item of an interface is for the load (§4.8): 'in' and 'out' (`net.if.in[...]`, `net.if.out[...]`, bytes only), 'speed' (`net.if.speed[...]` of the SNMP template, `vfs.file.contents["/sys/class/net/<name>/speed"]`
+	 * of the Zabbix agent template, in bit/s), else null.
+	 */
+	private static function loadKind(string $key): ?string {
+		foreach (['in' => 'net.if.in[', 'out' => 'net.if.out['] as $kind => $prefix) {
+			if (str_starts_with($key, $prefix)) {
+				return self::isBytesKey($key) ? $kind : null;
+			}
+		}
+		if (str_starts_with($key, 'net.if.speed[') || preg_match('#^vfs\.file\.contents\["/sys/class/net/[^"]+/speed"\]$#', $key)) {
+			return 'speed';
+		}
+
+		return null;
 	}
 
 	/** An item of the load (§4.8): `net.if.in` and `net.if.out` count bytes. A Zabbix agent key has a mode as its second parameter (`net.if.in["eth0",errors]`): only no mode or `bytes` is the load. */

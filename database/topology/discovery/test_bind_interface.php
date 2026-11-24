@@ -747,6 +747,39 @@ check($bytes_key('net.if.in["eth0"]') && $bytes_key('net.if.out["eth0", bytes]')
 	'an agent key without a mode, with the mode bytes, and an SNMP key are the load');
 check(!$bytes_key('net.if.in["eth0",errors]') && !$bytes_key('net.if.out["eth0",dropped]') && !$bytes_key('net.if.in["eth0", overruns]'), 'a key with another mode (errors, dropped) is not the load: its counter would replace the bytes');
 
+echo "\n=== 13. the speed of a Zabbix agent interface: vfs.file.contents[\"/sys/class/net/<name>/speed\"] (task 118) ===\n";
+$kind_of = static function (string $key): ?string {
+	$method = new ReflectionMethod(CTopologyPrototype::class, 'loadKind');
+	$method->setAccessible(true);
+	return $method->invoke(null, $key);
+};
+check($kind_of('net.if.in["eth0"]') === 'in' && $kind_of('net.if.out["eth0"]') === 'out' && $kind_of('net.if.speed[ifSpeed.2]') === 'speed'
+	&& $kind_of('vfs.file.contents["/sys/class/net/eth0/speed"]') === 'speed', 'the load kinds: in, out and speed of the SNMP template, the speed of the agent template');
+check($kind_of('vfs.file.contents["/sys/class/net/eth0/operstate"]') === null && $kind_of('vfs.file.contents["/sys/class/net/eth0/type"]') === null && $kind_of('net.if.in["eth0",errors]') === null
+	&& $kind_of('vfs.file.contents["/etc/hostname"]') === null, 'the operstate and the type files, a counter of errors and other files are not load items');
+// the interface of a host of the agent template: its items include the speed and the status files (the prototypes carry the name); they belong to the interface of that name
+reset_all($pdo);
+API::$items = [];
+add_host($pdo, 701, 'LX701', 'Linux 701', '10.0.7.1');
+$y_eth0 = $add_named($pdo, 701, 'eth0');
+foreach (['speed', 'operstate'] as $file) {
+	$id = 701900 + count(API::$items);
+	$key = 'vfs.file.contents["/sys/class/net/eth0/'.$file.'"]';
+	API::$items[$id] = ['hostid' => 701, 'key_' => $key, 'value_type' => '3', 'type' => '0', 'delay' => '1m', 'master_itemid' => '0'];
+	$pdo->prepare('REPLACE INTO items (itemid, hostid, status, topology_type, key_, flags) VALUES (?, ?, 0, 0, ?, 4)')->execute([$id, 701, $key]);
+	$pdo->prepare('REPLACE INTO item_discovery (itemid, key_) VALUES (?, ?)')->execute([$id, 'vfs.file.contents["/sys/class/net/{#IFNAME}/'.$file.'"]']);
+	$pdo->prepare('INSERT INTO item_tag (itemid, tag, value) VALUES (?, ?, ?)')->execute([$id, 'interface', 'eth0']);
+	$y_eth0[] = $id;
+}
+$YD = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'AGENT-3', 'device_class' => 'station', 'ports' => [['name' => 'y1']]])['id'];
+$yp = ports_of($pdo, $YD);
+CTopologyPrototype::promote((string) $YD, 'host', '701');
+$r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $yp['y1']]);
+$e0 = array_values(array_filter($r['interfaces'] ?? [], static fn (array $i): bool => $i['name'] === 'eth0'))[0] ?? null;
+sort($y_eth0);
+check(count($r['interfaces'] ?? []) === 1 && $e0 !== null && $e0['if_index'] === null && $e0['itemids'] === $y_eth0, 'the speed and the operstate files are items of the interface eth0 (one interface, no other)', $r['interfaces'] ?? null);
+check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $yp['y1'], 'name' => 'eth0'])) && $ids_of($items_of([$yp['y1']])[(string) $yp['y1']]) === $y_eth0, 'Bind by name: the items of the port include the speed item', $items_of([$yp['y1']]));
+
 echo "\nAll Bind to interface checks passed.\n";
 
 function reporter_host(PDO $pdo, int $hostid, string $chassis): array {
