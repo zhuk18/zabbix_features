@@ -1460,7 +1460,7 @@ class CTopologyPrototype {
 		$wanted = [];
 		foreach ($rows as $row) {
 			$attrs = self::attrs($row);
-			if ($row['linkid'] !== null || isset($device_level[$row['id']]) || (($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index']))) {
+			if ($row['linkid'] !== null || isset($device_level[$row['id']]) || (($attrs['source'] ?? null) === 'manual' && (isset($attrs['if_index']) || self::cleanName($attrs['interface_name'] ?? null) !== ''))) {
 				$wanted[] = $row['id'];
 			}
 		}
@@ -1491,7 +1491,9 @@ class CTopologyPrototype {
 				// 2.80 (§9.7): a manual port has no oper_status; `manual` and `description` are for its menu and the edit dialog
 				'manual' => ($attrs['source'] ?? null) === 'manual', 'description' => $attrs['description'] ?? null,
 				// 2.91: the interface a manual port is bound to ("lan0 → Gi0/1"); `missing`: its items are gone ("interface not found")
-				'binding' => ($attrs['source'] ?? null) === 'manual' && isset($attrs['if_index']) ? ['if_index' => (int) $attrs['if_index'], 'name' => $attrs['interface_name'] ?? null,
+				// 2.99: a binding by name has no `if_index` (`if_index` null, `name` the interface name)
+				'binding' => ($attrs['source'] ?? null) === 'manual' && (isset($attrs['if_index']) || self::cleanName($attrs['interface_name'] ?? null) !== '')
+					? ['if_index' => isset($attrs['if_index']) ? (int) $attrs['if_index'] : null, 'name' => $attrs['interface_name'] ?? null,
 					'missing' => !($items_of_port[(string) $row['id']]['itemids'] ?? [])] : null,
 				'status' => $attrs['oper_status'] ?? null, 'admin_status' => $attrs['admin_status'] ?? null,
 				// a LAG member shows the name of its LAG (§12.5)
@@ -3624,11 +3626,37 @@ class CTopologyPrototype {
 	}
 
 	/**
-	 * POST /topo/ports/{id}/bind {if_index} (§9.7): the port gets the index and the name of that interface (the items are found when the graph is read, §3.2) and keeps its name and `source = manual`. Refused: an interface that
-	 * another Port of the Device already has ("<port> already has this interface"), an index that the host has no interface for (or none that the user may read), a discovered port, a Device without an association.
+	 * POST /topo/ports/{id}/bind {if_index} or {name} (§9.7, 2.99): the port gets the index and the name of that interface, or, for an interface that is found by name (Zabbix agent templates), the name only
+	 * (`interface_name`, no `if_index`); the items are found when the graph is read (§3.2) and the port keeps its name and `source = manual`. Refused: an interface that another Port of the Device already has,
+	 * by index or by name ("<port> already has this interface"), an index or a name that the host has no interface for (or none that the user may read), a name that more than one interface of the host has
+	 * (§3.2 item 3 would find no items), a discovered port, a Device without an association.
 	 */
-	public static function bindPort(string $port_id, int $if_index, string $userid): array {
+	public static function bindPort(string $port_id, ?int $if_index, string $userid, ?string $name = null): array {
 		[$row, $hostid] = self::bindablePort($port_id);
+		$attrs = self::attrs($row);
+		if ($if_index === null) {
+			$clean = self::cleanName($name);
+			if ($clean === '') {
+				throw new Exception('Give the index or the name of the interface.');
+			}
+			$same = array_values(array_filter(self::hostInterfaces($hostid), static fn (array $interface): bool => $interface['if_index'] === null && self::cleanName($interface['name']) === $clean));
+			if (!$same) {
+				throw new Exception('The host has no interface with the name '.$clean.' (or you may not read its items).');
+			}
+			if (count($same) > 1) {
+				throw new Exception('More than one interface of the host has the name '.$clean.': it cannot be bound by name.');
+			}
+			$holder = self::namedPortsOf((string) $row['device_id'])[$clean] ?? null;
+			if ($holder !== null && $holder['id'] !== (string) $port_id) {
+				throw new Exception('The port '.$holder['name'].' already has this interface.');
+			}
+			unset($attrs['if_index']);
+			$attrs['interface_name'] = $same[0]['name'];
+			DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));
+			self::touchManualDevice((string) $row['device_id'], $userid);
+
+			return ['id' => $port_id, 'if_index' => null, 'interface' => $same[0]['name']];
+		}
 		$holder = self::indexedPortsOf((string) $row['device_id'])[$if_index] ?? null;
 		if ($holder !== null && $holder['id'] !== (string) $port_id) {
 			throw new Exception('The port '.$holder['name'].' already has this interface.');
@@ -3637,7 +3665,6 @@ class CTopologyPrototype {
 		if ($interface === null) {
 			throw new Exception('The host has no interface with the index '.$if_index.' (or you may not read its items).');
 		}
-		$attrs = self::attrs($row);
 		$attrs['if_index'] = $interface['if_index'];
 		$attrs['interface_name'] = $interface['name'];
 		DBexecute('UPDATE topo_nodes SET attrs='.zbx_dbstr(json_encode($attrs)).',updated_at='.time().' WHERE id='.zbx_dbstr($port_id));

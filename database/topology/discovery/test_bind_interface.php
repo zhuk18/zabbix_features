@@ -671,6 +671,72 @@ check(($r['interfaces'][1]['itemids'] ?? null) === $x_eth0 && ($r['interfaces'][
 $before_items = $items_of(array_values($np));
 check(array_unique(array_column($before_items, 'reason')) === ['no_binding'], 'the graph reading is not changed: the ports of a manual Device that are not bound have no items', $before_items);
 
+echo "\n=== 10. Bind by name, the refusals, missing, Unbind (task 118, model 2.99) ===\n";
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p1'], 'name' => 'eth0']);
+$at = attrs_of($pdo, $np['p1']);
+check(!failed($r) && ($at['interface_name'] ?? null) === 'eth0' && !array_key_exists('if_index', $at) && $at['name'] === 'p1' && $at['source'] === 'manual' && !array_key_exists('zabbix_itemids', $at),
+	'Bind by name: interface_name only, no if_index; the port keeps its name and stays manual', $at);
+$dev = attrs_of($pdo, $ND);
+check(($dev['updated_by'] ?? null) === '1' && isset($dev['updated_at']), 'updated_by and updated_at of the Device are recorded', $dev);
+$r = call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $np['p1']]);
+$holder = null;
+foreach ($r['interfaces'] ?? [] as $interface) {
+	if ($interface['name'] === 'eth0') {
+		$holder = $interface['port'];
+	}
+}
+check(($holder['name'] ?? null) === 'p1' && $r['interfaces'][2]['port'] === null, 'the list shows the Port that has the interface by name; the other name interface has none', $r['interfaces'] ?? null);
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p2'], 'name' => 'eth0']);
+check(failed($r) && str_contains(implode(' ', $r['error']['messages']), 'p1 already has') && !array_key_exists('interface_name', attrs_of($pdo, $np['p2'])), 'an interface by name that another Port has: refused, "p1 already has this interface"', $r);
+check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p1'], 'name' => 'eth0'])), 'Bind p1 to the interface it already has: no refusal');
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p2'], 'name' => 'nosuch']);
+check(failed($r) && str_contains(implode(' ', $r['error']['messages']), 'no interface with the name nosuch'), 'a name that the host has no readable interface for: refused with a message', $r);
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p2'], 'name' => '3']);
+check(failed($r), 'a name that only an interface with an index has (a number LLD value) is not an interface by name: refused', $r);
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p2']]);
+check(failed($r), 'neither the index nor the name: refused', $r);
+// two interfaces of one host with the same name (the key of the second carries another LLD value, its tag the same name): none is found by the name (§3.2 item 3)
+add_host($pdo, 503, 'LX503', 'Linux 503', '10.0.5.3');
+$add_named($pdo, 503, 'eth0');
+$add_named($pdo, 503, 'ens3', 'eth0');
+$AD = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'AGENT-2', 'device_class' => 'station', 'ports' => [['name' => 'q1']]])['id'];
+$aq = ports_of($pdo, $AD);
+CTopologyPrototype::promote((string) $AD, 'host', '503');
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $aq['q1'], 'name' => 'eth0']);
+check(failed($r) && str_contains(implode(' ', $r['error']['messages']), 'More than one interface') && !array_key_exists('interface_name', attrs_of($pdo, $aq['q1'])), 'a name that more than one interface of the host has: refused, nothing is stored', $r);
+// ports.get, the items, missing
+$b = binding_of($np['p1'], $ND);
+check(array_key_exists('if_index', $b['binding'] ?? []) && $b['binding']['if_index'] === null && $b['binding']['name'] === 'eth0' && $b['binding']['missing'] === false, 'ports.get: binding {if_index: null, name, missing: false}', $b);
+check($ids_of($items_of([$np['p1']])[(string) $np['p1']]) === $x_eth0, 'the graph reading finds the items of the interface by the name (not by an index)', $items_of([$np['p1']]));
+drop_items($pdo, $x_eth0);
+$b = binding_of($np['p1'], $ND);
+check(($b['binding']['missing'] ?? null) === true && $b['binding']['name'] === 'eth0' && $items_of([$np['p1']])[(string) $np['p1']]['itemids'] === [], 'no interface of the host has the name any more: missing (the binding is stale)', $b);
+// from a name to an index and back
+check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p1'], 'if_index' => 3])) && attrs_of($pdo, $np['p1'])['if_index'] === 3, 'Bind by index after a binding by name: the index is stored');
+$r = call(CControllerTopologyPortsBind::class, ['id' => (string) $np['p1'], 'name' => 'eth1']);
+$at = attrs_of($pdo, $np['p1']);
+check(!failed($r) && !array_key_exists('if_index', $at) && $at['interface_name'] === 'eth1', 'Bind by name after an index: the index is removed', $at);
+$r = call(CControllerTopologyPortsUnbind::class, ['id' => (string) $np['p1']]);
+$at = attrs_of($pdo, $np['p1']);
+check(!failed($r) && !array_key_exists('interface_name', $at) && !array_key_exists('if_index', $at) && binding_of($np['p1'], $ND)['binding'] === null, 'Unbind clears interface_name', $at);
+
+echo "\n=== 11. ingest: a PORTS row with the name of a port that is bound by name takes the port ===\n";
+reset_all($pdo);
+API::$items = [];
+$M3 = 'a0:00:00:00:06:06';
+$LD = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'Lin-bind', 'device_class' => 'station', 'chassis_id' => $M3, 'ports' => [['name' => 'eth0'], ['name' => 'p9']]])['id'];
+$lp = ports_of($pdo, $LD);
+add_host($pdo, 601, 'LX601', 'Linux 601', '10.0.6.1');
+$l_eth0 = $add_named($pdo, 601, 'eth0');
+CTopologyPrototype::promote((string) $LD, 'host', '601');
+check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $lp['eth0'], 'name' => 'eth0'])), 'eth0 is bound to the interface eth0 by name');
+snapshot($pdo, 6011, 601, 1, time(), [['if_index' => 2, 'name' => 'eth0', 'loc_chassis' => $M3, 'itemids' => $l_eth0]]);
+$r = run_ingest($dsn, $user, $password);
+$at = attrs_of($pdo, $lp['eth0']);
+$same_name = $pdo->query("SELECT COUNT(*) FROM topo_nodes WHERE type = 'port' AND device_id = {$LD} AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) = 'eth0'")->fetchColumn();
+check($r['code'] === 0 && (int) $same_name === 1 && ($at['source'] ?? null) === 'reported' && !array_key_exists('interface_name', $at) && ($at['if_index'] ?? null) === 2 && binding_of($lp['eth0'], $LD)['binding'] === null,
+	'a PORTS row with the name takes the Port bound by name, as any manual Port ("A port follows its name"): one Port, reported, no binding', [$r['code'], $same_name, $at]);
+
 echo "\nAll Bind to interface checks passed.\n";
 
 function reporter_host(PDO $pdo, int $hostid, string $chassis): array {
