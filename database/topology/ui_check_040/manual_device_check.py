@@ -166,7 +166,7 @@ try:
     check(wait("(%s) && (%s).startsWith('SW12')" % (TITLE, TITLE)), 'a click on SW12 opens its panel')
     # open the folded group of free ports and take the first free port
     js("Array.from(document.querySelectorAll('#topology-details details.topology-port-group[data-group=\"no_neighbor\"]')).forEach(d => { d.open = true; })")
-    port = js("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row ? row.querySelector('.topology-port-name').textContent.trim() : null; })()")
+    port = js("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row ? row.querySelector('.topology-port-name').firstChild.textContent.trim() : null; })()")      # (the first text node: the port name; the alias after it is its own element, task 119)
     check(port is not None, 'SW12 has a free port', port)
     click("(() => { const row = Array.from(document.querySelectorAll('#topology-details details[data-group=\"no_neighbor\"] tbody tr'))[0]; return row.querySelector('.topology-link-button'); })()")
     P.after_input(js)
