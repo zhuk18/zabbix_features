@@ -1,4 +1,6 @@
-"""task 118 (model 2.99): with `--by-name` the same flow on a host of "Linux by Zabbix agent" (the interface items have names in their keys: net.if.in["enp0s3"]; DevLinux, the Zabbix server host of the lab):
+"""task 119 section 5: with `--by-name` the host is made by the check (BIND-AGENT-HOST, the template "Linux by Zabbix agent", the interfaces eth0 and eth1 with the items net.if.in["eth0"], net.if.out["eth0"],
+net.if.in["eth0",errors] and vfs.file.contents["/sys/class/net/eth0/speed"], disabled so that nothing polls them) and removed at the end; it is not DevLinux. History rows are compared as in 107 (before and after).
+task 118 (model 2.99): with `--by-name` the same flow on a host of "Linux by Zabbix agent" (the interface items have names in their keys: net.if.in["enp0s3"]; DevLinux, the Zabbix server host of the lab):
 Bind p1 by name (no index in the dialog: "—"; interface_name only), the load of the values that the check writes (errors items of the interface do not change it), p2 on the same interface refused, Unbind.
 task 107 §3 (model 2.91 §9.7 "Bind to interface", §12.5): "Bind to interface" on the real page, 1500 x 900, office stand, real mouse and keyboard events (DevTools Input domain).
 Create "BIND-TEST" (Switch, ports p1, p2), link p1 to a free port of SW12, Promote to a lab host that has the interface template and is not a reporter of another Device (the check takes the first host of
@@ -17,6 +19,9 @@ if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
 cookie = P.login()
 failed = 0
 BY_NAME = '--by-name' in sys.argv
+if BY_NAME and not os.environ.get('ZBX_TOKEN'):
+    print('ZBX_TOKEN is needed for --by-name (the check makes its host through the API)')
+    sys.exit(2)
 
 
 def check(condition, text, detail=None):
@@ -99,13 +104,58 @@ def shot(name):
 TITLE = "(() => { const t = document.querySelector('#topology-details .topology-node-title, #topology-details .topology-host-name'); return t ? t.textContent.trim() : null; })()"
 
 
+AGENT_HOST = 'BIND-AGENT-HOST'
+AGENT_GROUP = 'BIND-AGENT-GROUP'
+AGENT_NAMES = ('eth0', 'eth1')
+
+
+def api(method, params):
+    request = urllib.request.Request(P.BASE + 'api_jsonrpc.php', json.dumps({'jsonrpc': '2.0', 'method': method, 'params': params, 'id': 1}).encode(),
+                                     {'Content-Type': 'application/json-rpc', 'Authorization': 'Bearer ' + os.environ['ZBX_TOKEN']})
+    answer = json.load(urllib.request.urlopen(request))
+    if 'error' in answer:
+        raise RuntimeError('%s: %s' % (method, answer['error']))
+    return answer['result']
+
+
+def remove_agent_host():
+    """Remove the host of the check and its group (the items go with the host; the history rows of the host first)."""
+    hostid = db("select hostid from hosts where host = '%s'" % AGENT_HOST)
+    if hostid:
+        for table in ('history', 'history_uint'):
+            db("delete from %s where itemid in (select itemid from items where hostid = %s)" % (table, hostid))
+        api('host.delete', [hostid])
+    groupid = db("select groupid from hstgrp where name = '%s'" % AGENT_GROUP)
+    if groupid:
+        api('hostgroup.delete', [groupid])
+
+
+def make_agent_host():
+    """task 119 section 5: a host of the template "Linux by Zabbix agent" with the interface items of two fixed names. The items are made as the server's discovery makes them (flags 4, a row of
+    item_discovery that points at the prototype and its rule, the tag `interface`); they are disabled, so nothing polls them and the values are the ones the check writes."""
+    atexit.register(remove_agent_host)
+    remove_agent_host()
+    template = db("select hostid from hosts where host = 'Linux by Zabbix agent' and status = 3")
+    group = api('hostgroup.create', {'name': AGENT_GROUP})['groupids'][0]
+    hostid = api('host.create', {'host': AGENT_HOST, 'groups': [{'groupid': group}], 'templates': [{'templateid': template}],
+                                 'interfaces': [{'type': 1, 'main': 1, 'useip': 1, 'ip': '127.0.0.1', 'dns': '', 'port': '10050'}]})['hostids'][0]
+    prototypes = {key: itemid for itemid, key in (line.split('\t', 1) for line in db("select itemid, key_ from items where hostid = %s and flags = 2" % hostid).split('\n') if line)}
+    rule = db("select itemid from items where hostid = %s and key_ = 'net.if.discovery'" % hostid)
+    interface = db("select interfaceid from interface where hostid = %s and type = 1" % hostid)
+    for name in AGENT_NAMES:
+        for template_key in ('net.if.in["{#IFNAME}"]', 'net.if.out["{#IFNAME}"]', 'net.if.in["{#IFNAME}",errors]', 'vfs.file.contents["/sys/class/net/{#IFNAME}/speed"]'):
+            key = template_key.replace('{#IFNAME}', name)
+            itemid = api('item.create', {'hostid': hostid, 'interfaceid': interface, 'name': 'check item %s %s' % (name, key), 'key_': key, 'type': 0, 'value_type': 3, 'delay': '1h', 'status': 1,
+                                         'tags': [{'tag': 'interface', 'value': name}]})['itemids'][0]
+            db("update items set flags = 4 where itemid = %s" % itemid)
+            db("insert into item_discovery (itemdiscoveryid, itemid, parent_itemid, key_, lldruleid) select coalesce(max(itemdiscoveryid), 0) + 1, %s, %s, '%s', %s from item_discovery"
+               % (itemid, prototypes[template_key], template_key.replace("'", "''"), rule))
+    return [hostid, AGENT_HOST]
+
+
 def pick_host():
     if BY_NAME:
-        # a host with the interface items of the agent template (the name in the key), no Device of its own and no snapshot
-        rows = db("select h.hostid, h.host from hosts h where h.status = 0 and h.host = 'DevLinux' "
-                  "and (select count(*) from items i join item_discovery d on d.itemid = i.itemid where i.hostid = h.hostid and i.key_ regexp '^net[.]if[.]in\\\\[\"[^\"]*\"\\\\]$') >= 2 "
-                  "and not exists (select 1 from topo_nodes n where n.type = 'device' and n.host_ref = h.hostid) and not exists (select 1 from topo_lld_snapshot s where s.hostid = h.hostid) order by h.hostid")
-        return rows.split('\n')[0].split('\t') if rows else None
+        return make_agent_host()
     # the first host of the default lab with two discovered interfaces, no Device of its own (a Host node is allowed: the view makes it when it reads the scope, task 111) and no snapshot (so it is not a reporter of another Device)
     rows = db("select h.hostid, h.host from hosts h where h.status = 0 and h.host in ('Router1', 'Switch1', 'Switch2', 'AccessSwitch1', 'UPS1') "
               "and (select count(*) from items i join item_discovery d on d.itemid = i.itemid where i.hostid = h.hostid and i.key_ like 'net.if.in[%') >= 2 "
@@ -145,12 +195,11 @@ HISTORY = []
 
 
 def history_rows(hostid):
-    return [db("select count(*) from %s where itemid in (select itemid from items where hostid = %s and key_ like 'net.if.%%')" % (table, hostid)) for table in ('history', 'history_uint')]
+    return [db("select count(*) from %s where itemid in (select itemid from items where hostid = %s%s)" % (table, hostid, " and flags = 4" if BY_NAME else " and key_ like 'net.if.%%'")) for table in ('history', 'history_uint')]
 
 
 def write_history(hostid, index, rate_in, rate_out, speed):
-    # by name the host is polled live by the server: the rows of the check are dated ahead, so that they are the last values until the check removes them
-    now = int(time.time()) + (600 if BY_NAME else 0)
+    now = int(time.time())
     # by name: the speed is the item vfs.file.contents["/sys/class/net/<name>/speed"] of the agent template (bit/s); the counter of errors gets a value too (it must not be taken for the load)
     for name, value in ((('net.if.in', rate_in), ('net.if.out', rate_out), ('errors', 99), ('net.if.speed', speed)) if BY_NAME else (('net.if.in', rate_in), ('net.if.out', rate_out), ('net.if.speed', speed))):
         itemid, vt = interface_items(hostid, index)[name]
@@ -315,10 +364,12 @@ check(left_over() == '0' and db("select count(*) from topo_edges e left join top
 if host:
     check(db("select count(*) from topo_nodes where type = 'host' and host_ref = %s and represented_by_node_id is null" % host[0]) in ('0', '1') and db("select count(*) from topo_nodes where represented_by_node_id is not null and type = 'device' and json_unquote(json_extract(attrs, '$.source')) = 'manual'") == '0', 'the host is not represented by a manual Device any more')
     if BY_NAME:
-        # the host is polled live: its row count changes by itself; the rows of the check are found by their item and clock
-        left = sum(int(db("select count(*) from %s where itemid = %s and clock = %d" % (table, itemid, clock))) for table, itemid, clock in HISTORY)
-        check(left == 0 and len(HISTORY) == 4, 'no history row of the check is left (the four rows that it wrote: in, out, errors, speed)', [left, len(HISTORY)])
+        check(history_rows(host[0]) == HISTORY_BEFORE and len(HISTORY) == 4, 'no history row of the check is left, the count is the same as before (%s rows of the interface items of the host before and after; the four rows that the check wrote: in, out, errors, speed)' % HISTORY_BEFORE, [history_rows(host[0]), len(HISTORY)])
     else:
         check(history_rows(host[0]) == HISTORY_BEFORE, 'no history row of the check is left (%s rows of the host before and after)' % HISTORY_BEFORE, history_rows(host[0]))
+if BY_NAME:
+    remove_agent_host()
+    check(db("select count(*) from hosts where host = '%s'" % AGENT_HOST) == '0' and db("select count(*) from hstgrp where name = '%s'" % AGENT_GROUP) == '0'
+          and db("select count(*) from topo_nodes where type = 'host' and host_ref = %s" % host[0]) == '0', 'the host of the check and its group are removed (no Host node of it is left)', host)
 print('\n%s' % ('%d check(s) FAILED' % failed if failed else 'All Bind to interface page checks passed.'))
 sys.exit(1 if failed else 0)

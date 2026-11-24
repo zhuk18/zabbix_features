@@ -154,6 +154,10 @@ def main(argv=None):
             zbx.provision(zbx.Api(settings['zabbix']['url']), sc, prune=a.prune)
         elif a.cmd == 'run':
             sc = model.load_scenario(a.scenario, lab, transport=a.transport, sources=a.sources.split(',') if a.sources else None)
+            if a.reset and getattr(sc, 'clean_provision', False):
+                # lab 2.34 section 7 and task 119 section 5: a scenario with `clean_provision` starts from its own hosts: `--reset` removes the hosts of an earlier run (with the interface items that its step 2
+                # made) and makes them again, so the scenario passes twice in a row without `labsim provision`
+                zbx.provision(zbx.Api(settings['zabbix']['url']), sc, prune=False)
             conn = db.connect(settings)
             rep = runner.run(sc, settings, zbx.Api(settings['zabbix']['url']), conn, reset=a.reset, timeout=runner.effective_timeout(a.timeout, settings), argv=sys.argv)
             path = a.report or os.path.join(model.HERE, 'reports', '%s.json' % sc.id)

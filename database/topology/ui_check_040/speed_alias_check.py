@@ -166,6 +166,13 @@ try:
     check(info['alias_text'] is not None and info['alias_text'] != '· ' + LONG_ALIAS and '…' in info['alias_text'], 'the alias is cut in the middle', info)
     check(LONG_ALIAS in (info['alias_title'] or ''), 'the full alias is in the hint box', info)
     check(LONG_PORT in info['ports_text'], 'the port name is not cut', info)
+    print('-- the interface name of a bound port is cut, the port name is not (task 119 section 5)')
+    long_name = 'docker-bridge-network-with-a-very-long-interface-name-0'
+    html = js("view.portSideHtml(%s, {name: %s, missing: false}, null)" % (json.dumps(LONG_PORT), json.dumps(long_name)))
+    check(LONG_PORT in html and 'title="%s"' % long_name in html and '…' in html and long_name not in html.split('title="')[1].split('"', 1)[1], 'the port name is whole, the interface name is cut and its full text is in the hint box (title)', html)
+    html = js("view.portSideHtml('p1', {name: 'docker0', missing: false}, null)")
+    check('p1 → <span title="docker0">docker0</span>' in html, 'a short interface name is not cut: "p1 → docker0"', html)
+    check('interface not found' in js("view.portSideHtml('p1', {name: 'eth0', missing: true}, null)"), 'a stale binding: "p1 (interface not found)"')
 finally:
     chrome.close()
     remove_data()

@@ -780,6 +780,33 @@ sort($y_eth0);
 check(count($r['interfaces'] ?? []) === 1 && $e0 !== null && $e0['if_index'] === null && $e0['itemids'] === $y_eth0, 'the speed and the operstate files are items of the interface eth0 (one interface, no other)', $r['interfaces'] ?? null);
 check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $yp['y1'], 'name' => 'eth0'])) && $ids_of($items_of([$yp['y1']])[(string) $yp['y1']]) === $y_eth0, 'Bind by name: the items of the port include the speed item', $items_of([$yp['y1']]));
 
+echo "\n=== 14. missing: the items of the bound interface are deleted (task 119 section 5; 118 section 4) ===\n";
+reset_all($pdo);
+API::$items = [];
+add_host($pdo, 801, 'MS801', 'Missing 801', '10.0.8.1');
+add_host($pdo, 802, 'LX802', 'Missing 802', '10.0.8.2');
+$m_idx = add_interface($pdo, 801, 5, 'Gi0/5');
+$m_name = $add_named($pdo, 802, 'eth0');
+$MD1 = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'MISS-1', 'device_class' => 'switch', 'ports' => [['name' => 'm1']]])['id'];
+$MD2 = (int) call(CControllerTopologyDevicesCreate::class, ['name' => 'MISS-2', 'device_class' => 'station', 'ports' => [['name' => 'm2']]])['id'];
+$mp1 = ports_of($pdo, $MD1);
+$mp2 = ports_of($pdo, $MD2);
+CTopologyPrototype::promote((string) $MD1, 'host', '801');
+CTopologyPrototype::promote((string) $MD2, 'host', '802');
+check(!failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $mp1['m1'], 'if_index' => 5])) && !failed(call(CControllerTopologyPortsBind::class, ['id' => (string) $mp2['m2'], 'name' => 'eth0'])), 'a port is bound by index and another by name');
+check(binding_of($mp1['m1'], $MD1)['binding']['missing'] === false && binding_of($mp2['m2'], $MD2)['binding']['missing'] === false, 'both bindings are found: missing is false');
+drop_items($pdo, $m_idx);
+drop_items($pdo, $m_name);
+$b1 = binding_of($mp1['m1'], $MD1)['binding'];
+$b2 = binding_of($mp2['m2'], $MD2)['binding'];
+check($b1['missing'] === true && $b1['if_index'] === 5 && $b1['name'] === 'Gi0/5', 'bound by index, the items are deleted: missing is true, the index and the name stay (the page shows "m1 (interface not found)")', $b1);
+check($b2['missing'] === true && $b2['if_index'] === null && $b2['name'] === 'eth0', 'bound by name, the items are deleted: missing is true, the name stays, no index', $b2);
+check(attrs_of($pdo, $mp1['m1'])['if_index'] === 5 && attrs_of($pdo, $mp2['m2'])['interface_name'] === 'eth0', 'the stored binding is not changed by a read');
+check(call(CControllerTopologyPortsInterfaces::class, ['id' => (string) $mp1['m1']])['interfaces'] === [], 'the list of the interfaces of the host is empty');
+$m_idx = add_interface($pdo, 801, 5, 'Gi0/5');
+check(binding_of($mp1['m1'], $MD1)['binding']['missing'] === false, 'the items are back: the binding is found again (nothing was lost)');
+check(!failed(call(CControllerTopologyPortsUnbind::class, ['id' => (string) $mp2['m2']])) && binding_of($mp2['m2'], $MD2)['binding'] === null, 'a stale binding is removed by Unbind');
+
 echo "\nAll Bind to interface checks passed.\n";
 
 function reporter_host(PDO $pdo, int $hostid, string $chassis): array {
