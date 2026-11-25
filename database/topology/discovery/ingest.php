@@ -422,7 +422,7 @@ const TOPO_TYPE_DEVICE = 5;      // 2.96, FR-B D-53: the reporter itself, one ro
 
 // topology-1-model.md "`device_link` (Port → Device)": why a link ends at a Device instead of a Port. fdb_mac_only is
 // reserved: validation accepts it, nothing in this script produces it.
-const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
+const TOPO_FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only', 'lldp_cdp_ports_differ'];
 
 $summary += [
 	'pseudo_ports_reindexed' => 0,
@@ -455,6 +455,7 @@ $summary += [
 	'links_superseded' => 0,
 	'links_revived' => 0,
 	'ports_ambiguous' => 0,
+	'links_ports_differ' => 0,
 	// topology-1-model.md "Run summary": manual links that discovery contradicts and nobody acknowledged.
 	'manual_links_contradicted' => 0,
 	// Observations of rules that have no usable snapshot any more (rule or host disabled, topology type changed, reporter skipped,

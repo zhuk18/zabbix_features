@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS topo_observations (
 	-- no link was made) and, for 'device', why the far port is unknown (the link's far_port_reason).
 	-- precision_lower = 1: the observation confirms a port-level link only at device level (topology-1-model.md "Lost precision").
 	link_precision VARCHAR(8) NULL,
-	far_port_reason VARCHAR(16) NULL,
+	far_port_reason VARCHAR(32) NULL,
 	precision_lower TINYINT UNSIGNED NOT NULL DEFAULT 0,
 	first_seen INT UNSIGNED NOT NULL,
 	last_seen INT UNSIGNED NOT NULL,

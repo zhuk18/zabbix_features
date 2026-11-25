@@ -134,7 +134,8 @@ class CTopologyRunSummary {
 		if ($summary) {
 			$lines[] = '  changes:     Devices created '.($summary['devices_created'] ?? 0).', links created '.($summary['links_created'] ?? 0).
 				', links superseded '.($summary['links_superseded'] ?? 0).', links revived '.($summary['links_revived'] ?? 0).
-				', new duplicate candidates '.($summary['duplicate_candidates']['new'] ?? 0);
+				', new duplicate candidates '.($summary['duplicate_candidates']['new'] ?? 0).
+				(($summary['links_ports_differ'] ?? 0) > 0 ? ', links with different LLDP and CDP ports '.$summary['links_ports_differ'] : '');
 			$outcomes = [];
 			foreach (self::OUTCOMES as $outcome) {
 				$outcomes[] = $outcome.' '.($summary['observations'][$outcome] ?? 0);

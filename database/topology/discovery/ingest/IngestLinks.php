@@ -250,6 +250,74 @@ class IngestLinks {
 			return [[$link['a'], $device_of($link['b'])], [$link['b'], $device_of($link['a'])]];
 		};
 
+		// 2a. 2.104 (§8.5, FR-A 5.12 R-14.3, RC-17): the LLDP and the CDP rows of one local port name different remote ports of the same far Device. Zabbix does not choose (G-1):
+		//  - a port with an active physical_link to this Device whose remote port one of the two names: the link keeps its port; the row that names the other port confirms the same link
+		//    (it is taken for the port of the link), and the run writes attrs.ports_differ on the link (7d);
+		//  - no such link: the rows become one device-level claim of the pair, far_port_reason `lldp_cdp_ports_differ`, with both ports in the hint.
+		$ports_differ_links = [];      // link id => ['lldp' => port name, 'cdp' => port name]
+		$by_pair = [];
+		foreach ($candidates as $i => $candidate) {
+			if ($candidate['pre_outcome'] !== null || $candidate['level'] !== 'port' || $candidate['local_port_id'] === null || $candidate['remote_port_id'] === null
+					|| !in_array($candidate['source'] ?? '', ['lldp', 'cdp'], true) || ($far_device = $device_of((int) $candidate['remote_port_id'])) === null) {
+				continue;
+			}
+			$by_pair[$candidate['local_port_id'].'|'.$far_device][$candidate['source']][(int) $candidate['remote_port_id']][] = $i;
+		}
+		foreach ($by_pair as $pair => $by_source) {
+			if (!isset($by_source['lldp'], $by_source['cdp']) || count($by_source['lldp']) !== 1 || count($by_source['cdp']) !== 1) {
+				continue;
+			}
+			$lldp_port = array_key_first($by_source['lldp']);
+			$cdp_port = array_key_first($by_source['cdp']);
+			if ($lldp_port === $cdp_port) {
+				continue;
+			}
+			[$local_port, $far_device] = array_map('intval', explode('|', $pair));
+			$port_name = static function (int $id) use ($pdo): string {
+				$stmt = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
+				$stmt->execute([$id]);
+
+				return (string) (json_decode((string) $stmt->fetchColumn(), true)['name'] ?? '');
+			};
+			$hint = ['lldp' => $port_name($lldp_port), 'cdp' => $port_name($cdp_port)];
+			$holder = null;
+			foreach ($by_port[$local_port] ?? [] as $lid) {
+				$link = $links[$lid];
+				if ($link['type'] === 'physical_link' && $is_active_discovered($link) && $far_device_from($link, $local_port) === $far_device) {
+					$holder = $link;
+					break;
+				}
+			}
+			if ($holder !== null) {
+				$kept = $holder['a'] === $local_port ? $holder['b'] : $holder['a'];
+				if ($kept !== $lldp_port && $kept !== $cdp_port) {
+					continue;      // the link has another remote port than both rows: the rows are competing claims as before
+				}
+				foreach ($by_source as $source => $by_far) {
+					foreach ($by_far as $far_port => $indexes) {
+						foreach ($indexes as $i) {
+							$candidates[$i]['remote_port_id'] = $kept;
+						}
+					}
+				}
+				$ports_differ_links[$holder['id']] = $hint;
+			}
+			else {
+				foreach ($by_source as $source => $by_far) {
+					foreach ($by_far as $far_port => $indexes) {
+						foreach ($indexes as $i) {
+							$candidates[$i]['level'] = 'device';
+							$candidates[$i]['remote_device_id'] = $far_device;
+							$candidates[$i]['remote_port_id'] = null;
+							$candidates[$i]['far_port_reason'] = 'lldp_cdp_ports_differ';
+							$candidates[$i]['far_port_hint'] = $hint;
+						}
+					}
+				}
+				$summary['links_ports_differ']++;
+			}
+		}
+
 		// 2. What the latest snapshots say, whatever became of the candidate: the rules that contain each entity (from
 		//    either end), and the newest clock among them (only used to date a legacy cleanup).
 		$rules_port = [];      // key => itemid set, exactly that entity
@@ -877,6 +945,25 @@ class IngestLinks {
 			$result[$i] = ['outcome' => 'applied', 'edge_id' => $target['link'], 'key' => $links[$target['link']]['key'],
 				'lower' => true];
 			$snap_link_confirm_lower($target['link'], $candidate['local_port_id'], $candidate['clock']);
+		}
+
+		// 7d. 2.104 (§8.5): the mark of a port-level link whose far Device is named at two different ports by the LLDP and the CDP rows of its port: attrs.ports_differ; removed when the two agree again
+		foreach ($ports_differ_links as $lid => $hint) {
+			$attrs = $load_attrs($lid);
+			if (($attrs['ports_differ'] ?? null) !== $hint) {
+				$attrs['ports_differ'] = $hint;
+				$set_attrs($lid, $attrs);
+			}
+			$summary['links_ports_differ']++;
+		}
+		foreach ($links as $link) {
+			if ($link['type'] === 'physical_link' && $is_active_discovered($link) && isset($rules_of[$link['key']]) && !isset($ports_differ_links[$link['id']])) {
+				$attrs = $load_attrs($link['id']);
+				if (isset($attrs['ports_differ'])) {
+					unset($attrs['ports_differ']);
+					$set_attrs($link['id'], $attrs);
+				}
+			}
 		}
 
 		// 7c. last_seen_dst of a device_link: the far Device's own reporter names the local Device on some port.

@@ -8,7 +8,7 @@ class CTopologyPrototype {
 
 	// topology-1-model.md "`device_link` (Port → Device)": why a device_link ends at a Device and not at a Port. fdb_mac_only is
 	// reserved (accepted, never produced); manual is what an operator-made device_link carries.
-	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only'];
+	public const FAR_PORT_REASONS = ['port_unmatched', 'port_shared_id', 'lag_ambiguous', 'manual', 'fdb_mac_only', 'lldp_cdp_ports_differ'];
 	public const LINK_TYPES = ['physical_link', 'device_link'];
 
 
@@ -570,6 +570,9 @@ class CTopologyPrototype {
 					'source_alias' => $port_a['alias'] ?? null, 'target_alias' => $port_b['alias'] ?? null,
 					// 2.100 (§12.3, V-25): both ends are up reporter ports with different speeds (bps), not for a superseded link; computed here, never stored
 					'speed_mismatch' => $superseded_at === null ? (($m = CTopologySpeed::mismatch($port_a, $port_b)) === null ? null : ['source' => $m['a'], 'target' => $m['b']]) : null,
+					// 2.104 (§8.5, V-13): the LLDP and the CDP rows of the port name different remote ports of the far Device: the two port names (untrusted text, escaped on render)
+					'ports_differ' => $superseded_at === null && is_array($link_attrs['ports_differ'] ?? null)
+						? ['lldp' => (string) ($link_attrs['ports_differ']['lldp'] ?? ''), 'cdp' => (string) ($link_attrs['ports_differ']['cdp'] ?? '')] : null,
 					// staleness indicator (topology-1-model.md "Disappearance and staleness"): rides along with whichever row won the discovered_via
 					// collapse above, same precedent — not a separate merge policy of its own.
 					'stale' => self::isLinkStale($last_seen, $superseded_at),
@@ -1564,6 +1567,9 @@ class CTopologyPrototype {
 			$neighbor['last_seen_port'] = isset($link_attrs['last_seen_port']) ? (int) $link_attrs['last_seen_port']
 				: $neighbor['last_seen'];
 			$neighbor['precision_lower'] = isset($precision_lower[$link['edge_id']]);
+			// 2.104 (V-13): the mark of a port-level link whose far Device the LLDP and the CDP rows name at different ports
+			$neighbor['ports_differ'] = $neighbor['link_type'] === 'physical_link' && self::supersededAt($link_attrs) === null && is_array($link_attrs['ports_differ'] ?? null)
+				? ['lldp' => (string) ($link_attrs['ports_differ']['lldp'] ?? ''), 'cdp' => (string) ($link_attrs['ports_differ']['cdp'] ?? '')] : null;
 			// far_port_reason and the hint exist on device_links only; the hint is untrusted text, escaped on render.
 			$neighbor['far_port_reason'] = $neighbor['link_type'] === 'device_link'
 				? (string) ($link_attrs['far_port_reason'] ?? '') : null;

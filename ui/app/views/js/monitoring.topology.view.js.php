@@ -340,7 +340,8 @@ const view = new class {
 					`\n${<?= json_encode(_('Links created')) ?>}: ${summary.links_created ?? 0}` +
 					`\n${<?= json_encode(_('Links superseded')) ?>}: ${summary.links_superseded ?? 0}` +
 					`\n${<?= json_encode(_('Links revived')) ?>}: ${summary.links_revived ?? 0}` +
-					`\n${<?= json_encode(_('Ports with several neighbors')) ?>}: ${summary.ports_ambiguous ?? 0}`);
+					`\n${<?= json_encode(_('Ports with several neighbors')) ?>}: ${summary.ports_ambiguous ?? 0}` +
+					`\n${<?= json_encode(_('Links where LLDP and CDP report different remote ports')) ?>}: ${summary.links_ports_differ ?? 0}`);
 				await this.loadDevices();
 			}
 			else if (status.status === 'error') {
@@ -462,6 +463,7 @@ const view = new class {
 			source_speed: relation.source_speed, target_speed: relation.target_speed,
 			// 2.100: the port alias (ifAlias) of each end and the mark "speed mismatch" (V-25; the speeds of the two ends in bps), both decided by the server
 			source_alias: relation.source_alias ?? null, target_alias: relation.target_alias ?? null, speed_mismatch: relation.speed_mismatch ?? null,
+			ports_differ: relation.ports_differ ?? null,
 			// the LAG of each end (2.72, §12.3 "LAG bundle"): the id and the name, when known
 			source_lag_id: relation.source_lag_id ?? null, source_lag: relation.source_lag ?? null, target_lag_id: relation.target_lag_id ?? null, target_lag: relation.target_lag ?? null,
 			stale: relation.stale, superseded_at: relation.superseded_at ?? null,
@@ -1070,6 +1072,10 @@ const view = new class {
 			if (speed_mismatch) {
 				rows.push([<?= json_encode(_('Note')) ?>, this.speedMismatchText(link.speed_mismatch.source, link.speed_mismatch.target)]);
 			}
+			// 2.104 (V-13): the LLDP and the CDP rows of the port name different remote ports of the far Device; the link keeps its port
+			if (link.ports_differ) {
+				rows.push([<?= json_encode(_('Note')) ?>, this.portsDifferText(link.ports_differ)]);
+			}
 			// load of each side: numbers and the graphs of the port items; no colour (§4.8)
 			[[link.source, link.source_load, link.source_load_reason], [link.target, link.target_load, link.target_load_reason]].forEach(([node, load, reason]) => {
 				const text = this.loadText(load);
@@ -1174,6 +1180,9 @@ const view = new class {
 				return <?= json_encode(_('Created manually without a remote port')) ?> +
 					`${item.created_by ? ' ' + <?= json_encode(_('by')) ?> + ' ' + (item.created_by_name ?? <?= json_encode(_('another user')) ?>) : ''}` +
 					`${item.created_at ? ' ' + <?= json_encode(_('on')) ?> + ' ' + this.formatDate(item.created_at) : ''}.`;
+			case 'lldp_cdp_ports_differ':
+				return `${<?= json_encode(_('LLDP and CDP of')) ?>} ${near_name} ${<?= json_encode(_('report different ports of')) ?>} ${far_name}: ` +
+					`${item.far_port_hint?.lldp ?? '?'} ${<?= json_encode(_('and')) ?>} ${item.far_port_hint?.cdp ?? '?'}. ${<?= json_encode(_('Set the port with a manual link.')) ?>}`;
 			case 'fdb_mac_only':
 				return <?= json_encode(_('Found by a learned MAC address (FDB) only; FDB doesn\'t tell which port of the device it is.')) ?>;
 			default:
@@ -1277,6 +1286,11 @@ const view = new class {
 
 	// Lost precision (topology-1-model.md "Lost precision"): "The remote port <Q> hasn't been confirmed since <date>; <D> is still
 	// seen on this port." One note per side that sees only the far Device. Plain text: the caller escapes it.
+	// 2.104 (§8.5, FR-C V-13): the mark of a port-level link. Plain text: callers escape it (the port names come from the network).
+	portsDifferText(ports) {
+		return <?= json_encode(_('LLDP and CDP report different remote ports')) ?> + `: ${ports.lldp ?? '?'} ` + <?= json_encode(_('and')) ?> + ` ${ports.cdp ?? '?'}.`;
+	}
+
 	lostPrecisionNotes(link) {
 		const since = link.last_seen_port ? this.formatDate(link.last_seen_port) : '?';
 
@@ -3333,6 +3347,9 @@ const view = new class {
 				marks.push(...this.lostPrecisionNotes(link));
 				if (link.speed_mismatch) {
 					marks.push(this.speedMismatchText(link.speed_mismatch.source, link.speed_mismatch.target));
+				}
+				if (link.ports_differ) {
+					marks.push(this.portsDifferText(link.ports_differ));
 				}
 				if (link.severity !== null && link.severity !== undefined) {
 					marks.push(`${<?= json_encode(_('Severity')) ?>}: ${link.severity_name}.`);
