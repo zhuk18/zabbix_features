@@ -985,7 +985,7 @@ class CTopologyPrototype {
 	public static function findDevices(string $text): array {
 		$text = trim($text);
 		if (mb_strlen($text) < 2) {
-			return ['results' => [], 'more' => false];
+			return ['results' => [], 'more' => false, 'total' => 0];
 		}
 
 		$device_hits = [];      // Device id => [reason]
@@ -1185,8 +1185,19 @@ class CTopologyPrototype {
 			}
 		}
 		unset($entry);
-		uasort($subjects, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']) ?: strcmp($a['node'], $b['node']));
-		$more = count($subjects) > self::FIND_LIMIT;
+		// 2.104 (FR-C V-24): the order. Group 0: an exact match of a hardware ID, a port MAC or an address; group 1: the name starts with the text; group 2: the name contains it. Inside a group by name.
+		$rank = static function (array $entry) use ($text): int {
+			foreach ($entry['reasons'] as $reason) {
+				if ($reason !== _('name')) {
+					return 0;
+				}
+			}
+
+			return mb_stripos($entry['name'], $text) === 0 ? 1 : 2;
+		};
+		uasort($subjects, static fn (array $a, array $b): int => $rank($a) <=> $rank($b) ?: strnatcasecmp($a['name'], $b['name']) ?: strcmp($a['node'], $b['node']));
+		$total = count($subjects);
+		$more = $total > self::FIND_LIMIT;
 		$subjects = array_slice($subjects, 0, self::FIND_LIMIT, true);
 
 		$classes = self::classesOfDevices(array_values(array_filter(array_column($subjects, 'device_id'))));
@@ -1203,7 +1214,7 @@ class CTopologyPrototype {
 			$results[] = $row;
 		}
 
-		return ['results' => $results, 'more' => $more];
+		return ['results' => $results, 'more' => $more, 'total' => $total];
 	}
 
 	/** The id of a transient Host node (model 2.95 §12.1): `host:<hostid>`; it is never a topo_nodes.id. */

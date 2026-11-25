@@ -21,6 +21,7 @@ MARKUP = 'FIND-CHECK-<i>X</i>'
 CHASSIS = 'aa:bb:cc:00:11:22'
 PORT_MAC = 'aa:bb:cc:00:11:23'
 IP = '192.0.2.250'
+ORDER_IP = '10.7.7.7'
 REPORTED_IP = '198.51.100.77'      # a neighbor row reports this address for the Device; the Device has IP as its own (task 120 section 2)
 
 
@@ -47,6 +48,9 @@ def make_data():
        % (attrs_json(rem_mgmt_ip=REPORTED_IP, rem_sysname=NAME), device))
     db("INSERT INTO topo_nodes (type, device_id, attrs, created_at, updated_at) VALUES ('port', %s, '%s', 0, 0)" % (device, attrs_json(if_index=1, name='ge-0/0/9', mac=PORT_MAC, pseudo=False, if_type='physical', admin_status='up', oper_status='up', speed='1000')))
     db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '%s', 0, 0)" % attrs_json(sysname=MARKUP))
+    # task 125 part 1 (model 2.104 §12.1): the order: an exact address first, then a name that starts with the text, then a name that contains it
+    for sysname, ip in ((ORDER_IP + ' FIND-CHECK-ORD starts', None), ('FIND-CHECK-ORD mid ' + ORDER_IP + ' contains', None), ('FIND-CHECK-ORD-Z exact', ORDER_IP), ('FIND-CHECK-ORD-A contains ' + ORDER_IP, None)):
+        db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES ('device', '%s', 0, 0)" % (attrs_json(sysname=sysname, mgmt_ip=ip) if ip else attrs_json(sysname=sysname)))
     db("INSERT INTO topo_nodes (type, attrs, created_at, updated_at) VALUES %s" % ', '.join("('device', '%s', 0, 0)" % attrs_json(sysname='FIND-LIMIT-%02d' % i) for i in range(1, 23)))
     return device
 
@@ -158,7 +162,13 @@ try:
     rows = search('FIND-CHECK-<')
     check([r['name'] for r in rows['rows']] == [MARKUP] and '<i>' not in rows['html'] and js("document.querySelector('#topology-find-results i') === null"), 'a name with markup is shown as text (escaped)', rows['html'][:200])
     rows = search('FIND-LIMIT')
-    check(len(rows['rows']) == 20 and rows['note'] and 'refine' in rows['note'], '22 matches: 20 rows and "refine the search"', [len(rows['rows']), rows['note']])
+    check(len(rows['rows']) == 20 and rows['note'] and 'Refine' in rows['note'], '22 matches: 20 rows and "Showing 20 of 22. Refine the search."', [len(rows['rows']), rows['note']])
+    check(rows['note'] == 'Showing 20 of 22. Refine the search.', 'the last line says how many there are (2.104)', rows['note'])
+    print('-- the order (2.104)')
+    rows = search(ORDER_IP)
+    names = [r['name'] for r in rows['rows']]
+    check(names == ['FIND-CHECK-ORD-Z exact', ORDER_IP + ' FIND-CHECK-ORD starts', 'FIND-CHECK-ORD-A contains ' + ORDER_IP, 'FIND-CHECK-ORD mid ' + ORDER_IP + ' contains'],
+          'an exact address first, then the name that starts with the text, then the names that contain it (by name inside a group)', names)
 
     print('-- choose a Device that the scope hides')
     rows = search('find-check-dev')

@@ -4052,7 +4052,7 @@ const view = new class {
 				answer = null;
 			}
 			if (seq === this.find_seq) {       // (a newer input is on its way: this answer is dropped)
-				this.renderFind(answer?.results ?? [], Boolean(answer?.more), answer === null);
+				this.renderFind(answer?.results ?? [], Boolean(answer?.more), answer === null, Number(answer?.total ?? 0));
 			}
 		}
 		finally {
@@ -4060,7 +4060,7 @@ const view = new class {
 		}
 	}
 
-	renderFind(results, more, failed) {
+	renderFind(results, more, failed, total = 0) {
 		const list = document.getElementById('topology-find-results');
 		this.find_rows = results;
 		this.find_active = results.length ? 0 : -1;
@@ -4079,7 +4079,7 @@ const view = new class {
 			note = <?= json_encode(_('No devices found.')) ?>;
 		}
 		else if (more) {
-			note = <?= json_encode(_('There are more results: refine the search.')) ?>;
+			note = <?= json_encode(_('Showing %1$s of %2$s. Refine the search.')) ?>.replace('%1$s', String(results.length)).replace('%2$s', String(total));
 		}
 		this.find_answers++;
 		list.innerHTML = rows.join('') + (note !== '' ? `<div class="topology-find-note grey">${this.escape(note)}</div>` : '');
