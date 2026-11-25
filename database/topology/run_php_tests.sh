@@ -330,6 +330,7 @@ else
 		# the warning mark on the line of a speed mismatch (task 120, model 2.101 §12.3): visible with no hover, a click, the bundle, no overlap after the layout, an unfold and a drag, the legend row, the short mark of the Links row
 		page_test "page: warning mark of a speed mismatch (line, bundle, click, overlap after layout, unfold and drag, legend, Links row)" /tmp/topo_t_speed_mark.log python3 "$here/ui_check_040/speed_mark_check.py"
 		page_test "page: the badge of a contradicted link opens the line menu" /tmp/topo_t_badge.log python3 "$here/ui_check_040/badge_check.py"
+		page_test "page: a click on a group node unfolds it in 500 ms with no task over 200 ms, once (states after Reset)" /tmp/topo_t_unfold_time.log python3 "$here/ui_check_040/unfold_time_check.py"
 		page_test "page: Bind to interface by name (a host of the agent template: no index, load, refusal, Unbind)" /tmp/topo_t_bind_name_page.log python3 "$here/ui_check_040/bind_check.py" --by-name
 	# the load of the side that has items, "no data" and the reason for the side that has none (110, FR-C V-12)
 	page_test "page: a link to an end device: the load of one side, no data on the other (real mouse events)" /tmp/topo_t_nodata.log python3 "$here/ui_check_040/no_data_check.py"
