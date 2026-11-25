@@ -667,6 +667,16 @@
 		const right = node.x + node.box.w / 2 + margin;
 		const top = node.y + node.box.top - margin;
 		const bottom = node.y + node.box.bottom + margin;
+		if (line.count === 1) {
+			// a straight line: the box of the line is away from the box of the node (most pairs), or the one segment decides
+			const a = line.a;
+			const b = line.b;
+			if ((a.x < left && b.x < left) || (a.x > right && b.x > right) || (a.y < top && b.y < top) || (a.y > bottom && b.y > bottom)) {
+				return false;
+			}
+
+			return segmentHitsBox(a, b, left, right, top, bottom);
+		}
 		// a quick reject: the distance of the middle of the box to the chord is more than half of the box diagonal plus the bend of a parallel line (the curve is `offset` off the chord, 16 px a step)
 		const bend = Math.abs(line.index - (line.count - 1) / 2) * 16 + 1;
 		const cx = node.x;
@@ -675,17 +685,39 @@
 		const dy = line.b.y - line.a.y;
 		const length2 = dx * dx + dy * dy;
 		const t = length2 > 0 ? Math.max(0, Math.min(1, ((cx - line.a.x) * dx + (cy - line.a.y) * dy) / length2)) : 0;
-		if (Math.hypot(cx - (line.a.x + t * dx), cy - (line.a.y + t * dy)) > Math.hypot(node.box.w, node.box.bottom - node.box.top) / 2 + margin + bend + 2) {
+		// (Math.sqrt of the squares, not Math.hypot: hypot is several times slower, and this test runs hundreds of thousands of times in an unfold)
+		const near_x = cx - (line.a.x + t * dx);
+		const near_y = cy - (line.a.y + t * dy);
+		const reach = Math.sqrt(node.box.w * node.box.w + (node.box.bottom - node.box.top) * (node.box.bottom - node.box.top)) / 2 + margin + bend + 2;
+		if (near_x * near_x + near_y * near_y > reach * reach) {
 			return false;
 		}
-		const c = curve(line.a, line.b, line.index, line.count);
-		let previous = c.at(0);
+		// a straight line (one line between the two nodes): its 16 pieces are one segment. A parallel line: the 16 pieces of the quadratic curve of `curve`, computed here with no objects made (this
+		// is the hot spot of every layout pass: an unfold of a group of 15 devices calls it some hundred thousand times)
+		if (line.count === 1) {
+			return segmentHitsBox(line.a, line.b, left, right, top, bottom);
+		}
+		const s = line.a;
+		const e = line.b;
+		const length = Math.sqrt(length2) || 1;
+		const offset = (line.index - (line.count - 1) / 2) * 16;
+		const bx = (s.x + e.x) / 2 + (-dy / length) * offset * 2;
+		const by = (s.y + e.y) / 2 + (dx / length) * offset * 2;
+		let px = s.x;
+		let py = s.y;
+		const p = {x: 0, y: 0};
+		const q = {x: 0, y: 0};
 		for (let i = 1; i <= 16; i++) {
-			const point = c.at(i / 16);
-			if (segmentHitsBox(previous, point, left, right, top, bottom)) {
+			const u = i / 16;
+			q.x = (1 - u) * (1 - u) * s.x + 2 * (1 - u) * u * bx + u * u * e.x;
+			q.y = (1 - u) * (1 - u) * s.y + 2 * (1 - u) * u * by + u * u * e.y;
+			p.x = px;
+			p.y = py;
+			if (segmentHitsBox(p, q, left, right, top, bottom)) {
 				return true;
 			}
-			previous = point;
+			px = q.x;
+			py = q.y;
 		}
 		return false;
 	}
@@ -730,25 +762,35 @@
 		});
 		const members = mover => [mover, ...(satellites.get(mover) ?? [])];
 		let budget = 3000 * effort;      // the number of places that are tried in one call: the call ends in a few tens of milliseconds also when nothing can be solved
-		const scoreOne = node => {
+		// the number of crossings of a mover (and its satellites); `limit`: the count is only needed below it, so the sum stops there (what is returned is then `limit` or more, never a smaller number)
+		const scoreOne = (node, limit) => {
 			let count = 0;
-			lines.forEach(line => {
-				if (lineCrossesNode(line, node)) {
-					count++;
+			for (const line of lines) {
+				if (lineCrossesNode(line, node) && ++count >= limit) {
+					return count;
 				}
-			});
-			(own.get(node) ?? []).forEach(line => nodes.forEach(other => {
-				if (lineCrossesNode(line, other)) {
-					count++;
+			}
+			for (const line of own.get(node) ?? []) {
+				for (const other of nodes) {
+					if (lineCrossesNode(line, other) && ++count >= limit) {
+						return count;
+					}
 				}
-			}));
+			}
 
 			return count;
 		};
-		const score = node => {
+		const score = (node, limit = Infinity) => {
 			budget--;
+			let sum = 0;
+			for (const member of members(node)) {
+				sum += scoreOne(member, limit - sum);
+				if (sum >= limit) {
+					break;
+				}
+			}
 
-			return members(node).reduce((sum, member) => sum + scoreOne(member), 0);
+			return sum;
 		};
 		const insideOne = node => node.x >= bounds.padding + node.box.w / 2 && node.x <= bounds.width - bounds.padding - node.box.w / 2
 			&& node.y >= bounds.padding - node.box.top && node.y <= bounds.height - bounds.padding - node.box.bottom;
@@ -763,7 +805,8 @@
 			});
 		};
 		// the labels of the LAG bundles (`obstacles`: [{box: {left, right, top, bottom}, owners: [a, b]}]) are in the way too: a node is not moved onto a label (the ends of a bundle carry their label with them)
-		const freeOne = node => !nodes.some(other => other !== node && overlaps(node, other, BOX_GAP))
+		const freeOne = node => !nodes.some(other => other !== node && node.x - node.box.w / 2 - BOX_GAP < other.x + other.box.w / 2 && other.x - other.box.w / 2 < node.x + node.box.w / 2 + BOX_GAP
+				&& node.y + node.box.top - BOX_GAP < other.y + other.box.bottom && other.y + other.box.top < node.y + node.box.bottom + BOX_GAP)
 			&& !obstacles.some(({box, owners}) => !owners.includes(node) && node.x - node.box.w / 2 < box.right + 2 && box.left - 2 < node.x + node.box.w / 2
 				&& node.y + node.box.top < box.bottom + 2 && box.top - 2 < node.y + node.box.bottom);
 		const free = node => members(node).every(freeOne);
@@ -783,7 +826,8 @@
 				if (!inside(mover) || !free(mover) || !ok()) {
 					return false;
 				}
-				const value = score(mover);
+				// only a place with no crossing, or (allow_better) with fewer than now and than the best so far, is of use: the count stops there
+				const value = score(mover, allow_better ? Math.max(1, Math.min(now, best === null ? Infinity : best.value)) : 1);
 				if (value === 0) {
 					return true;
 				}
@@ -952,8 +996,30 @@
 			const saved = nodes.map(node => [node.x, node.y]);
 			const before = linesThrough(nodes, lines, 2).length;
 			budget = 4000 * effort;
+			// the crossings as a table (line x node): after a step only the lines of the moved node and the node itself change, so only those are computed again (the pairs are in the order of
+			// `linesThrough`: by line, then by node). With `linesThrough` of all pairs at every step, a layout of 45 nodes took seconds.
+			const line_at = new Map(lines.map((line, i) => [line, i]));
+			const node_at = new Map(nodes.map((node, i) => [node, i]));
+			const crossing = lines.map(line => nodes.map(node => lineCrossesNode(line, node, 2)));
+			const refresh = mover => members(mover).forEach(member => {
+				const column = node_at.get(member);
+				lines.forEach((line, i) => {
+					crossing[i][column] = lineCrossesNode(line, member, 2);
+				});
+				(own.get(member) ?? []).forEach(line => {
+					const row = line_at.get(line);
+					nodes.forEach((node, j) => {
+						crossing[row][j] = lineCrossesNode(line, node, 2);
+					});
+				});
+			});
 			for (let step = 0; step < 600 * effort && budget > 0; step++) {
-				const pairs = linesThrough(nodes, lines, 2);
+				const pairs = [];
+				lines.forEach((line, i) => nodes.forEach((node, j) => {
+					if (crossing[i][j]) {
+						pairs.push({line, node});
+					}
+				}));
 				if (!pairs.length) {
 					break;
 				}
@@ -968,11 +1034,12 @@
 				const angle = random() * 2 * Math.PI;
 				const radius = 12 + random() * 110;
 				place(mover, origin[0][0] + Math.cos(angle) * radius, origin[0][1] + Math.sin(angle) * radius, origin);
-				if (!inside(mover) || !free(mover) || score(mover) > now) {
+				if (!inside(mover) || !free(mover) || score(mover, now + 1) > now) {
 					place(mover, origin[0][0], origin[0][1], origin);
 				}
 				else {
 					moved.add(mover);
+					refresh(mover);
 				}
 			}
 			if (linesThrough(nodes, lines, 2).length >= before) {
