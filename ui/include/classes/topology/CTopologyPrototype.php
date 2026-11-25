@@ -4058,7 +4058,7 @@ class CTopologyPrototype {
 		}
 	}
 
-	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'];
+	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit', 'local_port_unresolved'];
 
 	public const SNAPSHOT_STATES = ['fresh', 'old', 'not_used', 'none'];
 
@@ -4141,7 +4141,7 @@ class CTopologyPrototype {
 			return [];
 		}
 
-		$sql = 'SELECT o.id,o.itemid,o.local_port_id,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,'.
+		$sql = 'SELECT o.id,o.itemid,o.local_port_id,o.local_port_ref,o.remote_key,o.remote_attrs,o.outcome,o.edge_id,o.device_id,'.
 				'o.link_precision,o.far_port_reason,o.precision_lower,o.first_seen,o.last_seen,i.name AS rule_name,h.hostid,h.name AS host_name,port.attrs AS port_attrs,'.
 				'port.device_id AS local_device_id,'.
 				'remote.attrs AS device_attrs'.
@@ -4244,7 +4244,7 @@ class CTopologyPrototype {
 				'reporter' => ['hostid' => $row['hostid'], 'name' => $row['host_name']],
 				'rule' => ['itemid' => $row['itemid'], 'name' => $row['rule_name']],
 				'local_port' => ['id' => $row['local_port_id'], 'name' => $port_attrs['name'] ?? null,
-					'if_index' => $port_attrs['if_index'] ?? null],
+					'if_index' => $port_attrs['if_index'] ?? null, 'ref' => $row['local_port_ref']],
 				'remote_key' => $row['remote_key'],
 				'remote_attrs' => json_decode((string) $row['remote_attrs'], true) ?: [],
 				'remote_device' => $row['device_id'] === null ? null
@@ -4365,6 +4365,10 @@ class CTopologyPrototype {
 			$row['reason'] = null;
 			if (in_array($row['outcome'], ['conflict', 'shadowed'], true) && $row['edge_id'] !== null && isset($ends[$row['edge_id']])) {
 				$row['reason'] = ['type' => 'blocking_link', 'edge_id' => $row['edge_id'], 'ends' => $ends[$row['edge_id']]];
+			}
+			elseif ($row['outcome'] === 'local_port_unresolved') {
+				// 2.107 (§6.7.6): the reason is kept in far_port_reason: name_on_several_ports, if_index_missing, no_ports, name_not_found
+				$row['reason'] = ['type' => 'local_port', 'reason' => (string) $row['far_port_reason']];
 			}
 			elseif ($row['outcome'] === 'ambiguous') {
 				$row['reason'] = ['type' => 'other_neighbors',

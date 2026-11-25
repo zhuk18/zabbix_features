@@ -18,7 +18,7 @@ class CTopologyRunSummary {
 	public const EXIT_FAILED = 1;
 	public const EXIT_WARNINGS = 3;
 
-	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'];
+	public const OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit', 'local_port_unresolved'];
 
 	public const ATTENTION_REPORTER_SKIPPED = 'reporter_skipped';
 	public const ATTENTION_REPORTER_FAILED = 'reporter_failed';

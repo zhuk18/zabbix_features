@@ -996,7 +996,8 @@ class IngestLinks {
 			$touched[$candidate['itemid']][] = $snap_observation($candidate['itemid'], $candidate['local_port_ref'], $candidate['local_port_id'],
 				$candidate['remote_key'], $candidate['remote_attrs'], $outcome, $result[$i]['edge_id'],
 				$candidate['remote_device_id'], $candidate['clock'], $precision,
-				$candidate['level'] === 'device' ? $candidate['far_port_reason'] : null, !empty($result[$i]['lower']));
+				// the reason of a `local_port_unresolved` row (§6.7.6) is kept in the column far_port_reason (there is no other reason for a row that made no link)
+				$candidate['pre_outcome'] === 'local_port_unresolved' ? ($candidate['unresolved_reason'] ?? null) : ($candidate['level'] === 'device' ? $candidate['far_port_reason'] : null), !empty($result[$i]['lower']));
 			$summary['observations'][$outcome]++;
 		}
 		foreach ($neighbor_snapshots as $itemid => $snapshot) {

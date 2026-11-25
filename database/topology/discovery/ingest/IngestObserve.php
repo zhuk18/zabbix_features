@@ -218,6 +218,7 @@ class IngestObserve {
 		// Devices and remote ports are resolved and created, but no link and no observation is written here: whether a candidate link may take its
 		// port depends on what EVERY reporter's latest snapshot says, so the decision is made once, after all reporters, by $snap_resolve_links().
 		$sorted_rows = [];
+		$unresolved_seen = [];      // claim key => true: the rows `local_port_unresolved` of this call (the same claim twice is a duplicate row)
 		// the reporter's ports from its PORTS snapshots (pass A): rows of several rules join by if_index, the first value of a field wins
 		$ports = [];
 		$port_decision = $this->run->own->portSnapshots($snapshots[TOPO_TYPE_PORTS] ?? []);      // §6.6 (2.69): the same list of rows as the Ports of the host are made from
@@ -256,7 +257,25 @@ class IngestObserve {
 						$summary['rows_local_port_unresolved']['count']++;
 						$summary['rows_local_port_unresolved']['by_reason'][$reason]++;
 						$summary['rows_local_port_unresolved']['by_rule'][(int) $snapshot['itemid']][$reason] = ($summary['rows_local_port_unresolved']['by_rule'][(int) $snapshot['itemid']][$reason] ?? 0) + 1;
-						echo "SKIP: a row of rule #{$snapshot['itemid']} has no local port ({$reason})\n";
+						echo "NOTE: a row of rule #{$snapshot['itemid']} has no local port ({$reason}): observation local_port_unresolved\n";
+						// 2.107 (§6.7.6 item 4, §7.1, §7.2; FR-A R-23): the row is an observation `local_port_unresolved` with its claim (rule, local port reference, remote key) and its reason; it
+						// makes no Device, no port and no link. A row with no identity at all is no claim (§6.7.1): no observation. A second row with the same claim is counted as a duplicate.
+						$remote_key = $snap_remote_key($row, $segment);
+						if (($row['rem_chassis'] ?? '') !== '' || ($row['rem_mgmt_ip'] ?? '') !== '' || ($row['rem_man_addrs'] ?? '') !== '' || ($row['rem_sysname'] ?? '') !== '') {
+							$unresolved_key = $snapshot['itemid'].'|'.$port_ref.'|'.$remote_key;
+							if (isset($unresolved_seen[$unresolved_key])) {
+								$summary['rows_duplicate_claim']['count']++;
+								$summary['rows_duplicate_claim']['by_rule'][(int) $snapshot['itemid']] = ($summary['rows_duplicate_claim']['by_rule'][(int) $snapshot['itemid']] ?? 0) + 1;
+								continue;
+							}
+							$unresolved_seen[$unresolved_key] = true;
+							$unresolved_attrs = array_filter(array_intersect_key($row, array_flip(['rem_chassis', 'rem_chassis_type', 'rem_mgmt_ip', 'rem_man_addrs', 'rem_sysname', 'rem_port',
+								'rem_port_type', 'rem_port_desc', 'rem_sys_cap', 'source'])), static fn ($value): bool => $value !== '' && $value !== null);
+							$link_candidates[] = ['hostid' => $reporter['hostid'], 'itemid' => (int) $snapshot['itemid'], 'clock' => (int) $snapshot['clock'], 'source' => (string) ($row['source'] ?? 'lldp') ?: 'lldp',
+								'local_port_ref' => $port_ref, 'local_port_id' => null, 'remote_device_id' => null, 'remote_key' => $remote_key, 'remote_attrs' => $unresolved_attrs,
+								'pre_outcome' => 'local_port_unresolved', 'level' => 'port', 'far_port_reason' => null, 'unresolved_reason' => $reason, 'remote_port_id' => null, 'port_label' => null, 'rem_port_desc' => '',
+								'pseudo_index' => null, 'pseudo_key' => null, 'rem_port' => '', 'rem_port_type' => '', 'far_port_hint' => [], 'pseudo_mac' => null];
+						}
 					}
 					continue;
 				}

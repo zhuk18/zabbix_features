@@ -52,7 +52,7 @@ if ($summary !== null) {
 
 	$outcome_labels = [
 		'applied' => _('applied'), 'device_only' => _('device only'), 'shadowed' => _('shadowed'),
-		'conflict' => _('conflict'), 'ambiguous' => _('ambiguous'), 'old_snapshot' => _('Old data'), 'port_limit' => _('Too many neighbors')
+		'conflict' => _('conflict'), 'ambiguous' => _('ambiguous'), 'old_snapshot' => _('Old data'), 'port_limit' => _('Too many neighbors'), 'local_port_unresolved' => _('Local port unresolved')
 	];
 	$outcomes = [];
 	foreach (CTopologyRunSummary::OUTCOMES as $outcome) {
@@ -106,7 +106,7 @@ if ($summary !== null) {
 $filter = $data['filter'];
 $outcome_checkboxes = (new CCheckBoxList('filter_outcomes'))
 	->setOptions(array_map(static fn (string $outcome): array => [
-		'label' => $outcome === 'old_snapshot' ? _('Old data') : ($outcome === 'port_limit' ? _('Too many neighbors') : $outcome), 'value' => $outcome, 'checked' => in_array($outcome, $filter['outcomes'], true)
+		'label' => $outcome === 'old_snapshot' ? _('Old data') : ($outcome === 'port_limit' ? _('Too many neighbors') : ($outcome === 'local_port_unresolved' ? _('Local port unresolved') : $outcome)), 'value' => $outcome, 'checked' => in_array($outcome, $filter['outcomes'], true)
 	], CTopologyPrototype::OBSERVATION_OUTCOMES))
 	->setVertical(false);
 
@@ -184,6 +184,11 @@ foreach ($data['rows'] as $row) {
 	elseif ($row['outcome'] === 'old_snapshot') {
 		$reason = _('The snapshot is older than the freshness threshold: the row is used for no link and no Device');
 	}
+	elseif ($row['outcome'] === 'local_port_unresolved') {
+		$reasons = ['name_on_several_ports' => _('The name of the local port is on several ports of the reporter'), 'if_index_missing' => _('The local port number is no ifIndex of the reporter and no name matches'),
+			'no_ports' => _('The reporter has no Ports snapshot'), 'name_not_found' => _('No port of the reporter has this name')];
+		$reason = ($reasons[$row['reason']['reason'] ?? ''] ?? (string) ($row['reason']['reason'] ?? '')).'. '._('The row is used for no link and no Device.');
+	}
 	elseif ($row['outcome'] === 'port_limit') {
 		$reason = _('The reporter port has more neighbors than the limit: the row finds no Device, so none is made and no link');
 	}
@@ -194,10 +199,10 @@ foreach ($data['rows'] as $row) {
 	$list->addRow([
 		(new CLink($row['reporter']['name'], (new CUrl('zabbix.php'))
 			->setArgument('action', 'popup')->setArgument('popup', 'host.edit')->setArgument('hostid', $row['reporter']['hostid']))),
-		(string) ($row['local_port']['name'] ?? '–'),
+		(string) ($row['local_port']['name'] ?? ($row['outcome'] === 'local_port_unresolved' ? $row['local_port']['ref'] : '–')),
 		(string) ($attrs['source'] ?? '–'),
 		(string) $neighbor,
-		$row['outcome'] === 'old_snapshot' ? _('Old data') : ($row['outcome'] === 'port_limit' ? _('Too many neighbors') : $row['outcome']),
+		$row['outcome'] === 'old_snapshot' ? _('Old data') : ($row['outcome'] === 'port_limit' ? _('Too many neighbors') : ($row['outcome'] === 'local_port_unresolved' ? _('Local port unresolved') : $row['outcome'])),
 		$reason,
 		$time($row['last_seen'])
 	]);

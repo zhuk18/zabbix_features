@@ -125,7 +125,7 @@ function neighbor_row(array $local, string $chassis, string $remote_port): array
 }
 
 function observation(PDO $pdo, string $ref): ?array {
-	$stmt = $pdo->prepare('SELECT outcome, local_port_ref, local_port_id FROM topo_observations WHERE local_port_ref = ?');
+	$stmt = $pdo->prepare('SELECT id, outcome, local_port_ref, local_port_id, far_port_reason, first_seen, last_seen FROM topo_observations WHERE local_port_ref = ?');
 	$stmt->execute([$ref]);
 	$row = $stmt->fetch(PDO::FETCH_ASSOC);
 	return $row ?: null;
@@ -146,19 +146,47 @@ snapshot($pdo, 12, 1, 2, $NOW, [
 	neighbor_row(['if_name' => 'Gi9/9'], $X.'3', 'p1'),
 	neighbor_row(['if_name' => '  gi0/4 '], $X.'4', 'p1'),
 	neighbor_row(['if_index' => 3, 'if_name' => 'Gi9/9'], $X.'5', 'p1'),
+	neighbor_row(['loc_port_num' => 99], $X.'6', 'p1'),
 ]);
 $r = run_ingest($dsn, $user, $password);
 check($r['code'] === 0 || $r['code'] === 3, 'ingest runs', $r['err']);
 $u = $r['summary']['rows_local_port_unresolved'] ?? [];
 check(($u['by_reason']['name_not_found'] ?? -1) === 1, 'the name that matches nothing is counted as name_not_found', $u);
 check(($u['by_reason']['name_on_several_ports'] ?? -1) === 1, 'the name on two ports (the name key of Eth1 and eth1 is one) is counted as name_on_several_ports', $u);
-check(($u['count'] ?? -1) === 2 && ($u['by_rule'][12] ?? null) === ['name_on_several_ports' => 1, 'name_not_found' => 1] || ($u['by_rule'][12] ?? null) === ['name_not_found' => 1, 'name_on_several_ports' => 1], 'the two rows are counted for the rule 12', $u);
+check(($u['by_reason']['if_index_missing'] ?? -1) === 1 && ($u['count'] ?? -1) === 3, 'a port number that is no ifIndex (and no name) is if_index_missing; three rows are counted', $u);
 $o1 = observation($pdo, 'name:Gi0/1');
 check($o1 !== null && $o1['local_port_id'] !== null, 'the row with the name Gi0/1 has an observation with a local port; its claim reference is name:Gi0/1', $o1);
 $o4 = observation($pdo, 'name:gi0/4');
 check($o4 !== null && $o4['local_port_id'] !== null, 'a name with white space and another case is cleaned and found (Gi0/4); the reference is the cleaned text', $o4);
-check(observation($pdo, 'name:ETH1') === null && observation($pdo, 'name:Gi9/9') === null, 'the unresolved rows have no observation (§6.7.6: the row is dropped and counted)');
-check(links($pdo) === 3, 'three links: the two names, and the row with `if_index` 3 (its if_name is not looked at)', links($pdo));
+// 2.107 (§6.7.6 item 4, §7.1, §7.2): every unresolved row is an observation `local_port_unresolved`: no local port, its claim reference, its reason; no Device and no link
+foreach ([['name:ETH1', 'name_on_several_ports'], ['name:Gi9/9', 'name_not_found'], ['num:99', 'if_index_missing']] as [$ref, $why]) {
+	$o = observation($pdo, $ref);
+	check($o !== null && $o['outcome'] === 'local_port_unresolved' && $o['local_port_id'] === null && $o['far_port_reason'] === $why, "the row of $ref is an observation local_port_unresolved with the reason $why and no local port", $o);
+}
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '$.chassis_id')) IN ('b0:00:00:00:00:02', 'b0:00:00:00:00:03', 'b0:00:00:00:00:06')") === 0, 'the unresolved rows make no Device');
+check((int) scalar($pdo, "SELECT COUNT(*) FROM topo_observations WHERE outcome = 'local_port_unresolved'") === 3, 'three observations local_port_unresolved', null);
+$snapshot_of_rows = $pdo->query('SELECT id, itemid, local_port_ref, remote_key, outcome, local_port_id, far_port_reason, first_seen, last_seen FROM topo_observations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+$r2 = run_ingest($dsn, $user, $password);
+check($pdo->query('SELECT id, itemid, local_port_ref, remote_key, outcome, local_port_id, far_port_reason, first_seen, last_seen FROM topo_observations ORDER BY id')->fetchAll(PDO::FETCH_ASSOC) === $snapshot_of_rows, 'a second run on the same data changes no observation (the claim is the identity, §7.1)');
+$first = observation($pdo, 'name:Gi9/9');
+// the port appears in the next PORTS snapshot: the same claim becomes a resolved observation, the row and first_seen are kept
+ports($pdo, 1, $NOW + 60, [1 => 'Gi0/1', 2 => 'Eth1', 3 => 'eth1', 4 => 'Gi0/4', 5 => 'Gi9/9']);
+// (an UPDATE, not snapshot(): its REPLACE of the item row would delete the observations of the rule through the foreign key)
+$rows_later = [
+	neighbor_row(['if_name' => 'Gi0/1'], $X.'1', 'p1'),
+	neighbor_row(['if_name' => 'ETH1'], $X.'2', 'p1'),
+	neighbor_row(['if_name' => 'Gi9/9'], $X.'3', 'p1'),
+	neighbor_row(['if_name' => '  gi0/4 '], $X.'4', 'p1'),
+	neighbor_row(['if_index' => 3, 'if_name' => 'Gi9/9'], $X.'5', 'p1'),
+	neighbor_row(['loc_port_num' => 99], $X.'6', 'p1'),
+];
+$json_later = json_encode($rows_later);
+$pdo->prepare('UPDATE topo_lld_snapshot SET rows_json = ?, rows_hash = ?, clock = ?, rows_total = 6, rows_valid = 6 WHERE itemid = 12')->execute([$json_later, hash('sha256', $json_later), $NOW + 60]);
+run_ingest($dsn, $user, $password);
+$later = observation($pdo, 'name:Gi9/9');
+check($later !== null && $later['id'] === $first['id'] && $later['outcome'] !== 'local_port_unresolved' && $later['local_port_id'] !== null && $later['first_seen'] === $first['first_seen'] && $later['far_port_reason'] === null,
+	'when the port appears the same observation (id, first_seen) is resolved: a local port, no unresolved reason', [$first, $later]);
+check(links($pdo) === 4, 'four links: the three names that have a port, and the row with `if_index` 3 (its if_name is not looked at)', links($pdo));
 check(observation($pdo, 'ifindex:3') !== null, 'the row with an if_index keeps its ifindex reference', null);
 
 echo "== a row with a loc_port_num and an if_name is the old row ==\n";
@@ -178,6 +206,8 @@ snapshot($pdo, 12, 1, 2, $NOW, [neighbor_row(['if_name' => 'Gi0/1'], $X.'1', 'p1
 $r = run_ingest($dsn, $user, $password);
 $u = $r['summary']['rows_local_port_unresolved'] ?? [];
 check(($u['by_reason']['no_ports'] ?? -1) === 1 && ($u['count'] ?? -1) === 1, 'no PORTS snapshot: the row is no_ports', $u);
+$o = observation($pdo, 'name:Gi0/1');
+check($o !== null && $o['outcome'] === 'local_port_unresolved' && $o['far_port_reason'] === 'no_ports' && $o['local_port_id'] === null, 'it is an observation local_port_unresolved with the reason no_ports', $o);
 check(links($pdo) === 0, 'no link', links($pdo));
 
 echo "== an old claim reference is not changed: loc_port_num still gives num: ==\n";

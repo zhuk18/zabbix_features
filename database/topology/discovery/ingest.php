@@ -450,7 +450,7 @@ $summary += [
 	'snapshots_total' => ['snapshots' => 0, 'snapshot_rows' => 0, 'snapshot_bytes' => 0],      // what the run read from topo_lld_snapshot (task 078 §5)
 	'fresh_seconds' => $run->fresh_seconds,
 	'freshness_warning' => $fresh_warning,
-	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0, 'old_snapshot' => 0, 'port_limit' => 0],
+	'observations' => ['applied' => 0, 'device_only' => 0, 'shadowed' => 0, 'conflict' => 0, 'ambiguous' => 0, 'old_snapshot' => 0, 'port_limit' => 0, 'local_port_unresolved' => 0],
 	// topology-1-model.md "Run summary": per-run counts of the discovered-vs-discovered replacement rule.
 	'links_superseded' => 0,
 	'links_revived' => 0,
