@@ -46,11 +46,11 @@ class CTopologyType {
 		ZBX_TOPOLOGY_TYPE_NEIGHBORS => [
 			'export' => 'NEIGHBORS',
 			'required' => [],
-			'one_of' => [['{#IFINDEX}', '{#LOC_PORT_NUM}'],
+			'one_of' => [['{#IFINDEX}', '{#LOC_PORT_NUM}', '{#IFNAME}'],
 				['{#REM_CHASSIS}', '{#REM_MGMT_IP}', '{#REM_MAN_ADDRS}', '{#REM_SYSNAME}']
 			],
 			'optional' => ['{#LOC_PORT_ID}', '{#LOC_PORT_ID_TYPE}', '{#LOC_PORT_DESC}', '{#REM_CHASSIS_TYPE}',
-				'{#REM_PORT}', '{#REM_PORT_TYPE}', '{#REM_PORT_DESC}', '{#REM_SYS_CAP}', '{#IFNAME}', '{#LOC_CHASSIS}',
+				'{#REM_PORT}', '{#REM_PORT_TYPE}', '{#REM_PORT_DESC}', '{#REM_SYS_CAP}', '{#LOC_CHASSIS}',
 				'{#LOC_CHASSIS_TYPE}', '{#SOURCE}'
 			]
 		],

@@ -469,7 +469,7 @@ $summary += [
 	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
 	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
 	'rows_duplicate_claim' => ['count' => 0, 'by_rule' => []],
-	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0], 'by_rule' => []],
+	'rows_local_port_unresolved' => ['count' => 0, 'by_reason' => ['name_on_several_ports' => 0, 'if_index_missing' => 0, 'no_ports' => 0, 'name_not_found' => 0], 'by_rule' => []],
 	// topology-1-model.md "Shared identifier (FR 4.h)": an identifier that matches more than one node identifies none of them.
 	// A count and a list (key kind, value as received, node ids) of the chassis ids / IPs found on several Devices by this run
 	// (neighbor rows and reporters), and of the MACs found on several Devices or in the inventory of several Hosts.

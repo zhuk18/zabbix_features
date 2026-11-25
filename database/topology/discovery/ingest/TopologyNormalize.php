@@ -105,7 +105,7 @@ class TopologyNormalize {
 
 	/**
 	 * The local port reference of a NEIGHBORS row (model §6.7.6, §7.1): the reporter's own reference to the port as the row gives it, normalized: `ifindex:<n>` when the row has
-	 * `if_index`, else `num:<n>` from `loc_port_num` (§4.7; a value that is not numeric: `num:` + the cleaned text, §4.5; no value: `num:`). Part of the claim key of an observation;
+	 * `if_index`, else `num:<n>` from `loc_port_num` (§4.7; a value that is not numeric: `num:` + the cleaned text, §4.5); else (2.104) `name:` + the cleaned `if_name`; no value: `num:`. Part of the claim key of an observation;
 	 * cut at 64 characters (the column).
 	 */
 	public static function localPortRef(array $row): string {
@@ -113,6 +113,10 @@ class TopologyNormalize {
 			return 'ifindex:'.(self::numericId((string) $row['if_index']) ?? self::clean((string) $row['if_index']) ?? '');
 		}
 		$num = (string) ($row['loc_port_num'] ?? '');
+		// 2.104 (FR-B D-9): a row with only the name of its local port: `name:` + the cleaned name (§4.5)
+		if ($num === '' && ($name = self::clean((string) ($row['if_name'] ?? ''))) !== null) {
+			return substr('name:'.$name, 0, 64);
+		}
 
 		return substr('num:'.(self::numericId($num) ?? self::clean($num) ?? ''), 0, 64);
 	}

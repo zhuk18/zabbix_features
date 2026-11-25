@@ -26,6 +26,25 @@ class IngestObserve {
 		if (!$ports) {
 			return [null, 'no_ports'];
 		}
+		// 2.104 (FR-B D-9, D-56; FR-A R-23): a row with only the name of its local port (`if_name`, no `if_index`, no `loc_port_num`): step 2 only, `if_name` against `name`, the cleaned names first,
+		// then the name key; no match is `name_not_found`
+		if (($row['loc_port_num'] ?? '') === '' && ($row['if_name'] ?? '') !== '') {
+			foreach ([$norm_clean, $norm_name_key] as $compare) {
+				$value = $compare((string) $row['if_name']);
+				if ($value === null) {
+					continue;
+				}
+				$hits = array_keys(array_filter($ports, static fn (array $p): bool => isset($p['name']) && $compare((string) $p['name']) === $value));
+				if (count($hits) === 1) {
+					return [(int) $ports[$hits[0]]['if_index'], null];
+				}
+				if (count($hits) > 1) {
+					return [null, 'name_on_several_ports'];
+				}
+			}
+
+			return [null, 'name_not_found'];
+		}
 		$by_index = [];
 		foreach ($ports as $port) {
 			$by_index[(int) $port['if_index']] = $port;

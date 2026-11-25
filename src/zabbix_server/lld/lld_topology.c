@@ -76,7 +76,7 @@ static const zbx_lld_topo_field_t	topo_ports[] = {
 	{NULL, NULL, 0, 0, 0, NULL}
 };
 
-/* NEIGHBORS (topology-1-model.md §5.2): the local port is {#IFINDEX} (CDP, other rules) or {#LOC_PORT_NUM} (LLDP: ingest resolves it, §6.7.6) - group 2; */
+/* NEIGHBORS (topology-1-model.md §5.2): the local port is {#IFINDEX} (CDP, other rules) or {#LOC_PORT_NUM} (LLDP: ingest resolves it, §6.7.6) or, alone, {#IFNAME} (2.104: resolved by name, §6.7.6) - group 2; */
 /* the remote identity is one of chassis, management IP, raw management addresses and sysname - group 1                                                 */
 static const zbx_lld_topo_field_t	topo_neighbors[] = {
 	{"{#IFINDEX}",		"if_index",		ZBX_LLD_TOPO_UINT,	0, 2, NULL},
@@ -84,7 +84,7 @@ static const zbx_lld_topo_field_t	topo_neighbors[] = {
 	{"{#LOC_PORT_ID}",	"loc_port_id",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_PORT_ID_TYPE}",	"loc_port_id_type",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
 	{"{#LOC_PORT_DESC}",	"loc_port_desc",	ZBX_LLD_TOPO_STR,	0, 0, NULL},
-	{"{#IFNAME}",		"if_name",		ZBX_LLD_TOPO_STR,	0, 0, NULL},
+	{"{#IFNAME}",		"if_name",		ZBX_LLD_TOPO_STR,	0, 2, NULL},
 	{"{#REM_CHASSIS}",	"rem_chassis",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
 	{"{#REM_MGMT_IP}",	"rem_mgmt_ip",		ZBX_LLD_TOPO_STR,	0, 1, NULL},
 	{"{#REM_MAN_ADDRS}",	"rem_man_addrs",	ZBX_LLD_TOPO_STR,	0, 1, NULL},
