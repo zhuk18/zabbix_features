@@ -246,6 +246,8 @@ def evaluate(a, state, ingest, history, clocks_hist, step, derived=None):
             ls = [l for l in ls if l['far_port_reason'] == a['far_port_reason']]
         if 'speed_mismatch' in a:      # task 120: both ends are up ports with known, different speeds (the page draws the warning mark)
             ls = [l for l in ls if l['speed_mismatch'] == bool(a['speed_mismatch'])]
+        if 'ports_differ' in a:      # task 130 (lab 2.41, model §8.5): attrs.ports_differ of a port-level link (the LLDP and the CDP rows name different remote ports)
+            ls = [l for l in ls if l['ports_differ'] == bool(a['ports_differ'])]
         want = a.get('state', 'active')
         if want == 'stale' or 'stale' in a:
             by_edge = {l['edge_id']: l for l in derived()['links']}

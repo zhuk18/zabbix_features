@@ -353,7 +353,7 @@ def validate_wait(scenario_id, i, wait):
 # Assertion forms (topology-4-lab-simulator.md "Assertions"): the form key -> (other keys on the assertion itself,
 # keys of the form's own mapping, or None when its value is a plain scalar). snapshot_unchanged is an extension.
 ASSERTION_FORMS = {
-    'link': ({'state', 'stale', 'type', 'discovered_via', 'far_port_reason', 'speed_mismatch'}, None),
+    'link': ({'state', 'stale', 'type', 'discovered_via', 'far_port_reason', 'speed_mismatch', 'ports_differ'}, None),
     'observation': ({'outcome', 'precision_lower'}, {'reporter', 'port', 'remote'}),
     'edge_id_same_as': (set(), {'step', 'link'}),
     'link_attr': (set(), {'link', 'attr', 'vs_step', 'is'}),

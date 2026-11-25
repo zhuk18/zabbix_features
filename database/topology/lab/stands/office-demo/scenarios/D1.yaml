@@ -83,3 +83,13 @@ steps:
     poll_all: true
     assert:
       - {link: [SW12-10-CORE-6000-48G:1/1/41, SW15-10-POE-6000-24G:1/1/21], state: active, type: physical_link, speed_mismatch: true}
+  - id: 8
+    note: LLDP and CDP of SW16 port 48 name different ports of SW18 (LLDP 44, CDP 40)
+    deviations: {enable: [cdp-port-differs], disable: []}
+    poll_all: true
+    assert:
+      # model §8.5 (2.104): the link keeps its remote port (the LLDP one), the mark is written, nothing is superseded
+      - {link: [SW16-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:44], state: active, type: physical_link, ports_differ: true}
+      - {link: [SW16-09-ACC-2530-48G:48, SW18-09-ACC-2530-48G:40], state: absent}
+      - {observation: {reporter: SW16-09-ACC-2530-48G, port: "48", remote: SW18-09-ACC-2530-48G}, outcome: applied}
+

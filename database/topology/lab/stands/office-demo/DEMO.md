@@ -68,6 +68,11 @@ To go back to the plain office stand (no demo rows): `labsim down`, then `labsim
 - Say: both ends of the cable are up, but one of them agreed on 100 Mbit/s. Nothing is down, so no alarm fires; this is what a bad cable or a failed autonegotiation looks like.
   (The office stand R1 has no such link; the deviation `speed-mismatch-sw15-21` of this stand sets `ifHighSpeed` of SW15 port 21 to 100. The page check of this step is `ui_check_040/d1_mark_check.py`, run with the stand up at step 7.)
 
+### 8 — LLDP and CDP name different ports (task 130)
+- Command: `labsim show D1 --step 8 --reset`
+- Look: *Focus host* `SW16-09-ACC-2530-48G`, depth 1: the uplink to SW18 (SW16 port 48 - SW18 port 44). The link keeps its port; hover the line or open the link panel: "LLDP and CDP report different remote ports: 44 and 40."
+- Say: the switch tells two stories about the same neighbor: the LLDP row says port 44, the CDP row says port 40. Zabbix does not choose: the cable that it knows stays as it is, and the operator is told. (The deviation `cdp-port-differs` of this stand changes `cdpCacheDevicePort` of SW16 port 48; the capture is not changed.)
+
 ## After the demo
 
 ```

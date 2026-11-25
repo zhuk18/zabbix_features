@@ -126,3 +126,9 @@ deviations:
     device: SW15-10-POE-6000-24G
     oid: 1.3.6.1.2.1.31.1.1.1.15.21          # ifHighSpeed.21 = port 1/1/21, was 1000
     value: 100
+  - id: cdp-port-differs
+    reason: "task 130 (lab 2.41, model §8.5): LLDP and CDP of SW16 port 48 report the same switch (SW18) at different ports: the LLDP row says port 44 (the real cable, SW16 48 - SW18 44), the CDP row now says port 40 (a real port of SW18 with no neighbor): cdpCacheDevicePort.48.1 = \"40\" instead of \"44\" (D1 step 8). A deviation, not a change of the capture"
+    type: override_oid
+    device: SW16-09-ACC-2530-48G
+    oid: 1.3.6.1.4.1.9.9.23.1.2.1.1.7.48.1          # cdpCacheDevicePort.48.1 (ifIndex 48 = port 48), was "44" (hex 3434)
+    value: "40"

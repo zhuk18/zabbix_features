@@ -49,6 +49,8 @@ Only the file `data/SW17-09-ACC-2530-48G/zbxlab.snmprec` differs from the office
 | 4 a device was replaced | `SW15-10-POE-6000-24G:1/1/1` | the step 3 deviation of R1 (new chassis of NA12501003431) |
 | 5 a switch stops answering | `SW21-07-ACC-2530-48G` | an access switch with one uplink (to SW20:42) and two endpoints: its links are easy to see |
 | 6 a router without LLDP/CDP | `SW22-07-ACC-2530-48G:41` | up, no neighbor row in the capture (a real port, not changed); SW22 is not the switch of step 5 |
+| 7 two ends disagree on speed | `SW15-10-POE-6000-24G:1/1/21` | the deviation `speed-mismatch-sw15-21` (`ifHighSpeed.21` = 100) |
+| 8 LLDP and CDP disagree on the remote port | `SW16-09-ACC-2530-48G:48` (uplink to `SW18-09-ACC-2530-48G:44`) | HP 2530, LLDP and CDP both report SW18 on this port; the deviation `cdp-port-differs` sets `cdpCacheDevicePort.48.1` to `40` (a real port of SW18 with no neighbor; the LLDP row keeps `44`). A deviation, the capture file is not changed; the manifest of the stand lists it (task 130) |
 
 ## Switching between stands
 
