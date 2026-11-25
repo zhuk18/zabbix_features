@@ -517,9 +517,15 @@ CHECKS = {
         });
         r.mark_gaps = [];
         marks.forEach((a, i) => marks.slice(i + 1).forEach(c => { const gx = Math.max(a.left - c.right, c.left - a.right), gy = Math.max(a.top - c.bottom, c.top - a.bottom); if (Math.max(gx, gy) < 6) r.mark_gaps.push([a.name, c.name, Math.round(Math.max(gx, gy) * 10) / 10]); }));
+        // task 122 (model 2.103 §12.3): the mark is 14 to 16 px high and keeps 12 px from a node box (the box holds the label); sizes in graph units (the screen size divided by the zoom)
+        const kz = (view.zoom_transform && view.zoom_transform.k) || 1;
+        r.mark_heights = marks.map(m => Math.round((m.bottom - m.top) / kz * 10) / 10);
+        r.mark_size_bad = r.mark_heights.filter(h => h < 14 || h > 16.01);
+        r.mark_node_gaps = [];
+        marks.forEach(a => boxes.forEach(c => { const gx = Math.max(a.left - c.right, c.left - a.right), gy = Math.max(a.top - c.bottom, c.top - a.bottom); const g = Math.max(gx, gy) / kz; if (g < 11.9) r.mark_node_gaps.push([a.name, c.name, Math.round(g * 10) / 10]); }));
         r.mark_places = (view.speed_mark_places || []).filter(p => !p.free).map(p => p.source + '-' + p.target + ' (no free point)');
         r.lines_through_nodes = linesThrough();
-        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.mark_overlaps.length === 0 && r.mark_line_hits.length === 0 && r.mark_gaps.length === 0 && r.mark_places.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
+        r.ok = r.nodes > 0 && r.overlaps === 0 && r.bundle_label_overlaps.length === 0 && r.mark_overlaps.length === 0 && r.mark_line_hits.length === 0 && r.mark_gaps.length === 0 && r.mark_size_bad.length === 0 && r.mark_node_gaps.length === 0 && r.mark_places.length === 0 && r.lines_through_nodes.length === 0 && !r.labels_wider_than_160 && !r.labels_multiline && !r.text_in_shape && r.font_large_min >= 11.99 && r.font_small_min >= 9.99 && r.zoom_k >= 1 && r.visible_nodes > 0;
         if (!r.ok) {
             r.evidence = collect('overlap');
         }

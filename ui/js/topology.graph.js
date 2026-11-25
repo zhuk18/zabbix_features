@@ -264,7 +264,7 @@
 				const names = [link.source_lag, link.target_lag].filter(name => name !== null && name !== undefined && name !== '');
 				// 2.101: a line with the warning mark needs the room of the mark too (next to the label of a bundle: a gap of 4 px)
 				const width = ((link.source_lag_id || link.target_lag_id) ? labelWidth((names.length ? names.join(' ↔ ') + ' ' : '') + '×2', measure) + (link.speed_mismatch ? 4 : 0) : 0)
-					+ (link.speed_mismatch ? markWidth() : 0);
+					+ (link.speed_mismatch ? markRoom() : 0);
 				[[link.source, link.target], [link.target, link.source]].forEach(([from, to]) => {
 					if (by_id.get(to).ring < by_id.get(from).ring) {
 						lag_widths.get(from).push({other: by_id.get(to), width});
@@ -616,10 +616,10 @@
 				}
 			});
 			bundles.filter(({mark}) => mark).forEach(({a, b, index, count}) => {
-				const place = placeMark(curve(a, b, index, count).at, [...boxes, ...placed], 0.01, otherCurves(lines, a, b, index, count));
+				const place = placeMark(curve(a, b, index, count).at, placed, 0.01, otherCurves(lines, a, b, index, count), boxes);
 				placed.push(place.box);
 				if (!place.free) {
-					stretch(a, b, markWidth(), index, count);
+					stretch(a, b, markRoom(), index, count);
 				}
 			});
 			if (blocked === 0) {
@@ -1056,10 +1056,18 @@
 	 * The warning mark of a speed mismatch (§12.3, 2.101): a sign of a fixed size (a triangle, drawn in MARK_SIZE × MARK_SIZE), so its width is exact, never estimated: ONE function for the
 	 * place of the mark (`placeMark`), the room that a layout makes for it (`makeLabelRoom`) and the room of a ring (`placeRadial`), as `labelWidth` is for the label.
 	 */
-	const MARK_SIZE = 14;
+	const MARK_SIZE = 16;
+	// 2.103: a mark keeps 12 px from a node box (the box holds the label), 4 px from another mark and from a line that is not its own
+	const MARK_NODE_GAP = 12;
+	const MARK_GAP = 4;
 
 	function markWidth() {
 		return MARK_SIZE;
+	}
+
+	/** The room that a mark needs on a line between two node boxes: its width and the distance from the box at each end. */
+	function markRoom() {
+		return MARK_SIZE + 2 * (MARK_NODE_GAP - MARK_GAP);
 	}
 
 	/** The mark of a link: {mismatch, member} when the link has a speed mismatch, or a LAG bundle has a member with one (the first); else null. */
@@ -1079,9 +1087,12 @@
 	 *
 	 * @return object  {u, x, y, free, box}; (x, y) is the middle of the mark
 	 */
-	function placeMark(at, obstacles, step = 0.01, others = []) {
+	function placeMark(at, obstacles, step = 0.01, others = [], node_boxes = []) {
 		// 2.102: a gap of 4 px round the sign: two marks never touch (8 px between them), and no other line passes through the box of the sign
-		const half = markWidth() / 2 + 4;
+		// 2.103: a node box (it holds the label) is kept 12 px away: its box is grown by the difference
+		const half = markWidth() / 2 + MARK_GAP;
+		const grow = MARK_NODE_GAP - MARK_GAP;
+		obstacles = [...obstacles, ...node_boxes.map(b => ({left: b.left - grow, right: b.right + grow, top: b.top - grow, bottom: b.bottom + grow}))];
 		const boxAt = u => {
 			const p = at(u);
 
@@ -1124,7 +1135,7 @@
 			placed.push({box: place.box, owners: [a, b], free: place.free, mark: false});
 		});
 		entries.filter(({mark}) => mark).forEach(({a, b, index, count}) => {
-			const place = placeMark(curve(a, b, index, count).at, [...node_boxes, ...placed.map(item => item.box)], 0.01, otherCurves(lines, a, b, index, count));
+			const place = placeMark(curve(a, b, index, count).at, placed.map(item => item.box), 0.01, otherCurves(lines, a, b, index, count), node_boxes);
 			placed.push({box: place.box, owners: [a, b], free: place.free, mark: true});
 		});
 
@@ -1447,5 +1458,5 @@
 		return rows.sort((a, b) => natural(first(a).port, first(b).port));
 	}
 
-	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, linkHintParts, bundleHintParts, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, placeMark, otherCurves, placeLabelsAndMarks, markWidth, markOf, MARK_SIZE, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
+	return {compareNodes, applyNearLoads, joinParts, linesThrough, clearThroughLines, lineCrossesNode, labelWidth, linkTooltip, panelSections, summaryLine, linkHintParts, bundleHintParts, loadText, problemSummary, linkRows, makeLabelRoom, bundleTooltip, placeLabel, placeMark, otherCurves, placeLabelsAndMarks, markWidth, markRoom, markOf, MARK_SIZE, MARK_NODE_GAP, clearSector, arcPlace, bundleLinks, runInfoParts, isDrawn, ICON_DEFS, CLASS_ORDER, iconOf, iconMarkup, classCounts, classText, MAX_LABEL_PX, SIZES, BOX_GAP, approxMeasure, runInfoText, cutMiddle, sizeOf, layoutNode, overlappingPairs, resolveOverlaps, distances, placeRadial, curve, parallelIndex};
 });

@@ -612,7 +612,7 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	const a = {x: 0, y: 0, box}, b = {x: 400, y: 0, box}, c = {x: 200, y: 0, box: {w: 60, h: 20, top: -10, bottom: 10}};
 	const nodes = [a, b, c];
 	const room = G.makeLabelRoom(nodes, [{a, b, width: 0, index: 0, count: 1, mark: true, mark_only: true}], {width: 1200, height: 800, padding: 30});
-	const place = G.placeMark(G.curve(a, b, 0, 1).at, nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom})));
+	const place = G.placeMark(G.curve(a, b, 0, 1).at, [], 0.01, [], nodes.map(node => ({left: node.x - node.box.w / 2, right: node.x + node.box.w / 2, top: node.y + node.box.top, bottom: node.y + node.box.bottom})));
 	ok(room === true && place.free, 'makeLabelRoom: a node on the line of a mark is moved off, the mark has a free point', {room, place, c});
 	// task 121 (2.102): a mark keeps off every line other than its own, and two marks are 8 px apart
 	const crossing = G.placeMark(at, [], 0.01, [u => ({x: 200, y: -50 + 100 * u})]);      // a vertical line through the middle of the own line
@@ -622,6 +622,13 @@ for (const [w, h] of [[1500, 900], [1280, 800]]) {
 	ok(second.free && Math.abs(second.x - first.x) >= G.markWidth() + 8 - 0.01, 'placeMark: a second mark is at least 8 px from the first', [first, second]);
 	const blocked = G.placeMark(at, [], 0.01, [u => ({x: 80 + 240 * u, y: 0}), u => ({x: 120 + 160 * u, y: 0})]);
 	ok(blocked.free === false, 'placeMark: a line along the own line leaves no free point: not free (the overlap check lists it)');
+	// task 122 (2.103): the sign is 14 to 16 px, and it keeps 12 px from a node box (the box holds the label), 4 px from a mark
+	ok(G.MARK_SIZE >= 14 && G.MARK_SIZE <= 16, 'the mark is 14 to 16 px', G.MARK_SIZE);
+	const near = {left: 150, right: 250, top: -10, bottom: 10};
+	const away = G.placeMark(at, [], 0.01, [], [near]);
+	ok(away.free && (away.box.left + G.markWidth() / 2 + 4 - near.right >= 12 - 0.01 || near.left - (away.box.right - G.markWidth() / 2 - 4) >= 12 - 0.01), 'placeMark: 12 px from a node box', away);
+	const tight = G.placeMark(at, [], 0.01, [], [{left: 100, right: 300, top: -10, bottom: 10}]);
+	ok(tight.free === false, 'placeMark: a node box 12 px grown over the whole range leaves no free point');
 	const both = G.placeLabelsAndMarks([{a, b, width: G.labelWidth('Trk1 ×2'), index: 0, count: 1, mark: true, mark_only: false}], []);
 	ok(both.length === 2 && both[0].mark === false && both[1].mark === true && both.every(item => item.free), 'placeLabelsAndMarks: the label, then the mark, both free');
 }

@@ -1416,7 +1416,7 @@ const view = new class {
 				[line('#64748b', 2, '0', 0.45), <?= json_encode(_('Faded: stale or superseded')) ?>],
 				[line('#64748b', 3, '1 4'), <?= json_encode(_('Dotted: device-level link (far port unknown)')) ?>],
 				// 2.101 (§12.3): the warning mark on the line, the same shape and colours as the mark that is drawn
-				[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)"><path d="M0,-7 L7,6 L-7,6 Z" style="fill:#374151;stroke:#f9fafb;stroke-width:1.4;stroke-linejoin:round"/><path d="M0,-2.5 V1.5 M0,3.8 V3.9" style="fill:none;stroke:#ffffff;stroke-width:1.6;stroke-linecap:round"/></g></svg>`,
+				[`<svg width="44" height="26" viewBox="0 0 44 26"><g transform="translate(22,13)"><path d="M0,-8 L8,7 L-8,7 Z" style="fill:#374151;stroke:#f9fafb;stroke-width:1.4;stroke-linejoin:round"/><path d="M0,-2.5 V1.5 M0,3.8 V3.9" style="fill:none;stroke:#ffffff;stroke-width:1.6;stroke-linecap:round"/></g></svg>`,
 					<?= json_encode(_('Speed mismatch: the data is wrong, or a device that is not on the graph is between the ports')) ?>]
 			]]
 		];
@@ -3779,8 +3779,8 @@ const view = new class {
 			const mark_places = [];
 			const drawn_line_list = simulation_links.map(line => ({a: line.source, b: line.target, index: line.parallel.index, count: line.parallel.count}));
 			speed_marks.each(function (link) {
-				const place = G.placeMark(G.curve(link.source, link.target, link.parallel.index, link.parallel.count).at, [...node_boxes, ...placed], 0.01,
-					G.otherCurves(drawn_line_list, link.source, link.target, link.parallel.index, link.parallel.count));
+				const place = G.placeMark(G.curve(link.source, link.target, link.parallel.index, link.parallel.count).at, placed, 0.01,
+					G.otherCurves(drawn_line_list, link.source, link.target, link.parallel.index, link.parallel.count), node_boxes);
 				placed.push(place.box);
 				d3.select(this).attr('transform', `translate(${place.x},${place.y})`);
 				mark_places.push({source: String(link.source.id), target: String(link.target.id), type: link.type, u: Math.round(place.u * 100), free: place.free});
