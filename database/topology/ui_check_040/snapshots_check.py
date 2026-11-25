@@ -86,6 +86,10 @@ try:
     rules = {}
     for name, key in keys.items():
         rules[name] = api('discoveryrule.create', {'hostid': host_id, 'name': 'Snapshot check ' + name, 'key_': key, 'type': 2, 'topology_type': 2})['itemids'][0]
+    # 2.107 (§12.7 part 3): `old` is shown for every topology type: a Ports rule and a Device rule (the other keys above are Neighbors rules)
+    other_types = {'portsold': ('snap.check.portsold', 1, '[{"{#IFINDEX}":"1","{#IFNAME}":"eth0"}]'), 'deviceold': ('snap.check.deviceold', 5, '[{"{#LOC_CHASSIS}":"aa:bb:cc:00:00:09","{#LOC_CHASSIS_TYPE}":"macAddress"}]')}
+    for name, (key, topology_type, value) in other_types.items():
+        rules[name] = api('discoveryrule.create', {'hostid': host_id, 'name': 'Snapshot check ' + name, 'key_': key, 'type': 2, 'topology_type': topology_type})['itemids'][0]
     now = int(time.time())
     chrome, ws, js = P.open_page(cookie, 'snap', 9840, action='topology.view&view=lastrun', ready="document.readyState === 'complete' && !!document.getElementById('topology-snapshot-list')")
 
@@ -98,12 +102,16 @@ try:
 
     print('=== none: a rule that has no value ===')
     rows = mine(js)
-    check(set(rows) == {'Snapshot check ' + n for n in keys} and all(r['state'] == 'none' and r['clock'] is None and r['rows_valid'] is None for r in rows.values()), 'five rules, all "none", no clock', rows)
+    check(set(rows) == {'Snapshot check ' + n for n in list(keys) + list(other_types)} and all(r['state'] == 'none' and r['clock'] is None and r['rows_valid'] is None for r in rows.values()), 'seven rules, all "none", no clock', rows)
 
     print('=== fresh, old ===')
     check(send(keys['fresh'], now), 'a value of now is sent')
     check(send(keys['old'], now - 8 * 86400), 'a value dated 8 days ago is sent')
-    rows = wait_for(js, lambda r: r['Snapshot check fresh']['state'] == 'fresh' and r['Snapshot check old']['state'] == 'old', 'the states become fresh and old')
+    for name, (key, topology_type, value) in other_types.items():
+        check(send(key, now - 8 * 86400, value), 'a %s value dated 8 days ago is sent' % ('Ports' if topology_type == 1 else 'Device'))
+    rows = wait_for(js, lambda r: r['Snapshot check fresh']['state'] == 'fresh' and r['Snapshot check old']['state'] == 'old' and r['Snapshot check portsold']['clock'] is not None and r['Snapshot check deviceold']['clock'] is not None, 'the states become fresh and old')
+    check(rows['Snapshot check portsold']['state'] == 'old' and rows['Snapshot check deviceold']['state'] == 'old' and rows['Snapshot check portsold']['allowed_age'] == 604800,
+          'a Ports rule and a Device rule older than their allowed age are old too (2.107: every topology type)', [rows['Snapshot check portsold'], rows['Snapshot check deviceold']])
     check(rows['Snapshot check fresh']['rows_valid'] == 1 and abs(rows['Snapshot check fresh']['clock'] - now) < 5, 'fresh: one valid row, the clock is the time of the value', rows['Snapshot check fresh'])
     check(rows['Snapshot check old']['allowed_age'] == 604800 and rows['Snapshot check old']['clock'] == now - 8 * 86400, 'old: the allowed age of a trapper rule is the freshness threshold (7 days), the clock is the time of the value', rows['Snapshot check old'])
 
@@ -135,9 +143,9 @@ try:
     only_old = fetch(js, 'state=old&page_size=1000')
     check(all(r['state'] == 'old' for r in only_old['snapshots']) and any(r['host'] == HOST for r in only_old['snapshots']), 'state=old lists only old rules, and the old rule of the check', only_old['total'])
     one_host = fetch(js, 'hostid=%s&page_size=1000' % host_id)
-    check(one_host['total'] == 5 and {r['host'] for r in one_host['snapshots']} == {HOST}, 'hostid filters to the five rules of the host', one_host['total'])
-    paged = fetch(js, 'hostid=%s&page_size=2&page=3' % host_id)
-    check(paged['total'] == 5 and len(paged['snapshots']) == 1 and paged['page'] == 3, 'the pages: 5 rules, 2 on a page, page 3 has one', paged)
+    check(one_host['total'] == 7 and {r['host'] for r in one_host['snapshots']} == {HOST}, 'hostid filters to the seven rules of the host', one_host['total'])
+    paged = fetch(js, 'hostid=%s&page_size=2&page=4' % host_id)
+    check(paged['total'] == 7 and len(paged['snapshots']) == 1 and paged['page'] == 4, 'the pages: 7 rules, 2 on a page, page 4 has one', paged)
 
     print('=== the page ===')
     js("location.href = 'zabbix.php?action=topology.view&view=lastrun&filter_snapshot_state=old'")
@@ -148,7 +156,7 @@ try:
     check(any(row[0] == HOST and row[1] == 'Snapshot check old' and row[3] == 'Old' for row in table['rows']) and all(row[3] == 'Old' for row in table['rows']), 'the filter "Old" shows only old rules, among them the rule of the check', table['rows'][:3])
     # the host filter of the list above (it is kept in the profile of the user: reset at the end)
     js("location.href = 'zabbix.php?action=topology.view&view=lastrun&filter_set=1&filter_hostids[]=%s'" % host_id)
-    P.until(js, "document.readyState === 'complete' && location.search.includes('filter_set') && document.querySelectorAll('#topology-snapshot-list tbody tr').length === 5", 'the five rules of the host are listed')
+    P.until(js, "document.readyState === 'complete' && location.search.includes('filter_set') && document.querySelectorAll('#topology-snapshot-list tbody tr').length === 7", 'the seven rules of the host are listed')
     text = js("document.getElementById('topology-snapshot-list').textContent")
     check('Snapshot check future' in text and 'later than the server time' in text and 'older than the snapshot' not in text, 'the value that was not used is shown with its reason (the rule `older` got a new snapshot: nothing shown for it)', text[:300])
     js("location.href = 'zabbix.php?action=topology.view&view=lastrun&filter_rst=1'")
