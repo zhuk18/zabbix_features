@@ -3407,9 +3407,21 @@ const view = new class {
 			&& link.edge_id !== undefined && this.contradictionOf(link.edge_id)?.contradicted);
 		const link_badges = scene.append('g').selectAll('g').data(contradicted_links).join('g')
 			.attr('class', 'topology-contradiction-badge').style('cursor', 'pointer')
+			// 2.103: a click on the "!" badge acts as a click on the line: the line menu ("Link details" opens the panel), as the click on the warning mark
 			.on('click', (event, link) => {
-				this.panel_from = null;
-				this.selectLink(link);
+				event.stopPropagation();
+				const target = line_entries.find(entry => entry.link === link);
+				if (target?.menu) {
+					this.hideHint();
+					this.guard(() => this.openMenu(event, target.hit, null, this.lineMenuItemsWithBinding(target)));
+				}
+				else if (target) {
+					target.open();
+				}
+				else {
+					this.panel_from = null;
+					this.selectLink(link);
+				}
 			});
 		link_badges.append('circle').attr('r', 9).style('fill', '#c2410c').style('stroke', '#7c2d12').style('stroke-width', 2);
 		link_badges.append('text').attr('y', 4).attr('text-anchor', 'middle').style('font-size', '12px')
