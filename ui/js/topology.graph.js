@@ -760,7 +760,16 @@
 				satellites.set(parent, [...(satellites.get(parent) ?? []), node]);
 			}
 		});
-		const members = mover => [mover, ...(satellites.get(mover) ?? [])];
+		const member_lists = new Map();
+		const members = mover => {
+			let list = member_lists.get(mover);
+			if (list === undefined) {
+				list = [mover, ...(satellites.get(mover) ?? [])];
+				member_lists.set(mover, list);
+			}
+
+			return list;
+		};
 		let budget = 3000 * effort;      // the number of places that are tried in one call: the call ends in a few tens of milliseconds also when nothing can be solved
 		// the number of crossings of a mover (and its satellites); `limit`: the count is only needed below it, so the sum stops there (what is returned is then `limit` or more, never a smaller number)
 		const scoreOne = (node, limit) => {
@@ -805,10 +814,25 @@
 			});
 		};
 		// the labels of the LAG bundles (`obstacles`: [{box: {left, right, top, bottom}, owners: [a, b]}]) are in the way too: a node is not moved onto a label (the ends of a bundle carry their label with them)
-		const freeOne = node => !nodes.some(other => other !== node && node.x - node.box.w / 2 - BOX_GAP < other.x + other.box.w / 2 && other.x - other.box.w / 2 < node.x + node.box.w / 2 + BOX_GAP
-				&& node.y + node.box.top - BOX_GAP < other.y + other.box.bottom && other.y + other.box.top < node.y + node.box.bottom + BOX_GAP)
-			&& !obstacles.some(({box, owners}) => !owners.includes(node) && node.x - node.box.w / 2 < box.right + 2 && box.left - 2 < node.x + node.box.w / 2
-				&& node.y + node.box.top < box.bottom + 2 && box.top - 2 < node.y + node.box.bottom);
+		const freeOne = node => {
+			const left = node.x - node.box.w / 2;
+			const right = node.x + node.box.w / 2;
+			const top = node.y + node.box.top;
+			const bottom = node.y + node.box.bottom;
+			for (const other of nodes) {
+				if (other !== node && left - BOX_GAP < other.x + other.box.w / 2 && other.x - other.box.w / 2 < right + BOX_GAP
+					&& top - BOX_GAP < other.y + other.box.bottom && other.y + other.box.top < bottom + BOX_GAP) {
+					return false;
+				}
+			}
+			for (const {box, owners} of obstacles) {
+				if (!owners.includes(node) && left < box.right + 2 && box.left - 2 < right && top < box.bottom + 2 && box.top - 2 < bottom) {
+					return false;
+				}
+			}
+
+			return true;
+		};
 		const free = node => members(node).every(freeOne);
 		const moved = new Set();
 		const gave_up = new Set();      // "line index|node": the pairs that could not be solved in this call
@@ -1013,13 +1037,19 @@
 					});
 				});
 			});
-			for (let step = 0; step < 600 * effort && budget > 0; step++) {
-				const pairs = [];
+			// the list of the crossing pairs is made again only after a kept move (a step that is taken back leaves the table as it was)
+			const pairs_of = () => {
+				const list = [];
 				lines.forEach((line, i) => nodes.forEach((node, j) => {
 					if (crossing[i][j]) {
-						pairs.push({line, node});
+						list.push({line, node});
 					}
 				}));
+
+				return list;
+			};
+			let pairs = pairs_of();
+			for (let step = 0; step < 600 * effort && budget > 0; step++) {
 				if (!pairs.length) {
 					break;
 				}
@@ -1040,6 +1070,7 @@
 				else {
 					moved.add(mover);
 					refresh(mover);
+					pairs = pairs_of();
 				}
 			}
 			if (linesThrough(nodes, lines, 2).length >= before) {
