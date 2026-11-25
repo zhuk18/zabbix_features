@@ -40,7 +40,10 @@ class CControllerTopologyView extends CController {
 			'filter_hostids' => 'array_id',
 			'device_id' => 'id',
 			'port_id' => 'id',
-			'page' => 'ge 1'
+			'page' => 'ge 1',
+			// 2.104 (§12.7 part 3): the list of the snapshots: its state filter and its page
+			'filter_snapshot_state' => 'in '.implode(',', CTopologyPrototype::SNAPSHOT_STATES),
+			'snapshot_page' => 'ge 1'
 		]);
 
 		if ($ret) {
@@ -162,7 +165,12 @@ class CControllerTopologyView extends CController {
 		}
 		$paging = CPagerHelper::paginate($page, $rows, ZBX_SORT_UP, $url);
 
+		$snapshot_state = $this->hasInput('filter_snapshot_state') ? (string) $this->getInput('filter_snapshot_state') : null;
+		$snapshots = CTopologyPrototype::getSnapshots($snapshot_state, $hostid, (int) $this->getInput('snapshot_page', 1), (int) (CWebUser::$data['rows_per_page'] ?? 50));
+
 		return [
+			'snapshots' => $snapshots,
+			'snapshot_state' => $snapshot_state,
 			'summary' => $summary,
 			'result' => CTopologyRunSummary::result($status['status'] ?? null, $summary),
 			'filter' => [

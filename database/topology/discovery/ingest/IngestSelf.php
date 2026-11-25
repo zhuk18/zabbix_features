@@ -12,7 +12,6 @@ class IngestSelf {
 	/** itemid of a rule => its allowed age in seconds (read once per run, 2.96) */
 	private array $allowed_ages = [];
 	/** hostid => macro => value, the user macros that apply to the host (its own, those of its templates, the global ones) */
-	private array $host_macros = [];
 
 	public function __construct(IngestRun $run) {
 		$this->run = $run;
@@ -116,97 +115,10 @@ class IngestSelf {
 			return $this->allowed_ages[$itemid];
 		}
 		$threshold = $this->run->fresh_seconds;
-		try {
-			$base = $this->ruleBase($itemid);
-		}
-		catch (PDOException $exception) {
-			$base = null;
-		}
+		$pdo = $this->run->pdo;
+		$base = topology_rule_base(static fn (string $sql): array => $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC), $itemid);
 
 		return $this->allowed_ages[$itemid] = topology_allowed_age($base, $threshold);
-	}
-
-	private function ruleBase(int $itemid): ?int {
-		$pdo = $this->run->pdo;
-		$item = $pdo->prepare('SELECT itemid, hostid, type, delay, master_itemid FROM items WHERE itemid = ?');
-		$heartbeat = $pdo->prepare('SELECT params FROM item_preproc WHERE itemid = ? AND type = 20 ORDER BY step LIMIT 1');
-		$heartbeat_of = function (int $id) use ($heartbeat): ?string {
-			$heartbeat->execute([$id]);
-			$value = $heartbeat->fetchColumn();
-
-			return $value === false ? null : (string) $value;
-		};
-		$item->execute([$itemid]);
-		if (($rule = $item->fetch(PDO::FETCH_ASSOC)) === false) {
-			return null;
-		}
-		$hostid = (int) $rule['hostid'];
-		$master = $rule;
-		for ($depth = 0; (int) $master['type'] === 18 && $master['master_itemid'] !== null && $depth < 20; $depth++) {
-			$item->execute([(int) $master['master_itemid']]);
-			if (($master = $item->fetch(PDO::FETCH_ASSOC)) === false) {
-				return null;
-			}
-		}
-		if ((int) $master['type'] === 18) {
-			return null;      // a chain that never ends in an item with its own interval
-		}
-		// the heartbeat: "Discard unchanged with heartbeat" on the rule, else on that master (the clock is accurate only to it, §5.5 rule 7)
-		foreach ([(int) $rule['itemid'], (int) $master['itemid']] as $id) {
-			if (($beat = $heartbeat_of($id)) !== null) {
-				return topology_interval_seconds($this->resolveMacros($beat, $hostid));
-			}
-		}
-		if ((int) $master['type'] === 2) {
-			return null;      // a Zabbix trapper: no interval
-		}
-
-		return topology_interval_seconds($this->resolveMacros((string) $master['delay'], $hostid));
-	}
-
-	/** User macros in a text, resolved on the host: its own macros, then those of its templates (nearest first), then the global ones; an unresolved macro stays (the text is then no interval). */
-	private function resolveMacros(string $text, int $hostid): string {
-		if (!str_contains($text, '{$')) {
-			return $text;
-		}
-		$macros = $this->hostMacros($hostid);
-
-		return (string) preg_replace_callback('/\{\$[A-Z0-9_.]+\}/', static fn (array $m): string => $macros[$m[0]] ?? $m[0], $text);
-	}
-
-	private function hostMacros(int $hostid): array {
-		if (isset($this->host_macros[$hostid])) {
-			return $this->host_macros[$hostid];
-		}
-		$pdo = $this->run->pdo;
-		$macros = [];
-		$take = static function (array $rows) use (&$macros): void {
-			foreach ($rows as [$macro, $value]) {
-				$macros[$macro] ??= $value;      // the nearest definition wins
-			}
-		};
-		$own = $pdo->prepare('SELECT macro, value FROM hostmacro WHERE hostid = ? AND type = 0');
-		$links = $pdo->prepare('SELECT templateid FROM hosts_templates WHERE hostid = ?');
-		$level = [$hostid];
-		$seen = [$hostid => true];
-		for ($depth = 0; $level && $depth < 20; $depth++) {
-			$next = [];
-			foreach ($level as $id) {
-				$own->execute([$id]);
-				$take($own->fetchAll(PDO::FETCH_NUM));
-				$links->execute([$id]);
-				foreach ($links->fetchAll(PDO::FETCH_COLUMN) as $template) {
-					if (!isset($seen[(int) $template])) {
-						$seen[(int) $template] = true;
-						$next[] = (int) $template;
-					}
-				}
-			}
-			$level = $next;
-		}
-		$take($pdo->query('SELECT macro, value FROM globalmacro WHERE type = 0')->fetchAll(PDO::FETCH_NUM));
-
-		return $this->host_macros[$hostid] = $macros;
 	}
 
 	/** The own identity a reporter's snapshots and host give (§6.4 steps 2-4, 6, 7): no database write. */

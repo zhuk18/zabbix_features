@@ -204,3 +204,52 @@ foreach ($data['rows'] as $row) {
 }
 
 $html_page->addItem($list);
+
+// ---- the snapshots (2.104, §12.7 part 3; FR-C V-18 item 3) ----
+// One row for each topology rule of a host (disabled ones too): the state of its snapshot is computed when the list is read, with the allowed age of the rule. The host filter of the list above
+// applies; the state is chosen with the links.
+$snapshot_state_names = ['fresh' => _('Fresh'), 'old' => _('Old'), 'not_used' => _('Not used'), 'none' => _('None')];
+$snapshot_url = (new CUrl('zabbix.php'))->setArgument('action', 'topology.view')->setArgument('view', CControllerTopologyView::VIEW_LASTRUN);
+$state_links = [(new CLink(_('All'), $data['snapshot_state'] === null ? null : (clone $snapshot_url)))->addClass($data['snapshot_state'] === null ? ZBX_STYLE_GREEN : null)];
+foreach ($snapshot_state_names as $state => $name) {
+	$state_links[] = ' ';
+	$state_links[] = (new CLink($name, (clone $snapshot_url)->setArgument('filter_snapshot_state', $state)))->addClass($data['snapshot_state'] === $state ? ZBX_STYLE_GREEN : null);
+}
+$html_page->addItem([new CTag('h4', true, _('Snapshots')), (new CDiv($state_links))->addStyle('margin: 4px 0')]);
+
+$snapshots = $data['snapshots'];
+$snapshot_list = (new CTableInfo())
+	->setId('topology-snapshot-list')
+	->setHeader([_('Host'), _('Rule'), _('Topology type'), _('State'), _('Snapshot time'), _('Valid rows'), _('Allowed age'), _('Value not used')]);
+foreach ($snapshots['snapshots'] as $snapshot) {
+	$ignored = '';
+	if ($snapshot['ignored_clock'] !== null) {
+		$ignored = ($snapshot['ignored_reason'] === 'future' ? _('later than the server time') : _('older than the snapshot')).', '.$time($snapshot['ignored_clock']);
+	}
+	$snapshot_list->addRow([
+		(new CLink($snapshot['host'], (new CUrl('zabbix.php'))->setArgument('action', 'popup')->setArgument('popup', 'host.edit')->setArgument('hostid', $snapshot['hostid']))),
+		(new CLink($snapshot['rule'], (new CUrl('host_discovery.php'))->setArgument('form', 'update')->setArgument('itemid', $snapshot['itemid'])->setArgument('context', 'host'))),
+		CTopologyType::getLabel($snapshot['topology_type']),
+		$snapshot_state_names[$snapshot['state']],
+		$snapshot['clock'] !== null ? $time($snapshot['clock']) : '–',
+		$snapshot['rows_valid'] !== null ? (string) $snapshot['rows_valid'] : '–',
+		$snapshot['allowed_age'] !== null ? convertUnitsS($snapshot['allowed_age']) : '–',
+		$ignored
+	]);
+}
+$html_page->addItem($snapshot_list);
+
+// the pages of the list (the size of a page is the one of the other lists of the user)
+$snapshot_pages = (int) ceil($snapshots['total'] / max(1, $snapshots['page_size']));
+if ($snapshot_pages > 1) {
+	$pager = [];
+	for ($n = 1; $n <= $snapshot_pages; $n++) {
+		$link = (clone $snapshot_url)->setArgument('snapshot_page', $n);
+		if ($data['snapshot_state'] !== null) {
+			$link->setArgument('filter_snapshot_state', $data['snapshot_state']);
+		}
+		$pager[] = (new CLink((string) $n, $link))->addClass($n === $snapshots['page'] ? ZBX_STYLE_GREEN : null);
+		$pager[] = ' ';
+	}
+	$html_page->addItem((new CDiv($pager))->addStyle('margin: 4px 0'));
+}

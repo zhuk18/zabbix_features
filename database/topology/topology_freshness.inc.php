@@ -97,3 +97,75 @@ function topology_allowed_age(?int $base, int $threshold): int {
 
 	return min($threshold, max(TOPOLOGY_AGE_INTERVALS * $base, TOPOLOGY_AGE_MIN));
 }
+
+
+/**
+ * The base of the allowed age of the snapshot of a rule (model §6.2 2.96): the update interval of the rule, for a dependent rule the one of its first master that is not dependent; when the rule
+ * or that master has "Discard unchanged with heartbeat", the heartbeat instead. User macros are resolved on the host (its own, its templates, global); flexible and scheduling intervals are not
+ * used. No base (a trapper rule or master, an interval that does not resolve or is 0): null, the freshness threshold is the age. ONE definition for ingest and for the page (task 125 part 4:
+ * `GET /topo/snapshots` computes the state of a snapshot the way a run does).
+ *
+ * @param callable $select  function (string $sql): array of rows (assoc), for a SELECT with no parameters (the ids in it are integers); it may throw: the base is then null
+ */
+function topology_rule_base(callable $select, int $itemid): ?int {
+	$one = static fn (string $sql): ?array => $select($sql)[0] ?? null;
+	$resolve = static function (string $text, int $hostid) use ($select): string {
+		if (!str_contains($text, '{$')) {
+			return $text;
+		}
+		// the macros of the host, nearest first: its own, then its templates (breadth first), then the global ones
+		$macros = [];
+		$take = static function (array $rows) use (&$macros): void {
+			foreach ($rows as $row) {
+				$macros[$row['macro']] ??= $row['value'];
+			}
+		};
+		$level = [$hostid];
+		$seen = [$hostid => true];
+		for ($depth = 0; $level && $depth < 20; $depth++) {
+			$next = [];
+			foreach ($level as $id) {
+				$take($select('SELECT macro, value FROM hostmacro WHERE hostid = '.$id.' AND type = 0'));
+				foreach ($select('SELECT templateid FROM hosts_templates WHERE hostid = '.$id) as $link) {
+					if (!isset($seen[(int) $link['templateid']])) {
+						$seen[(int) $link['templateid']] = true;
+						$next[] = (int) $link['templateid'];
+					}
+				}
+			}
+			$level = $next;
+		}
+		$take($select('SELECT macro, value FROM globalmacro WHERE type = 0'));
+
+		return (string) preg_replace_callback('/\{\$[A-Z0-9_.]+\}/', static fn (array $m): string => $macros[$m[0]] ?? $m[0], $text);
+	};
+	try {
+		if (($rule = $one('SELECT itemid, hostid, type, delay, master_itemid FROM items WHERE itemid = '.$itemid)) === null) {
+			return null;
+		}
+		$hostid = (int) $rule['hostid'];
+		$master = $rule;
+		for ($depth = 0; (int) $master['type'] === 18 && $master['master_itemid'] !== null && $depth < 20; $depth++) {
+			if (($master = $one('SELECT itemid, hostid, type, delay, master_itemid FROM items WHERE itemid = '.(int) $master['master_itemid'])) === null) {
+				return null;
+			}
+		}
+		if ((int) $master['type'] === 18) {
+			return null;      // a chain that never ends in an item with its own interval
+		}
+		// the heartbeat: "Discard unchanged with heartbeat" on the rule, else on that master (the clock is accurate only to it, §5.5 rule 7)
+		foreach ([(int) $rule['itemid'], (int) $master['itemid']] as $id) {
+			if (($beat = $one('SELECT params FROM item_preproc WHERE itemid = '.$id.' AND type = 20 ORDER BY step LIMIT 1')) !== null) {
+				return topology_interval_seconds($resolve((string) $beat['params'], $hostid));
+			}
+		}
+		if ((int) $master['type'] === 2) {
+			return null;      // a Zabbix trapper: no interval
+		}
+
+		return topology_interval_seconds($resolve((string) $master['delay'], $hostid));
+	}
+	catch (Throwable $exception) {
+		return null;      // a database that is only a stand-in of the Zabbix tables (a test) has no base for any rule
+	}
+}

@@ -4060,6 +4060,61 @@ class CTopologyPrototype {
 
 	const OBSERVATION_OUTCOMES = ['applied', 'device_only', 'shadowed', 'conflict', 'ambiguous', 'old_snapshot', 'port_limit'];
 
+	public const SNAPSHOT_STATES = ['fresh', 'old', 'not_used', 'none'];
+
+	/**
+	 * `GET /topo/snapshots` (model 2.104 §11, §12.7 part 3; FR-C V-18 item 3): one row for each topology rule of a host (a host, not a template; disabled ones too): host, rule, topology type, the
+	 * `clock` of its snapshot, `rows_valid`, the state, the allowed age and the time and the reason of the latest value that the server did not use because of its time (§5.4). The state is
+	 * computed when the list is read, with the allowed age of the rule (§6.2, FR-B D-55; the same function as the run's): `not_used` when the rule or its host is disabled (FR-B D-51), `none`
+	 * when the rule has no snapshot, `old` when a NEIGHBORS snapshot is older than its allowed age, else `fresh`. The names are untrusted text: the caller escapes them. The caller checks that the user is a Super admin.
+	 *
+	 * @param string|null $state   one of SNAPSHOT_STATES
+	 * @param string|null $hostid  only the rules of that host
+	 *
+	 * @return array  ['snapshots' => [...], 'total' => int, 'page' => int, 'page_size' => int]
+	 */
+	public static function getSnapshots(?string $state = null, ?string $hostid = null, int $page = 1, int $page_size = 50): array {
+		$page = max(1, $page);
+		$page_size = max(1, min(1000, $page_size));
+		$now = time();
+		$fresh = self::freshSeconds();
+		$conditions = ['i.topology_type<>0', dbConditionInt('i.flags', [ZBX_FLAG_DISCOVERY_RULE, ZBX_FLAG_DISCOVERY_RULE_CREATED]), dbConditionInt('h.status', [HOST_STATUS_MONITORED, HOST_STATUS_NOT_MONITORED])];
+		if ($hostid !== null) {
+			$conditions[] = dbConditionId('h.hostid', [$hostid]);
+		}
+		$select = static fn (string $sql): array => DBfetchArray(DBselect($sql));
+		$rows = [];
+		$result = DBselect('SELECT i.itemid,i.name AS rule,i.status AS rule_status,i.topology_type,h.hostid,h.name AS host,h.status AS host_status,s.clock,s.rows_valid,s.ignored_clock,s.ignored_reason,'.
+			's.itemid AS snapshot'.
+			' FROM items i JOIN hosts h ON h.hostid=i.hostid LEFT JOIN topo_lld_snapshot s ON s.itemid=i.itemid'.
+			' WHERE '.implode(' AND ', $conditions).' ORDER BY h.name,i.name,i.itemid');
+		while ($row = DBfetch($result, false)) {
+			$neighbors = (int) $row['topology_type'] === ZBX_TOPOLOGY_TYPE_NEIGHBORS;
+			$allowed_age = $neighbors ? topology_allowed_age(topology_rule_base($select, (int) $row['itemid']), $fresh) : null;
+			if ((int) $row['rule_status'] !== ITEM_STATUS_ACTIVE || (int) $row['host_status'] !== HOST_STATUS_MONITORED) {
+				$row_state = 'not_used';
+			}
+			elseif ($row['snapshot'] === null) {
+				$row_state = 'none';
+			}
+			elseif ($neighbors && (int) $row['clock'] < $now - $allowed_age) {
+				$row_state = 'old';
+			}
+			else {
+				$row_state = 'fresh';
+			}
+			if ($state !== null && $state !== $row_state) {
+				continue;
+			}
+			$rows[] = ['hostid' => (string) $row['hostid'], 'host' => (string) $row['host'], 'itemid' => (string) $row['itemid'], 'rule' => (string) $row['rule'],
+				'topology_type' => (int) $row['topology_type'], 'clock' => $row['snapshot'] !== null ? (int) $row['clock'] : null,
+				'rows_valid' => $row['snapshot'] !== null ? (int) $row['rows_valid'] : null, 'state' => $row_state, 'allowed_age' => $allowed_age,
+				'ignored_clock' => $row['ignored_clock'] !== null ? (int) $row['ignored_clock'] : null, 'ignored_reason' => $row['ignored_reason'] !== null ? (string) $row['ignored_reason'] : null];
+		}
+
+		return ['snapshots' => array_slice($rows, ($page - 1) * $page_size, $page_size), 'total' => count($rows), 'page' => $page, 'page_size' => $page_size];
+	}
+
 	/**
 	 * NEIGHBORS evidence recorded by ingest (topology-1-model.md "Observations", "API"): one row per neighbor a
 	 * discovery rule reported, with what ingest made of it. Only observations of rules on hosts the current

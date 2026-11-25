@@ -25,6 +25,21 @@ static int	DBpatch_8000000(void)
 	return SUCCEED;
 }
 
+/* topology model 2.104 (FR-B D-19, D-20; FR-C V-18 part 3): the time and the reason of the latest value that a rule's snapshot did not use because of its time */
+static int	DBpatch_8000001(void)
+{
+	const zbx_db_field_t	field = {"ignored_clock", NULL, NULL, NULL, 0, ZBX_TYPE_INT, 0, 0};
+
+	return DBadd_field("topo_lld_snapshot", &field);
+}
+
+static int	DBpatch_8000002(void)
+{
+	const zbx_db_field_t	field = {"ignored_reason", NULL, NULL, NULL, 16, ZBX_TYPE_CHAR, 0, 0};
+
+	return DBadd_field("topo_lld_snapshot", &field);
+}
+
 #endif
 
 DBPATCH_START(8000)
@@ -32,5 +47,7 @@ DBPATCH_START(8000)
 /* version, duplicates flag, mandatory flag */
 
 DBPATCH_ADD(8000000, 0, 1)
+DBPATCH_ADD(8000001, 0, 1)
+DBPATCH_ADD(8000002, 0, 1)
 
 DBPATCH_END()

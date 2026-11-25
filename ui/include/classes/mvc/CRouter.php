@@ -442,6 +442,7 @@ final class CRouter {
 		'topology.devices.dismissgroup'				=> [CControllerTopologyDevicesDismissGroup::class,				ZBX_LAYOUT_JSON,		null],
 		'topology.problems.get'						=> [CControllerTopologyProblemsGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.observations.get'					=> [CControllerTopologyObservationsGet::class,					ZBX_LAYOUT_JSON,		null],
+		'topology.snapshots.get'					=> [CControllerTopologySnapshotsGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.addresses.get'					=> [CControllerTopologyAddressesGet::class,						ZBX_LAYOUT_JSON,		null],
 		'topology.promote'							=> [CControllerTopologyPromote::class,							ZBX_LAYOUT_JSON,		null],
 		'topology.depromote'						=> [CControllerTopologyDepromote::class,						ZBX_LAYOUT_JSON,		null],

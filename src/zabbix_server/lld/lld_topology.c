@@ -373,7 +373,14 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 		{
 			zbx_db_free_result(result);
 
-			return SUCCEED;
+			/* 2.104 (FR-B D-19): the value is not used; the time and the reason are kept for the last run page */
+			if (ZBX_DB_OK > zbx_db_execute("update topo_lld_snapshot set ignored_clock=%d,ignored_reason='older'"
+					" where itemid=" ZBX_FS_UI64, now, itemid))
+			{
+				ret = FAIL;
+			}
+
+			return ret;
 		}
 
 		exists = 1;
@@ -385,8 +392,8 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 	if (1 == same)
 	{
 		/* identical data: only the observation time and counters move */
-		if (ZBX_DB_OK > zbx_db_execute("update topo_lld_snapshot set clock=%d,rows_total=%d,rows_valid=%d"
-				" where itemid=" ZBX_FS_UI64, now, rows_total, rows_valid, itemid))
+		if (ZBX_DB_OK > zbx_db_execute("update topo_lld_snapshot set clock=%d,rows_total=%d,rows_valid=%d,"
+				"ignored_clock=null,ignored_reason=null where itemid=" ZBX_FS_UI64, now, rows_total, rows_valid, itemid))
 		{
 			ret = FAIL;
 		}
@@ -403,7 +410,7 @@ static int	lld_topology_snapshot_write(zbx_uint64_t itemid, zbx_uint64_t hostid,
 
 		zbx_snprintf_alloc(&sql, &sql_alloc, &sql_offset,
 				"update topo_lld_snapshot set hostid=" ZBX_FS_UI64 ",topology_type=%d,clock=%d,rows_hash='%s',"
-				"rows_total=%d,rows_valid=%d,rows_json='%s' where itemid=" ZBX_FS_UI64,
+				"rows_total=%d,rows_valid=%d,rows_json='%s',ignored_clock=null,ignored_reason=null where itemid=" ZBX_FS_UI64,
 				hostid, topology_type, now, hash, rows_total, rows_valid, rows_esc, itemid);
 
 		if (ZBX_DB_OK > zbx_db_execute("%s", sql))
@@ -465,6 +472,10 @@ void	lld_topology_snapshot_update(zbx_uint64_t itemid, zbx_uint64_t hostid, int 
 	if (value_clock > server_time + ZBX_LLD_TOPO_FUTURE_TOLERANCE)
 	{
 		*info = zbx_dsprintf(*info, "Topology: value timestamp %d s in the future, ignored\n", value_clock - server_time);
+
+		/* 2.104 (FR-B D-20): the time and the reason are kept for the last run page; a rule without a snapshot has no row to keep them in */
+		(void)zbx_db_execute("update topo_lld_snapshot set ignored_clock=%d,ignored_reason='future' where itemid=" ZBX_FS_UI64,
+				value_clock, itemid);
 
 		return;
 	}
