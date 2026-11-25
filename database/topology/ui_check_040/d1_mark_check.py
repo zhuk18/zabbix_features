@@ -3,7 +3,7 @@
 Run it with the stand up at step 7:   cd database/topology/lab && ZBX_TOKEN=... python -m labsim --lab stands/office-demo/lab-office-demo.yaml show D1 --step 7 --reset
 then   ZBX_UI_USER=... ZBX_UI_PASSWORD=... python3 ui_check_040/d1_mark_check.py   (not in the harness: the harness runs on R1, where no link has a mismatch).
 Checks, on the page of the focus host SW12 (1 hop), real mouse events: the mark is on the line of that link and on no other, with no hover; the tooltip, the link panel and the Links row of SW12 have the mark
-(the row the short one, with both speeds in its hint box). Screenshot 121-d1.png when SHOTS_DIR is set (task 120 made 120-d1.png). Exit code 1 when a check fails."""
+(the row the short one, with both speeds in its hint box). Screenshot 122-d1.png when SHOTS_DIR is set (task 120 made 120-d1.png). Exit code 1 when a check fails."""
 import base64, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
@@ -40,6 +40,7 @@ try:
     check(len(marks) == 1 and {marks[0]['source'][:4], marks[0]['target'][:4]} == {'SW12', 'SW15'}, 'one mark on the page, on the line SW12 - SW15 (and on no other line)', marks)
     r = js(P.CHECKS['overlap'])
     check(r['speed_marks'] == 1 and not r['mark_overlaps'] and not r['mark_places'] and r['overlaps'] == 0, 'the mark touches no node box, label or mark', {k: r[k] for k in ('speed_marks', 'mark_overlaps', 'mark_places', 'overlaps')})
+    check(r['mark_size_bad'] == [] and r['mark_node_gaps'] == [] and all(14 <= h <= 16 for h in r['mark_heights']), 'task 122: the mark is 14 to 16 px high and 12 px or more from every node box (label included)', {k: r[k] for k in ('mark_heights', 'mark_node_gaps')})
     m = marks[0]
     fill = js("getComputedStyle(document.querySelector('#topology-canvas g.topology-speed-mark path')).fill")
     check(fill == 'rgb(55, 65, 81)', 'the mark is dark grey (task 121), not a severity colour', fill)
@@ -73,7 +74,7 @@ try:
         P.idle(js)
         hover(5, 5)
         P.until(js, "!document.querySelector('.hintbox') && !document.querySelector('.menu-popup')", 'no hint box and no menu over the graph')
-        with open(os.path.join(folder, '121-d1.png'), 'wb') as f:
+        with open(os.path.join(folder, '122-d1.png'), 'wb') as f:
             f.write(base64.b64decode(ws.call('Page.captureScreenshot', format='png')['data']))
 finally:
     chrome.close()
