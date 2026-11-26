@@ -55,7 +55,7 @@ areas_of() {
 		*test_closing_ticks*|*test_json_conditions*|*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
 		*test_device_link*|*test_link_replacement*|*test_manual_contradiction*|*test_contradiction_rule*|*test_topology_model*) a="links" ;;
 		*test_identity*|*test_shared_identifier*|*test_cdp_device_key*|*test_chassis_subtypes*|*test_normalization*|*test_duplicate_candidates*|*test_addresses*|*test_device_last_seen*|*test_device_class*) a="identity" ;;
-		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*) a="native" ;;
+		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*|*test_snapshot_clock*) a="native" ;;
 		lab/*|corpus/*) a="lab" ;;
 		ui/tests/*) a="api" ;;
 		*test_topology_graph.js*|*test_find_device*|*test_speed_mismatch*|*test_node_label*|*test_leaf_groups*|*test_hop_scope*|*test_freshness*|*test_lazy_host_nodes*) a="view" ;;
@@ -66,7 +66,7 @@ areas_of() {
 		*"lab/php/graph_page_check"*|*"lab/php/lastrun_http"*|*"lab/php/run_row_http"*|page*|*_check.py) case " $a " in *" page "*) ;; *) a="$a page" ;; esac ;;
 	esac
 	case "$1" in
-		*test_scenario_catalog*|*"deterministic first layout"*|*"one header for the graph"*|*"page escaping"*|*test_device_links.php|*"Bind to interface by name"*|*device_rows_check*|*run_row_http_check*|*test_far_device_lookup*|*test_link_replacement*|*"panel of SW12"*|*"selection after Apply"*) a="$a slow" ;;
+		*test_scenario_catalog*|*"deterministic first layout"*|*"one header for the graph"*|*"page escaping"*|*test_device_links.php|*"Bind to interface by name"*|*device_rows_check*|*test_snapshot_clock*|*run_row_http_check*|*test_far_device_lookup*|*test_link_replacement*|*"panel of SW12"*|*"selection after Apply"*) a="$a slow" ;;
 	esac
 	echo "$a"
 }
@@ -282,6 +282,13 @@ if [ -n "${ZBX_TOKEN:-}" ] && [ -x "$repo/bin/zabbix_sender" ]; then
 	exec_test discovery/device_rows_check.py /tmp/topo_t_device_rows.log python3 "$here/discovery/device_rows_check.py"
 else
 	skip discovery/device_rows_check.py "needs ZBX_TOKEN in the environment and bin/zabbix_sender"
+fi
+
+# ---- 6b. the server: the snapshot clock (C-136 to C-140, task 128 part 2; makes and deletes one host; a few minutes of waiting for the server) ----
+if [ -n "${ZBX_TOKEN:-}" ] && [ -x "$repo/bin/zabbix_sender" ]; then
+	exec_test discovery/test_snapshot_clock.py /tmp/topo_t_snapshot_clock.log python3 "$here/discovery/test_snapshot_clock.py"
+else
+	skip discovery/test_snapshot_clock.py "needs ZBX_TOKEN in the environment and bin/zabbix_sender"
 fi
 
 # ---- 7. the real page: layout and escaping (headless Chrome, logged in; the login comes from the environment) ----
