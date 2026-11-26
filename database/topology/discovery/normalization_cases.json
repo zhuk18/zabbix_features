@@ -1280,8 +1280,7 @@
    "out": {
     "rem_chassis_type": "macAddress",
     "rem_chassis": "bf:41:c2-66-f5-e2",
-    "rem_sysname": "a",
-    "chassis_invalid": true
+    "rem_sysname": "a"
    }
   },
   {
@@ -1293,8 +1292,7 @@
    "out": {
     "rem_chassis_type": "macAddress",
     "rem_chassis": "0-c-29-a-b-c",
-    "rem_sysname": "a",
-    "chassis_invalid": true
+    "rem_sysname": "a"
    }
   },
   {

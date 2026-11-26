@@ -210,8 +210,9 @@ class TopologyNormalize {
 			if ($type === 'macAddress' && $field === 'rem_chassis') {
 				// 2.112 (normalization §5, FR-B D-50, corpus F20): a chassis id of type macAddress that is not a MAC is not a hardware ID: the row stays, with no chassis key (the value
 				// becomes `chassis_text`, see IngestKeys::chassisKey), and is counted. The mark is read by IngestSelf.
-				$octets = CTopologyAddress::macOctets($row[$field]);
-				if ($octets === null || count($octets) !== 6) {
+				// Only a value that is shaped like a MAC and has the wrong number of octets (what the row was skipped for before): a value that is not shaped like a MAC at all is text, left alone
+				// as before (F21, the corpus rows of dnos, zynos, slxos keep their keys).
+				if (CTopologyAddress::macOctets($row[$field]) !== null && count(CTopologyAddress::macOctets($row[$field])) !== 6) {
 					$row['chassis_invalid'] = true;
 				}
 				else {
