@@ -48,6 +48,7 @@ if (isset($options['help'])) {
 
 require_once __DIR__.'/../topology_contradiction.inc.php';
 require_once __DIR__.'/../topology_freshness.inc.php';        // the one definition of the freshness threshold (§8.8)
+require_once __DIR__.'/../topology_json.inc.php';              // the SQL conditions on JSON attrs that give one result on MariaDB and MySQL 8.4 (§18, 2.111)
 require_once __DIR__.'/../topology_run.inc.php';               // the run row: the run lock, the request, the heartbeat (§6.1)
 require_once __DIR__.'/ingest/TopologyNormalize.php';          // the step Normalize (model §6.0)
 require_once __DIR__.'/ingest/IngestRun.php';                  // the state of a run, the step modules

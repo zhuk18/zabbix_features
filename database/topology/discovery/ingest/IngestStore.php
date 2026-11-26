@@ -17,7 +17,7 @@ class IngestStore {
 	public function findPort(int $device_id, int $if_index): ?int {
 		$pdo = $this->run->pdo;
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
-			" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+			" WHERE device_id = ? AND type = 'port' AND ".TopologyJson::number('attrs', '$.if_index')." = ?");
 		$stmt->execute([$device_id, $if_index]);
 		$row = $stmt->fetch(PDO::FETCH_ASSOC);
 		return $row ? (int) $row['id'] : null;

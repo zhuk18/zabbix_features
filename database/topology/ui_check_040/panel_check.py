@@ -10,6 +10,8 @@ Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome and the office stand data. Exi
 import atexit, shutil, json, math, os, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import topology_json as tj      # the SQL conditions on JSON attrs (model §18, 2.111)
 
 if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     print('ZBX_UI_USER and ZBX_UI_PASSWORD are needed')
@@ -145,8 +147,8 @@ try:
     print('=== a stale link has its mark in line 2; the bundle row menu ===')
     def sql(statement):
         return subprocess.run(['mysql', '-N', '-uzabbix', 'zabbix', '-e', statement], capture_output=True, text=True).stdout.strip()
-    edge = sql("SELECT e.id, e.attrs FROM topo_edges e JOIN topo_nodes a ON a.id=e.src_id JOIN topo_nodes d ON d.id=a.device_id WHERE e.type='physical_link' AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs,'$.sysname'))='SW12-10-CORE-6000-48G' "
-               "AND JSON_EXTRACT(e.attrs,'$.superseded_at') IS NULL LIMIT 1").split('\t')
+    edge = sql("SELECT e.id, e.attrs FROM topo_edges e JOIN topo_nodes a ON a.id=e.src_id JOIN topo_nodes d ON d.id=a.device_id WHERE e.type='physical_link' AND " + tj.text('d.attrs', '$.sysname') + "='SW12-10-CORE-6000-48G' "
+               "AND " + tj.missing('e.attrs', '$.superseded_at') + " LIMIT 1").split('\t')
     try:
         sql("UPDATE topo_edges SET attrs=JSON_SET(attrs,'$.last_seen',1) WHERE id=%s" % edge[0])
         chrome.kill()

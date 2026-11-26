@@ -54,8 +54,8 @@ class IngestMarks {
 			return;
 		}
 		$devices_by_mac = [];
-		foreach ($pdo->query("SELECT id, device_id, type, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac')) AS mac FROM topo_nodes".
-				" WHERE type IN ('device', 'port') AND JSON_EXTRACT(attrs, '\$.mac') IS NOT NULL ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		foreach ($pdo->query("SELECT id, device_id, type, ".TopologyJson::text('attrs', '$.mac')." AS mac FROM topo_nodes".
+				" WHERE type IN ('device', 'port') AND ".TopologyJson::exists('attrs', '$.mac')." ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 			ingest_tick('closing: inventory MAC match');
 			$device_id = $row['type'] === 'device' ? (int) $row['id'] : ($row['device_id'] === null ? null : (int) $row['device_id']);
 			if ($device_id !== null && ($mac = $mac_text($row['mac'])) !== null) {

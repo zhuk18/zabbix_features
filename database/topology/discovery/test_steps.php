@@ -33,6 +33,7 @@ $pdo->exec('CREATE TABLE items (itemid BIGINT UNSIGNED PRIMARY KEY)');
 $pdo->exec(file_get_contents(__DIR__.'/../mysql_schema.sql'));
 
 require_once __DIR__.'/../topology_contradiction.inc.php';
+require_once __DIR__.'/../topology_json.inc.php';
 require_once __DIR__.'/ingest/TopologyNormalize.php';
 require_once __DIR__.'/ingest/IngestRun.php';
 require_once __DIR__.'/ingest/IngestKeys.php';

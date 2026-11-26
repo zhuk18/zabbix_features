@@ -3,6 +3,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__.'/topology_json.inc.php';
+
 $args = array_slice($argv, 1);
 $reset = false;
 foreach ($args as $index => $arg) {
@@ -43,19 +45,19 @@ try {
 
 	// upsert keys (topology-1-model.md "Far Device"): Device by chassis_id, else mgmt_ip; Port by (device_id, if_index).
 	$find_device = static function(string $chassis_id, string $mgmt_ip) use ($pdo): ?int {
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.chassis_id')) = ?");
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND ".TopologyJson::text('attrs', '$.chassis_id')." = ?");
 		$stmt->execute([$chassis_id]);
 		if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 			return (int) $row['id'];
 		}
-		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mgmt_ip')) = ?");
+		$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE type = 'device' AND ".TopologyJson::text('attrs', '$.mgmt_ip')." = ?");
 		$stmt->execute([$mgmt_ip]);
 		$row = $stmt->fetch(PDO::FETCH_ASSOC);
 		return $row ? (int) $row['id'] : null;
 	};
 	$find_port = static function(int $device_id, int $if_index) use ($pdo): ?int {
 		$stmt = $pdo->prepare("SELECT id FROM topo_nodes".
-			" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+			" WHERE device_id = ? AND type = 'port' AND ".TopologyJson::number('attrs', '$.if_index')." = ?");
 		$stmt->execute([$device_id, $if_index]);
 		$row = $stmt->fetch(PDO::FETCH_ASSOC);
 		return $row ? (int) $row['id'] : null;

@@ -6,6 +6,8 @@ Needs ZBX_UI_USER, ZBX_UI_PASSWORD, google-chrome and the office stand data. Exi
 import atexit, shutil, json, math, os, re, subprocess, sys, tempfile, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import page_shot as P
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+import topology_json as tj      # the SQL conditions on JSON attrs (model §18, 2.111)
 
 if not os.environ.get('ZBX_UI_USER') or not os.environ.get('ZBX_UI_PASSWORD'):
     print('ZBX_UI_USER and ZBX_UI_PASSWORD are needed')
@@ -84,10 +86,9 @@ try:
         P.after_input(js)
         check(hovered(js) is None, '%s: the pointer away from the line: no hover' % other)
     print('\n=== two parallel lines that §2 does not bundle: the bundle SW12-SW18 and a manual link ===')
-    ports = sql("""SELECT (SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id WHERE p.type = 'port' AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs, '$.sysname')) = 'SW12-10-CORE-6000-48G'
-        AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) AND JSON_EXTRACT(p.attrs, '$.pseudo') = false ORDER BY p.id LIMIT 1),
-        (SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id WHERE p.type = 'port' AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs, '$.sysname')) = 'SW18-09-ACC-2530-48G'
-        AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) AND JSON_EXTRACT(p.attrs, '$.pseudo') = false ORDER BY p.id LIMIT 1)""").split('\t')
+    free_port = ("(SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id WHERE p.type = 'port' AND " + tj.text('d.attrs', '$.sysname') + " = '%s' "
+                 "AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) AND " + tj.is_false('p.attrs', '$.pseudo') + " ORDER BY p.id LIMIT 1)")
+    ports = sql("SELECT " + free_port % 'SW12-10-CORE-6000-48G' + ", " + free_port % 'SW18-09-ACC-2530-48G').split('\t')
     made = post('topology.ports.link', {'id': ports[0], 'dst_id': ports[1]})
     manual = made.get('edge_id')
     try:

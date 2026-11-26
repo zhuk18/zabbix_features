@@ -52,7 +52,7 @@ areas_of() {
 		*test_bind_interface*|*"Bind to interface"*|*bind_check*) a="bind" ;;
 		*test_manual_device*|*manual_device_check*|*"manual Device"*) a="manual" ;;
 		*test_junction*|*"Junction projection"*|*junction_check*) a="junction" ;;
-		*test_closing_ticks*|*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
+		*test_closing_ticks*|*test_json_conditions*|*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
 		*test_device_link*|*test_link_replacement*|*test_manual_contradiction*|*test_contradiction_rule*|*test_topology_model*) a="links" ;;
 		*test_identity*|*test_shared_identifier*|*test_cdp_device_key*|*test_chassis_subtypes*|*test_normalization*|*test_duplicate_candidates*|*test_addresses*|*test_device_last_seen*|*test_device_class*) a="identity" ;;
 		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*) a="native" ;;
@@ -173,7 +173,7 @@ skip() {   # skip <name> <reason>
 for t in discovery/test_device_links.php discovery/test_device_link_validation.php discovery/test_identity_normalization.php \
 		discovery/test_link_replacement.php discovery/test_manual_contradiction.php \
 		discovery/test_topology_model.php discovery/test_manual_device.php discovery/test_bind_interface.php discovery/test_junction.php test_contradiction_rule.php test_lazy_host_nodes.php \
-		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_device_row.php discovery/test_ifname_local_port.php discovery/test_ports_differ.php discovery/test_run_summary.php discovery/test_old_snapshot.php discovery/test_allowed_age.php discovery/test_port_limit.php discovery/test_port_follows_name.php discovery/test_port_alias.php discovery/test_run_input.php discovery/test_two_ports_rules.php discovery/test_remote_attrs_cap.php discovery/test_chassis_subtypes.php discovery/test_claim_key.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
+		discovery/test_shared_identifier.php discovery/test_pseudo_port_index.php discovery/test_far_port_identification.php discovery/test_far_device_lookup.php discovery/test_cdp_device_key.php discovery/test_device_row.php discovery/test_ifname_local_port.php discovery/test_ports_differ.php discovery/test_json_conditions.php discovery/test_run_summary.php discovery/test_old_snapshot.php discovery/test_allowed_age.php discovery/test_port_limit.php discovery/test_port_follows_name.php discovery/test_port_alias.php discovery/test_run_input.php discovery/test_two_ports_rules.php discovery/test_remote_attrs_cap.php discovery/test_chassis_subtypes.php discovery/test_claim_key.php discovery/test_duplicate_candidates.php discovery/test_ingest_identity.php discovery/test_identity_keys.php discovery/test_normalization.php discovery/test_scenario_catalog.php discovery/test_stable_ingest.php discovery/test_linked_port_claims.php discovery/test_addresses.php discovery/test_device_last_seen.php discovery/test_steps.php; do
 	selected "$t" || continue
 	db=topo_t_$(basename "$t" .php | cut -c6-40)
 	fresh "$db"
@@ -235,7 +235,7 @@ fi
 
 # ---- 4. lab unit tests and the converter of the corpus (PyYAML, mysql-connector: the lab venv) ----
 if [ -x "$labpy" ]; then
-	exec_test "lab/tests (unittest discover, 14 files)" /tmp/topo_t_lab_unit.log bash -c "cd '$here/lab' && '$labpy' -m unittest discover -s tests"
+	exec_test "lab/tests (unittest discover, 19 files)" /tmp/topo_t_lab_unit.log bash -c "cd '$here/lab' && '$labpy' -m unittest discover -s tests"
 	exec_test corpus/test_corpus_walk.py /tmp/topo_t_corpus_walk.log bash -c "cd '$here/corpus' && '$labpy' -m unittest test_corpus_walk.py"
 else
 	skip "lab/tests (unittest discover)" "no python with PyYAML at $labpy (LABPY)"
@@ -244,6 +244,7 @@ fi
 
 # ---- 4a. the state of R1 at the start (task 110 section 4): a manual Device or a manual link that no check made (somebody made it by hand on the stand) is not a failure of a check. The run is
 # reported as `infrastructure` with the ids, the checks that read the stand are not run, and nothing is deleted: the stand is restored from `--reset` by whoever runs it next.
+# json-ok: strings compared as strings (the unquoted text on both sides), in a shell command
 r1_dirty=$(mysql -N -u"$user" zabbix -e "SELECT CONCAT('manual Device ', id, ' ', IFNULL(JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.sysname')), '')) FROM topo_nodes WHERE type = 'device' AND JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.source')) = 'manual' UNION ALL SELECT CONCAT('manual link ', id) FROM topo_edges WHERE JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.discovered_via')) = 'manual' ORDER BY 1" 2>/dev/null)
 if [ -n "$r1_dirty" ]; then
 	printf 'R1 has manual data at the start of the run that no check made (not deleted; restore R1 from --reset):\n%s\n' "$r1_dirty" >/tmp/topo_t_r1_dirty.log

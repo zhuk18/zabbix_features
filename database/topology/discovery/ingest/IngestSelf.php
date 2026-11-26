@@ -437,7 +437,7 @@ class IngestSelf {
 				// A port that is the target of a LAG membership stays typed "lag" even when its ifType says
 				// otherwise (some vendors report port-channels as ethernetCsmacd); the LAG rule set it.
 				$existing_id = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-					" AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+					" AND ".TopologyJson::number('attrs', '$.if_index')." = ?");
 				$existing_id->execute([$device_id, $if_index]);
 				if (($port_row = $existing_id->fetchColumn()) !== false) {
 					$members = $pdo->prepare('SELECT COUNT(*) FROM topo_nodes WHERE lag_id = ?');

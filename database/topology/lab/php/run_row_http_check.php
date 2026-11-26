@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__.'/../../topology_json.inc.php';
+
 /**
  * run_row_http_check.php — task 087, topology-1-model.md 2.65 §6.1, §6.11, §11 on the real frontend, over HTTP: the UI only requests a run (POST topology.ingest.run), the CLI executes it
  * (`ingest.php --if-requested`); the status comes from the run row (`requested`, `executor_missing`); an operator write action waits for the run lock up to 5 seconds and is then refused with
@@ -142,8 +144,8 @@ $pdo->exec('DELETE FROM topo_nodes WHERE id = '.$ids[0]);
 
 echo "\n=== 4. accept discovery: a request, the effect at the next CLI run ===\n";
 // a discovered link L between two real ports; a manual link M from one of its ports to a free port makes the discovered one shadowed at the next run; accepting deletes M
-$link = $pdo->query("SELECT e.id, e.src_id, e.dst_id FROM topo_edges e WHERE e.type = 'physical_link' AND JSON_UNQUOTE(JSON_EXTRACT(e.attrs, '\$.discovered_via')) <> 'manual' AND JSON_EXTRACT(e.attrs, '\$.superseded_at') IS NULL ORDER BY e.id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
-$free = (int) $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type = 'port' AND JSON_EXTRACT(p.attrs, '\$.pseudo') = false AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) ORDER BY p.id LIMIT 1")->fetchColumn();
+$link = $pdo->query("SELECT e.id, e.src_id, e.dst_id FROM topo_edges e WHERE e.type = 'physical_link' AND ".TopologyJson::text('e.attrs', '$.discovered_via')." <> 'manual' AND ".TopologyJson::missing('e.attrs', '$.superseded_at')." ORDER BY e.id LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$free = (int) $pdo->query("SELECT p.id FROM topo_nodes p WHERE p.type = 'port' AND ".TopologyJson::isFalse('p.attrs', '$.pseudo')." AND NOT EXISTS (SELECT 1 FROM topo_edges e WHERE e.src_id = p.id OR e.dst_id = p.id) ORDER BY p.id LIMIT 1")->fetchColumn();
 check($link !== false && $free > 0, 'the data has a discovered link and a free port', [$link, $free]);
 $made = post($admin, 'topology.ports.link', ['id' => (string) $link['src_id'], 'dst_id' => (string) $free]);
 $manual = (int) ($made['edge_id'] ?? 0);
@@ -156,7 +158,7 @@ $answer = post($admin, 'topology.manual.accept', ['edge_id' => (string) $manual]
 check(($answer['success'] ?? false) === true && ($answer['ingest'] ?? '') === 'requested' && str_contains((string) ($answer['message'] ?? ''), 'next run'), 'the answer says that the change applies at the next run', $answer);
 check((int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$manual}")->fetchColumn() === 0 && (int) row($pdo)['requested_at'] > 0, 'the manual link is deleted and a run is requested');
 $run = cli(['--if-requested']);
-$active = (int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$link['id']} AND JSON_EXTRACT(attrs, '\$.superseded_at') IS NULL")->fetchColumn();
+$active = (int) $pdo->query("SELECT COUNT(*) FROM topo_edges WHERE id = {$link['id']} AND ".TopologyJson::missing('attrs', '$.superseded_at')."")->fetchColumn();
 check(in_array($run['code'], [0, 3], true) && $active === 1, 'after the CLI run the discovered link is active again', [$run['code'], $active]);
 check((int) row($pdo)['requested_at'] === 0, 'the request is cleared');
 

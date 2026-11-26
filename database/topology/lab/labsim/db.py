@@ -10,6 +10,12 @@ import mysql.connector
 
 from .model import LabError
 
+# the SQL conditions on JSON attrs that give one result on MariaDB and MySQL 8.4 (model §18, 2.111): database/topology/topology_json.py
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..')))
+import topology_json as tj  # noqa: E402
+
 REQUIRED_DATABASE = 'zabbix'
 
 
@@ -239,7 +245,7 @@ def topo_counts(conn):
 
 def port_node_id(conn, device, port):
     r = rows(conn, "SELECT p.id FROM topo_nodes p JOIN topo_nodes d ON d.id=p.device_id WHERE p.type='port' "
-                   "AND JSON_UNQUOTE(JSON_EXTRACT(d.attrs,'$.sysname'))=%s AND JSON_UNQUOTE(JSON_EXTRACT(p.attrs,'$.name'))=%s",
+                   "AND " + tj.text('d.attrs', '$.sysname') + "=%s AND " + tj.text('p.attrs', '$.name') + "=%s",
              (device, port))
     return r[0]['id'] if r else None
 

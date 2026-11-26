@@ -73,9 +73,9 @@ class IngestFarPort {
 		$normalized_real = $normalize_port_name($real_port_name);
 
 		$stmt = $pdo->prepare(
-			"SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
+			"SELECT id, ".TopologyJson::text('attrs', '$.name')." AS name FROM topo_nodes".
 			" WHERE device_id = ? AND type = 'port' AND id != ?".
-			" AND JSON_EXTRACT(attrs, '\$.pseudo') = true");
+			" AND ".TopologyJson::isTrue('attrs', '$.pseudo')."");
 		$stmt->execute([$reporter_device_id, $real_port_id]);
 		$pseudo_ports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -191,7 +191,7 @@ class IngestFarPort {
 		$normalize_port_name = [$this, 'normalizePortName'];
 		$norm_numeric_id = ['TopologyNormalize', 'numericId'];
 		$norm_port_mac = ['TopologyNormalize', 'portMac'];
-		$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = false ORDER BY id");
+		$stmt = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port' AND ".TopologyJson::isFalse('attrs', '$.pseudo')." ORDER BY id");
 		$stmt->execute([$device_id]);
 		$ports = [];
 		foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $port) {
@@ -274,13 +274,13 @@ class IngestFarPort {
 		$validate_edge = [$this->run->store, 'validateEdge'];
 		$pseudo_note = [$this, 'pseudoNote'];
 		$real = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-			" AND JSON_EXTRACT(attrs, '\$.pseudo') = false LIMIT 1");
+			" AND ".TopologyJson::isFalse('attrs', '$.pseudo')." LIMIT 1");
 		$real->execute([$device_id]);
 		if (!$real->fetchColumn()) {
 			return;
 		}
 		$pseudo = $pdo->prepare("SELECT id, attrs FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-			" AND JSON_EXTRACT(attrs, '\$.pseudo') = true ORDER BY id");
+			" AND ".TopologyJson::isTrue('attrs', '$.pseudo')." ORDER BY id");
 		$pseudo->execute([$device_id]);
 		$ports = $pseudo->fetchAll(PDO::FETCH_ASSOC);
 
@@ -407,7 +407,7 @@ class IngestFarPort {
 	public function allocPseudoIndex(int $device_id, string $key): int {
 		$pdo = $this->run->pdo;
 		$index = -((int) (crc32($key) % 999999) + 1);
-		$used = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+		$used = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port' AND ".TopologyJson::number('attrs', '$.if_index')." = ?");
 		for ($tries = 0; $tries < 1000; $tries++, $index--) {
 			$used->execute([$device_id, $index]);
 			if ($used->fetchColumn() === false) {
@@ -430,14 +430,14 @@ class IngestFarPort {
 		$device_id = $candidate['remote_device_id'];
 		$key = (string) $candidate['pseudo_key'];
 		if ($candidate['pseudo_index'] !== null) {
-			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.if_index') = ?");
+			$stmt = $pdo->prepare("SELECT id FROM topo_nodes WHERE device_id = ? AND type = 'port' AND ".TopologyJson::number('attrs', '$.if_index')." = ?");
 			$stmt->execute([$device_id, $candidate['pseudo_index']]);
 			if (($found = $stmt->fetchColumn()) !== false) {
 				return (int) $found;
 			}
 		}
-		$stmt = $pdo->prepare("SELECT id, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.name')) AS name FROM topo_nodes".
-			" WHERE device_id = ? AND type = 'port' AND JSON_EXTRACT(attrs, '\$.pseudo') = true ORDER BY id");
+		$stmt = $pdo->prepare("SELECT id, ".TopologyJson::text('attrs', '$.name')." AS name FROM topo_nodes".
+			" WHERE device_id = ? AND type = 'port' AND ".TopologyJson::isTrue('attrs', '$.pseudo')." ORDER BY id");
 		$stmt->execute([$device_id]);
 		foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $pseudo) {
 			if ($normalize_port_name((string) $pseudo['name']) === $key) {
@@ -461,7 +461,7 @@ class IngestFarPort {
 		$now = $this->run->now;
 		$summary = &$this->run->summary;
 		$rows = $pdo->query("SELECT id, device_id, attrs FROM topo_nodes WHERE type = 'port' AND device_id IS NOT NULL".
-			" AND JSON_EXTRACT(attrs, '\$.pseudo') = true AND JSON_EXTRACT(attrs, '\$.if_index') > 0 ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+			" AND ".TopologyJson::isTrue('attrs', '$.pseudo')." AND ".TopologyJson::number('attrs', '$.if_index')." > 0 ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
 		foreach ($rows as $row) {
 			$attrs = json_decode($row['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 			if (!empty($attrs['local_ifindex']) || (string) ($attrs['name'] ?? '') === (string) $attrs['if_index']) {
@@ -482,7 +482,7 @@ class IngestFarPort {
 		$is_authoritative = static function (int $device_id) use ($pdo, &$authoritative): bool {
 			if (!array_key_exists($device_id, $authoritative)) {
 				$stmt = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE device_id = ? AND type = 'port'".
-					" AND JSON_EXTRACT(attrs, '\$.pseudo') = false LIMIT 1");
+					" AND ".TopologyJson::isFalse('attrs', '$.pseudo')." LIMIT 1");
 				$stmt->execute([$device_id]);
 				$authoritative[$device_id] = (bool) $stmt->fetchColumn();
 			}
