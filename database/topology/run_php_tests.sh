@@ -335,6 +335,8 @@ else
 		page_test "page: the badge of a contradicted link opens the line menu" /tmp/topo_t_badge.log python3 "$here/ui_check_040/badge_check.py"
 		page_test "page: a click on a group node unfolds it in 500 ms with no task over 200 ms, once (states after Reset)" /tmp/topo_t_unfold_time.log python3 "$here/ui_check_040/unfold_time_check.py"
 		page_test "page: Last run, part Snapshots (the states fresh, old, not_used, none, the ignored value; the API and the page, own host)" /tmp/topo_t_snapshots.log python3 "$here/ui_check_040/snapshots_check.py"
+		# the row contract on the server and on the frontend side, the same table (task 128 part 1, model §5.2): trapper rules, zabbix_sender, snapshots.get and the info text; CTopologyType::checkRows
+		page_test "page: row contract (28 cases through trapper rules and CTopologyType::checkRows, own host)" /tmp/topo_t_row_contract.log python3 "$here/ui_check_040/row_contract_check.py"
 		page_test "page: Last run, observations local_port_unresolved (the row, its port reference and reason, the filter by the result)" /tmp/topo_t_unresolved.log python3 "$here/ui_check_040/unresolved_check.py"
 		page_test "page: Bind to interface by name (a host of the agent template: no index, load, refusal, Unbind)" /tmp/topo_t_bind_name_page.log python3 "$here/ui_check_040/bind_check.py" --by-name
 	# the load of the side that has items, "no data" and the reason for the side that has none (110, FR-C V-12)

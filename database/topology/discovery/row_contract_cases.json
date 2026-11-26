@@ -1,0 +1,431 @@
+{
+ "comment": "The row contract of model \u00a75.2 as a table (task 128 part 1). Read by ui_check_040/row_contract_check.py (the server, through trapper rules) and by lab/php/row_contract_frontend.php (CTopologyType::checkRows). valid_rows: rows that the server keeps; frontend: 1/0 = what the Test dialog says when it differs; reason: why the two differ.",
+ "cases": [
+  {
+   "name": "ports-ifindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "5",
+     "{#IFNAME}": "Gi0/5"
+    }
+   ],
+   "valid": 1,
+   "why": "IFINDEX present (C-120, D-9)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "ports-ifindex-only",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "1"
+    }
+   ],
+   "valid": 1,
+   "why": "IFINDEX is the only required macro",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "ports-snmpindex-fallback",
+   "type": 1,
+   "rows": [
+    {
+     "{#SNMPINDEX}": "7",
+     "{#IFNAME}": "eth7"
+    }
+   ],
+   "valid": 1,
+   "why": "SNMPINDEX is the ifIndex of a Port (C-121)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "ports-ifindex-wins-over-snmpindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "5",
+     "{#SNMPINDEX}": "99"
+    }
+   ],
+   "valid": 1,
+   "why": "both: valid; IFINDEX is the one used",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "ports-empty-ifindex-snmpindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "",
+     "{#SNMPINDEX}": "8"
+    }
+   ],
+   "valid": 1,
+   "why": "an empty IFINDEX is missing, so the fallback applies (C-124)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "ports-empty-ifindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "",
+     "{#IFNAME}": "x"
+    }
+   ],
+   "valid": 0,
+   "why": "an empty IFINDEX counts as missing (C-124)",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "ports-empty-both",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "",
+     "{#SNMPINDEX}": ""
+    }
+   ],
+   "valid": 0,
+   "why": "both empty",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "ports-no-ifindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFNAME}": "x",
+     "{#IFDESCR}": "y"
+    }
+   ],
+   "valid": 0,
+   "why": "no IFINDEX and no SNMPINDEX (C-120)",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "ports-no-macros",
+   "type": 1,
+   "rows": [
+    {}
+   ],
+   "valid": 0,
+   "why": "a row with no macro",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "ports-nonnumeric-ifindex",
+   "type": 1,
+   "rows": [
+    {
+     "{#IFINDEX}": "abc"
+    }
+   ],
+   "valid": 0,
+   "why": "the server needs a number; the frontend checks presence only",
+   "frontend": 1,
+   "reason": "the server refuses a non-numeric IFINDEX; the Test dialog does not",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-ifindex-sysname",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "3",
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 1,
+   "why": "local ifIndex and remote sysname (C-122)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "neighbors-locportnum-chassis",
+   "type": 2,
+   "rows": [
+    {
+     "{#LOC_PORT_NUM}": "10",
+     "{#REM_CHASSIS}": "aa:bb:cc:00:00:02"
+    }
+   ],
+   "valid": 1,
+   "why": "LLDP local port number and remote chassis",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "neighbors-ifname-only-local",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFNAME}": "Gi0/1",
+     "{#REM_MGMT_IP}": "10.0.0.2"
+    }
+   ],
+   "valid": 1,
+   "why": "a local port name alone is a local port (2.104)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "neighbors-man-addrs",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "3",
+     "{#REM_MAN_ADDRS}": "raw"
+    }
+   ],
+   "valid": 1,
+   "why": "raw management addresses are a remote identity",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "neighbors-snmpindex-no-fallback",
+   "type": 2,
+   "rows": [
+    {
+     "{#SNMPINDEX}": "1.2.3",
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 0,
+   "why": "SNMPINDEX is not an ifIndex of a Neighbor (C-123)",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-snmpindex-and-ifindex",
+   "type": 2,
+   "rows": [
+    {
+     "{#SNMPINDEX}": "1.2.3",
+     "{#IFINDEX}": "4",
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 1,
+   "why": "SNMPINDEX is ignored; IFINDEX is the local port",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "neighbors-no-local-port",
+   "type": 2,
+   "rows": [
+    {
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 0,
+   "why": "no local port group",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-no-remote",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "3"
+    }
+   ],
+   "valid": 0,
+   "why": "no remote identity group",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-empty-remote",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "3",
+     "{#REM_CHASSIS}": "",
+     "{#REM_SYSNAME}": ""
+    }
+   ],
+   "valid": 0,
+   "why": "empty remote macros count as missing",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-empty-local",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "",
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 0,
+   "why": "an empty local macro counts as missing",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-none",
+   "type": 2,
+   "rows": [
+    {
+     "{#REM_PORT}": "Gi0/2"
+    }
+   ],
+   "valid": 0,
+   "why": "neither group",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "neighbors-nonnumeric-locportnum",
+   "type": 2,
+   "rows": [
+    {
+     "{#LOC_PORT_NUM}": "x",
+     "{#REM_SYSNAME}": "sw2"
+    }
+   ],
+   "valid": 0,
+   "why": "the server needs a number; the frontend checks presence only",
+   "frontend": 1,
+   "reason": "the server refuses a non-numeric LOC_PORT_NUM; the Test dialog does not",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "device-chassis",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_CHASSIS}": "aa:bb:cc:00:00:09"
+    }
+   ],
+   "valid": 1,
+   "why": "own chassis id (D-53)",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "device-cdp-id",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_CDP_DEVICE_ID}": "sw9.example"
+    }
+   ],
+   "valid": 1,
+   "why": "own CDP device id",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "device-sysname",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_SYSNAME}": "sw9"
+    }
+   ],
+   "valid": 1,
+   "why": "own system name",
+   "valid_rows": 1,
+   "rows_total": 1
+  },
+  {
+   "name": "device-none",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_CHASSIS_TYPE}": "macAddress",
+     "{#LOC_SYS_CAP}": "bridge"
+    }
+   ],
+   "valid": 0,
+   "why": "no identity macro",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "device-empty",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_CHASSIS}": "",
+     "{#LOC_SYSNAME}": ""
+    }
+   ],
+   "valid": 0,
+   "why": "empty identity macros count as missing",
+   "valid_rows": 0,
+   "rows_total": 1,
+   "info": "1 of 1 rows skipped"
+  },
+  {
+   "name": "device-two-rows",
+   "type": 5,
+   "rows": [
+    {
+     "{#LOC_SYSNAME}": "sw9"
+    },
+    {
+     "{#LOC_SYSNAME}": "sw10"
+    }
+   ],
+   "valid": 0,
+   "why": "two valid rows: the server stores an empty snapshot and says \"2 rows, one expected\" (a rule of the server alone)",
+   "reason": "the count of rows is a rule of the server; the frontend counts every row",
+   "valid_rows": 0,
+   "rows_total": 2,
+   "info": "Topology (DEVICE): 2 rows, one expected"
+  },
+  {
+   "name": "mixed-rows",
+   "type": 2,
+   "rows": [
+    {
+     "{#IFINDEX}": "3",
+     "{#REM_SYSNAME}": "a"
+    },
+    {
+     "{#REM_SYSNAME}": "b"
+    },
+    {
+     "{#IFINDEX}": "4"
+    }
+   ],
+   "valid": 1,
+   "why": "one valid row of three: the invalid rows are skipped and counted; the rule stays supported",
+   "valid_rows": 1,
+   "rows_total": 3,
+   "info": "2 of 3 rows skipped"
+  }
+ ]
+}
