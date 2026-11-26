@@ -64,6 +64,14 @@ class TestCorpusDevices(unittest.TestCase):
         self.assertLess(oids.index('1.3.6.1.2.1.2.2.1.2.9'), oids.index('1.3.6.1.2.1.2.2.1.2.10'))      # numeric, not alphabetical
         self.assertEqual(oids[-1], '1.3.6.1.4.1.99999.1.0')
 
+    def test_octet_string_ending_in_white_space_goes_out_as_hex(self):
+        # task 135 part 2 (F22): snmpsim strips the trailing white space of a line, so a 6-octet MAC that ends in 0x20 would be served as 5 octets
+        with tempfile.TemporaryDirectory() as d:
+            recs = gen.corpus_records(write(d, 'c1', SNMPREC + '1.0.8802.1.1.2.1.4.1.1.5.0.57.9|4e|\\x8cmw\\xf8d \n1.0.8802.1.1.2.1.4.1.1.5.0.58.7|4e|\\x8cmw\\xf8f0\n1.3.6.1.2.1.1.5.0|4|name \n'))
+        self.assertEqual(recs[gen.parse_oid('1.0.8802.1.1.2.1.4.1.1.5.0.57.9')], ('4x', '8c6d77f86420'))
+        self.assertEqual(recs[gen.parse_oid('1.0.8802.1.1.2.1.4.1.1.5.0.58.7')], ('4e', '\\x8cmw\\xf8f0'))      # no trailing white space: unchanged
+        self.assertEqual(recs[gen.parse_oid('1.3.6.1.2.1.1.5.0')], ('4x', '6e616d6520'))
+
     def test_line_that_does_not_parse_stops_the_generator(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(model.LabError):

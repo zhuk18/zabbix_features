@@ -171,7 +171,13 @@ def corpus_records(path, ifindex=False):
         m = SNMPREC_LINE.match(line)
         if not m:
             raise LabError('corpus file %s line %d does not parse: %r' % (path, n, line[:60]))
-        r[parse_oid(m.group(1))] = (m.group(2), m.group(3))
+        tag, value = m.group(2), m.group(3)
+        if tag in ('4', '4e') and value[-1:] in (' ', '\t'):
+            # snmpsim strips the trailing white space of a line, except in a hex value: an octet string that ends in 0x20 or 0x09 (a MAC such as 8c:6d:77:f8:64:20) would be served one octet short
+            # (task 135 part 2, F22). The same bytes go out as `4x`, so the device sends what the corpus recorded.
+            raw_bytes = value.encode('latin-1', errors='replace').decode('unicode_escape').encode('latin-1') if tag == '4e' else value.encode('utf-8', errors='surrogateescape')
+            tag, value = '4x', raw_bytes.hex()
+        r[parse_oid(m.group(1))] = (tag, value)
     if not r:
         raise LabError('corpus file %s has no records' % path)
     if ifindex:

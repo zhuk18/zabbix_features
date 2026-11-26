@@ -63,6 +63,7 @@ def one(path, settings, api, conn, timeout, log):
         'unresolved': unresolved.get('count', 0), 'unresolved_by_reason': {k: v for k, v in (unresolved.get('by_reason') or {}).items() if v},
         'no_identity': (rs.get('rows_no_identity') or {}).get('count', 0), 'identity_invalid': sum((rs.get('rows_identity_invalid') or {}).values()) if isinstance(rs.get('rows_identity_invalid'), dict) else 0,
         'duplicate_claim': (rs.get('rows_duplicate_claim') or {}).get('count', 0),
+        'chassis_invalid': sum((rs.get('rows_chassis_invalid') or {}).values()) if isinstance(rs.get('rows_chassis_invalid'), dict) else 0,      # 2.112 (F20): kept rows with a macAddress chassis id that is not a MAC
         'devices_created': rs.get('devices_created'), 'ports_created': rs.get('ports_created'), 'links_created': rs.get('links_created'),
         'template_oid_missing': [x['rule'] for x in res.get('template_oid_missing', [])],
         'server_log': res.get('server_log'), 'seconds': res.get('seconds')})
@@ -97,6 +98,8 @@ COMPARE_FIELDS = ('status', 'rules', 'own_identity', 'observations', 'unresolved
 def stable(rec):
     out = {f: rec.get(f) for f in COMPARE_FIELDS}
     out['rules'] = {k: {f: v.get(f) for f in ('state', 'rows_total', 'rows_valid', 'rows_identity_invalid')} for k, v in (rec.get('rules') or {}).items()}
+    if rec.get('chassis_invalid'):
+        out['chassis_invalid'] = rec['chassis_invalid']      # only when not zero: a baseline written before 2.112 has no such field
     return out
 
 
