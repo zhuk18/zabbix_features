@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from . import corpus, ctl, db, gen, model, runner, show as show_mode, zbx
+from . import bench, corpus, ctl, db, gen, model, runner, show as show_mode, zbx
 from .model import LabError
 
 
@@ -44,6 +44,12 @@ def main(argv=None):
     p.add_argument('--dry-run', action='store_true', help='only the identity precheck and the batch plan')
     p.add_argument('--stall', help='test hook: comma-separated devices that answer nothing during their batch (SIGSTOP); the retry alone runs without it')
     p.add_argument('--ifindex', action='store_true', help='add ifIndex.N = N for every row N of ifTable/ifXTable (the corpus does not record that column); default: as recorded')
+    p = sub.add_parser('bench', help='the bench of the release 1 target size (lab spec 5.6, B1): gen | provision | push | run | shares | remove')
+    p.add_argument('action', choices=['gen', 'provision', 'push', 'run', 'shares', 'remove'])
+    p.add_argument('config', nargs='?', help='bench.yaml (stands/bench/bench.yaml)')
+    p.add_argument('step', nargs='?', type=int, help='push: the step 0, 1 or 2')
+    p.add_argument('--steps', default='0,1,2'); p.add_argument('--out'); p.add_argument('--name', default='B1', help='run: the report is reports/<name>.json')
+    p.add_argument('--reporters', type=int); p.add_argument('--neighbor-rows', type=float, dest='neighbor_rows'); p.add_argument('--keep', action='store_true', help='run: leave the bench hosts')
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     p = sub.add_parser('compare-transports', help='compare the reports of one scenario run on lld and on push (equivalence, identity bytes)')
@@ -64,7 +70,7 @@ def main(argv=None):
             a.lab = model.find_lab_file(a.lab)
         lab = model.load_lab(a.lab)
         settings = lab.settings
-        if a.cmd in ('provision', 'run', 'show'):
+        if a.cmd in ('provision', 'run', 'show') or (a.cmd == 'bench' and a.action != 'gen'):
             db.connect(settings).close()          # refuses unless the database is `zabbix` (topology-4-lab-simulator.md "Constraints")
         if a.cmd == 'gen':
             sc = model.load_scenario(a.scenario, lab)
@@ -81,6 +87,33 @@ def main(argv=None):
                 with open(path, 'w') as f:
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)
+        elif a.cmd == 'bench':
+            cfg = bench.load_config(a.config, reporters=a.reporters, neighbor_rows_per_reporter=a.neighbor_rows)
+            if a.action == 'gen':
+                net = bench.generate(cfg)
+                print(json.dumps(net['counts'], indent=1))
+                if a.out:
+                    os.makedirs(a.out, exist_ok=True)
+                    for step in (0, 2):
+                        with open(os.path.join(a.out, 'rows-step%d.json' % step), 'w') as f:
+                            json.dump(net['rows_at'](step), f, separators=(',', ':'))
+            elif a.action == 'shares':
+                print(json.dumps(bench.shares(db.connect(settings)), indent=1))
+            elif a.action == 'remove':
+                bench.remove(zbx.Api(settings['zabbix']['url']))
+            elif a.action == 'provision':
+                net = bench.generate(cfg)
+                bench.provision(zbx.Api(settings['zabbix']['url']), cfg, net)
+            elif a.action == 'push':
+                net = bench.generate(cfg)
+                bench.send(net['rows_at'](0 if (a.step or 0) < 2 else 2), int(__import__('time').time()))
+            else:
+                rep = bench.run(settings, zbx.Api(settings['zabbix']['url']), db.connect(settings), cfg, tuple(int(x) for x in a.steps.split(',')), remove_after=not a.keep)
+                path = os.path.join(model.HERE, 'reports', '%s.json' % a.name)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, 'w') as f:
+                    json.dump(rep, f, indent=1, default=str)
+                print('report: %s (%s s)' % (path, rep['seconds']))
         elif a.cmd == 'corpus-smoke':
             conn = db.connect(settings)
             rep = corpus.run(settings, None if a.dry_run else zbx.Api(settings['zabbix']['url']), conn, a.corpus,

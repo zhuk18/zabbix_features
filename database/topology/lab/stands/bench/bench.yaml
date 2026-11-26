@@ -1,0 +1,16 @@
+# The bench of the release 1 target size (lab spec 5.6, B1; task 126). Defaults: the target of FR-0 decision 16 (1 000 reporters, 50 000 ports, about 20 000 neighbor rows).
+# The shares are measured on R1 and the corpus (README.md of this folder, "Shape"); a share that the data can not tell is marked there as an estimate.
+seed: 20261125
+reporters: 1000
+ports_per_reporter: 50          # R1: 51.6
+neighbor_rows_per_reporter: 20  # LLDP and CDP rows together: 20 000 rows for 1 000 reporters (the target; R1 has 11.4: a small office with few end devices)
+core: 2
+distribution: 0.05              # "about 50 distribution" (lab spec 5.6)
+cdp_reporters: 0.43             # R1: 6 of 14 reporters report CDP too (the HP switches); the corpus: 15 of 123 walks have a cdpCacheTable (0.12)
+cdp_rows: 0.5                   # estimate: R1 has 45 CDP rows for the 79 end device rows of the 6 CDP reporters (0.57)
+no_hardware_id: 0.28            # R1: 0.278 of the LLDP rows; the corpus: 0.304 of 1 065 LLDP rows have no MAC chassis (identity.json)
+junction_ports: 0.01            # R1: 1 of 114 ports with neighbors (0.009)
+shared_ids: 0.001               # estimate: R1 has none and the corpus is one device per walk; "a few" (lab spec 5.6)
+cdp_only: 0.05                  # estimate: of the CDP devices of R1 27 of 40 are not in an LLDP row by name or address (an upper bound, 0.25)
+unresolved: 0.024               # corpus: 95 of 1 065 LLDP rows (80 name on several ports, F8; 15 LocalPortNum 0, RouterOS) in 5 of 123 walks, 0 on R1: 0.04 of the reporters x about 0.6 of their rows
+step2_moved: 0.05               # B1 step 2: 5 % of the end device cables are moved

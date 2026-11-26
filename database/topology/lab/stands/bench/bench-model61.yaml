@@ -1,0 +1,9 @@
+# The shape of the measurements of model §6.1 (task 089/090): 48 ports per reporter and, on 100 and 300 reporters, 7 800 and 26 400 neighbor rows (78 and 88 per reporter). Every reporter reports
+# LLDP and CDP and every end device is in both, so that the rows fit the ports. For the comparison with those numbers (task 126 part 1), not the default of the bench.
+seed: 20261125
+reporters: 100
+ports_per_reporter: 48
+neighbor_rows_per_reporter: 78
+cdp_reporters: 1.0
+cdp_rows: 1.0
+junction_ports: 0.1
