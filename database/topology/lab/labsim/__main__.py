@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-from . import bench, corpus, ctl, db, gen, model, runner, show as show_mode, zbx
+from . import bench, c1, corpus, ctl, db, gen, model, runner, show as show_mode, zbx
 from .model import LabError
 
 
@@ -50,6 +50,10 @@ def main(argv=None):
     p.add_argument('step', nargs='?', type=int, help='push: the step 0, 1 or 2')
     p.add_argument('--steps', default='0,1,2'); p.add_argument('--out'); p.add_argument('--name', default='B1', help='run: the report is reports/<name>.json')
     p.add_argument('--reporters', type=int); p.add_argument('--neighbor-rows', type=float, dest='neighbor_rows'); p.add_argument('--keep', action='store_true', help='run: leave the bench hosts')
+    p = sub.add_parser('c1', help='C1, corpus replay through the real path, one walk at a time (lab spec 9 C1): run | baseline | compare | analyze')
+    p.add_argument('action', choices=['run', 'baseline', 'compare', 'analyze'])
+    p.add_argument('--files', help='run: comma-separated walk names (without .snmprec); default: every walk')
+    p.add_argument('--result', default=c1.RESULT); p.add_argument('--timeout', type=int, default=150)
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     p = sub.add_parser('compare-transports', help='compare the reports of one scenario run on lld and on push (equivalence, identity bytes)')
@@ -70,7 +74,7 @@ def main(argv=None):
             a.lab = model.find_lab_file(a.lab)
         lab = model.load_lab(a.lab)
         settings = lab.settings
-        if a.cmd in ('provision', 'run', 'show') or (a.cmd == 'bench' and a.action != 'gen'):
+        if a.cmd in ('provision', 'run', 'show') or (a.cmd == 'bench' and a.action != 'gen') or (a.cmd == 'c1' and a.action == 'run'):
             db.connect(settings).close()          # refuses unless the database is `zabbix` (topology-4-lab-simulator.md "Constraints")
         if a.cmd == 'gen':
             sc = model.load_scenario(a.scenario, lab)
@@ -87,6 +91,18 @@ def main(argv=None):
                 with open(path, 'w') as f:
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)
+        elif a.cmd == 'c1':
+            if a.action == 'run':
+                lab_c1 = model.load_lab(c1.STAND_FILE)
+                rep = c1.run(lab_c1.settings, zbx.Api(lab_c1.settings['zabbix']['url']), db.connect(lab_c1.settings), a.files.split(',') if a.files else None, a.timeout, a.result)
+                print('report: %s (%s s, %d walks, %d not ok)' % (a.result, rep['seconds'], len(rep['walks']), sum(1 for w in rep['walks'] if w['status'] != 'ok')))
+            elif a.action == 'baseline':
+                print('baseline: %d walks' % c1.baseline(a.result))
+            elif a.action == 'compare':
+                for line in c1.compare(a.result):
+                    print(line)
+            else:
+                print('analyzer table: %d walks' % len(c1.analyze(a.result)))
         elif a.cmd == 'bench':
             cfg = bench.load_config(a.config, reporters=a.reporters, neighbor_rows_per_reporter=a.neighbor_rows)
             if a.action == 'gen':

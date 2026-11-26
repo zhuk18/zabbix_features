@@ -1,0 +1,16 @@
+# Lab stand "corpus" (lab spec 9 C1, task 127): the settings of the lab and no device of its own. Each walk of the vendor corpus is added as one corpus device
+# (`corpus_devices:`, lab spec 4.1a) by `labsim c1 run`, alone, and its host (tag lab.stand=corpus) is removed after its run. The walks are read from
+# /media/sf_topology-specs/corpus/librenms/ and never copied into this repository.
+settings:
+  database: zabbix
+  db_socket: /run/mysqld/mysqld.sock
+  network: 192.0.2.0/24
+  snmp_port: 1611
+  community: zbxlab
+  zabbix:
+    url: http://localhost/zabbix/ui/api_jsonrpc.php
+    group: Test
+    template_lld: Topology by SNMP
+    template_push: Topology by push
+    template_interfaces: Network Generic Device by SNMP
+devices: {}

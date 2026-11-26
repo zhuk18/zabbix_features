@@ -1,0 +1,7567 @@
+{
+ "note": "task 127; the result of every walk without clocks, ids and times; see stands/corpus/README.md",
+ "seconds": 4346.3,
+ "walks": {
+  "aos": {
+   "devices_created": 14,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 13,
+   "no_identity": 0,
+   "observations": {
+    "applied": 13
+   },
+   "own_identity": [],
+   "ports_created": 55,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 13,
+     "rows_valid": 13,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 42,
+     "rows_valid": 42,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "aos6": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2,
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 165,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 162,
+     "rows_valid": 162,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "aos7": {
+   "devices_created": 63,
+   "duplicate_claim": 68,
+   "identity_invalid": 0,
+   "links_created": 33,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 53,
+    "applied": 33,
+    "local_port_unresolved": 49
+   },
+   "own_identity": [],
+   "ports_created": 392,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 203,
+     "rows_valid": 203,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 308,
+     "rows_valid": 308,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 65,
+   "unresolved_by_reason": {
+    "if_index_missing": 65
+   }
+  },
+  "arista_eos": {
+   "devices_created": 7,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 6,
+   "no_identity": 0,
+   "observations": {
+    "applied": 6
+   },
+   "own_identity": [],
+   "ports_created": 61,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 6,
+     "rows_valid": 6,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 55,
+     "rows_valid": 55,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "arista_eos_vrf": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 33,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 29,
+     "rows_valid": 29,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "arubaos-cx": {
+   "devices_created": 18,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 14,
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 78,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 18,
+     "rows_valid": 18,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 60,
+     "rows_valid": 60,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "arubaos-cx_10.06": {
+   "devices_created": 27,
+   "duplicate_claim": 5,
+   "identity_invalid": 0,
+   "links_created": 26,
+   "no_identity": 12,
+   "observations": {
+    "applied": 26,
+    "local_port_unresolved": 1
+   },
+   "own_identity": [],
+   "ports_created": 220,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 44,
+     "rows_valid": 44,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 194,
+     "rows_valid": 194,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 1,
+   "unresolved_by_reason": {
+    "if_index_missing": 1
+   }
+  },
+  "arubaos-cx_10.07": {
+   "devices_created": 35,
+   "duplicate_claim": 35,
+   "identity_invalid": 0,
+   "links_created": 34,
+   "no_identity": 1,
+   "observations": {
+    "applied": 34
+   },
+   "own_identity": [],
+   "ports_created": 91,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 70,
+     "rows_valid": 70,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "arubaos-cx_10.10": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 3,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 23,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 20,
+     "rows_valid": 20,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "arubaos-cx_8360": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2,
+    "local_port_unresolved": 1
+   },
+   "own_identity": [],
+   "ports_created": 69,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 67,
+     "rows_valid": 67,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 1,
+   "unresolved_by_reason": {
+    "if_index_missing": 1
+   }
+  },
+  "boss_ers3510": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 11,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "boss_ers4950": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 3,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 55,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 52,
+     "rows_valid": 52,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "bti800": {
+   "devices_created": 3,
+   "duplicate_claim": 1,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 10,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciena-sds": {
+   "devices_created": 20,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 17,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 14,
+    "applied": 17
+   },
+   "own_identity": [],
+   "ports_created": 203,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 31,
+     "rows_valid": 31,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 179,
+     "rows_valid": 179,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciena-waveserver": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 3,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 32,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 3,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 32,
+     "rows_valid": 32,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscome1200": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 10,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 9,
+     "rows_valid": 9,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_c1200-8t-e-2g": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 22,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 21,
+     "rows_valid": 21,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_cbs350-4x": {
+   "devices_created": 21,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 22,
+   "no_identity": 0,
+   "observations": {
+    "applied": 22
+   },
+   "own_identity": [],
+   "ports_created": 247,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 22,
+     "rows_valid": 22,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 225,
+     "rows_valid": 225,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_sg300-28pp": {
+   "devices_created": 18,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 17,
+   "no_identity": 0,
+   "observations": {
+    "applied": 17
+   },
+   "own_identity": [],
+   "ports_created": 71,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 17,
+     "rows_valid": 17,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 54,
+     "rows_valid": 54,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_sg350x-24p": {
+   "devices_created": 6,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "applied": 8
+   },
+   "own_identity": [],
+   "ports_created": 238,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 233,
+     "rows_valid": 233,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_sg550x-8f8t": {
+   "devices_created": 13,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 12,
+   "no_identity": 0,
+   "observations": {
+    "applied": 23
+   },
+   "own_identity": [],
+   "ports_created": 493,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 11,
+     "rows_valid": 11,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 12,
+     "rows_valid": 12,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 481,
+     "rows_valid": 481,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscosb_sx550x-24f": {
+   "devices_created": 11,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 10,
+   "no_identity": 0,
+   "observations": {
+    "applied": 11
+   },
+   "own_identity": [],
+   "ports_created": 483,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 473,
+     "rows_valid": 473,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ciscowlc_cbw240ac": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 3,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "cumulus_bgp-vx": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 6,
+   "no_identity": 0,
+   "observations": {
+    "applied": 6
+   },
+   "own_identity": [
+    "chassis:mac"
+   ],
+   "ports_created": 16,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 6,
+     "rows_valid": 6,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dell-os10": {
+   "devices_created": 5,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 41,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 36,
+     "rows_valid": 36,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dell-sonic": {
+   "devices_created": 24,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 23,
+   "no_identity": 0,
+   "observations": {
+    "applied": 23
+   },
+   "own_identity": [],
+   "ports_created": 79,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 23,
+     "rows_valid": 23,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 56,
+     "rows_valid": 56,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_des-3526": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 33,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 31,
+     "rows_valid": 31,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_des-3550": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 57,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 55,
+     "rows_valid": 55,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-1510-28": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 38,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 36,
+     "rows_valid": 36,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-1510-28x-me": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 35,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-1510-28xmp-me": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 34,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-3000-28xmp": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 34,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-3420-28tc": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 34,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-3620-28sc": {
+   "devices_created": 11,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 10,
+   "no_identity": 0,
+   "observations": {
+    "applied": 10
+   },
+   "own_identity": [],
+   "ports_created": 51,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 41,
+     "rows_valid": 41,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dlink_dgs-3627g": {
+   "devices_created": 18,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 17,
+   "no_identity": 0,
+   "observations": {
+    "applied": 17
+   },
+   "own_identity": [],
+   "ports_created": 58,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 17,
+     "rows_valid": 17,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 41,
+     "rows_valid": 41,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dnos": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 137,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 133,
+     "rows_valid": 133,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dnos_s4048": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 187,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 183,
+     "rows_valid": 183,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "dnos_z9100-on": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 60,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 59,
+     "rows_valid": 59,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_2100-28p": {
+   "devices_created": 5,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 44,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 40,
+     "rows_valid": 40,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_dcs203": {
+   "devices_created": 19,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 18,
+   "no_identity": 0,
+   "observations": {
+    "applied": 18
+   },
+   "own_identity": [],
+   "ports_created": 82,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 30,
+     "rows_valid": 18,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 64,
+     "rows_valid": 64,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs2100-10t": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 3
+   },
+   "own_identity": [],
+   "ports_created": 17,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs4100-28t": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 42,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 40,
+     "rows_valid": 40,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs4150-28t": {
+   "devices_created": 5,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 36,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 32,
+     "rows_valid": 32,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs4150-54t": {
+   "devices_created": 11,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 6,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 4,
+    "applied": 6
+   },
+   "own_identity": [],
+   "ports_created": 68,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 58,
+     "rows_valid": 58,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs4610-24f": {
+   "devices_created": 22,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 21,
+   "no_identity": 0,
+   "observations": {
+    "applied": 21
+   },
+   "own_identity": [],
+   "ports_created": 100,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 21,
+     "rows_valid": 21,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 79,
+     "rows_valid": 79,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs4650-54t": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 58,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgecos_ecs5520-18x": {
+   "devices_created": 9,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 8,
+   "no_identity": 0,
+   "observations": {
+    "applied": 8
+   },
+   "own_identity": [],
+   "ports_created": 39,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 31,
+     "rows_valid": 31,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgeswitch_es-24-250w": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 35,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgeswitch_us-8": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 21,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 20,
+     "rows_valid": 20,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgeswitch_us-8-v2": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 26,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 25,
+     "rows_valid": 25,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "edgeswitch_usw-flex-xg": {
+   "devices_created": 2,
+   "duplicate_claim": 1,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 48,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 47,
+     "rows_valid": 47,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes21xx_mes2124m": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 114,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 113,
+     "rows_valid": 113,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes21xx_mes3124": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 58,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes2324b": {
+   "devices_created": 23,
+   "duplicate_claim": 5,
+   "identity_invalid": 0,
+   "links_created": 15,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 12,
+    "applied": 15
+   },
+   "own_identity": [],
+   "ports_created": 207,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 32,
+     "rows_valid": 32,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 182,
+     "rows_valid": 182,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes2324fb": {
+   "devices_created": 23,
+   "duplicate_claim": 0,
+   "identity_invalid": 2,
+   "links_created": 22,
+   "no_identity": 0,
+   "observations": {
+    "applied": 22
+   },
+   "own_identity": [],
+   "ports_created": 413,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 2,
+     "rows_total": 24,
+     "rows_valid": 24,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 391,
+     "rows_valid": 391,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes2324fbac": {
+   "devices_created": 34,
+   "duplicate_claim": 3,
+   "identity_invalid": 0,
+   "links_created": 34,
+   "no_identity": 0,
+   "observations": {
+    "applied": 34
+   },
+   "own_identity": [],
+   "ports_created": 230,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 37,
+     "rows_valid": 37,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 196,
+     "rows_valid": 196,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes2324p": {
+   "devices_created": 9,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 6,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2,
+    "applied": 6
+   },
+   "own_identity": [],
+   "ports_created": 217,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 209,
+     "rows_valid": 209,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes2348p": {
+   "devices_created": 34,
+   "duplicate_claim": 3,
+   "identity_invalid": 0,
+   "links_created": 34,
+   "no_identity": 0,
+   "observations": {
+    "applied": 34
+   },
+   "own_identity": [],
+   "ports_created": 230,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 37,
+     "rows_valid": 37,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 196,
+     "rows_valid": 196,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes3324": {
+   "devices_created": 6,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 12,
+   "no_identity": 0,
+   "observations": {
+    "applied": 12
+   },
+   "own_identity": [],
+   "ports_created": 209,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 12,
+     "rows_valid": 12,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 197,
+     "rows_valid": 197,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes3324f": {
+   "devices_created": 10,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 10,
+   "no_identity": 0,
+   "observations": {
+    "applied": 10
+   },
+   "own_identity": [],
+   "ports_created": 183,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 173,
+     "rows_valid": 173,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes3348": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 6,
+   "no_identity": 0,
+   "observations": {
+    "applied": 6
+   },
+   "own_identity": [],
+   "ports_created": 249,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 6,
+     "rows_valid": 6,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 243,
+     "rows_valid": 243,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes23xx_mes5324": {
+   "devices_created": 12,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 24,
+   "no_identity": 0,
+   "observations": {
+    "applied": 24
+   },
+   "own_identity": [],
+   "ports_created": 234,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 24,
+     "rows_valid": 24,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 210,
+     "rows_valid": 210,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "eltex-mes24xx_mes2424bac": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 3,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 57,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 54,
+     "rows_valid": 54,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fortigate_60f3g4g": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 22,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 21,
+     "rows_valid": 21,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fortigate_60fospfv3": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 32,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 30,
+     "rows_valid": 30,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fortiswitch_148f-fpoe": {
+   "devices_created": 8,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2,
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 62,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 7,
+     "rows_valid": 7,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 55,
+     "rows_valid": 55,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fs-centec_s5850-48s2q4c": {
+   "devices_created": 17,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 16,
+   "no_identity": 0,
+   "observations": {
+    "applied": 16
+   },
+   "own_identity": [],
+   "ports_created": 74,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 16,
+     "rows_valid": 16,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 58,
+     "rows_valid": 58,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fs-switch_s3900": {
+   "devices_created": 8,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2,
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 40,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 7,
+     "rows_valid": 7,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fs-switch_s3900-24f4s": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 58,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "fs-switch_s3900-24t4s": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 312,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 310,
+     "rows_valid": 310,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "gam": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [
+    "chassis:mac"
+   ],
+   "ports_created": 25,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 23,
+     "rows_valid": 23,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "ios_2960x": {
+   "devices_created": 7,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 7,
+   "no_identity": 0,
+   "observations": {
+    "applied": 7
+   },
+   "own_identity": [],
+   "ports_created": 153,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 7,
+     "rows_valid": 7,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 146,
+     "rows_valid": 146,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9400-svl": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 7,
+   "no_identity": 0,
+   "observations": {
+    "applied": 7
+   },
+   "own_identity": [],
+   "ports_created": 133,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 7,
+     "rows_valid": 7,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 126,
+     "rows_valid": 126,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9400x-svl": {
+   "devices_created": 8,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 17,
+   "no_identity": 0,
+   "observations": {
+    "applied": 17
+   },
+   "own_identity": [],
+   "ports_created": 417,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 17,
+     "rows_valid": 17,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 400,
+     "rows_valid": 400,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9500h-svl": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 15,
+   "no_identity": 0,
+   "observations": {
+    "applied": 15
+   },
+   "own_identity": [],
+   "ports_created": 127,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 15,
+     "rows_valid": 15,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 112,
+     "rows_valid": 112,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9500x-svl": {
+   "devices_created": 7,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 9,
+   "no_identity": 0,
+   "observations": {
+    "applied": 9
+   },
+   "own_identity": [],
+   "ports_created": 213,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 9,
+     "rows_valid": 9,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 204,
+     "rows_valid": 204,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9600-svl": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 23,
+   "no_identity": 0,
+   "observations": {
+    "applied": 23
+   },
+   "own_identity": [],
+   "ports_created": 224,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 23,
+     "rows_valid": 23,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 201,
+     "rows_valid": 201,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9600x-svl": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 299,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 298,
+     "rows_valid": 298,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_c9800": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [
+    "cdp"
+   ],
+   "ports_created": 14,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 12,
+     "rows_valid": 12,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_ct5760": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 18,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 17,
+     "rows_valid": 17,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxe_ie32008t2s-ios17-12": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 16,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "iosxr_ncs55a2": {
+   "devices_created": 6,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 93,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 88,
+     "rows_valid": 88,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "jetstream_jetstream-lldp": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 30,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 30,
+     "rows_valid": 30,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "jetstream_sg2218p": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 20,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 20,
+     "rows_valid": 20,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "jetstream_vlans": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "local_port_unresolved": 5
+   },
+   "own_identity": [],
+   "ports_created": 19,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 19,
+     "rows_valid": 19,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 5,
+   "unresolved_by_reason": {
+    "if_index_missing": 5
+   }
+  },
+  "junos_ex4600mp": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2
+   },
+   "own_identity": [],
+   "ports_created": 855,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 854,
+     "rows_valid": 854,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "junos_mx5t-isis": {
+   "devices_created": 4,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4
+   },
+   "own_identity": [],
+   "ports_created": 52,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 48,
+     "rows_valid": 48,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "junos_qfx5100": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 52,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 50,
+     "rows_valid": 50,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "junos_rpm": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 61,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 59,
+     "rows_valid": 59,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "linksys-ss_lgs318p": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 32,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 30,
+     "rows_valid": 30,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "moxa-awk_4131a": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 4,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "moxa-etherdevice_edsg516e": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2
+   },
+   "own_identity": [],
+   "ports_created": 20,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 18,
+     "rows_valid": 18,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "moxa-etherdevice_edsp506e": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 10,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "mypoweros": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 58,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "nxos_n3k-3064pq": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 56,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 54,
+     "rows_valid": 54,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "panos_vsys": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 64,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 64,
+     "rows_valid": 64,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "pmp": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 2,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "pmp_450": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 3,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "pmp_450i": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 2,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "pmp_450m": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 3,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "procurve": {
+   "devices_created": 8,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 7,
+   "no_identity": 0,
+   "observations": {
+    "applied": 7
+   },
+   "own_identity": [],
+   "ports_created": 85,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 7,
+     "rows_valid": 7,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 78,
+     "rows_valid": 78,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "procurve_e2910": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 41,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 39,
+     "rows_valid": 39,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "raisecom-ros": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 19,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 17,
+     "rows_valid": 17,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "routeros": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "local_port_unresolved": 2
+   },
+   "own_identity": [],
+   "ports_created": 12,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 12,
+     "rows_valid": 12,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 2,
+   "unresolved_by_reason": {
+    "if_index_missing": 2
+   }
+  },
+  "routeros_crs317": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 20,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 20,
+     "rows_valid": 20,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "routeros_rb433gl": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 16,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "routeros_rb750gr3": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 16,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "routeros_rb760igs": {
+   "devices_created": 1,
+   "duplicate_claim": 2,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "local_port_unresolved": 7
+   },
+   "own_identity": [],
+   "ports_created": 10,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 9,
+     "rows_valid": 9,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 10,
+     "rows_valid": 10,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 9,
+   "unresolved_by_reason": {
+    "if_index_missing": 9
+   }
+  },
+  "routeros_wifi": {
+   "devices_created": 1,
+   "duplicate_claim": 2,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "local_port_unresolved": 2
+   },
+   "own_identity": [],
+   "ports_created": 4,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 4,
+     "rows_valid": 4,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 4,
+   "unresolved_by_reason": {
+    "if_index_missing": 4
+   }
+  },
+  "ruijie": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 57,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 18,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 57,
+     "rows_valid": 57,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "scalance_sc646": {
+   "devices_created": 6,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 32,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 27,
+     "rows_valid": 27,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "scalance_xc206-2sfp": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 1,
+   "no_identity": 0,
+   "observations": {
+    "applied": 1
+   },
+   "own_identity": [],
+   "ports_created": 13,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 12,
+     "rows_valid": 12,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "slxos_slx9150": {
+   "devices_created": 2,
+   "duplicate_claim": 9,
+   "identity_invalid": 0,
+   "links_created": 4,
+   "no_identity": 0,
+   "observations": {
+    "applied": 4,
+    "device_only": 1,
+    "local_port_unresolved": 38
+   },
+   "own_identity": [],
+   "ports_created": 119,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 52,
+     "rows_valid": 52,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 115,
+     "rows_valid": 115,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 45,
+   "unresolved_by_reason": {
+    "name_on_several_ports": 45
+   }
+  },
+  "smartax": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {
+    "local_port_unresolved": 1
+   },
+   "own_identity": [],
+   "ports_created": 0,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 1,
+     "rows_valid": 1,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "unsupported"
+    }
+   },
+   "status": "ok",
+   "unresolved": 1,
+   "unresolved_by_reason": {
+    "no_ports": 1
+   }
+  },
+  "timos": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 14,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "timos_7705": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 21,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 21,
+     "rows_valid": 21,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "timos_7705-pmc": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 47,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 47,
+     "rows_valid": 47,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "timos_ixr": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 42,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 42,
+     "rows_valid": 42,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "timos_ixr-s": {
+   "devices_created": 1,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 0,
+   "no_identity": 0,
+   "observations": {},
+   "own_identity": [],
+   "ports_created": 60,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 60,
+     "rows_valid": 60,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "voss_7432cq": {
+   "devices_created": 9,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 8,
+   "no_identity": 0,
+   "observations": {
+    "applied": 8
+   },
+   "own_identity": [],
+   "ports_created": 44,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 36,
+     "rows_valid": 36,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "voss_8608": {
+   "devices_created": 13,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 14,
+   "no_identity": 0,
+   "observations": {
+    "applied": 14
+   },
+   "own_identity": [],
+   "ports_created": 92,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 14,
+     "rows_valid": 14,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 78,
+     "rows_valid": 78,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "voss_xa1440": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 11,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 9,
+     "rows_valid": 9,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "vrp_5720": {
+   "devices_created": 5,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 5,
+   "no_identity": 0,
+   "observations": {
+    "applied": 5
+   },
+   "own_identity": [],
+   "ports_created": 70,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 5,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 65,
+     "rows_valid": 65,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "vrp_ac6605-26": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 35,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 2,
+     "rows_valid": 2,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 33,
+     "rows_valid": 33,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "zynos": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 3,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 73,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 70,
+     "rows_valid": 70,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "zynos_gs1900-fdb": {
+   "devices_created": 9,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 8,
+   "no_identity": 0,
+   "observations": {
+    "applied": 8
+   },
+   "own_identity": [],
+   "ports_created": 66,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 8,
+     "rows_valid": 8,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 58,
+     "rows_valid": 58,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "zynos_mgs3712": {
+   "devices_created": 3,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
+   "no_identity": 0,
+   "observations": {
+    "ambiguous": 2,
+    "applied": 2
+   },
+   "own_identity": [],
+   "ports_created": 16,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 5,
+     "rows_valid": 4,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 13,
+     "rows_valid": 13,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  },
+  "zynos_xgs4600": {
+   "devices_created": 2,
+   "duplicate_claim": 0,
+   "identity_invalid": 0,
+   "links_created": 3,
+   "no_identity": 0,
+   "observations": {
+    "applied": 3
+   },
+   "own_identity": [],
+   "ports_created": 73,
+   "rules": {
+    "net.if.discovery": {
+     "rows_identity_invalid": 0,
+     "rows_total": null,
+     "rows_valid": null,
+     "state": "no result"
+    },
+    "topology.cdp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.device": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.fdb": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lag": {
+     "rows_identity_invalid": 0,
+     "rows_total": 0,
+     "rows_valid": 0,
+     "state": "snapshot"
+    },
+    "topology.lldp": {
+     "rows_identity_invalid": 0,
+     "rows_total": 3,
+     "rows_valid": 3,
+     "state": "snapshot"
+    },
+    "topology.ports": {
+     "rows_identity_invalid": 0,
+     "rows_total": 70,
+     "rows_valid": 70,
+     "state": "snapshot"
+    }
+   },
+   "status": "ok",
+   "unresolved": 0,
+   "unresolved_by_reason": {}
+  }
+ }
+}

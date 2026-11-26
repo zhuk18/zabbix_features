@@ -266,6 +266,9 @@ def run_batch(sc, settings, api, conn, timeout, log, stall=()):
                 elif r and anchors[source] and r['state'] in ('unsupported', 'master unsupported', 'push failed', 'no result'):
                     result.setdefault('rule_failed', []).append(n)
                     result['errors'].append('%s: the %s rule is %s (%s) while its anchor is in the walk' % (n, source, r['state'], r['error'][:150]))
+        # task 127 (C1): the whole run summary (observations by outcome, unresolved by reason, rows without identity, Devices created) and the identity keys of the reporters' Devices
+        result['run_summary'] = ingest.get('summary')
+        result['own_keys'] = [r['key'] for r in db.rows(conn, 'SELECT k.`key` AS `key` FROM topo_identity_keys k JOIN topo_nodes d ON d.id = k.device_id WHERE d.represented_by_node_id IS NOT NULL')]
         result['ingest'] = {k: ingest.get(k) for k in ('status', 'error')}
         result['ingest']['summary'] = {k: v for k, v in (ingest.get('summary') or {}).items() if not isinstance(v, (dict, list)) or v in ({}, [])}
         if ingest.get('status') != 'done':
