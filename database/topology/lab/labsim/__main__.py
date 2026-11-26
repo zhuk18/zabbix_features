@@ -53,7 +53,8 @@ def main(argv=None):
     p = sub.add_parser('c1', help='C1, corpus replay through the real path, one walk at a time (lab spec 9 C1): run | baseline | compare | analyze')
     p.add_argument('action', choices=['run', 'baseline', 'compare', 'analyze'])
     p.add_argument('--files', help='run: comma-separated walk names (without .snmprec); default: every walk')
-    p.add_argument('--result', default=c1.RESULT); p.add_argument('--timeout', type=int, default=150)
+    p.add_argument('--core', action='store_true', help='C1-core: the walks of stands/corpus/core.txt (run), its own result reports/C1-core.json and its own baseline baseline-core.json (baseline, compare)')
+    p.add_argument('--result', default=None); p.add_argument('--timeout', type=int, default=150)
     sub.add_parser('restore', help='restore what an interrupted run changed in Zabbix (item intervals, freshness macro)')
     p = sub.add_parser('compare-reports', help='compare two run reports, ignoring clocks and ids'); p.add_argument('a'); p.add_argument('b')
     p = sub.add_parser('compare-transports', help='compare the reports of one scenario run on lld and on push (equivalence, identity bytes)')
@@ -92,14 +93,15 @@ def main(argv=None):
                     f.write(gen.export_walk(sc.states[a.step], name))
                 print(path)
         elif a.cmd == 'c1':
+            a.result = a.result or (c1.CORE_RESULT if a.core else c1.RESULT)
             if a.action == 'run':
                 lab_c1 = model.load_lab(c1.STAND_FILE)
-                rep = c1.run(lab_c1.settings, zbx.Api(lab_c1.settings['zabbix']['url']), db.connect(lab_c1.settings), a.files.split(',') if a.files else None, a.timeout, a.result)
+                rep = c1.run(lab_c1.settings, zbx.Api(lab_c1.settings['zabbix']['url']), db.connect(lab_c1.settings), a.files.split(',') if a.files else (c1.core_list() if a.core else None), a.timeout, a.result)
                 print('report: %s (%s s, %d walks, %d not ok)' % (a.result, rep['seconds'], len(rep['walks']), sum(1 for w in rep['walks'] if w['status'] != 'ok')))
             elif a.action == 'baseline':
-                print('baseline: %d walks' % c1.baseline(a.result))
+                print('baseline: %d walks' % (c1.baseline(a.result, c1.CORE_BASELINE) if a.core else c1.baseline(a.result)))
             elif a.action == 'compare':
-                for line in c1.compare(a.result):
+                for line in (c1.compare(a.result, c1.CORE_BASELINE) if a.core else c1.compare(a.result)):
                     print(line)
             else:
                 print('analyzer table: %d walks' % len(c1.analyze(a.result)))

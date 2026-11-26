@@ -19,6 +19,10 @@ from .model import HERE, LabError
 STAND_FILE = os.path.join(HERE, 'stands', 'corpus', 'corpus.yaml')
 BASELINE = os.path.join(HERE, 'stands', 'corpus', 'baseline.json')
 RESULT = os.path.join(HERE, 'reports', 'C1.json')
+CORE_LIST = os.path.join(HERE, 'stands', 'corpus', 'core.txt')
+CORE_BASELINE = os.path.join(HERE, 'stands', 'corpus', 'baseline-core.json')
+CORE_RESULT = os.path.join(HERE, 'reports', 'C1-core.json')
+CORE_EXTRA = ('slxos_slx9150', 'aos7', 'ciena-sds', 'vrp_5720', 'ciena-waveserver', 'eltex-mes23xx_mes2324fb')      # lab spec 9 C1 `C1-core`
 ANALYZER = os.path.join(corpus.CORPUS_DEFAULT, 'tools', 'corpus_tool.py')
 
 
@@ -31,6 +35,23 @@ def key_kind(key):
     """`chassis:mac:...` -> chassis:mac; `chassis:local:<segment>:...` -> chassis:local; `cdp:<segment>:...` -> cdp."""
     parts = key.split(':')
     return ':'.join(parts[:2]) if parts[0] == 'chassis' else parts[0]
+
+
+def core_walks(walks):
+    """`C1-core` (lab spec 2.42 §9 C1): for each OS family, the walk with the most neighbor rows (LLDP plus CDP; a family with no neighbor row has none; the first name on a tie), plus
+    CORE_EXTRA. `walks` is the `walks` of a baseline (name -> record with `rules`). Sorted. stands/corpus/core.txt is this list; test_c1.py checks that it is."""
+    best = {}
+    for name, rec in walks.items():
+        rows = sum((rec['rules'].get(k) or {}).get('rows_total') or 0 for k in ('topology.lldp', 'topology.cdp'))
+        fam = family(name)
+        if rows > 0 and (fam not in best or rows > best[fam][0] or (rows == best[fam][0] and name < best[fam][1])):
+            best[fam] = (rows, name)
+    return sorted({n for _, n in best.values()} | set(CORE_EXTRA))
+
+
+def core_list(path=CORE_LIST):
+    with open(path) as f:
+        return [l.strip() for l in f if l.strip() and not l.startswith('#')]
 
 
 def one(path, settings, api, conn, timeout, log):
@@ -92,14 +113,14 @@ def run(settings, api, conn, files=None, timeout=150, out=RESULT, log=print):
     return report
 
 
-COMPARE_FIELDS = ('status', 'rules', 'own_identity', 'observations', 'unresolved', 'unresolved_by_reason', 'no_identity', 'identity_invalid', 'duplicate_claim', 'devices_created', 'ports_created', 'links_created')
+COMPARE_FIELDS = ('status', 'rules', 'own_identity', 'observations', 'unresolved', 'unresolved_by_reason', 'no_identity', 'identity_invalid', 'chassis_invalid', 'duplicate_claim', 'devices_created', 'ports_created', 'links_created')
 
 
 def stable(rec):
     out = {f: rec.get(f) for f in COMPARE_FIELDS}
     out['rules'] = {k: {f: v.get(f) for f in ('state', 'rows_total', 'rows_valid', 'rows_identity_invalid')} for k, v in (rec.get('rules') or {}).items()}
-    if rec.get('chassis_invalid'):
-        out['chassis_invalid'] = rec['chassis_invalid']      # only when not zero: a baseline written before 2.112 has no such field
+    if not out.get('chassis_invalid'):
+        out.pop('chassis_invalid', None)      # only when not zero: a baseline written before 2.112 has no such field
     return out
 
 
@@ -109,6 +130,8 @@ def baseline(result_path=RESULT, path=BASELINE):
     if not rep.get('complete'):
         raise LabError('the result %s is not complete' % result_path)
     data = {'walks': {w['file']: stable(w) for w in rep['walks']}, 'seconds': rep.get('seconds'), 'note': 'task 127; the result of every walk without clocks, ids and times; see stands/corpus/README.md'}
+    if path == CORE_BASELINE:
+        data['note'] = 'task 135; C1-core (stands/corpus/core.txt): the result of its walks without clocks, ids and times; see stands/corpus/README.md'
     with open(path, 'w') as f:
         json.dump(data, f, indent=1, sort_keys=True)
     return len(data['walks'])

@@ -33,6 +33,13 @@ given by the name of the test (function `areas_of` of the script); a test can be
 
 Examples: level 1 of a task about Bind: `--only bind,view`. About the page: `--only page`. About ingest: `--only ingest,links,identity`. A test of a new area is added in `areas_of`.
 
+### C1, the corpus replay (task 135; lab spec 2.42 §9 C1)
+Not in `run_php_tests.sh`: the corpus stand needs the office stand down and ends with it down, so it runs after the common run, with `lab/run_c1_core.sh` (it restores R1 at the end).
+- **`C1-core`** (`lab/run_c1_core.sh`; 48 walks, about 30 minutes, baseline `lab/stands/corpus/baseline-core.json`): the C1 part of **level 3**. Run it once at the end of a level 3 run.
+- **Full C1** (`lab/run_c1_core.sh full`; 128 walks, 72 minutes, baseline `lab/stands/corpus/baseline.json`): when a task changes the native step, the normalization (`TopologyNormalize.php`, normalization spec), or the
+  local port and identity rules of ingest, and before a release of the specs; a night run. Only the differences from the baseline are printed; a difference is read, and the baseline is updated with the changes that
+  the task makes on purpose (the report lists them).
+
 ### Times of the full run 502 (2026-11-24, start 12:38:26, 94 passed, 1680 s; code of task 118)
 
 R1 `--reset` before the run: about 5 minutes (restore.sh: `labsim down`, `run R1 --reset`, `up R1`; 12:32 to 12:37:26).

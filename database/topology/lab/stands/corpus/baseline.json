@@ -1,6 +1,6 @@
 {
  "note": "task 127; the result of every walk without clocks, ids and times; see stands/corpus/README.md",
- "seconds": 4346.3,
+ "seconds": 4270.1,
  "walks": {
   "aos": {
    "devices_created": 14,
@@ -842,14 +842,18 @@
    "unresolved_by_reason": {}
   },
   "ciena-waveserver": {
-   "devices_created": 1,
+   "chassis_invalid": 3,
+   "devices_created": 3,
    "duplicate_claim": 0,
-   "identity_invalid": 3,
-   "links_created": 0,
+   "identity_invalid": 0,
+   "links_created": 2,
    "no_identity": 0,
-   "observations": {},
+   "observations": {
+    "applied": 2,
+    "local_port_unresolved": 1
+   },
    "own_identity": [],
-   "ports_created": 32,
+   "ports_created": 34,
    "rules": {
     "net.if.discovery": {
      "rows_identity_invalid": 0,
@@ -882,7 +886,7 @@
      "state": "snapshot"
     },
     "topology.lldp": {
-     "rows_identity_invalid": 3,
+     "rows_identity_invalid": 0,
      "rows_total": 3,
      "rows_valid": 3,
      "state": "snapshot"
@@ -895,8 +899,10 @@
     }
    },
    "status": "ok",
-   "unresolved": 0,
-   "unresolved_by_reason": {}
+   "unresolved": 1,
+   "unresolved_by_reason": {
+    "if_index_missing": 1
+   }
   },
   "ciscome1200": {
    "devices_created": 2,
@@ -3204,16 +3210,16 @@
    "unresolved_by_reason": {}
   },
   "eltex-mes23xx_mes2324fb": {
-   "devices_created": 23,
+   "devices_created": 25,
    "duplicate_claim": 0,
-   "identity_invalid": 2,
-   "links_created": 22,
+   "identity_invalid": 0,
+   "links_created": 24,
    "no_identity": 0,
    "observations": {
-    "applied": 22
+    "applied": 24
    },
    "own_identity": [],
-   "ports_created": 413,
+   "ports_created": 415,
    "rules": {
     "net.if.discovery": {
      "rows_identity_invalid": 0,
@@ -3246,7 +3252,7 @@
      "state": "snapshot"
     },
     "topology.lldp": {
-     "rows_identity_invalid": 2,
+     "rows_identity_invalid": 0,
      "rows_total": 24,
      "rows_valid": 24,
      "state": "snapshot"

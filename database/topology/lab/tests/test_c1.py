@@ -50,6 +50,23 @@ class C1(unittest.TestCase):
             with self.assertRaises(Exception):
                 c1.baseline(result, os.path.join(d, 'b.json'))
 
+    def test_core_list_follows_the_rule(self):
+        # task 135 part 3: stands/corpus/core.txt is the walk with the most neighbor rows of each family (a family with none has none) and the six named walks
+        walks = {'a_big': walk('a_big', rules={'topology.lldp': {'rows_total': 5}, 'topology.cdp': {'rows_total': 2}}),
+                 'a_small': walk('a_small', rules={'topology.lldp': {'rows_total': 6}}),
+                 'b_one': walk('b_one', rules={'topology.lldp': {'rows_total': 0}}),
+                 'c_x': walk('c_x', rules={'topology.cdp': {'rows_total': 1}}), 'c_y': walk('c_y', rules={'topology.cdp': {'rows_total': 1}})}
+        self.assertEqual(sorted(set(c1.core_walks(walks)) - set(c1.CORE_EXTRA)), ['a_big', 'c_x'])
+        with open(c1.BASELINE) as f:
+            self.assertEqual(c1.core_list(), c1.core_walks(json.load(f)['walks']))
+
+    def test_core_compare_uses_its_own_baseline(self):
+        with tempfile.TemporaryDirectory() as d:
+            result, base = os.path.join(d, 'r.json'), os.path.join(d, 'b.json')
+            json.dump({'walks': [walk('aos')], 'complete': True}, open(result, 'w'))
+            c1.baseline(result, base)
+            self.assertEqual(c1.compare(result, base), [])
+
 
 if __name__ == '__main__':
     unittest.main()

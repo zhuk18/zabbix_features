@@ -26,3 +26,14 @@ written into the management address tables of the walk. Effect: a walk whose nei
 reporter's own Device comes from its chassis (`lldpLocChassisId`), or it has none (see the report).
 
 A walk that cannot be replayed (a line that does not parse, no records) is a record with `status: failed` and the reason; it is not skipped.
+
+## `C1-core` (lab spec 2.42 §9 C1; task 135)
+A short set for level 3: for each OS family the walk with the most neighbor rows (LLDP plus CDP; a family with none has none; the first name on a tie), plus `slxos_slx9150`, `aos7`, `ciena-sds`, `vrp_5720`,
+`ciena-waveserver` and `eltex-mes23xx_mes2324fb`. **48 walks** (47 families have neighbor rows; the six named walks are in them, except `eltex-mes23xx_mes2324fb`, which is added), about 30 minutes. The list is
+`core.txt` (made by `labsim.c1.core_walks()` from `baseline.json`; `tests/test_c1.py` checks it), its own baseline is `baseline-core.json` (the same record of each walk as `baseline.json`).
+```
+python -m labsim c1 run --core        the walks of core.txt; result reports/C1-core.json
+python -m labsim c1 compare --core    only the differences against baseline-core.json
+python -m labsim c1 baseline --core   write baseline-core.json from a complete core result
+lab/run_c1_core.sh [full]             the corpus stand needs the office stand down: takes it down, runs, compares, restores R1 (about 5 minutes); `full`: all 128 walks against baseline.json
+```
