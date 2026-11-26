@@ -92,7 +92,15 @@ echo "=== Normalize: a row in, the normal row out ===\n";
 [$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_chassis' => 'AA-BB-CC-00-00-01', 'rem_sysname' => ' "sw-1" ', 'rem_man_addrs' => 'lldp:1.4.10.0.0.9 lldp:1.4.127.0.0.1']);
 check($problem === null && $row['rem_chassis'] === 'aa:bb:cc:00:00:01' && $row['rem_sysname'] === 'sw-1' && $row['rem_mgmt_ip'] === '10.0.0.9', 'a MAC in dash form, a quoted name and two addresses: the normal row (loopback skipped)', [$row, $problem]);
 [$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_chassis' => 'aa:bb:cc:00:00', 'rem_sysname' => 'x']);
-check($row === null && $problem !== null, 'a MAC of 5 octets: the row is invalid, not guessed');
+check($problem === null && ($row['chassis_invalid'] ?? false) === true && $row['rem_chassis'] === 'aa:bb:cc:00:00' && $row['rem_sysname'] === 'x', '2.112 (F20): a macAddress chassis id of 5 octets is not skipped: the row stays, marked, value as received');
+[$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_chassis' => '08 66 11 DF', 'rem_sysname' => 'x']);
+check($problem === null && ($row['chassis_invalid'] ?? false) === true, '2.112 (F20): a macAddress chassis id that is not shaped like a MAC: the same');
+[$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_chassis' => 'AA-BB-CC-00-00-01', 'rem_sysname' => 'x']);
+check(!isset($row['chassis_invalid']), 'a valid MAC is not marked');
+[$row, $problem] = TopologyNormalize::row(['rem_chassis_type' => 'macAddress', 'rem_port_type' => 'macAddress', 'rem_chassis' => 'aa:bb:cc:00:00:01', 'rem_port' => 'aa:bb:cc:00', 'rem_sysname' => 'x']);
+check($row === null && $problem !== null, 'a macAddress PORT id of 4 octets still skips the row (D-46: the other fixed formats)');
+$run = new_run($pdo);
+check($run->keys->chassisKey('08:66:11:df', 'macAddress', 'server') === null && $run->keys->chassisKey('aa:bb:cc:00:00:01', 'macAddress', 'server') === 'chassis:mac:aa:bb:cc:00:00:01', 'chassisKey: a macAddress value that is not a MAC gives no key, a MAC does');
 
 // 066: a CDP device id in the net-snmp MAC form is a hardware ID: the chassis key of kind MAC; a placeholder in that form is no value (0.15 4.9 step 1, task 074)
 $run = new_run($pdo);

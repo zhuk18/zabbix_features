@@ -24,6 +24,7 @@ class CTopologyRunSummary {
 	public const ATTENTION_REPORTER_FAILED = 'reporter_failed';
 	public const ATTENTION_LOCAL_PORT_UNRESOLVED = 'local_port_unresolved';
 	public const ATTENTION_ROWS_NO_IDENTITY = 'rows_no_identity';
+	public const ATTENTION_ROWS_CHASSIS_INVALID = 'rows_chassis_invalid';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
 	public const ATTENTION_PORTS_DISAGREE = 'hosts_ports_disagree';
@@ -61,7 +62,7 @@ class CTopologyRunSummary {
 	 * @return int[]
 	 */
 	public static function itemIds(array $summary): array {
-		$ids = array_keys($summary['rows_no_identity']['by_rule'] ?? []);
+		$ids = array_merge(array_keys($summary['rows_no_identity']['by_rule'] ?? []), array_keys($summary['rows_chassis_invalid'] ?? []));
 		$ids = array_merge($ids, array_keys($summary['rows_local_port_unresolved']['by_rule'] ?? []), array_column($summary['snapshots_old'] ?? [], 'itemid'));
 
 		return array_values(array_unique(array_map('intval', $ids)));
@@ -97,6 +98,11 @@ class CTopologyRunSummary {
 		foreach ($summary['rows_no_identity']['by_rule'] ?? [] as $itemid => $count) {
 			if ($count > 0) {
 				$list[] = $entry(self::ATTENTION_ROWS_NO_IDENTITY, 'rows_no_identity', (int) $count, ...$of_rule((int) $itemid));
+			}
+		}
+		foreach ($summary['rows_chassis_invalid'] ?? [] as $itemid => $count) {
+			if ($count > 0) {
+				$list[] = $entry(self::ATTENTION_ROWS_CHASSIS_INVALID, 'rows_chassis_invalid', (int) $count, ...$of_rule((int) $itemid));
 			}
 		}
 		// 2.60 (model §6.2): each old NEIGHBORS snapshot, with the time of the snapshot

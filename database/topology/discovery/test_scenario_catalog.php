@@ -971,8 +971,9 @@ c('I-17', 'Правило', function () {
 	base_r();
 	h_nbrs('R', [NR(1, 'aa:bb:cc:dd:ee', 'bad', 'Gi0/24'), NR(2, mac(10), 'DX', 'Gi0/24')]);
 	$summary = h_ingest('a 5-octet MAC');
-	ex(h_dev_count() === 2 && h_dev('bad') === null, 'the row is skipped, no Device');
-	ex(array_sum($summary['rows_identity_invalid'] ?? []) === 1, 'rows_identity_invalid counts it');
+	// 2.112 (F20): the row stays, as a row without a chassis: the neighbor has a name, so it gets a Device; the value is `chassis_text`; it counts in rows_chassis_invalid, not rows_identity_invalid
+	ex(h_dev_count() === 3 && h_dev('bad') !== null, 'the row is kept: a Device for the name, no chassis key');
+	ex(array_sum($summary['rows_chassis_invalid'] ?? []) === 1 && array_sum($summary['rows_identity_invalid'] ?? []) === 0, 'rows_chassis_invalid counts it, rows_identity_invalid does not');
 });
 
 c('I-18', 'Правило', function () {

@@ -60,6 +60,10 @@ class IngestSelf {
 					echo "SKIP: a row of rule #{$row['itemid']} has an identity that cannot be normalized ({$problem})\n";
 					continue;
 				}
+				if (isset($snapshot_row['chassis_invalid'])) {
+					unset($snapshot_row['chassis_invalid']);
+					$summary['rows_chassis_invalid'][(int) $row['itemid']] = ($summary['rows_chassis_invalid'][(int) $row['itemid']] ?? 0) + 1;
+				}
 				$normalized[] = $snapshot_row;
 			}
 			$hostid = (int) $row['hostid'];

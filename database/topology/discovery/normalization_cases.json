@@ -1154,7 +1154,12 @@
     "rem_chassis": "aa:bb:cc:00:00",
     "rem_sysname": "a"
    },
-   "out": null
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "aa:bb:cc:00:00",
+    "rem_sysname": "a",
+    "chassis_invalid": true
+   }
   },
   {
    "in": {
@@ -1162,7 +1167,12 @@
     "rem_chassis": "AA-BB-CC-00-00-01-02",
     "rem_sysname": "a"
    },
-   "out": null
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "AA-BB-CC-00-00-01-02",
+    "rem_sysname": "a",
+    "chassis_invalid": true
+   }
   },
   {
    "in": {
@@ -1254,7 +1264,12 @@
     "rem_chassis": "0:c:29:a:b",
     "rem_sysname": "a"
    },
-   "out": null
+   "out": {
+    "rem_chassis_type": "macAddress",
+    "rem_chassis": "0:c:29:a:b",
+    "rem_sysname": "a",
+    "chassis_invalid": true
+   }
   },
   {
    "in": {
@@ -1265,7 +1280,8 @@
    "out": {
     "rem_chassis_type": "macAddress",
     "rem_chassis": "bf:41:c2-66-f5-e2",
-    "rem_sysname": "a"
+    "rem_sysname": "a",
+    "chassis_invalid": true
    }
   },
   {
@@ -1277,7 +1293,8 @@
    "out": {
     "rem_chassis_type": "macAddress",
     "rem_chassis": "0-c-29-a-b-c",
-    "rem_sysname": "a"
+    "rem_sysname": "a",
+    "chassis_invalid": true
    }
   },
   {

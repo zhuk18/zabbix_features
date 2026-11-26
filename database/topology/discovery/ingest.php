@@ -488,6 +488,8 @@ $summary += [
 	// topology-1-model.md "Identity normalization": snapshot rows skipped because an identity field could not be normalized (per
 	// rule: itemid => count), and hosts that report one topology type through both transports (SNMP rule and trapper rule).
 	'rows_identity_invalid' => [],
+	// 2.112 (§5.6): rows with a macAddress chassis id that is not a MAC: kept as rows without a chassis (itemid => count)
+	'rows_chassis_invalid' => [],
 	// model §6.7.1: neighbor rows with no key at all (no Device, no observation): the total and per rule (itemid => count)
 	'rows_no_identity' => ['count' => 0, 'by_rule' => []],
 	'rows_duplicate_claim' => ['count' => 0, 'by_rule' => []],

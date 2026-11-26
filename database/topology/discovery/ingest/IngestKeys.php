@@ -57,8 +57,8 @@ class IngestKeys {
 		if (in_array($type, [null, '', 'macAddress'], true) && $mac_like($value)) {
 			return $is_placeholder_mac($value) ? null : 'chassis:mac:'.strtolower($value);      // a placeholder MAC gives no chassis key (normalization §4.2)
 		}
-		if (!in_array($type, self::CHASSIS_KEY_TYPES, true)) {
-			return null;
+		if (!in_array($type, self::CHASSIS_KEY_TYPES, true) || $type === 'macAddress') {
+			return null;      // 2.112 (FR-B D-50, F20): a macAddress value that is not a MAC (the branch above took every MAC) is no hardware ID
 		}
 		return substr('chassis:'.$type.':'.$segment.':'.$value, 0, 300);
 	}

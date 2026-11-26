@@ -105,7 +105,7 @@ define('TOPOLOGY_INGEST_TEST_HOOK', function (array $ingest) use (&$done) {
 	[$out, $problem] = $normalize(['mac' => 'aa:bb:cc:dd:ee']);
 	check($out === null && str_starts_with((string) $problem, 'mac'), 'a port MAC of 5 octets is refused');
 	[$out] = $normalize(['rem_chassis' => 'aa:bb:cc:dd:ee:ff:00', 'rem_chassis_type' => 'macAddress']);
-	check($out === null, 'a macAddress chassis id of 7 octets is refused');
+	check($out !== null && ($out['chassis_invalid'] ?? false) === true, 'a macAddress chassis id of 7 octets is kept as a row without a chassis (2.112, F20), marked');
 	[$out] = $normalize(['rem_mgmt_ip' => '10.0.0.4.5']);
 	check($out === null, 'a malformed management IPv4 is refused');
 	[$out] = $normalize(['rem_mgmt_ip' => '300.1.1.1']);
