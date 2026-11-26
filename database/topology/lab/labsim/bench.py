@@ -266,9 +266,20 @@ def remove(api, log=print):
     return len(ids)
 
 
-def wait_snapshots(api, hosts_count, clock, log=print, wait=300):
-    """The snapshots are written by the server's normal path: wait until the API says every bench rule has its value (item lastclock is not used: the rules are discovery rules)."""
-    time.sleep(5)
+def wait_snapshots(conn, expected, clock, log=print, wait=900):
+    """Wait until the server has written the snapshot of every rule that got rows (its clock is the clock of the push or later): the server writes them by its normal path (a queue of the LLD
+    manager), and a run that starts early reads only part of the reporters (task 131: 213 of 300 reporters in step 0 of one measurement). The count is read from the table only to wait; the
+    result of the run is read from the run summary."""
+    deadline = time.time() + wait
+    seen = 0
+    while time.time() < deadline:
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM topo_lld_snapshot WHERE clock >= %s', (clock,))
+        seen = cur.fetchone()[0]
+        if seen >= expected:
+            return seen
+        time.sleep(3)
+    raise LabError('only %d of %d snapshots were written %d s after the push' % (seen, expected, wait))
 
 
 def one_run(settings, name):
@@ -300,8 +311,8 @@ def run(settings, api, conn, cfg, steps=(0, 1, 2), log=print, remove_after=False
     for step in steps:
         rows = net['rows_at'](0 if step < 2 else 2)
         clock = int(time.time())
-        send(rows, clock, log)
-        time.sleep(15)      # the server writes the snapshots by its normal path (a queue of the LLD manager)
+        sent = send(rows, clock, log)
+        wait_snapshots(conn, sent, clock, log)
         r = one_run(settings, step)
         r['clock'] = clock
         report['steps'].append(r)
