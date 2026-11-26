@@ -285,6 +285,7 @@ class IngestFarPort {
 		$ports = $pseudo->fetchAll(PDO::FETCH_ASSOC);
 
 		foreach ($ports as $port_row) {
+			ingest_tick('closing: pseudo ports');
 			$port_id = (int) $port_row['id'];
 			$name = (string) (json_decode($port_row['attrs'], true)['name'] ?? '');
 			$edges = $pdo->prepare("SELECT id, src_id, dst_id, attrs FROM topo_edges WHERE type = 'physical_link'".
@@ -295,6 +296,7 @@ class IngestFarPort {
 			$failed = [];
 			$links = 0;
 			foreach ($edges->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+				ingest_tick('closing: pseudo ports');
 				$links++;
 				$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 				if (($attrs['discovered_via'] ?? 'manual') === 'manual') {

@@ -42,7 +42,9 @@ class IngestMarks {
 			return;                    // a database without the Zabbix inventory table (a test stand-in): nothing to match
 		}
 		foreach ($rows as $row) {
+			ingest_tick('closing: inventory MAC match');
 			foreach (['macaddress_a', 'macaddress_b'] as $field) {
+				ingest_tick('closing: inventory MAC match');
 				if (($mac = $mac_text($row[$field])) !== null) {
 					$hosts_by_mac[$mac][(int) $row['hostid']] = (int) $row['hostid'];
 				}
@@ -54,6 +56,7 @@ class IngestMarks {
 		$devices_by_mac = [];
 		foreach ($pdo->query("SELECT id, device_id, type, JSON_UNQUOTE(JSON_EXTRACT(attrs, '\$.mac')) AS mac FROM topo_nodes".
 				" WHERE type IN ('device', 'port') AND JSON_EXTRACT(attrs, '\$.mac') IS NOT NULL ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			ingest_tick('closing: inventory MAC match');
 			$device_id = $row['type'] === 'device' ? (int) $row['id'] : ($row['device_id'] === null ? null : (int) $row['device_id']);
 			if ($device_id !== null && ($mac = $mac_text($row['mac'])) !== null) {
 				$devices_by_mac[$mac][$device_id] = $device_id;
@@ -67,6 +70,7 @@ class IngestMarks {
 		};
 		ksort($hosts_by_mac);
 		foreach ($hosts_by_mac as $mac => $hosts) {
+			ingest_tick('closing: inventory MAC match');
 			$devices = $devices_by_mac[$mac] ?? [];
 			if (count($hosts) > 1) {
 				$note_shared('host', $mac, $hosts);
@@ -118,11 +122,13 @@ class IngestMarks {
 		$usable = array_fill_keys(array_map('intval', $usable_itemids), true);
 		$stale = [];
 		foreach ($pdo->query('SELECT id, itemid FROM topo_observations')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			ingest_tick('closing: stale observations');
 			if (!isset($usable[(int) $row['itemid']])) {
 				$stale[] = (int) $row['id'];
 			}
 		}
 		foreach (array_chunk($stale, 500) as $chunk) {
+			ingest_tick('closing: stale observations');
 			$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
 				->execute($chunk);
 		}

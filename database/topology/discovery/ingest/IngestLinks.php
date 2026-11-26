@@ -1001,10 +1001,12 @@ class IngestLinks {
 			$summary['observations'][$outcome]++;
 		}
 		foreach ($neighbor_snapshots as $itemid => $snapshot) {
+			ingest_tick('closing: stale observations of a rule');
 			$all = $pdo->prepare('SELECT id FROM topo_observations WHERE itemid = ?');
 			$all->execute([$itemid]);
 			$stale = array_diff(array_map('intval', $all->fetchAll(PDO::FETCH_COLUMN)), $touched[$itemid] ?? []);
 			foreach (array_chunk($stale, 500) as $chunk) {
+				ingest_tick('closing: stale observations of a rule');
 				$pdo->prepare('DELETE FROM topo_observations WHERE id IN ('.implode(',', array_fill(0, count($chunk), '?')).')')
 					->execute($chunk);
 			}
@@ -1014,6 +1016,7 @@ class IngestLinks {
 		$summary['links_device_level'] = 0;
 		$summary['device_level_reasons'] = [];
 		foreach ($pdo->query("SELECT attrs FROM topo_edges WHERE type = 'device_link'")->fetchAll(PDO::FETCH_COLUMN) as $raw) {
+			ingest_tick('closing: device-level diagnostics');
 			$attrs = json_decode($raw, true, 512, JSON_THROW_ON_ERROR) ?: [];
 			if (isset($attrs['superseded_at'])) {
 				continue;
@@ -1035,6 +1038,7 @@ class IngestLinks {
 		$device_of = $pdo->prepare("SELECT device_id FROM topo_nodes WHERE id = ? AND type = 'port'");
 		foreach ($pdo->query("SELECT id, type, src_id, dst_id, attrs FROM topo_edges WHERE type IN ('physical_link', 'device_link')")
 				->fetchAll(PDO::FETCH_ASSOC) as $edge) {
+			ingest_tick('closing: contradicted manual links');
 			$attrs = json_decode($edge['attrs'], true, 512, JSON_THROW_ON_ERROR) ?: [];
 			if (($attrs['discovered_via'] ?? 'manual') === 'manual') {
 				// The Ports and Devices the manual link itself joins: a neighbor that is one of those Devices is the link's own
@@ -1065,6 +1069,7 @@ class IngestLinks {
 				" JOIN topo_lld_snapshot s ON s.itemid = o.itemid AND s.topology_type = i.topology_type".
 				" LEFT JOIN topo_nodes p ON p.id = o.local_port_id".
 				" WHERE o.outcome = 'shadowed' AND o.edge_id IS NOT NULL")->fetchAll(PDO::FETCH_ASSOC) as $observation) {
+			ingest_tick('closing: contradicted manual links');
 			$edge_id = (int) $observation['edge_id'];
 			if (!isset($links[$edge_id])) {
 				continue;

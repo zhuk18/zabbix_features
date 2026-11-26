@@ -933,11 +933,13 @@ echo "\nDone: {$processed} reporter(s) ingested, {$skipped} skipped/failed.\n";
 // forward, so two runs without new snapshots change nothing and an older snapshot never makes it smaller. "Not seen" is computed by the reader.
 $observed = [];
 foreach ($pdo->query('SELECT device_id, MAX(last_seen) AS seen FROM topo_observations WHERE device_id IS NOT NULL GROUP BY device_id')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	ingest_tick('closing: devices last seen');
 	$observed[(int) $row['device_id']] = (int) $row['seen'];
 }
 $summary['devices_last_seen_moved'] = 0;
 foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
 		" WHERE d.type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	ingest_tick('closing: devices last seen');
 	$id = (int) $row['id'];
 	// (a): the host of the Device's `represented_by`, whatever `matched_by` is (reporter_self, manual, mac); a host without a usable snapshot gives nothing
 	$own = $row['host_ref'] !== null ? ($reporter_seen[(int) $row['host_ref']] ?? 0) : 0;
@@ -962,36 +964,45 @@ if (!$zabbix_host_filter) {
 	$by_address = [];      // "segment|address" => [device id => true]
 	$device_segments = []; // device id => [segment => true]: where the Device is seen from (its observations, its own host, the port it is scoped to)
 	foreach ($pdo->query('SELECT o.device_id, o.remote_attrs, i.hostid FROM topo_observations o JOIN items i ON i.itemid = o.itemid WHERE o.device_id IS NOT NULL')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		$device_segments[(int) $row['device_id']][$segment_of($row['hostid'])] = true;
 		foreach (CTopologyAddress::claimAddresses(json_decode((string) $row['remote_attrs'], true) ?: []) as $address) {
+			ingest_tick('closing: duplicate candidates');
 			$by_address[$segment_of($row['hostid']).'|'.$address][(int) $row['device_id']] = true;
 		}
 	}
 	foreach ($identified as $hostid => $result) {
+		ingest_tick('closing: duplicate candidates');
 		$device_segments[(int) $result['device_id']][$reporter_own_of[$hostid]['segment']] = true;
 	}
 	// a Device without a chassis that no row sees now ("not seen") still has its last address (attrs.mgmt_ip), in the segment of the reporter whose port it is scoped to
 	$port_hosts = [];
 	foreach ($pdo->query("SELECT p.id, h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id = p.device_id JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
 			" WHERE p.type = 'port'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		$port_hosts[(int) $row['id']] = (int) $row['host_ref'];
 	}
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%scope_port%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		foreach (CTopologyAddress::scopePorts(json_decode($row['attrs'], true) ?: []) as $scope_port) {
+			ingest_tick('closing: duplicate candidates');
 			if (isset($port_hosts[$scope_port])) {
 				$device_segments[(int) $row['id']][$segment_of($port_hosts[$scope_port])] = true;
 			}
 		}
 	}
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%mgmt_ip%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		$device_attrs = json_decode($row['attrs'], true) ?: [];
 		if (is_string($device_attrs['mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($device_attrs['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
 			foreach (array_keys($device_segments[(int) $row['id']] ?? []) as $segment) {
+				ingest_tick('closing: duplicate candidates');
 				$by_address[$segment.'|'.$text][(int) $row['id']] = true;
 			}
 		}
 	}
 	foreach ($identified as $hostid => $result) {
+		ingest_tick('closing: duplicate candidates');
 		$own = $reporter_own_of[$hostid];
 		if ($own['mgmt_ip'] !== null && ($text = CTopologyAddress::ipText((string) $own['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
 			$by_address[$own['segment'].'|'.$text][(int) $result['device_id']] = true;
@@ -1001,10 +1012,13 @@ if (!$zabbix_host_filter) {
 	$mac_chassis = array_flip(array_map('intval', $pdo->query("SELECT DISTINCT device_id FROM topo_identity_keys WHERE kind = 'chassis' AND replaced = 0".
 		" AND {$q_key} LIKE 'chassis:mac:%'")->fetchAll(PDO::FETCH_COLUMN)));
 	foreach ($by_address as $key => $device_ids) {
+		ingest_tick('closing: duplicate candidates');
 		$device_ids = array_keys($device_ids);
 		$address = substr($key, strpos($key, '|') + 1);
 		foreach ($device_ids as $one) {
+			ingest_tick('closing: duplicate candidates');
 			foreach ($device_ids as $other) {
+				ingest_tick('closing: duplicate candidates');
 				if ($one !== $other && !(isset($mac_chassis[$one]) && isset($mac_chassis[$other]))) {
 					$note_duplicate($one, $other, 'same_address', 'address', $address);
 				}
@@ -1014,15 +1028,19 @@ if (!$zabbix_host_filter) {
 	$by_name = [];         // name key => [device id => true], the Devices without a chassis
 	foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")
 			->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		$device_attrs = json_decode($row['attrs'], true) ?: [];
 		if (($device_attrs['chassis_id'] ?? '') === '' && ($name_key = CTopologyAddress::nameKey((string) ($device_attrs['sysname'] ?? ''))) !== '') {
 			$by_name[$name_key][(int) $row['id']] = true;
 		}
 	}
 	foreach ($by_name as $name_key => $device_ids) {
+		ingest_tick('closing: duplicate candidates');
 		$device_ids = array_keys($device_ids);
 		foreach ($device_ids as $one) {
+			ingest_tick('closing: duplicate candidates');
 			foreach ($device_ids as $other) {
+				ingest_tick('closing: duplicate candidates');
 				if ($one !== $other) {
 					$note_duplicate($one, $other, 'same_name', 'sysname', $name_key);
 				}
@@ -1033,7 +1051,9 @@ if (!$zabbix_host_filter) {
 	// the operator named it by hand and the device reports under that name later. Both sides get the mark; nothing is merged (the operator merges, O-5).
 	$manual_names = [];    // name key => [manual Device id => true]
 	foreach ($by_name as $name_key => $ids) {
+		ingest_tick('closing: duplicate candidates');
 		foreach (array_keys($ids) as $id) {
+			ingest_tick('closing: duplicate candidates');
 			$attrs_row = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
 			$attrs_row->execute([$id]);
 			if ((json_decode((string) $attrs_row->fetchColumn(), true)['source'] ?? null) === 'manual') {
@@ -1043,8 +1063,10 @@ if (!$zabbix_host_filter) {
 	}
 	if ($manual_names) {
 		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+			ingest_tick('closing: duplicate candidates');
 			$name_key = CTopologyAddress::nameKey((string) (json_decode($row['attrs'], true)['sysname'] ?? ''));
 			foreach (array_keys($manual_names[$name_key] ?? []) as $manual_id) {
+				ingest_tick('closing: duplicate candidates');
 				if ((int) $row['id'] !== $manual_id && !isset($by_name[$name_key][(int) $row['id']])) {
 					$note_duplicate($manual_id, (int) $row['id'], 'same_name', 'sysname', $name_key);
 					$note_duplicate((int) $row['id'], $manual_id, 'same_name', 'sysname', $name_key);
@@ -1053,11 +1075,13 @@ if (!$zabbix_host_filter) {
 		}
 	}
 	foreach ($chassis_changes as $s_id => [$chassis, $chassis_key_y]) {
+		ingest_tick('closing: duplicate candidates');
 		$found_c = array_values(array_diff($key_holders($chassis_key_y), [$s_id]));
 		if (!$found_c) {
 			$note_duplicate($s_id, null, 'reporter_chassis_change', 'chassis_id', $chassis);
 		}
 		foreach ($found_c as $c) {
+			ingest_tick('closing: duplicate candidates');
 			$note_duplicate($s_id, $c, 'reporter_chassis_change', 'chassis_id', $chassis);
 			$note_duplicate($c, $s_id, 'reporter_chassis_change', 'chassis_id', $chassis);
 		}
@@ -1065,16 +1089,20 @@ if (!$zabbix_host_filter) {
 	$exists = array_flip(array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_COLUMN)));
 	$dismissed = [];
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%duplicate_dismissed%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		foreach ((json_decode($row['attrs'], true)['duplicate_dismissed'] ?? []) as $entry) {
+			ingest_tick('closing: duplicate candidates');
 			$dismissed[(int) $row['id'].'|'.(int) ($entry['device_id'] ?? 0)] = true;
 			$dismissed[(int) ($entry['device_id'] ?? 0).'|'.(int) $row['id']] = true;
 		}
 	}
 	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		ingest_tick('closing: duplicate candidates');
 		$id = (int) $row['id'];
 		$attrs = json_decode($row['attrs'], true) ?: [];
 		$want = [];
 		foreach ($duplicate_candidates[$id] ?? [] as $entry) {
+			ingest_tick('closing: duplicate candidates');
 			if ($entry['device_id'] !== null && (!isset($exists[$entry['device_id']]) || isset($dismissed[$id.'|'.$entry['device_id']]))) {
 				continue;
 			}
@@ -1085,9 +1113,11 @@ if (!$zabbix_host_filter) {
 		// pairs (a pair is listed on both Devices; an entry with no other Device stands alone) and the pairs that the Devices did not list before this run (§12.7)
 		$pair_of = static fn (array $entry): string => $entry['reason'].'|'.min($id, (int) ($entry['device_id'] ?? 0)).'|'.max($id, (int) ($entry['device_id'] ?? 0)).'|'.($entry['device_id'] === null ? $entry['value'] : '');
 		foreach ($attrs['duplicate_candidates'] ?? [] as $entry) {
+			ingest_tick('closing: duplicate candidates');
 			$candidate_pairs_before[$pair_of($entry + ['device_id' => null])] = true;
 		}
 		foreach ($want as $entry) {
+			ingest_tick('closing: duplicate candidates');
 			$candidate_pairs_after[$pair_of($entry)] = true;
 		}
 		if (($attrs['duplicate_candidates'] ?? []) === $want) {
@@ -1122,11 +1152,14 @@ if ($ok && $phase_2_done) {
 		}
 		$insert_input = $pdo->prepare('INSERT INTO topo_run_input (itemid, rows_hash) VALUES (?, ?)');
 		foreach ($snapshot_reporters as $hostid => $reporter) {
+			ingest_tick('closing: topo_run_input');
 			if (isset($run->failed_hosts[(int) $hostid]) || isset($pass_b_failed[$hostid])) {
 				continue;
 			}
 			foreach ($reporter['snapshots'] as $by_type) {
+				ingest_tick('closing: topo_run_input');
 				foreach ($by_type as $snapshot) {
+					ingest_tick('closing: topo_run_input');
 					$insert_input->execute([(int) $snapshot['itemid'], $snapshot['rows_hash']]);
 				}
 			}
