@@ -144,6 +144,10 @@ class CTopologyRunSummary {
 			if (isset($summary['stats']['heartbeat_gap_max_seconds'])) {
 				$lines[] = '  heartbeat gap: '.$summary['stats']['heartbeat_gap_max_seconds'].' s'.(($summary['stats']['heartbeat_gap_step'] ?? '') !== '' ? ' (closed in: '.$summary['stats']['heartbeat_gap_step'].')' : '');
 			}
+			if (isset($summary['stats']['stages'])) {
+				// 2.110 (§6.11): the time of each ingest stage (§6.0)
+				$lines[] = '  stages:       '.implode(', ', array_map(static fn (string $stage, $seconds): string => $stage.' '.$seconds.' s', array_keys($summary['stats']['stages']), $summary['stats']['stages']));
+			}
 			$attention = $summary['attention'] ?? [];
 			$lines[] = '  needs attention: '.($attention ? count($attention) : 'nothing');
 			foreach ($attention as $line) {

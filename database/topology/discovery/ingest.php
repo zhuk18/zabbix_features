@@ -99,6 +99,24 @@ function ingest_tick(string $step = ''): void {
 	}
 }
 
+/**
+ * The time of each ingest stage (model §6.0, §6.11 `stats.stages`, 2.110): the clock of the run is always in one of the stages Normalize, Self, Observe, Reconcile and the closing work; a call
+ * moves it to the next one and adds the time since the last call to the stage that ends. Normalize = from the start of the run to pass A (reading and normalizing the snapshots, the claims of
+ * the reporters' own keys); Self = pass A; Observe = pass B (the rows of every reporter up to the link decision); Reconcile = the link decision of all claims (`resolveLinks`); the closing work
+ * = everything after it (the stale observations, the inventory match, last seen, the duplicate candidates, `topo_run_input`, the run summary). The sum is `stats.seconds`.
+ */
+$ingest_stage = 'normalize';
+$ingest_stage_at = INGEST_STARTED_FLOAT;
+$ingest_stages = ['normalize' => 0.0, 'self' => 0.0, 'observe' => 0.0, 'reconcile' => 0.0, 'closing' => 0.0];
+function ingest_stage(string $to): void {
+	global $ingest_stage, $ingest_stage_at, $ingest_stages;
+
+	$now = microtime(true);
+	$ingest_stages[$ingest_stage] += $now - $ingest_stage_at;
+	$ingest_stage = $to;
+	$ingest_stage_at = $now;
+}
+
 function write_status(array $status): void {
 	global $lock_pdo, $run_owner;
 
@@ -154,7 +172,9 @@ function finish_run(string $status, array $summary, ?string $error): void {
 		$heartbeat_gap_max = time() - $last_heartbeat;
 		$heartbeat_gap_step = 'final';
 	}
-	$summary['stats'] = ['seconds' => round(microtime(true) - INGEST_STARTED_FLOAT, 2), 'peak_memory_bytes' => memory_get_peak_usage(true), 'sql_queries' => IngestPDO::$queries,
+	global $ingest_stages;
+	ingest_stage('closing');      // the clock stops here: the stages add up to `seconds`
+	$summary['stats'] = ['seconds' => round(microtime(true) - INGEST_STARTED_FLOAT, 2), 'stages' => array_map(static fn (float $seconds): float => round($seconds, 2), $ingest_stages), 'peak_memory_bytes' => memory_get_peak_usage(true), 'sql_queries' => IngestPDO::$queries,
 		'reporters' => $summary['reporters_processed'] ?? 0, 'heartbeat_gap_max_seconds' => $heartbeat_gap_max, 'heartbeat_gap_step' => $heartbeat_gap_step] + ($summary['snapshots_total'] ?? []);
 	$final = ['status' => $status, 'started_at' => $run_started_at, 'finished_at' => time(), 'summary' => $summary, 'error' => $error];
 	write_status($final);
@@ -674,6 +694,7 @@ foreach ($snapshot_reporters as $hostid => $reporter) {
 	}
 }
 
+ingest_stage('self');
 // ---- pass A, step 1: the own identity of every reporter ----
 $identified = [];
 $reporter_seen = [];          // hostid of a reporter => newest clock of its usable snapshots (§8.7)
@@ -793,6 +814,7 @@ foreach ($identified as $hostid => $result) {
 		$note_failed_reporter($hostid, $reporter, 'tables', $exception->getMessage());
 	}
 }
+ingest_stage('observe');
 // ---- pass B: the NEIGHBORS rows of all reporters ----
 // §6.5, §6.7.1 "Order" (2.56, task 075): first the claims with a chassis of ALL reporters, then the claims without a chassis of all reporters, so that the same-port join and the
 // device id key do not depend on the order of the reporters (G-8). The claims without a chassis come in two parts: the ones that join a Device (rows 4 and 5 of the lookup) of every
@@ -838,6 +860,7 @@ foreach ([0, 1, 2, 3] as $group) {
 	}
 }
 
+ingest_stage('reconcile');
 // Phase 2: links and observations, decided once for all reporters (topology-1-model.md "Two phases").
 $phase_2_done = true;
 if ($link_candidates || $neighbor_snapshots) {
@@ -861,6 +884,7 @@ if ($link_candidates || $neighbor_snapshots) {
 		$skipped++;
 	}
 }
+ingest_stage('closing');
 if ($phase_2_done && !$zabbix_host_filter) {
 	try {
 		$pdo->beginTransaction();
