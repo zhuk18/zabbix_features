@@ -10,6 +10,7 @@ from . import ctl, db, gen, zbx
 from .model import HERE, LabError, OPERATOR_ACTIONS, operator_actions
 
 INGEST = os.path.abspath(os.path.join(HERE, '..', 'discovery', 'ingest.php'))
+INGEST = os.environ.get('LAB_INGEST_PHP') or INGEST      # task 136: another checkout of the code (the build before a change) for a comparison run
 SCHEDULE_FILE = os.path.join(ctl.RUN_DIR, 'schedule.json')
 FRESH_FILE = os.path.join(ctl.RUN_DIR, 'freshness.json')
 SOURCES_FILE = os.path.join(ctl.RUN_DIR, 'sources.json')

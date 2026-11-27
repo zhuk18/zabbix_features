@@ -997,4 +997,27 @@ CTopologyPrototype::mergeDevices((string) $A, (string) $B, 'Admin');
 run_ingest($dsn, $user, $password);
 check($key_shared($A) === [], 'after a merge the candidate is gone');
 
+// 2.114 (task 136): the lists are written in batches of 500 Devices (one UPDATE for each batch): 1200 Devices (600 pairs of one name, no chassis) cross two batch edges
+echo "\n=== batches: 1200 Devices with a candidate, the lists are what the evidence says ===\n";
+reset_all($pdo);
+setup_r($pdo, $R);
+$pairs = [];
+for ($i = 1; $i <= 600; $i++) {
+	$pairs[$i] = [device($pdo, null, null, 'twin-'.$i), device($pdo, null, null, 'twin-'.$i)];
+}
+run_ingest($dsn, $user, $password);
+$bad = 0;
+foreach ($pairs as $i => [$one, $other]) {
+	foreach ([[$one, $other], [$other, $one]] as [$x, $y]) {
+		$c = candidates($pdo, $x);
+		if (count($c) !== 1 || ($c[0]['reason'] ?? '') !== 'same_name' || ($c[0]['device_id'] ?? 0) !== $y || ($c[0]['value'] ?? '') !== 'twin-'.$i) {
+			$bad++;
+		}
+	}
+}
+check($bad === 0, 'every one of the 1200 Devices lists its twin with reason same_name and the name key (batches of 500)');
+$fp = fingerprint($pdo);
+$r = run_ingest($dsn, $user, $password);
+check(fingerprint($pdo) === $fp && ($r['summary']['duplicate_candidates']['new'] ?? -1) === 0 && ($r['summary']['duplicate_candidates']['pairs'] ?? -1) === 600, 'a second run: nothing written, no new pair, 600 pairs');
+
 echo "\nAll duplicate candidate checks passed.\n";

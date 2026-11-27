@@ -299,6 +299,21 @@ def one_run(settings, name):
     return out
 
 
+def dump_candidates(conn, path):
+    """Every `attrs.duplicate_candidates` entry of every Device, as [device id, reason, other Device id, value, evidence] sorted, written to `path` (one JSON list)."""
+    cur = conn.cursor()
+    cur.execute("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")
+    out = []
+    for device_id, attrs in cur.fetchall():
+        for e in (json.loads(attrs or '{}').get('duplicate_candidates') or []):
+            out.append([device_id, e.get('reason'), e.get('device_id'), e.get('value'), json.dumps({k: v for k, v in e.items() if k not in ('reason', 'device_id', 'value')}, sort_keys=True)])
+    out.sort(key=lambda x: [str(v) for v in x])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        json.dump(out, f)
+    return len(out)
+
+
 def run(settings, api, conn, cfg, steps=(0, 1, 2), log=print, remove_after=False):
     """B1 (lab §9): reset the topology, make the hosts and the rules, then for each step push the rows and run once. Returns the report."""
     t0 = time.time()
@@ -315,6 +330,8 @@ def run(settings, api, conn, cfg, steps=(0, 1, 2), log=print, remove_after=False
         wait_snapshots(conn, sent, clock, log)
         r = one_run(settings, step)
         r['clock'] = clock
+        if os.environ.get('BENCH_DUMP_DIR'):      # task 136: the duplicate candidates of the step (Device id, reason, other Device, value), to compare two builds of the code
+            dump_candidates(conn, os.path.join(os.environ['BENCH_DUMP_DIR'], 'candidates-step%s.json' % step))
         report['steps'].append(r)
         log('step %s: %s s (%s), %s' % (step, r['wall_seconds'], (r.get('stats') or {}).get('seconds'), r['summary']))
     report['seconds'] = round(time.time() - t0, 1)

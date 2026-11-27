@@ -997,22 +997,28 @@ if (!$zabbix_host_filter) {
 		ingest_tick('closing: duplicate candidates');
 		$port_hosts[(int) $row['id']] = (int) $row['host_ref'];
 	}
-	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%scope_port%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	// 2.114 (task 136): the Devices are read and decoded ONCE for the whole section (they were read four times: the scope ports, the addresses, the names, the lists of candidates; nothing in the
+	// section writes the attrs of a Device before the lists at the end, so the one read is what each of those reads saw)
+	$all_attrs = [];       // Device id => decoded attrs
+	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' ORDER BY id")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 		ingest_tick('closing: duplicate candidates');
-		foreach (CTopologyAddress::scopePorts(json_decode($row['attrs'], true) ?: []) as $scope_port) {
+		$all_attrs[(int) $row['id']] = json_decode($row['attrs'], true) ?: [];
+	}
+	foreach ($all_attrs as $device_id => $device_attrs) {
+		ingest_tick('closing: duplicate candidates');
+		foreach (CTopologyAddress::scopePorts($device_attrs) as $scope_port) {
 			ingest_tick('closing: duplicate candidates');
 			if (isset($port_hosts[$scope_port])) {
-				$device_segments[(int) $row['id']][$segment_of($port_hosts[$scope_port])] = true;
+				$device_segments[$device_id][$segment_of($port_hosts[$scope_port])] = true;
 			}
 		}
 	}
-	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%mgmt_ip%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	foreach ($all_attrs as $device_id => $device_attrs) {
 		ingest_tick('closing: duplicate candidates');
-		$device_attrs = json_decode($row['attrs'], true) ?: [];
 		if (is_string($device_attrs['mgmt_ip'] ?? null) && ($text = CTopologyAddress::ipText($device_attrs['mgmt_ip'])) !== null && CTopologyAddress::countsAsIdentity($text)) {
-			foreach (array_keys($device_segments[(int) $row['id']] ?? []) as $segment) {
+			foreach (array_keys($device_segments[$device_id] ?? []) as $segment) {
 				ingest_tick('closing: duplicate candidates');
-				$by_address[$segment.'|'.$text][(int) $row['id']] = true;
+				$by_address[$segment.'|'.$text][$device_id] = true;
 			}
 		}
 	}
@@ -1041,12 +1047,11 @@ if (!$zabbix_host_filter) {
 		}
 	}
 	$by_name = [];         // name key => [device id => true], the Devices without a chassis
-	foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device' AND NOT EXISTS (SELECT 1 FROM topo_identity_keys k WHERE k.device_id = d.id AND k.kind = 'chassis')")
-			->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	$has_chassis_key = array_flip(array_map('intval', $pdo->query("SELECT DISTINCT device_id FROM topo_identity_keys WHERE kind = 'chassis'")->fetchAll(PDO::FETCH_COLUMN)));
+	foreach ($all_attrs as $device_id => $device_attrs) {
 		ingest_tick('closing: duplicate candidates');
-		$device_attrs = json_decode($row['attrs'], true) ?: [];
-		if (($device_attrs['chassis_id'] ?? '') === '' && ($name_key = CTopologyAddress::nameKey((string) ($device_attrs['sysname'] ?? ''))) !== '') {
-			$by_name[$name_key][(int) $row['id']] = true;
+		if (!isset($has_chassis_key[$device_id]) && ($device_attrs['chassis_id'] ?? '') === '' && ($name_key = CTopologyAddress::nameKey((string) ($device_attrs['sysname'] ?? ''))) !== '') {
+			$by_name[$name_key][$device_id] = true;
 		}
 	}
 	foreach ($by_name as $name_key => $device_ids) {
@@ -1069,22 +1074,20 @@ if (!$zabbix_host_filter) {
 		ingest_tick('closing: duplicate candidates');
 		foreach (array_keys($ids) as $id) {
 			ingest_tick('closing: duplicate candidates');
-			$attrs_row = $pdo->prepare('SELECT attrs FROM topo_nodes WHERE id = ?');
-			$attrs_row->execute([$id]);
-			if ((json_decode((string) $attrs_row->fetchColumn(), true)['source'] ?? null) === 'manual') {
+			if (($all_attrs[$id]['source'] ?? null) === 'manual') {
 				$manual_names[$name_key][$id] = true;
 			}
 		}
 	}
 	if ($manual_names) {
-		foreach ($pdo->query("SELECT d.id, d.attrs FROM topo_nodes d WHERE d.type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+		foreach ($all_attrs as $device_id => $device_attrs) {
 			ingest_tick('closing: duplicate candidates');
-			$name_key = CTopologyAddress::nameKey((string) (json_decode($row['attrs'], true)['sysname'] ?? ''));
+			$name_key = CTopologyAddress::nameKey((string) ($device_attrs['sysname'] ?? ''));
 			foreach (array_keys($manual_names[$name_key] ?? []) as $manual_id) {
 				ingest_tick('closing: duplicate candidates');
-				if ((int) $row['id'] !== $manual_id && !isset($by_name[$name_key][(int) $row['id']])) {
-					$note_duplicate($manual_id, (int) $row['id'], 'same_name', 'sysname', $name_key);
-					$note_duplicate((int) $row['id'], $manual_id, 'same_name', 'sysname', $name_key);
+				if ($device_id !== $manual_id && !isset($by_name[$name_key][$device_id])) {
+					$note_duplicate($manual_id, $device_id, 'same_name', 'sysname', $name_key);
+					$note_duplicate($device_id, $manual_id, 'same_name', 'sysname', $name_key);
 				}
 			}
 		}
@@ -1101,20 +1104,19 @@ if (!$zabbix_host_filter) {
 			$note_duplicate($c, $s_id, 'reporter_chassis_change', 'chassis_id', $chassis);
 		}
 	}
-	$exists = array_flip(array_map('intval', $pdo->query("SELECT id FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_COLUMN)));
+	$exists = array_fill_keys(array_keys($all_attrs), 0);
 	$dismissed = [];
-	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device' AND attrs LIKE '%duplicate_dismissed%'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	foreach ($all_attrs as $device_id => $device_attrs) {
 		ingest_tick('closing: duplicate candidates');
-		foreach ((json_decode($row['attrs'], true)['duplicate_dismissed'] ?? []) as $entry) {
+		foreach (($device_attrs['duplicate_dismissed'] ?? []) as $entry) {
 			ingest_tick('closing: duplicate candidates');
-			$dismissed[(int) $row['id'].'|'.(int) ($entry['device_id'] ?? 0)] = true;
-			$dismissed[(int) ($entry['device_id'] ?? 0).'|'.(int) $row['id']] = true;
+			$dismissed[$device_id.'|'.(int) ($entry['device_id'] ?? 0)] = true;
+			$dismissed[(int) ($entry['device_id'] ?? 0).'|'.$device_id] = true;
 		}
 	}
-	foreach ($pdo->query("SELECT id, attrs FROM topo_nodes WHERE type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
+	$list_writes = [];     // Device id => the new attrs text, written in batches after the loop (one UPDATE for each batch, not for each Device)
+	foreach ($all_attrs as $id => $attrs) {
 		ingest_tick('closing: duplicate candidates');
-		$id = (int) $row['id'];
-		$attrs = json_decode($row['attrs'], true) ?: [];
 		$want = [];
 		foreach ($duplicate_candidates[$id] ?? [] as $entry) {
 			ingest_tick('closing: duplicate candidates');
@@ -1144,7 +1146,18 @@ if (!$zabbix_host_filter) {
 		else {
 			unset($attrs['duplicate_candidates']);
 		}
-		$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($attrs, JSON_THROW_ON_ERROR), $id]);
+		$list_writes[$id] = json_encode($attrs, JSON_THROW_ON_ERROR);
+	}
+	foreach (array_chunk($list_writes, 500, true) as $batch) {
+		ingest_tick('closing: duplicate candidates');
+		$cases = '';
+		$parameters = [];
+		// no tick: at most 500 iterations, each one string append (the tick of the batch is the line above)
+		foreach ($batch as $id => $text) {
+			$cases .= ' WHEN '.(int) $id.' THEN ?';
+			$parameters[] = $text;
+		}
+		$pdo->prepare('UPDATE topo_nodes SET attrs = CASE id'.$cases.' END WHERE id IN ('.implode(',', array_map('intval', array_keys($batch))).')')->execute($parameters);
 	}
 }
 
