@@ -534,4 +534,19 @@ $fp = $stable($pdo);
 run_ingest($dsn, $user, $password);
 check($stable($pdo) === $fp && device_id($pdo, $AM) === $new_a && device_id($pdo, $BM) === $new_b, 'the second run changes nothing; the Devices are not joined again');
 
+// ============================================================================================================
+echo "\n=== 9: remove the association: the record goes ===\n";
+reset_all($pdo);
+network($pdo, $R, [1 => [$AM, 'a']]);
+add_host($pdo, 201, 'HostA', 'Host of A', null);
+API::$visible[] = 201;
+run_ingest($dsn, $user, $password);
+$a = device_id($pdo, $AM);
+CTopologyPrototype::promote((string) $a, 'host', '201');
+check(count(records($pdo, 'associate')) === 1, 'the association is a record');
+CTopologyPrototype::depromote((string) $a);
+check(records($pdo, 'associate') === [], 'removing the association removes the record (the Device stays)');
+run_ingest($dsn, $user, $password);
+check(scalar($pdo, 'SELECT represented_by_node_id FROM topo_nodes WHERE id=?', [$a]) === null, 'a run does not associate it again');
+
 echo "\nAll decision checks passed ({$checks}).\n";
