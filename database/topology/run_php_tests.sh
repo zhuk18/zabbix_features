@@ -66,7 +66,7 @@ areas_of() {
 		*"lab/php/graph_page_check"*|*"lab/php/lastrun_http"*|*"lab/php/run_row_http"*|page*|*_check.py) case " $a " in *" page "*) ;; *) a="$a page" ;; esac ;;
 	esac
 	case "$1" in
-		*test_scenario_catalog*|*"deterministic first layout"*|*"one header for the graph"*|*"page escaping"*|*test_device_links.php|*"Bind to interface by name"*|*device_rows_check*|*test_snapshot_clock*|*run_row_http_check*|*test_far_device_lookup*|*test_link_replacement*|*"panel of SW12"*|*"selection after Apply"*) a="$a slow" ;;
+		*proxy_check*|*test_scenario_catalog*|*"deterministic first layout"*|*"one header for the graph"*|*"page escaping"*|*test_device_links.php|*"Bind to interface by name"*|*device_rows_check*|*test_snapshot_clock*|*run_row_http_check*|*test_far_device_lookup*|*test_link_replacement*|*"panel of SW12"*|*"selection after Apply"*) a="$a slow" ;;
 	esac
 	echo "$a"
 }
@@ -382,6 +382,18 @@ else
 	else
 		skip "page layout and escaping (ui_check_040/page_shot.py)" "needs ZBX_UI_USER and ZBX_UI_PASSWORD in the environment, google-chrome, and the office stand host SW12 in the lab"
 	fi
+fi
+
+# ---- 8. the path through a Zabbix proxy and what the blind-spot badge reads (task 128 parts 3 and 4; model §6.7.0, §4.8). Not in a default run: it runs ingest on R1 after three reporters moved to the proxy, so R1 must be restored after it
+#         (a new Device for every CDP-only neighbor of those reporters, in the segment of the proxy). Set LAB_PROXY=1; the proxy is made once with lab/setup/lab-proxy.sh create and started and stopped by the check ----
+if [ "${LAB_PROXY:-}" = 1 ]; then
+	if [ -n "${ZBX_TOKEN:-}" ] && [ -x "$here/../../src/zabbix_proxy/zabbix_proxy" ] && [ -x "$labpy" ]; then
+		exec_test lab/proxy_check.py /tmp/topo_t_proxy_check.log "$labpy" "$here/lab/proxy_check.py"
+	else
+		skip lab/proxy_check.py "needs ZBX_TOKEN, the built src/zabbix_proxy/zabbix_proxy and the lab python"
+	fi
+else
+	skip lab/proxy_check.py "LAB_PROXY=1 is not set (it changes R1: restore R1 after it)"
 fi
 
 # ---- the table ----
