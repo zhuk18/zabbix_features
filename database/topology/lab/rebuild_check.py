@@ -11,6 +11,10 @@ Usage: rebuild_check.py            on the state that is in the database now (R1 
 3. one run of ingest over the snapshots that are there;
 4. the state is read again and compared. It must be equal. The number of records of each kind is printed; `nodeid`, `last_seen*`, superseded links and observations may differ.
 Exit code 0 when equal, 1 when not (the differences are printed), 2 when the state cannot be checked.
+
+rebuild_check.py --separation   (D1 after its operator steps) the Separation check of §6.7.8: delete the merge record of the MikroTik (a merge with a chassis key as key_b) with the tool of the checks
+                                (`discovery/decision_tool.php`'s deletion, done here in SQL), run once: the Devices are two again, the removed one with its own key and its own links, the kept one without
+                                that key. It changes the database (restore R1 after it).
 """
 import json
 import os
@@ -108,5 +112,45 @@ def main():
     return 0
 
 
+def separation():
+    lab = model.load_lab(os.path.join(HERE, 'stands', 'corpus', 'corpus.yaml'))
+    conn = db.connect(lab.settings)
+    cur = conn.cursor()
+    cur.execute("SELECT decisionid, key_a, key_b FROM topo_decision WHERE kind = 'merge' AND key_b NOT LIKE 'port:%' ORDER BY decisionid")
+    row = cur.fetchone()
+    if not row:
+        print('no merge record with a chassis key: run D1 first')
+        return 2
+    decisionid, key_a, key_b = row
+    before = view()
+    n_before = len(before['devices'])
+    cur.execute("SELECT device_id FROM topo_identity_keys WHERE `key` = %s", (key_b,))
+    held_before = [r[0] for r in cur.fetchall()]
+    cur.execute('DELETE FROM topo_decision WHERE decisionid = %s', (decisionid,))
+    conn.commit()
+    print('merge record %d (%s = %s) deleted; the key %s was held by Devices %s' % (decisionid, key_a, key_b, key_b, held_before))
+    runner.run_ingest(SETTINGS)
+    after = view()
+    cur.execute("SELECT device_id FROM topo_identity_keys WHERE `key` = %s AND replaced = 0", (key_b,))
+    holders = [r[0] for r in cur.fetchall()]
+    cur.execute("SELECT device_id FROM topo_identity_keys WHERE `key` = %s", (key_a,))
+    kept = [r[0] for r in cur.fetchall()]
+    ok = True
+    def check(cond, text):
+        nonlocal ok
+        print(('  ok: ' if cond else '  FAIL: ') + text)
+        ok = ok and cond
+    check(len(holders) == 1 and len(kept) == 1 and holders[0] != kept[0], 'two Devices again: the key %s has its own Device and it is not the kept one' % key_b)
+    own = after['devices'].get(key_b)
+    check(own is not None and own['keys'] == [key_b + ':0'], 'the removed Device has its own key and no other')
+    kept_view = after['devices'].get(key_a)
+    check(kept_view is not None and all(not k.startswith(key_b + ':') for k in kept_view['keys']) and key_b.split(':', 3)[-1] not in kept_view['replaced_chassis'], 'the kept Device has not the key any more and no replaced chassis for it')
+    cur.execute("SELECT COUNT(*) FROM topo_observations WHERE device_id = %s OR remote_key = %s", (holders[0] if holders else 0, key_b))
+    observations = cur.fetchone()[0]
+    check(any(key_b in l for l in after['links']) or observations > 0, 'the removed Device has its own links or observations, from the snapshots (%d observations; on a junction port the claims of two Devices are ambiguous: no link)' % observations)
+    check(len(after['devices']) >= n_before + 1, 'at least one more Device: %d -> %d (a Device that was identified by matching with the single merged Device, here the keyless MikroTik of the same port, can come back too)' % (n_before, len(after['devices'])))
+    return 0 if ok else 1
+
+
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(separation() if '--separation' in sys.argv[1:] else main())
