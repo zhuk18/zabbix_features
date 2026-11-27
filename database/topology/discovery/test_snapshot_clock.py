@@ -124,6 +124,41 @@ try:
     ahead = int(time.time()) + 200
     check(send(ahead, rows('ahead200'), lambda s: s[0] == str(ahead)), 'a value 200 s ahead (inside the tolerance) is accepted')
 
+    print('=== model 2.107 §5.4: a value that is not used because of its time, while the rule has no snapshot row, is not recorded; the rule stays "none" ===')
+    none_key = 'snapclock.none'
+    none_itemid = api('discoveryrule.create', {'hostid': hostid, 'name': 'Snapshot clock, no snapshot', 'key_': none_key, 'type': 2, 'topology_type': 1})['itemids'][0]
+
+    def send_to_none(ts, value):
+        for _ in range(40):
+            with tempfile.NamedTemporaryFile('w', suffix='.txt') as f:
+                f.write('%s\t%s\t%d\t%s\n' % (HOST, none_key, ts, value))
+                f.flush()
+                out = subprocess.run([SENDER, '-z', '127.0.0.1', '-p', '10051', '-T', '-i', f.name], capture_output=True, text=True).stdout
+            if 'failed: 0' in out:
+                time.sleep(8)
+                return True
+            time.sleep(3)
+        return False
+
+    def none_row():
+        return sql('select clock from topo_lld_snapshot where itemid=%s' % none_itemid)
+
+    check(send_to_none(int(time.time()) + 600, rows('ahead 600')) and none_row() == '', 'a value 600 s ahead while the rule has no snapshot: nothing is recorded (no snapshot row, so no ignored clock and no reason either)')
+    none_info = api('discoveryrule.get', {'itemids': [none_itemid], 'output': ['error', 'state', 'status']})[0]
+    check('in the future, ignored' in none_info['error'] and none_info['state'] == '0' and none_info['status'] == '0', 'the rule stays supported and its info text names the ignored value (%s)' % none_info['error'].strip())
+    if os.environ.get('ZBX_UI_USER') and os.environ.get('ZBX_UI_PASSWORD'):
+        # topology.snapshots.get is a page endpoint: it needs a login of the frontend (ZBX_UI_USER, ZBX_UI_PASSWORD from the environment, never from a file)
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ui_check_040'))
+        import page_shot as P
+        request = urllib.request.Request(P.BASE + 'zabbix.php?action=topology.snapshots.get&page_size=1000&hostid=' + hostid, headers={'Cookie': 'zbx_session=' + P.login().value})
+        listed = {r['rule']: r for r in json.load(urllib.request.urlopen(request))['snapshots']}
+        entry = listed.get('Snapshot clock, no snapshot', {})
+        check(entry.get('state') == 'none' and entry.get('clock') is None and entry.get('ignored_clock') is None, 'topology.snapshots.get lists the rule with the state none, no clock and no ignored value (%s)' % json.dumps(entry))
+    else:
+        print('  (topology.snapshots.get is not read: it needs ZBX_UI_USER and ZBX_UI_PASSWORD; the table has no row for the rule, which is what makes the state "none")')
+    okay = int(time.time()) - 10
+    check(send_to_none(okay, rows('valid')) and none_row() == str(okay), 'then a valid value makes the snapshot: the rule is no longer "none"')
+
     print('=== a stored clock a day ahead does not block a valid value ===')
     sql('update topo_lld_snapshot set clock=%d where itemid=%s' % (int(time.time()) + 86400, itemid))
     valid = int(time.time())
