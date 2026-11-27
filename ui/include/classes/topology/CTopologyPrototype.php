@@ -2266,6 +2266,10 @@ class CTopologyPrototype {
 		DBexecute('UPDATE topo_nodes SET represented_by_node_id='.zbx_dbstr($target_nodeid).
 			',represented_by_matched_by='.zbx_dbstr($matched_by).',represented_by_at='.time().
 			' WHERE id='.zbx_dbstr($deviceid).' AND type='.zbx_dbstr('device'));
+		// §6.7.8: a manual association is a record (the Device by its natural key, the host or the proxy)
+		if ($matched_by === 'manual' && ($natural = self::deviceNaturalKey($deviceid)) !== null) {
+			self::writeDecision(CTopologyDecision::KIND_ASSOCIATE, $natural, null, $target_type === 'host' ? $target_id : null, $target_type === 'proxy' ? $target_id : null);
+		}
 	}
 
 	// topology-1-model.md "Nodes: Storage", invariant 3: all three represented_by_* columns clear together, never just
@@ -2286,6 +2290,7 @@ class CTopologyPrototype {
 	public static function depromote(string $deviceid): void {
 		$device = DBfetch(DBselect('SELECT represented_by_node_id FROM topo_nodes WHERE id='.zbx_dbstr($deviceid)), false);
 		$target_nodeid = $device['represented_by_node_id'] ?? null;
+		self::deleteDecisions(CTopologyDecision::KIND_ASSOCIATE, $deviceid);      // the association of the Device is no decision any more (§6.7.8)
 
 		DBexecute('UPDATE topo_nodes SET represented_by_node_id=NULL,represented_by_matched_by=NULL,'.
 			'represented_by_at=NULL WHERE id='.zbx_dbstr($deviceid));
@@ -2699,6 +2704,88 @@ class CTopologyPrototype {
 		return $row;
 	}
 
+	// ---- operator decisions as records (topology-1-model.md §6.7.8, 2.106; task 129) ----
+
+	/** Every identity key the Device holds: [key => replaced (0 or 1)]. */
+	private static function deviceKeyRows(string $device_id): array {
+		$col = self::keyColumn();
+		$keys = [];
+		$result = DBselect('SELECT '.$col.' AS k,replaced FROM topo_identity_keys WHERE device_id='.zbx_dbstr($device_id));
+		while ($row = DBfetch($result, false)) {
+			$keys[$row['k']] = (int) $row['replaced'];
+		}
+
+		return $keys;
+	}
+
+	/**
+	 * The natural key of a Device (CTopologyDecision::naturalKey): its strongest identity key, else `port:<reporter hostid>:<port name key>:<name key>`; null when it has neither (the
+	 * action still works, but no record can name the Device).
+	 */
+	private static function deviceNaturalKey(string $device_id): ?string {
+		$keys = array_keys(array_filter(self::deviceKeyRows($device_id), static fn (int $replaced): bool => $replaced === 0));
+		$attrs = self::attrs(self::getDeviceRow($device_id));
+		$ports = [];
+		if (!$keys) {
+			foreach (CTopologyAddress::scopePorts($attrs) as $port_id) {
+				$row = DBfetch(DBselect('SELECT p.attrs,h.host_ref FROM topo_nodes p JOIN topo_nodes d ON d.id=p.device_id'.
+					' JOIN topo_nodes h ON h.id=d.represented_by_node_id AND h.type='.zbx_dbstr('host').
+					' WHERE p.id='.zbx_dbstr((string) $port_id).' AND p.type='.zbx_dbstr('port')), false);
+				if ($row && $row['host_ref'] !== null) {
+					$ports[] = ['hostid' => (int) $row['host_ref'], 'name' => (string) (self::attrs(['attrs' => $row['attrs']])['name'] ?? '')];
+				}
+			}
+		}
+
+		return CTopologyDecision::naturalKey($keys, $attrs, $ports);
+	}
+
+	/** Writes one record of topo_decision (the same record is not written twice). */
+	private static function writeDecision(string $kind, string $key_a, ?string $key_b, ?string $hostid = null, ?string $proxyid = null, ?array $keys_b = null): void {
+		$where = 'kind='.zbx_dbstr($kind).' AND key_a='.zbx_dbstr($key_a).' AND '.($key_b === null ? 'key_b IS NULL' : 'key_b='.zbx_dbstr($key_b)).
+			' AND '.($hostid === null ? 'hostid IS NULL' : 'hostid='.zbx_dbstr($hostid)).' AND '.($proxyid === null ? 'proxyid IS NULL' : 'proxyid='.zbx_dbstr($proxyid));
+		if (DBfetch(DBselect('SELECT decisionid FROM topo_decision WHERE '.$where, 1), false)) {
+			return;
+		}
+		$userid = class_exists('CWebUser', false) && isset(CWebUser::$data['userid']) ? (string) CWebUser::$data['userid'] : null;
+		DBexecute('INSERT INTO topo_decision (kind,key_a,key_b,hostid,proxyid,keys_b,created_at,created_by,norm_version) VALUES ('.
+			zbx_dbstr($kind).','.zbx_dbstr($key_a).','.($key_b === null ? 'NULL' : zbx_dbstr($key_b)).','.($hostid === null ? 'NULL' : zbx_dbstr($hostid)).','.
+			($proxyid === null ? 'NULL' : zbx_dbstr($proxyid)).','.($keys_b === null ? 'NULL' : zbx_dbstr(json_encode(array_values($keys_b)))).','.time().','.
+			($userid === null ? 'NULL' : zbx_dbstr($userid)).','.CTopologyDecision::NORM_VERSION.')');
+	}
+
+	/**
+	 * Deletes the records of $kind that name two Devices (either order) by any key that either of them holds, or one Device (`associate`, `accept_chassis`) by any of its keys.
+	 * Used by the revocation of "Not the same device" and by the removal of an association.
+	 */
+	private static function deleteDecisions(string $kind, string $device_a, ?string $device_b = null): void {
+		$keys_a = array_keys(self::deviceKeyRows($device_a));
+		if (($natural = self::deviceNaturalKey($device_a)) !== null) {
+			$keys_a[] = $natural;
+		}
+		$keys_b = [];
+		if ($device_b !== null) {
+			$keys_b = array_keys(self::deviceKeyRows($device_b));
+			if (($natural = self::deviceNaturalKey($device_b)) !== null) {
+				$keys_b[] = $natural;
+			}
+		}
+		$result = DBselect('SELECT decisionid,key_a,key_b FROM topo_decision WHERE kind='.zbx_dbstr($kind));
+		$delete = [];
+		while ($row = DBfetch($result, false)) {
+			$match = $device_b === null
+				? in_array($row['key_a'], $keys_a, true)
+				: (in_array($row['key_a'], $keys_a, true) && in_array($row['key_b'], $keys_b, true))
+					|| (in_array($row['key_a'], $keys_b, true) && in_array($row['key_b'], $keys_a, true));
+			if ($match) {
+				$delete[] = $row['decisionid'];
+			}
+		}
+		if ($delete) {
+			DBexecute('DELETE FROM topo_decision WHERE '.dbConditionId('decisionid', $delete));
+		}
+	}
+
 	/** A placeholder MAC (normalization §4.1: all zero or all ones, in any of the MAC spellings): never an identity. The mirror of `$is_placeholder_mac` of ingest.php. */
 	private static function isPlaceholderMac(string $value): bool {
 		$value = strtolower(trim($value));
@@ -2751,6 +2838,10 @@ class CTopologyPrototype {
 		}
 		$k = self::attrs($keep);
 		$r = self::attrs($remove);
+		// §6.7.8: the record names both Devices by their natural keys, and the removed one by every key it holds at the time of the merge; read before anything changes
+		$natural_keep = self::deviceNaturalKey($keep_id);
+		$natural_remove = self::deviceNaturalKey($remove_id);
+		$removed_keys = array_keys(self::deviceKeyRows($remove_id));
 
 		// chassis (§6.7.5): K's own reporter reports R's chassis (RMA) -> K takes it and K's old chassis becomes a replaced one; otherwise K keeps its
 		// keys and R's chassis goes to K's replaced_chassis; a K without a chassis takes R's
@@ -2783,6 +2874,8 @@ class CTopologyPrototype {
 
 		DBstart();
 		try {
+			// a merge after "Not the same device" of the same pair revokes it (the later decision of the operator wins; a `not_same` record would refuse the merge, §6.7.8)
+			self::deleteDecisions(CTopologyDecision::KIND_NOT_SAME, $keep_id, $remove_id);
 			// represented_by moves from R when only R has one
 			if ($remove['represented_by_node_id'] !== null) {
 				DBexecute('UPDATE topo_nodes SET represented_by_node_id=NULL,represented_by_matched_by=NULL,represented_by_at=NULL WHERE id='.zbx_dbstr($remove_id));
@@ -2854,6 +2947,11 @@ class CTopologyPrototype {
 
 			// §6.7.3 on K: a pseudo port that now has a real counterpart of the same normalized name is merged into it (links move)
 			self::mergePseudoPortsOf($keep_id);
+
+			// the decision as a record (§6.7.8); a Device that no key can name (no key, no named reporter port) leaves none: the merge itself is as before
+			if ($natural_keep !== null && $natural_remove !== null) {
+				self::writeDecision(CTopologyDecision::KIND_MERGE, $natural_keep, $natural_remove, null, null, $removed_keys);
+			}
 		}
 		catch (Throwable $exception) {
 			DBend(false);
@@ -3086,6 +3184,7 @@ class CTopologyPrototype {
 		if ($reported !== [$entry['value']]) {
 			throw new Exception('The host no longer reports that chassis.');
 		}
+		$natural_before = self::deviceNaturalKey($device_id);
 		$old = (string) ($attrs['chassis_id'] ?? '');
 		$replaced = $attrs['replaced_chassis'] ?? [];
 		if ($old !== '' && $old !== $entry['value']) {
@@ -3115,6 +3214,10 @@ class CTopologyPrototype {
 		else {
 			DBexecute('INSERT INTO topo_identity_keys (device_id,'.$col.',kind,first_seen,replaced) VALUES ('.zbx_dbstr($device_id).','.zbx_dbstr($new_key).','.
 				zbx_dbstr('chassis').','.time().',0)');
+		}
+		// §6.7.8: the decision as a record: key_a = the Device before (its natural key), key_b = the new chassis key
+		if ($natural_before !== null && $natural_before !== $new_key) {
+			self::writeDecision(CTopologyDecision::KIND_ACCEPT_CHASSIS, $natural_before, $new_key);
 		}
 	}
 
@@ -3983,6 +4086,12 @@ class CTopologyPrototype {
 			throw new Exception('Choose two different Devices.');
 		}
 		$rows = [$a => self::getDeviceRow($a), $b => self::getDeviceRow($b)];
+		// §6.7.8: the decision is a record by the natural keys of the two Devices; attrs.duplicate_dismissed stays as the visible, computed list (ingest rewrites it from the records in every run)
+		$natural = [self::deviceNaturalKey($a), self::deviceNaturalKey($b)];
+		if ($natural[0] !== null && $natural[1] !== null) {
+			sort($natural);
+			self::writeDecision(CTopologyDecision::KIND_NOT_SAME, $natural[0], $natural[1]);
+		}
 		foreach ([$a => $b, $b => $a] as $device_id => $other) {
 			$attrs = self::attrs($rows[$device_id]);
 			$entries = $attrs['duplicate_dismissed'] ?? [];
@@ -4044,6 +4153,7 @@ class CTopologyPrototype {
 
 	/** Revoke "not the same device": the pair is listed again by the next full ingest if the evidence is still there. */
 	public static function revokeDismissal(string $a, string $b): void {
+		self::deleteDecisions(CTopologyDecision::KIND_NOT_SAME, $a, $b);
 		foreach ([$a => $b, $b => $a] as $device_id => $other) {
 			$attrs = self::attrs(self::getDeviceRow((string) $device_id));
 			$entries = array_values(array_filter($attrs['duplicate_dismissed'] ?? [],
