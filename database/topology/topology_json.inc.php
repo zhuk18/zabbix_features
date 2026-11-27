@@ -56,6 +56,17 @@ final class TopologyJson {
 	}
 
 	/**
+	 * The SQL of a new value of a number key (a write, not a comparison): the document with the key set to the number that $integer_sql gives (an SQL expression of the code, never input; it is
+	 * cast to a number, so the stored value is a JSON number on both servers). A NULL column counts as an empty document. The key keeps its place when it exists and is added at the end when not,
+	 * as `json_encode` of the PHP array does.
+	 */
+	public static function setNumber(string $column, string $path, string $integer_sql): string {
+		self::expression($column, $path);      // the column and the path are checked
+
+		return "JSON_SET(COALESCE(".$column.", '{}'), '".$path."', CAST(".$integer_sql." AS SIGNED))";
+	}
+
+	/**
 	 * The condition "the JSON value equals $value" by the type of the value, and its parameter: an integer is compared as a number, a string as an unquoted string, a boolean as a boolean, null
 	 * as a missing key. A float is refused (its text differs between the servers).
 	 *

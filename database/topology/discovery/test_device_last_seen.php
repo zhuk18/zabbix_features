@@ -294,4 +294,24 @@ $fp = fingerprint($pdo);
 $r = run_ingest($dsn, $user, $password);
 check(fingerprint($pdo) === $fp && ($r['summary']['devices_last_seen_moved'] ?? -1) === 0, 'a second run changes nothing');
 
+// 2.114 (task 136): the write is set-based; the stored value and the Devices that are not written
+echo "  -- the set-based write: the type of the value, the key in its place, a Device that is not moved is not touched --\n";
+reset_all($pdo);
+add_host($pdo, 101, 'SwR1', 'Switch R1', '10.0.0.1');
+add_host($pdo, 102, 'SwR2', 'Switch R2', '10.0.0.2');
+$R2 = 'a0:00:00:00:00:02';
+$own1 = device($pdo, $R1, '10.0.0.1', 'SwR1');
+$own2 = device($pdo, $R2, '10.0.0.2', 'SwR2');
+$pdo->prepare("UPDATE topo_nodes SET attrs = JSON_REMOVE(attrs, '\$.last_seen') WHERE id = ?")->execute([$own1]);      // no last_seen key at all
+reporter($pdo, 101, 1001, $R1, CLOCK + 40);
+reporter($pdo, 102, 1011, $R2, 1);      // a clock that is not newer than the Device's last_seen (1)
+$r = run_ingest($dsn, $user, $password);
+check(last_seen_of($pdo, $R1) === CLOCK + 40, 'a Device with no last_seen key gets it');
+check((string) scalar($pdo, "SELECT JSON_TYPE(JSON_EXTRACT(attrs, '\$.last_seen')) FROM topo_nodes WHERE id = ?", [$own1]) === 'INTEGER', 'the value is stored as a JSON number');
+$keys = array_keys(attrs($pdo, $own2));
+check(last_seen_of($pdo, $R2) === 1, 'a Device whose clock is not newer keeps its value (the key only moves forward)');
+check(($r['summary']['devices_last_seen_moved'] ?? -1) === 1, 'the count of moved Devices is the number of Devices written');
+reporter($pdo, 102, 1011, $R2, CLOCK + 70);
+run_ingest($dsn, $user, $password);
+check(array_keys(attrs($pdo, $own2)) === $keys && last_seen_of($pdo, $R2) === CLOCK + 70, 'an existing last_seen keeps its place among the keys');
 echo "\nAll Device last_seen tests passed.\n";

@@ -940,20 +940,31 @@ foreach ($pdo->query('SELECT device_id, MAX(last_seen) AS seen FROM topo_observa
 	$observed[(int) $row['device_id']] = (int) $row['seen'];
 }
 $summary['devices_last_seen_moved'] = 0;
-foreach ($pdo->query("SELECT d.id, d.attrs, h.host_ref FROM topo_nodes d LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
+// 2.114 (task 136): set-based. The value of every Device is worked out first (no attrs are read or decoded), then written by one UPDATE for each batch of Devices, with the same value and the same
+// condition as the loop of one UPDATE for each Device had: only a Device whose wanted clock is newer than its attrs.last_seen is written (the key only moves forward, no threshold).
+$last_seen_wanted = [];
+foreach ($pdo->query("SELECT d.id, h.host_ref FROM topo_nodes d LEFT JOIN topo_nodes h ON h.id = d.represented_by_node_id AND h.type = 'host'".
 		" WHERE d.type = 'device'")->fetchAll(PDO::FETCH_ASSOC) as $row) {
 	ingest_tick('closing: devices last seen');
 	$id = (int) $row['id'];
 	// (a): the host of the Device's `represented_by`, whatever `matched_by` is (reporter_self, manual, mac); a host without a usable snapshot gives nothing
 	$own = $row['host_ref'] !== null ? ($reporter_seen[(int) $row['host_ref']] ?? 0) : 0;
-	$wanted = max($own, $observed[$id] ?? 0);
-	$attrs = json_decode($row['attrs'], true) ?: [];
-	if ($wanted > (int) ($attrs['last_seen'] ?? 0)) {
-		$before = $attrs;
-		$attrs['last_seen'] = $wanted;
-		$snap_write_attrs($id, $attrs, $before);
-		$summary['devices_last_seen_moved']++;
+	if (($wanted = max($own, $observed[$id] ?? 0)) > 0) {
+		$last_seen_wanted[$id] = $wanted;
 	}
+}
+$last_seen_now = TopologyJson::number('attrs', '$.last_seen');
+foreach (array_chunk($last_seen_wanted, 1000, true) as $batch) {
+	ingest_tick('closing: devices last seen');
+	$cases = '';
+	foreach ($batch as $id => $wanted) {
+		$cases .= ' WHEN '.(int) $id.' THEN '.(int) $wanted;      // integers of the code, written into the statement: the stored value is a JSON number
+	}
+	$case = 'CASE id'.$cases.' END';
+	$moved = $pdo->prepare('UPDATE topo_nodes SET attrs = '.TopologyJson::setNumber('attrs', '$.last_seen', $case).', updated_at = ?'.
+		' WHERE type = \'device\' AND id IN ('.implode(',', array_map('intval', array_keys($batch))).') AND COALESCE('.$last_seen_now.', 0) < '.$case);
+	$moved->execute([$run->now]);
+	$summary['devices_last_seen_moved'] += $moved->rowCount();
 }
 
 $summary['duplicate_candidates'] = ['count' => 0, 'pairs' => 0, 'new' => 0];
