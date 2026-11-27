@@ -22,6 +22,8 @@ class IngestDecisions {
 	private array $classes = ['class_of' => [], 'keys' => [], 'conflicts' => []];
 	/** key => the other keys of its merge class that name a Device by a key (not `port:` keys) */
 	private array $alias = [];
+	/** key => the key of the kept side of the first merge of its class (`key_a`): the chassis that a Device without a reporter keeps (§6.7.5: K keeps its chassis) */
+	private array $primary = [];
 	/** record key (decisionid) => the Device ids that its keys found: only the records that found several are kept here */
 	private array $ambiguous = [];
 	/** key => [Device ids] of the keyless Devices by natural key `port:...`, built when first needed */
@@ -54,7 +56,18 @@ class IngestDecisions {
 		foreach ($this->classes['conflicts'] as $conflict) {
 			$summary['decisions_conflict'][] = $conflict;
 		}
-		foreach ($this->classes['keys'] as $keys) {
+		$first_a = [];
+		foreach ($this->records as $record) {
+			if ($record['kind'] === CTopologyDecision::KIND_MERGE && isset($this->classes['class_of'][(string) $record['key_a']])) {
+				$first_a[$this->classes['class_of'][(string) $record['key_a']]] ??= (string) $record['key_a'];
+			}
+		}
+		foreach ($this->classes['keys'] as $class => $keys) {
+			foreach ($keys as $key) {
+				if (isset($first_a[$class])) {
+					$this->primary[$key] = $first_a[$class];
+				}
+			}
 			$named = array_values(array_filter($keys, static fn (string $key): bool => !CTopologyDecision::isPortKey($key)));
 			if (count($named) < 2) {
 				continue;
@@ -146,6 +159,36 @@ class IngestDecisions {
 			unset($attrs['replaced_chassis']);
 		}
 		$attrs['merged_keys'] = array_values(array_unique($merged));
+		// the Device of a merge keeps the chassis of the kept side (`key_a` of the first merge of the class), whichever claim made it first (the result must not depend on the order of the claims);
+		// a reporter's Device keeps the chassis that its reporter reports (§6.4)
+		$primary_key = null;
+		foreach (array_merge(array_keys($have), array_keys($wanted)) as $held_key) {
+			$primary_key ??= $this->primary[$held_key] ?? null;
+		}
+		$primary_value = $primary_key !== null ? CTopologyDecision::chassisOfKey($primary_key) : null;
+		$reporter = $pdo->prepare("SELECT 1 FROM topo_nodes WHERE id = ? AND represented_by_matched_by = 'reporter_self' AND represented_by_node_id IS NOT NULL");
+		$reporter->execute([$device_id]);
+		if ($primary_value !== null && $primary_value !== $chassis && $reporter->fetchColumn() === false && $keys->deviceHoldsKey($device_id, $primary_key)) {
+			$attrs['chassis_id'] = $primary_value;
+			$attrs['mac'] = preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $primary_value) === 1 ? strtolower($primary_value) : null;
+			$all = $pdo->prepare("SELECT {$q_key} AS k FROM topo_identity_keys WHERE device_id = ? AND kind = 'chassis'");
+			$all->execute([$device_id]);
+			$replaced = [];
+			foreach ($all->fetchAll(PDO::FETCH_COLUMN) as $chassis_key) {
+				$value = CTopologyDecision::chassisOfKey($chassis_key);
+				if ($value === null) {
+					continue;
+				}
+				$pdo->prepare("UPDATE topo_identity_keys SET replaced = ? WHERE device_id = ? AND {$q_key} = ?")->execute([$value === $primary_value ? 0 : 1, $device_id, $chassis_key]);
+				if ($value !== $primary_value) {
+					$replaced[] = $value;
+				}
+			}
+			$attrs['replaced_chassis'] = array_values(array_unique($replaced));
+			if (!$replaced) {
+				unset($attrs['replaced_chassis']);
+			}
+		}
 		$store->writeAttrs($device_id, $attrs, $before);
 	}
 

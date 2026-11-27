@@ -495,4 +495,23 @@ $pdo->prepare('UPDATE topo_nodes SET attrs=? WHERE id=?')->execute([json_encode(
 $up = decisions_upgrade($pdo);
 check(count($up['cannot_separate']) === 1 && $up['cannot_separate'][0]['replaced_chassis'] === ['e0:00:00:00:00:77'], 'a replaced chassis that no key row names is listed: that merge cannot be separated', $up['cannot_separate']);
 
+// ============================================================================================================
+echo "\n=== 7: the Device of a merge keeps the chassis of the kept side, whichever claim comes first ===\n";
+foreach ([['kept mac, removed local', true], ['kept local, removed mac', false]] as [$label, $keep_mac]) {
+	reset_all($pdo);
+	network($pdo, $R, [1 => [$AM, 'p']]);
+	$rows = json_decode((string) scalar($pdo, 'SELECT rows_json FROM topo_lld_snapshot WHERE itemid = 1002'), true);
+	$rows[] = ['if_index' => 2, 'rem_chassis' => 'q-chassis', 'rem_chassis_type' => 'local', 'rem_sysname' => 'q', 'rem_port' => 'Eth2', 'rem_port_type' => 'interfaceName', 'source' => 'lldp', 'loc_chassis' => $R];
+	snapshot($pdo, 1002, 101, 2, CLOCK + 10, $rows);
+	run_ingest($dsn, $user, $password);
+	$p = device_id($pdo, $AM); $q = device_id($pdo, 'q-chassis');
+	[$keep, $remove] = $keep_mac ? [$p, $q] : [$q, $p];
+	CTopologyPrototype::mergeDevices((string) $keep, (string) $remove, 'Admin');
+	run_ingest($dsn, $user, $password);
+	$view1 = state_view($pdo);
+	$r = rebuild($pdo, $dsn, $user, $password);
+	$view2 = state_view($pdo);
+	check(diff_views($view1, $view2) === [], "{$label}: the rebuild gives the same Device (the chassis of the kept side is its chassis)", diff_views($view1, $view2));
+}
+
 echo "\nAll decision checks passed ({$checks}).\n";
