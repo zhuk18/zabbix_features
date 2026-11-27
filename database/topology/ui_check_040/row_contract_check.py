@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 URL = os.environ.get('ZBX_URL', 'http://localhost/zabbix/ui/api_jsonrpc.php')
 SENDER = os.path.join(HERE, '..', '..', '..', 'bin', 'zabbix_sender')
 HOST = 'ROWCON-CHECK'
-KNOWN_TABLE_DIFFERENCES = ['Ports {#IFALIAS}: in the server table, not in CTopologyType']   # found by task 128: the UI hint of a Ports rule does not list {#IFALIAS}
+KNOWN_TABLE_DIFFERENCES = []      # task 138: the four differences that task 128 found are fixed in CTopologyType (the server was right); the two sides agree
 failed = 0
 
 
@@ -100,21 +100,19 @@ try:
     for case in table:
         passed = frontend['cases'][case['name']]['passed']
         server = case['valid_rows']
-        if case['name'] == 'device-two-rows':
-            expected = 2          # the frontend counts every row; the count of rows is a rule of the server
-        else:
-            expected = case.get('frontend', server)
+        expected = case.get('frontend', server)      # a case that still differs says so in the table (`frontend`, `reason`); none does since task 138
         check(passed == expected, '%s: the frontend passes %d row(s)%s' % (case['name'], expected, '' if passed == server else ' (the server keeps %d)' % server), passed)
         if passed != server:
             differences.append('%s: server keeps %d, the Test dialog passes %d (%s)' % (case['name'], server, passed, case.get('reason', '?')))
         else:
             check('reason' not in case, '%s: no difference is pinned for a case that agrees' % case['name'], case.get('reason'))
+    check(not differences, 'no difference between the server and the Test dialog: the same row is valid or invalid on both sides (FR-B D-14)', differences)
     print('  FINDINGS (the two sides differ; pinned in the table): ' + ('none' if not differences else ''))
     for line in differences:
         print('    ' + line)
 
     print('=== the two contract tables from the sources ===')
-    check(frontend['tables'] == KNOWN_TABLE_DIFFERENCES, 'the server table (lld_topology.c) and CTopologyType name the same macros, required and "one of" groups, except the pinned difference', frontend['tables'])
+    check(frontend['tables'] == KNOWN_TABLE_DIFFERENCES, 'the server table (lld_topology.c) and CTopologyType name the same macros, required and "one of" groups, (and the macros that must be numbers)', frontend['tables'])
 finally:
     if host_id is not None:
         api('host.delete', [host_id])

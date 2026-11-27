@@ -37,10 +37,10 @@ foreach ($of_type as $type => $name) {
 		throw new RuntimeException('no table '.$name.' in lld_topology.c');
 	}
 
-	preg_match_all('/\{"(\{#[A-Z_]+\})",\s*"[a-z_]+",\s*ZBX_LLD_TOPO_(?:STR|UINT),\s*(\d),\s*(\d),/', $block[1], $rows, PREG_SET_ORDER);
+	preg_match_all('/\{"(\{#[A-Z_]+\})",\s*"[a-z_]+",\s*ZBX_LLD_TOPO_(STR|UINT),\s*(\d),\s*(\d),/', $block[1], $rows, PREG_SET_ORDER);
 
 	foreach ($rows as $row) {
-		$server[$type][$row[1]] = ['required' => (int) $row[2], 'group' => (int) $row[3]];
+		$server[$type][$row[1]] = ['required' => (int) $row[3], 'group' => (int) $row[4], 'numeric' => $row[2] === 'UINT'];
 	}
 }
 
@@ -65,6 +65,7 @@ $shape = static function (array $macros): array {
 
 	return [
 		'macros' => array_keys($macros),
+		'numeric' => array_keys(array_filter($macros, static fn (array $d): bool => ($d['numeric'] ?? false) === true)),
 		'required' => array_keys(array_filter($macros, static fn (array $d): bool => $d['required'] === 1)),
 		'groups' => $groups
 	];
@@ -88,6 +89,10 @@ foreach ($of_type as $type => $name) {
 		$front[$macro] = ['required' => 0, 'group' => 0];
 	}
 
+	foreach ($contract['numeric'] as $macro) {
+		$front[$macro]['numeric'] = true;
+	}
+
 	$s = $shape($server[$type]);
 	$f = $shape($front);
 	sort($s['macros']);
@@ -101,6 +106,13 @@ foreach ($of_type as $type => $name) {
 
 	foreach (array_diff($f['macros'], $s['macros']) as $macro) {
 		$differences[] = CTopologyType::getLabel($type).' '.$macro.': in CTopologyType, not in the server table';
+	}
+
+	sort($s['numeric']);
+	sort($f['numeric']);
+
+	if ($s['numeric'] !== $f['numeric']) {
+		$differences[] = CTopologyType::getLabel($type).': numeric macros differ: server '.implode(' ', $s['numeric']).'; frontend '.implode(' ', $f['numeric']);
 	}
 
 	if ($s['required'] !== $f['required']) {

@@ -32,16 +32,18 @@ class CTopologyType {
 	 *   export   - export/import string;
 	 *   required - macros that must be present and non-empty;
 	 *   one_of   - groups of macros, at least one macro of each group must be present and non-empty;
-	 *   optional - macros with a defined meaning that are not required.
+	 *   optional - macros with a defined meaning that are not required;
+	 *   numeric  - macros whose value must be an unsigned integer (`ZBX_LLD_TOPO_UINT` of lld_topology.c): a row with another value is invalid (model §5.2, FR-B D-14).
 	 */
 	private const TYPES = [
 		ZBX_TOPOLOGY_TYPE_PORTS => [
 			'export' => 'PORTS',
 			'required' => ['{#IFINDEX}'],
 			'one_of' => [],
-			'optional' => ['{#IFNAME}', '{#IFDESCR}', '{#IFTYPE}', '{#IFMAC}', '{#IFADMINSTATUS}', '{#IFOPERSTATUS}',
+			'optional' => ['{#IFNAME}', '{#IFDESCR}', '{#IFALIAS}', '{#IFTYPE}', '{#IFMAC}', '{#IFADMINSTATUS}', '{#IFOPERSTATUS}',
 				'{#IFSPEED}', '{#LOC_CHASSIS}', '{#LOC_CHASSIS_TYPE}'
-			]
+			],
+			'numeric' => ['{#IFINDEX}']
 		],
 		ZBX_TOPOLOGY_TYPE_NEIGHBORS => [
 			'export' => 'NEIGHBORS',
@@ -52,25 +54,29 @@ class CTopologyType {
 			'optional' => ['{#LOC_PORT_ID}', '{#LOC_PORT_ID_TYPE}', '{#LOC_PORT_DESC}', '{#REM_CHASSIS_TYPE}',
 				'{#REM_PORT}', '{#REM_PORT_TYPE}', '{#REM_PORT_DESC}', '{#REM_SYS_CAP}', '{#LOC_CHASSIS}',
 				'{#LOC_CHASSIS_TYPE}', '{#SOURCE}'
-			]
+			],
+			'numeric' => ['{#IFINDEX}', '{#LOC_PORT_NUM}']
 		],
 		ZBX_TOPOLOGY_TYPE_LEARNED_MACS => [
 			'export' => 'LEARNED_MACS',
 			'required' => ['{#IFINDEX}'],
 			'one_of' => [['{#MAC}', '{#PORT_MAC_COUNT}']],
-			'optional' => ['{#VLAN}']
+			'optional' => ['{#VLAN}'],
+			'numeric' => ['{#IFINDEX}', '{#PORT_MAC_COUNT}']
 		],
 		ZBX_TOPOLOGY_TYPE_LAG => [
 			'export' => 'LAG',
 			'required' => ['{#IFINDEX}', '{#LAG_IFINDEX}'],
 			'one_of' => [],
-			'optional' => []
+			'optional' => [],
+			'numeric' => ['{#IFINDEX}', '{#LAG_IFINDEX}']
 		],
 		ZBX_TOPOLOGY_TYPE_DEVICE => [
 			'export' => 'DEVICE',
 			'required' => [],
 			'one_of' => [['{#LOC_CHASSIS}', '{#LOC_CDP_DEVICE_ID}', '{#LOC_SYSNAME}']],
-			'optional' => ['{#LOC_CHASSIS_TYPE}', '{#LOC_SYS_CAP}']
+			'optional' => ['{#LOC_CHASSIS_TYPE}', '{#LOC_SYS_CAP}'],
+			'numeric' => []
 		]
 	];
 
@@ -140,7 +146,7 @@ class CTopologyType {
 	/**
 	 * Contract of a topology type, or null for NONE and unknown topology types.
 	 *
-	 * @return array|null  ['required' => [], 'one_of' => [[]], 'optional' => [], 'snmpindex_fallback' => bool]
+	 * @return array|null  ['required' => [], 'one_of' => [[]], 'optional' => [], 'numeric' => [], 'snmpindex_fallback' => bool]
 	 */
 	public static function getContract(int $topology_type): ?array {
 		if (!array_key_exists($topology_type, self::TYPES)) {
@@ -151,6 +157,7 @@ class CTopologyType {
 			'required' => self::TYPES[$topology_type]['required'],
 			'one_of' => self::TYPES[$topology_type]['one_of'],
 			'optional' => self::TYPES[$topology_type]['optional'],
+			'numeric' => self::TYPES[$topology_type]['numeric'],
 			'snmpindex_fallback' => in_array($topology_type, self::SNMPINDEX_FALLBACK)
 		];
 	}
@@ -185,12 +192,33 @@ class CTopologyType {
 		$contract_macros = array_merge($contract['required'], $contract['optional'], ...$contract['one_of']);
 		$result['path_macros'] = array_values(array_intersect($contract_macros, array_keys($path_macros)));
 
+		$valid_indexes = [];
+
 		foreach (array_values($rows) as $index => $row) {
 			$row = is_array($row) ? $row : [];
 			$is_available = static fn(string $macro): bool => array_key_exists($macro, $path_macros)
 				|| (array_key_exists($macro, $row) && is_scalar($row[$macro]) && (string) $row[$macro] !== '');
 
 			$missing = [];
+
+			// the value of an unsigned integer macro is checked as the server checks it (zbx_is_uint64); the value of {#SNMPINDEX} is the value of {#IFINDEX} when it stands in for it; a value that
+			// comes from an LLD macro path of the rule is not evaluated here (as for the other checks)
+			foreach ($contract['numeric'] as $macro) {
+				$value = null;
+
+				if (array_key_exists($macro, $row) && is_scalar($row[$macro]) && (string) $row[$macro] !== '') {
+					$value = (string) $row[$macro];
+				}
+				elseif (!array_key_exists($macro, $path_macros) && $macro === '{#IFINDEX}' && $contract['snmpindex_fallback']
+						&& array_key_exists(self::SNMPINDEX_MACRO, $row) && is_scalar($row[self::SNMPINDEX_MACRO])
+						&& (string) $row[self::SNMPINDEX_MACRO] !== '' && !array_key_exists(self::SNMPINDEX_MACRO, $path_macros)) {
+					$value = (string) $row[self::SNMPINDEX_MACRO];
+				}
+
+				if ($value !== null && !self::isUint64($value)) {
+					$missing[] = $macro.' is not an unsigned integer';
+				}
+			}
 
 			foreach ($contract['required'] as $macro) {
 				if ($is_available($macro)) {
@@ -220,9 +248,31 @@ class CTopologyType {
 			}
 			else {
 				$result['passed']++;
+				$valid_indexes[] = $index;
 			}
 		}
 
+		// DEVICE (LLD spec 2.19 §3.5): one device has one identity; more than one valid row gives an empty snapshot, as the server does (lld_topology.c)
+		if ($topology_type === ZBX_TOPOLOGY_TYPE_DEVICE && $result['passed'] > 1) {
+			$result['failed'] += $result['passed'];
+			$result['failures']['one row expected, '.$result['passed'].' valid rows'] = $valid_indexes;
+			$result['passed'] = 0;
+		}
+
 		return $result;
+	}
+
+	/**
+	 * A string that is an unsigned 64-bit integer, as zbx_is_uint64() takes it: digits only, no sign, no space, at most 18446744073709551615.
+	 */
+	private static function isUint64(string $value): bool {
+		if (preg_match('/^[0-9]+$/', $value) !== 1) {
+			return false;
+		}
+
+		$value = ltrim($value, '0');
+		$value = $value === '' ? '0' : $value;
+
+		return strlen($value) < 20 || (strlen($value) === 20 && strcmp($value, '18446744073709551615') <= 0);
 	}
 }

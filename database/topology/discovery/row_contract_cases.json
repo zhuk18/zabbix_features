@@ -1,5 +1,5 @@
 {
- "comment": "The row contract of model \u00a75.2 as a table (task 128 part 1). Read by ui_check_040/row_contract_check.py (the server, through trapper rules) and by lab/php/row_contract_frontend.php (CTopologyType::checkRows). valid_rows: rows that the server keeps; frontend: 1/0 = what the Test dialog says when it differs; reason: why the two differ.",
+ "comment": "The row contract of model §5.2 as a table (task 128 part 1). Read by ui_check_040/row_contract_check.py (the server, through trapper rules) and by lab/php/row_contract_frontend.php (CTopologyType::checkRows). valid_rows: rows that the server keeps; (task 138: no case differs; the frontend keys `frontend` and `reason` are no longer in use)",
  "cases": [
   {
    "name": "ports-ifindex",
@@ -137,8 +137,6 @@
    ],
    "valid": 0,
    "why": "the server needs a number; the frontend checks presence only",
-   "frontend": 1,
-   "reason": "the server refuses a non-numeric IFINDEX; the Test dialog does not",
    "valid_rows": 0,
    "rows_total": 1,
    "info": "1 of 1 rows skipped"
@@ -313,8 +311,6 @@
    ],
    "valid": 0,
    "why": "the server needs a number; the frontend checks presence only",
-   "frontend": 1,
-   "reason": "the server refuses a non-numeric LOC_PORT_NUM; the Test dialog does not",
    "valid_rows": 0,
    "rows_total": 1,
    "info": "1 of 1 rows skipped"
@@ -401,7 +397,6 @@
    ],
    "valid": 0,
    "why": "two valid rows: the server stores an empty snapshot and says \"2 rows, one expected\" (a rule of the server alone)",
-   "reason": "the count of rows is a rule of the server; the frontend counts every row",
    "valid_rows": 0,
    "rows_total": 2,
    "info": "Topology (DEVICE): 2 rows, one expected"
