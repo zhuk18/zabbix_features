@@ -54,6 +54,7 @@ require_once __DIR__.'/ingest/TopologyNormalize.php';          // the step Norma
 require_once __DIR__.'/ingest/IngestRun.php';                  // the state of a run, the step modules
 require_once __DIR__.'/ingest/IngestKeys.php';
 require_once __DIR__.'/ingest/IngestStore.php';
+require_once __DIR__.'/ingest/IngestDecisions.php';
 require_once __DIR__.'/ingest/IngestIdentify.php';
 require_once __DIR__.'/ingest/IngestFarPort.php';
 require_once __DIR__.'/ingest/IngestLinks.php';
@@ -61,6 +62,7 @@ require_once __DIR__.'/ingest/IngestObserve.php';
 require_once __DIR__.'/ingest/IngestSelf.php';
 require_once __DIR__.'/ingest/IngestMarks.php';
 require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyRunSummary.php';   // the run summary: status label, "Needs attention", the CLI text (§12.7)
+require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyDecision.php';      // the natural key of a Device and the merge classes of the operator's decisions (§6.7.8)
 require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyAddress.php';      // the decoder of the addresses of a neighbor (§4.3, §4.4), shared with the side panel
 
 define('TOPOLOGY_INGEST_RUNTIME_DIR', sys_get_temp_dir());
@@ -336,6 +338,7 @@ $run->links = new IngestLinks($run);
 $run->observe = new IngestObserve($run);
 $run->own = new IngestSelf($run);
 $run->marks = new IngestMarks($run);
+$run->decisions = new IngestDecisions($run);
 // the state of the run is bound BEFORE any closure captures it by reference: the closures, the modules and the frame write the same arrays
 $summary = &$run->summary;
 $duplicate_candidates = &$run->duplicate_candidates;
@@ -632,6 +635,8 @@ $skipped = 0;
 $reindex_pseudo_ports();
 $snapshot_reporters = $snap_load_reporters($zabbix_host_filter);
 $build_identity_keys();
+// §6.7.8 (2.106, task 129): the operator's decisions are read here, before any Device is found or made (stage Normalize): the keys of a merge class find one Device
+$run->decisions->load();
 
 $count_contradicted_manual_links = [$run->links, 'countContradictedManualLinks'];
 
@@ -864,6 +869,8 @@ foreach ([0, 1, 2, 3] as $group) {
 }
 
 ingest_stage('reconcile');
+// §6.7.8: `associate` and `accept_chassis` apply to the Devices that pass A and pass B made (counted in the stage Reconcile)
+$run->decisions->applyOperatorRecords();
 // Phase 2: links and observations, decided once for all reporters (topology-1-model.md "Two phases").
 $phase_2_done = true;
 if ($link_candidates || $neighbor_snapshots) {
@@ -1105,13 +1112,36 @@ if (!$zabbix_host_filter) {
 		}
 	}
 	$exists = array_fill_keys(array_keys($all_attrs), 0);
+	// §6.7.8 (2.106, task 129): "Not the same device" is a record; `attrs.duplicate_dismissed` is computed from the records in every full run (it is what the page reads); a pair that the records
+	// name is no candidate. The old entries of an earlier build that no record names are counted (`decisions_unrecorded_dismissals`) and dropped: the upgrade of the prototype data writes them as
+	// records first (discovery/decisions_upgrade.php).
 	$dismissed = [];
+	$dismissed_entries = [];      // Device id => the entries of its attrs.duplicate_dismissed
+	$user_names = [];
+	try {
+		$user_names = $pdo->query('SELECT userid, username FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+	}
+	catch (PDOException $exception) {
+		$user_names = [];      // a database that is only a stand-in of the Zabbix tables (a test)
+	}
+	foreach ($run->decisions->dismissedPairs() as $pair => $record) {
+		ingest_tick('closing: duplicate candidates');
+		[$x, $y] = array_map('intval', explode('|', $pair));
+		$dismissed[$x.'|'.$y] = true;
+		$dismissed[$y.'|'.$x] = true;
+		// no tick: two iterations
+		foreach ([[$x, $y], [$y, $x]] as [$on, $other]) {
+			$dismissed_entries[$on][$other] = ['device_id' => $other, 'at' => (int) ($record['created_at'] ?? 0), 'by' => (string) ($user_names[$record['created_by'] ?? 0] ?? '')];
+		}
+	}
+	$summary['decisions_unrecorded_dismissals'] = 0;
 	foreach ($all_attrs as $device_id => $device_attrs) {
 		ingest_tick('closing: duplicate candidates');
 		foreach (($device_attrs['duplicate_dismissed'] ?? []) as $entry) {
 			ingest_tick('closing: duplicate candidates');
-			$dismissed[$device_id.'|'.(int) ($entry['device_id'] ?? 0)] = true;
-			$dismissed[(int) ($entry['device_id'] ?? 0).'|'.$device_id] = true;
+			if (!isset($dismissed[$device_id.'|'.(int) ($entry['device_id'] ?? 0)])) {
+				$summary['decisions_unrecorded_dismissals']++;
+			}
 		}
 	}
 	$list_writes = [];     // Device id => the new attrs text, written in batches after the loop (one UPDATE for each batch, not for each Device)
@@ -1137,7 +1167,21 @@ if (!$zabbix_host_filter) {
 			ingest_tick('closing: duplicate candidates');
 			$candidate_pairs_after[$pair_of($entry)] = true;
 		}
-		if (($attrs['duplicate_candidates'] ?? []) === $want) {
+		// the entries that the actions wrote stay as they are (their time and user) while a record names the pair; entries of new records are added; the others go
+		$want_dismissed = [];
+		foreach ($attrs['duplicate_dismissed'] ?? [] as $entry) {
+			ingest_tick('closing: duplicate candidates');
+			if (isset($dismissed_entries[$id][(int) ($entry['device_id'] ?? 0)])) {
+				$want_dismissed[] = $entry;
+				unset($dismissed_entries[$id][(int) ($entry['device_id'] ?? 0)]);
+			}
+		}
+		foreach ($dismissed_entries[$id] ?? [] as $entry) {
+			ingest_tick('closing: duplicate candidates');
+			$want_dismissed[] = $entry;
+		}
+		$dismissed_same = array_values($attrs['duplicate_dismissed'] ?? []) === $want_dismissed;
+		if (($attrs['duplicate_candidates'] ?? []) === $want && $dismissed_same) {
 			continue;
 		}
 		if ($want) {
@@ -1145,6 +1189,12 @@ if (!$zabbix_host_filter) {
 		}
 		else {
 			unset($attrs['duplicate_candidates']);
+		}
+		if ($want_dismissed) {
+			$attrs['duplicate_dismissed'] = $want_dismissed;
+		}
+		else {
+			unset($attrs['duplicate_dismissed']);
 		}
 		$list_writes[$id] = json_encode($attrs, JSON_THROW_ON_ERROR);
 	}

@@ -22,7 +22,7 @@ class IngestIdentify {
 		}
 		[$value, $raw] = $identity['chassis'];
 		$kind = $identity['chassis'][2] ?? 'chassis_id';      // 2.96: `cdp_key` for the own CDP device ID key of a reporter without a chassis
-		$ids = $key_holders($value);
+		$ids = $this->run->keys->classHolders($value);      // §6.7.8: the keys of a merge class find one Device
 		if ($for_reporter || $exclude) {
 			// §6.4 step 5: a reporter never takes a Device that has another representation, nor one that another reporter takes
 			$ids = array_values(array_filter($ids, static function (int $id) use ($pdo, $for_reporter, $exclude): bool {
@@ -159,6 +159,7 @@ class IngestIdentify {
 				$summary['devices_updated']++;
 			}
 			$register_keys($device_id, $incoming, $seen_at);
+			$this->run->decisions->giveKeys($device_id, $seen_at);      // §6.7.8: a Device of a merge class holds the keys of the class
 			return $device_id;
 		}
 		$attrs = [
@@ -195,6 +196,7 @@ class IngestIdentify {
 		elseif (isset($incoming['own_cdp_key'])) {
 			$insert_key($created_id, $incoming['own_cdp_key'], 'cdp', $seen_at);      // a CDP-only reporter's Device carries its own key (2.96)
 		}
+		$this->run->decisions->giveKeys($created_id, $seen_at);      // §6.7.8
 		return $created_id;
 	}
 
@@ -310,7 +312,7 @@ class IngestIdentify {
 		}
 		// the device id key (2.55): one Device with the key is the Device; several: ambiguous; none: a new Device with the key (no scope port, so the rows below do not apply)
 		if (($claim['cdp_key'] ?? null) !== null) {
-			$holders = $this->run->keys->keyHolders($claim['cdp_key']);
+			$holders = $this->run->keys->classHolders($claim['cdp_key']);      // §6.7.8
 			if (count($holders) > 1) {
 				$this->noteKeyShared($holders, $claim['cdp_key'], (string) $claim['name']);      // 2.58 `key_shared`
 			}

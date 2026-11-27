@@ -118,7 +118,7 @@ const CLOCK = 1_800_000_000;
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_decision', 'topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

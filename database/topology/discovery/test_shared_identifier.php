@@ -136,7 +136,7 @@ const CLOCK = 1_800_000_000;
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
+	foreach (['topo_decision', 'topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -320,11 +320,9 @@ check(count($printers) === 2, 'two Devices for the same printer with the default
 $reasons = static fn (int $id): array => array_values(array_unique(array_column(attrs($pdo, $id)['duplicate_candidates'] ?? [], 'reason')));
 check($reasons($printers[0]) === ['same_address', 'same_name'] && $reasons($printers[1]) === ['same_address', 'same_name'], 'same_address and same_name on both');
 echo "  -- Not the same device: no candidate for the pair on the later runs --\n";
-foreach ([[$printers[0], $printers[1]], [$printers[1], $printers[0]]] as [$one, $other]) {
-	$a = attrs($pdo, $one);
-	$a['duplicate_dismissed'] = [['device_id' => $other, 'at' => 1, 'by' => 'Admin']];
-	$pdo->prepare('UPDATE topo_nodes SET attrs = ? WHERE id = ?')->execute([json_encode($a), $one]);
-}
+// 2.106 (§6.7.8): the pair is a `not_same` record by the natural keys of the two Devices (no chassis: the reporter port and the name key); attrs.duplicate_dismissed is computed from it
+$pdo->prepare('INSERT INTO topo_decision (kind, key_a, key_b, created_at, norm_version) VALUES (?, ?, ?, ?, ?)')->execute(['not_same', 'port:101:gi0/1:switch', 'port:102:gi0/1:switch', 1, 24]);
+run_ingest($dsn, $user, $password);
 $dismissed_before = [attrs($pdo, $printers[0])['duplicate_dismissed'], attrs($pdo, $printers[1])['duplicate_dismissed']];
 run_ingest($dsn, $user, $password);
 check(!isset(attrs($pdo, $printers[0])['duplicate_candidates']) && !isset(attrs($pdo, $printers[1])['duplicate_candidates']), 'dismissed on both: no candidate for the pair');

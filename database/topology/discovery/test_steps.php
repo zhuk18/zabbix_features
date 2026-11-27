@@ -38,6 +38,8 @@ require_once __DIR__.'/ingest/TopologyNormalize.php';
 require_once __DIR__.'/ingest/IngestRun.php';
 require_once __DIR__.'/ingest/IngestKeys.php';
 require_once __DIR__.'/ingest/IngestStore.php';
+require_once __DIR__.'/../../../ui/include/classes/topology/CTopologyDecision.php';
+require_once __DIR__.'/ingest/IngestDecisions.php';
 require_once __DIR__.'/ingest/IngestIdentify.php';
 require_once __DIR__.'/ingest/IngestFarPort.php';
 require_once __DIR__.'/ingest/IngestLinks.php';
@@ -73,6 +75,7 @@ function new_run(PDO $pdo): IngestRun {
 	$run->identify = new IngestIdentify($run);
 	$run->farport = new IngestFarPort($run);
 	$run->links = new IngestLinks($run);
+	$run->decisions = new IngestDecisions($run);
 	$run->summary = ['devices_created' => 0, 'devices_updated' => 0, 'ports_created' => 0, 'links_created' => 0, 'identity_keys_shared' => ['count' => 0, 'list' => []]];
 
 	return $run;

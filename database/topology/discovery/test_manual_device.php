@@ -186,7 +186,7 @@ function edge(PDO $pdo, string $type, int $src, int $dst, array $attrs): int {
 
 function reset_topology(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
+	foreach (['topo_decision', 'topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'] as $table) {
 		$pdo->exec("TRUNCATE TABLE {$table}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
@@ -289,7 +289,7 @@ function run_ingest(string $dsn, string $user, string $password): array {
 
 function reset_all(PDO $pdo): void {
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-	foreach (['topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts', 'globalmacro'] as $t) {
+	foreach (['topo_decision', 'topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_lld_snapshot', 'host_inventory', 'interface', 'items', 'hosts', 'globalmacro'] as $t) {
 		$pdo->exec("DELETE FROM {$t}");
 	}
 	$pdo->exec('SET FOREIGN_KEY_CHECKS = 1');

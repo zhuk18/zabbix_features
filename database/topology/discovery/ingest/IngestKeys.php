@@ -82,6 +82,31 @@ class IngestKeys {
 		return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
 	}
 
+	/**
+	 * The Devices that a key finds, with the merge records of §6.7.8: the holders of the key and of the other keys of its merge class. One Device: it is the Device of the class. The keys
+	 * of a class held by several Devices: the record finds several Devices, it does nothing (the holders of the key itself are returned) and the run lists it.
+	 */
+	public function classHolders(string $key, bool $replaced = false): array {
+		$own = $this->keyHolders($key, $replaced);
+		$aliases = $replaced ? [] : $this->run->decisions->aliasKeys($key);
+		if (!$aliases) {
+			return $own;
+		}
+		$all = array_map('intval', $own);
+		foreach ($aliases as $other) {
+			foreach ($this->keyHolders($other) as $id) {
+				$all[] = (int) $id;
+			}
+		}
+		$all = array_values(array_unique($all));
+		if (count($all) <= 1 || count($own) > 1) {
+			return count($own) > 1 ? $own : $all;
+		}
+		$this->run->decisions->noteAmbiguous($key, $all);
+
+		return $own;
+	}
+
 	public function deviceHasKind(int $device_id, string $kind): bool {
 		$pdo = $this->run->pdo;
 		$stmt = $pdo->prepare('SELECT 1 FROM topo_identity_keys WHERE device_id = ? AND kind = ? LIMIT 1');

@@ -2755,6 +2755,31 @@ class CTopologyPrototype {
 	}
 
 	/**
+	 * "Delete Device" forgets the Device (§6.7.8): every record that names it by one of its keys (as key_a, key_b or in keys_b) goes with it, as the entries of `duplicate_dismissed` did.
+	 * A record that stayed would apply to the Device that a later row makes again.
+	 */
+	private static function deleteDecisionsOf(string $device_id): void {
+		$keys = array_keys(self::deviceKeyRows($device_id));
+		if (($natural = self::deviceNaturalKey($device_id)) !== null) {
+			$keys[] = $natural;
+		}
+		if (!$keys) {
+			return;
+		}
+		$result = DBselect('SELECT decisionid,key_a,key_b,keys_b FROM topo_decision');
+		$delete = [];
+		while ($row = DBfetch($result, false)) {
+			$named = array_merge([$row['key_a'], $row['key_b']], json_decode((string) $row['keys_b'], true) ?: []);
+			if (array_intersect($named, $keys)) {
+				$delete[] = $row['decisionid'];
+			}
+		}
+		if ($delete) {
+			DBexecute('DELETE FROM topo_decision WHERE '.dbConditionId('decisionid', $delete));
+		}
+	}
+
+	/**
 	 * Deletes the records of $kind that name two Devices (either order) by any key that either of them holds, or one Device (`associate`, `accept_chassis`) by any of its keys.
 	 * Used by the revocation of "Not the same device" and by the removal of an association.
 	 */
@@ -2904,9 +2929,16 @@ class CTopologyPrototype {
 				}
 			}
 
+			// §6.7.8: the keys that K takes from R are marked `attrs.merged_keys` (with the keys R had marked), so that deleting the merge record lets a run release them (separation);
+			// only when a record is written for this merge
+			if ($natural_keep !== null && $natural_remove !== null) {
+				$held = self::deviceKeyRows($keep_id);
+				$moved = array_values(array_diff(array_merge($removed_keys, (array) ($r['merged_keys'] ?? [])), array_keys($held)));
+				$k['merged_keys'] = array_values(array_unique(array_merge((array) ($k['merged_keys'] ?? []), $moved)));
+			}
 			// R's other attributes fill only what K has no value for
 			foreach ($r as $key => $value) {
-				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by', 'scope_port', 'scope_ports'], true)) {
+				if (in_array($key, ['last_seen', 'chassis_id', 'mac', 'replaced_chassis', 'duplicate_candidates', 'duplicate_dismissed', 'matched_by', 'scope_port', 'scope_ports', 'merged_keys'], true)) {
 					continue;
 				}
 				if (($k[$key] ?? null) === null || $k[$key] === '') {
@@ -3319,6 +3351,7 @@ class CTopologyPrototype {
 			}
 			$links[] = (string) $edge['id'];
 		}
+		self::deleteDecisionsOf($device_id);
 
 		DBstart();
 

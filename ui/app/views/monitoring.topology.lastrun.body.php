@@ -81,6 +81,10 @@ if ($summary !== null) {
 		CTopologyRunSummary::ATTENTION_LOCAL_PORT_UNRESOLVED => _('Local port not found'),
 		CTopologyRunSummary::ATTENTION_ROWS_NO_IDENTITY => _('Rows without identity'),
 		CTopologyRunSummary::ATTENTION_ROWS_CHASSIS_INVALID => _('Rows with a chassis ID that is not a MAC'),
+		CTopologyRunSummary::ATTENTION_DECISION_CONFLICT => _('Decision refused'),
+		CTopologyRunSummary::ATTENTION_DECISION_AMBIGUOUS => _('Decision finds several Devices'),
+		CTopologyRunSummary::ATTENTION_DECISION_NOT_APPLIED => _('Decision not applied'),
+		CTopologyRunSummary::ATTENTION_DECISION_UNRECORDED => _('Dismissals without a record'),
 		CTopologyRunSummary::ATTENTION_SNAPSHOT_OLD => _('Old data'),
 		CTopologyRunSummary::ATTENTION_PORT_LIMIT => _('Too many neighbors'),
 		CTopologyRunSummary::ATTENTION_PORTS_DISAGREE => _('PORTS rules disagree')

@@ -80,6 +80,15 @@ class CTopologyDecision {
 		return $candidates[0];
 	}
 
+	/** The chassis value of a chassis key string: `chassis:mac:<mac>` or `chassis:<type>:<segment>:<value>`; null for another kind of key. */
+	public static function chassisOfKey(string $key): ?string {
+		if (str_starts_with($key, 'chassis:mac:')) {
+			return substr($key, strlen('chassis:mac:'));
+		}
+
+		return preg_match('/^chassis:[^:]+:(?:server|pg:\d+|proxy:\d+):(.*)$/s', $key, $m) === 1 ? $m[1] : null;
+	}
+
 	public static function isPortKey(string $key): bool {
 		return strncmp($key, 'port:', 5) === 0;
 	}

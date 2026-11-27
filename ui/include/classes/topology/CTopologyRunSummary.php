@@ -25,6 +25,10 @@ class CTopologyRunSummary {
 	public const ATTENTION_LOCAL_PORT_UNRESOLVED = 'local_port_unresolved';
 	public const ATTENTION_ROWS_NO_IDENTITY = 'rows_no_identity';
 	public const ATTENTION_ROWS_CHASSIS_INVALID = 'rows_chassis_invalid';
+	public const ATTENTION_DECISION_CONFLICT = 'decision_conflict';
+	public const ATTENTION_DECISION_AMBIGUOUS = 'decision_ambiguous';
+	public const ATTENTION_DECISION_NOT_APPLIED = 'decision_not_applied';
+	public const ATTENTION_DECISION_UNRECORDED = 'decision_unrecorded';
 	public const ATTENTION_SNAPSHOT_OLD = 'snapshot_old';
 	public const ATTENTION_PORT_LIMIT = 'port_neighbor_limit';
 	public const ATTENTION_PORTS_DISAGREE = 'hosts_ports_disagree';
@@ -104,6 +108,19 @@ class CTopologyRunSummary {
 			if ($count > 0) {
 				$list[] = $entry(self::ATTENTION_ROWS_CHASSIS_INVALID, 'rows_chassis_invalid', (int) $count, ...$of_rule((int) $itemid));
 			}
+		}
+		// 2.106 (§6.7.8, task 129): the operator's decisions that a run could not apply
+		foreach ($summary['decisions_conflict'] ?? [] as $conflict) {
+			$list[] = $entry(self::ATTENTION_DECISION_CONFLICT, 'merge record '.(int) $conflict['merge'].' is not applied: "Not the same device" record '.(int) $conflict['not_same'].' wins', 1, null, null);
+		}
+		foreach ($summary['decisions_ambiguous'] ?? [] as $ambiguous) {
+			$list[] = $entry(self::ATTENTION_DECISION_AMBIGUOUS, 'the key '.$ambiguous['key'].' finds several Devices ('.implode(', ', array_map('intval', $ambiguous['device_ids'])).'): the record does nothing', 1, null, null);
+		}
+		foreach ($summary['decisions_not_applied'] ?? [] as $not_applied) {
+			$list[] = $entry(self::ATTENTION_DECISION_NOT_APPLIED, $not_applied['kind'].' record '.(int) $not_applied['decisionid'].' is not applied: '.str_replace('_', ' ', (string) $not_applied['reason']), 1, null, null);
+		}
+		if (($summary['decisions_unrecorded_dismissals'] ?? 0) > 0) {
+			$list[] = $entry(self::ATTENTION_DECISION_UNRECORDED, 'Devices list a dismissed pair that no record names: run discovery/decisions_upgrade.php before the run', (int) $summary['decisions_unrecorded_dismissals'], null, null);
 		}
 		// 2.60 (model §6.2): each old NEIGHBORS snapshot, with the time of the snapshot
 		foreach ($summary['snapshots_old'] ?? [] as $old) {
