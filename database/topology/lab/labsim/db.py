@@ -219,7 +219,7 @@ def reset_topo(conn, keep_hosts=()):
     keep their row: the snapshot of a host that the scenario does not use would be a reporter in a scenario that does not have it. No `keep_hosts`: nothing stays."""
     cur = conn.cursor()
     cur.execute('SET FOREIGN_KEY_CHECKS = 0')
-    for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes'):
+    for t in ('topo_identity_keys', 'topo_observations', 'topo_edges', 'topo_nodes', 'topo_decision'):      # a reset of the lab model also clears the operator's decisions (task 129)
         cur.execute('DELETE FROM %s' % t)
     keep = list(keep_hosts)
     if keep:
@@ -230,7 +230,7 @@ def reset_topo(conn, keep_hosts=()):
     cur.execute('SET FOREIGN_KEY_CHECKS = 1')
 
 
-TOPO_TABLES = ('topo_nodes', 'topo_edges', 'topo_identity_keys', 'topo_observations', 'topo_lld_snapshot')
+TOPO_TABLES = ('topo_nodes', 'topo_edges', 'topo_identity_keys', 'topo_observations', 'topo_lld_snapshot', 'topo_decision')
 
 
 def topo_counts(conn):
