@@ -514,4 +514,24 @@ foreach ([['kept mac, removed local', true], ['kept local, removed mac', false]]
 	check(diff_views($view1, $view2) === [], "{$label}: the rebuild gives the same Device (the chassis of the kept side is its chassis)", diff_views($view1, $view2));
 }
 
+// ============================================================================================================
+echo "\n=== 8: delete a merged Device to fix a wrong merge (FR-C O-13, model 2.122) ===\n";
+reset_all($pdo);
+network($pdo, $R, [1 => [$AM, 'a'], 2 => [$BM, 'b'], 3 => [$CM, 'c']]);
+run_ingest($dsn, $user, $password);
+$a = device_id($pdo, $AM); $b = device_id($pdo, $BM); $c = device_id($pdo, $CM);
+CTopologyPrototype::mergeDevices((string) $a, (string) $b, 'Admin');
+CTopologyPrototype::dismissDuplicate((string) $a, (string) $c, 'Admin');
+check(count(records($pdo, 'merge')) === 1 && count(records($pdo, 'not_same')) === 1, 'a merge record and a not_same record name the merged Device');
+$result = CTopologyPrototype::deleteDevice((string) $a, 'Admin');
+check(records($pdo) === [], 'Delete Device removes the merge and the not_same record that name it', records($pdo));
+run_ingest($dsn, $user, $password);
+$view = state_view($pdo);
+$new_a = device_id($pdo, $AM); $new_b = device_id($pdo, $BM);
+check($new_a !== null && $new_b !== null && $new_a !== $new_b && $new_a > $a, 'the run makes one new Device for each device that the data reports (a new id for A, B apart)', [$new_a, $new_b]);
+check(count(array_filter($view['links'], static fn (string $l): bool => str_contains($l, $KEY($AM)))) === 1 && count(array_filter($view['links'], static fn (string $l): bool => str_contains($l, $KEY($BM)))) === 1, 'each has its own key and its own link', $view['links']);
+$fp = $stable($pdo);
+run_ingest($dsn, $user, $password);
+check($stable($pdo) === $fp && device_id($pdo, $AM) === $new_a && device_id($pdo, $BM) === $new_b, 'the second run changes nothing; the Devices are not joined again');
+
 echo "\nAll decision checks passed ({$checks}).\n";
