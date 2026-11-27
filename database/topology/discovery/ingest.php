@@ -957,6 +957,7 @@ $last_seen_now = TopologyJson::number('attrs', '$.last_seen');
 foreach (array_chunk($last_seen_wanted, 1000, true) as $batch) {
 	ingest_tick('closing: devices last seen');
 	$cases = '';
+	// no tick: at most 1000 iterations, each one string append (the tick of the batch is the line above)
 	foreach ($batch as $id => $wanted) {
 		$cases .= ' WHEN '.(int) $id.' THEN '.(int) $wanted;      // integers of the code, written into the statement: the stored value is a JSON number
 	}
