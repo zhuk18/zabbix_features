@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Builds template_topology_by_snmp.yaml ("Topology by SNMP") — topology-2-lld-delivery.md "Template Topology by SNMP".
  *
  * Two SNMP walk[] master items (interfaces + LLDP + CDP + LAG every 30m, bridge/FDB tables every 10m, no history,
- * no discard steps) and six DEPENDENT discovery rules, each with exactly one preprocessing step
+ * no discard steps) and four DEPENDENT discovery rules (device, ports, LLDP, CDP; release 1: no Learned MACs and no LAG rule), each with exactly one preprocessing step
  * "SNMP walk to topology rows": no JavaScript, no LLD macro paths.
  *
  * It replaces "Topology by SNMP (temporary JS)" (template_topology_by_snmp_js.yaml, built from lld_js/). The two use
@@ -41,7 +41,7 @@ $uuid = static function (string $seed): string {
 };
 
 // key, name, topology type, step source, missing MIB action, master. An empty result for everything but ports: a template
-// applied to a mixed fleet must not turn "the device has no CDP / LAG / bridge tables" into an unsupported rule.
+// applied to a mixed fleet must not turn "the device has no CDP" into an unsupported rule.
 // Ports stay "error": no IF-MIB means the walk itself is broken.
 $rules = [
 	['key' => 'topology.device', 'name' => 'Topology device (own identity)', 'topology_type' => 'DEVICE', 'source' => 'device',
@@ -55,14 +55,9 @@ $rules = [
 		'description' => 'LLDP neighbors (LLDP-MIB lldpRemTable), joined to the local ifIndex.'],
 	['key' => 'topology.cdp', 'name' => 'Topology neighbors (CDP)', 'topology_type' => 'NEIGHBORS', 'source' => 'cdp',
 		'missing' => 'empty', 'master' => 'topology.walk.core',
-		'description' => 'CDP neighbors (CISCO-CDP-MIB cdpCacheTable).'],
-	['key' => 'topology.fdb', 'name' => 'Topology learned MACs', 'topology_type' => 'LEARNED_MACS', 'source' => 'fdb',
-		'missing' => 'empty', 'master' => 'topology.walk.fdb',
-		'description' => 'MAC addresses learned per port (Q-BRIDGE-MIB, else BRIDGE-MIB); a port with more MACs than the limit is reported by count only.'],
-	['key' => 'topology.lag', 'name' => 'Topology LAG membership', 'topology_type' => 'LAG', 'source' => 'lag',
-		'missing' => 'empty', 'master' => 'topology.walk.core',
-		'description' => 'Member ports of link aggregations (IEEE8023-LAG-MIB).']
+		'description' => 'CDP neighbors (CISCO-CDP-MIB cdpCacheTable).']
 ];
+// LLD spec 2.22 §5 (model 2.121): release 1 has no Learned MACs and LAG rules (FR-B D-31 [Rel 3]); they come back in release 3 with the sources `fdb` and `lag`. The master walks keep their tables.
 
 $yaml = <<<YAML
 zabbix_export:
@@ -99,7 +94,7 @@ $yaml .= <<<YAML
           history: '0'
           trends: '0'
           value_type: TEXT
-          description: 'One walk of IF-MIB, LLDP-MIB, CISCO-CDP-MIB and the 802.3ad aggregation table; feeds the ports, LLDP, CDP and LAG rules.'
+          description: 'One walk of IF-MIB, LLDP-MIB, CISCO-CDP-MIB and the 802.3ad aggregation table; feeds the device, ports, LLDP and CDP rules (the aggregation table is walked for the LAG rule of release 3).'
         - uuid: {$uuid('item:fdb')}
           name: 'Topology walk: bridge tables (FDB)'
           type: SNMP_AGENT
@@ -112,7 +107,7 @@ $yaml .= <<<YAML
           history: '0'
           trends: '0'
           value_type: TEXT
-          description: 'BRIDGE-MIB / Q-BRIDGE-MIB forwarding tables; feeds the learned MACs rule. A device without these tables answers "No Such Instance"; that specific error becomes an empty walk (the rule then returns an empty result), any other error (timeout, wrong community) keeps the item unsupported so the last good snapshot stays.'
+          description: 'BRIDGE-MIB / Q-BRIDGE-MIB forwarding tables; no rule reads them in release 1 (the Learned MACs rule is release 3). A device without these tables answers "No Such Instance"; that specific error becomes an empty walk (the rule then returns an empty result), any other error (timeout, wrong community) keeps the item unsupported so the last good snapshot stays.'
           preprocessing:
             - type: CHECK_NOT_SUPPORTED
               parameters:

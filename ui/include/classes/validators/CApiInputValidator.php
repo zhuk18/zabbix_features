@@ -4222,11 +4222,12 @@ class CApiInputValidator {
 				break;
 
 			case ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY:
-				// source, missing MIB action, MAC limit (used by the "fdb" source only, validated for all)
+				// source, missing MIB action, MAC limit. Release 1 (LLD spec 2.22 §4.2): the sources `fdb` and `lag` are refused with the error of an unknown value; the MAC limit belongs to `fdb` and only
+				// its default is accepted (the exports write it)
 				$api_input_rules = ['type' => API_OBJECT, 'fields' => [
-					'1' =>	['type' => API_STRING_UTF8, 'flags' => API_REQUIRED, 'in' => implode(',', [ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS, ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP, ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, ZBX_PREPROC_TOPOLOGY_SOURCE_FDB, ZBX_PREPROC_TOPOLOGY_SOURCE_LAG, ZBX_PREPROC_TOPOLOGY_SOURCE_DEVICE])],
+					'1' =>	['type' => API_STRING_UTF8, 'flags' => API_REQUIRED, 'in' => implode(',', ZBX_PREPROC_TOPOLOGY_SOURCES_RELEASE_1)],
 					'2' =>	['type' => API_STRING_UTF8, 'in' => implode(',', [ZBX_PREPROC_TOPOLOGY_MISSING_ERROR, ZBX_PREPROC_TOPOLOGY_MISSING_EMPTY]), 'default' => ZBX_PREPROC_TOPOLOGY_MISSING_ERROR],
-					'3' =>	['type' => API_INT32, 'in' => '1:'.ZBX_MAX_INT32, 'default' => ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT]
+					'3' =>	['type' => API_INT32, 'in' => (string) ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT, 'default' => ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT]
 				]];
 				break;
 		}

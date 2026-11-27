@@ -8180,9 +8180,15 @@ uwMrOBKatg7CZ1Uenv1K3ioD5w==
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
-				"fdb\nempty\n5",
+				"device\nempty\n20",
 				'/1/params',
-				"fdb\nempty\n5"
+				"device\nempty\n20"
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"fdb\nempty\n20",
+				'/1/params',
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "device".'
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
@@ -8198,21 +8204,21 @@ uwMrOBKatg7CZ1Uenv1K3ioD5w==
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
-				"lag\nerror\n1",
+				"lag\nerror\n20",
 				'/1/params',
-				"lag\nerror\n1"
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "device".'
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
 				"",
 				'/1/params',
-				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag".'
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "device".'
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
 				"routes",
 				'/1/params',
-				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag".'
+				'Invalid parameter "/1/params/1": value must be one of "ports", "lldp", "cdp", "device".'
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
@@ -8224,7 +8230,13 @@ uwMrOBKatg7CZ1Uenv1K3ioD5w==
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
 				"ports\nerror\n0",
 				'/1/params',
-				'Invalid parameter "/1/params/3": value must be one of 1-2147483647.'
+				'Invalid parameter "/1/params/3": value must be 20.'
+			],
+			[
+				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],
+				"ports\nerror\n7",
+				'/1/params',
+				'Invalid parameter "/1/params/3": value must be 20.'
 			],
 			[
 				['type' => API_PREPROC_PARAMS, 'preproc_type' => ['value' => ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]],

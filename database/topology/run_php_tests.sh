@@ -52,7 +52,7 @@ areas_of() {
 		*test_bind_interface*|*"Bind to interface"*|*bind_check*) a="bind" ;;
 		*test_manual_device*|*manual_device_check*|*"manual Device"*) a="manual" ;;
 		*test_junction*|*"Junction projection"*|*junction_check*) a="junction" ;;
-		*test_closing_ticks*|*test_json_conditions*|*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
+		*test_closing_ticks*|*test_topology_type_form*|*test_json_conditions*|*test_scenario_catalog*|*test_snapshot_ingest*|*test_ingest_lock*|*test_stable_ingest*|*test_ingest_identity*|*test_old_snapshot*|*test_run_*|*test_two_ports_rules*|*test_port_*|*test_far_*|*test_claim_key*|*test_linked_port_claims*|*test_steps*|*test_device_row*|*test_allowed_age*|*test_pseudo_port_index*|*test_remote_attrs_cap*|*test_manual_link_busy_port*) a="ingest" ;;
 		*test_device_link*|*test_link_replacement*|*test_manual_contradiction*|*test_contradiction_rule*|*test_topology_model*) a="links" ;;
 		*test_identity*|*test_shared_identifier*|*test_cdp_device_key*|*test_chassis_subtypes*|*test_normalization*|*test_duplicate_candidates*|*test_addresses*|*test_device_last_seen*|*test_decision*|*test_device_class*) a="identity" ;;
 		*step_golden*|*test_generated*|*lld_js*|*test_push*|*device_rows_check*|*test_snapshot_clock*) a="native" ;;
@@ -198,6 +198,7 @@ for t in test_find_device.php test_speed_mismatch.php test_freshness.php test_no
 done
 
 exec_test "discovery/test_closing_ticks.php" /tmp/topo_t_closing_ticks.log php "$here/discovery/test_closing_ticks.php"      # task 131: every loop of the closing stages has a tick (the source, no database, no timing)
+exec_test "discovery/test_topology_type_form.php" /tmp/topo_t_type_form.log php "$here/discovery/test_topology_type_form.php"      # task 138: release 1 offers four topology types and four step sources (the form code in PHP, no browser, no database)
 
 # ---- 3. Python and JS tests that need nothing of the lab ----
 # the pure parts of the graph (ui/js/topology.graph.js: labels, sizes, collision, radial placement, parallel links, the run line), task 090

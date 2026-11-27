@@ -29,7 +29,7 @@ zabbix_export:
           history: '0'
           trends: '0'
           value_type: TEXT
-          description: 'One walk of IF-MIB, LLDP-MIB, CISCO-CDP-MIB and the 802.3ad aggregation table; feeds the ports, LLDP, CDP and LAG rules.'
+          description: 'One walk of IF-MIB, LLDP-MIB, CISCO-CDP-MIB and the 802.3ad aggregation table; feeds the device, ports, LLDP and CDP rules (the aggregation table is walked for the LAG rule of release 3).'
         - uuid: 81884adc892d4907841aa2d0fbddc6dd
           name: 'Topology walk: bridge tables (FDB)'
           type: SNMP_AGENT
@@ -39,7 +39,7 @@ zabbix_export:
           history: '0'
           trends: '0'
           value_type: TEXT
-          description: 'BRIDGE-MIB / Q-BRIDGE-MIB forwarding tables; feeds the learned MACs rule. A device without these tables answers "No Such Instance"; that specific error becomes an empty walk (the rule then returns an empty result), any other error (timeout, wrong community) keeps the item unsupported so the last good snapshot stays.'
+          description: 'BRIDGE-MIB / Q-BRIDGE-MIB forwarding tables; no rule reads them in release 1 (the Learned MACs rule is release 3). A device without these tables answers "No Such Instance"; that specific error becomes an empty walk (the rule then returns an empty result), any other error (timeout, wrong community) keeps the item unsupported so the last good snapshot stays.'
           preprocessing:
             - type: CHECK_NOT_SUPPORTED
               parameters:
@@ -110,37 +110,5 @@ zabbix_export:
             - type: SNMP_WALK_TO_TOPOLOGY
               parameters:
                 - cdp
-                - empty
-                - '20'
-        - uuid: f61b550d9a9b4ea5a515af4ca6c21f7e
-          name: 'Topology learned MACs'
-          type: DEPENDENT
-          key: topology.fdb
-          topology_type: LEARNED_MACS
-          lifetime_type: DELETE_NEVER
-          enabled_lifetime_type: DISABLE_NEVER
-          description: 'MAC addresses learned per port (Q-BRIDGE-MIB, else BRIDGE-MIB); a port with more MACs than the limit is reported by count only.'
-          master_item:
-            key: topology.walk.fdb
-          preprocessing:
-            - type: SNMP_WALK_TO_TOPOLOGY
-              parameters:
-                - fdb
-                - empty
-                - '20'
-        - uuid: b9aab0e1c37c48c89bd1590311748246
-          name: 'Topology LAG membership'
-          type: DEPENDENT
-          key: topology.lag
-          topology_type: LAG
-          lifetime_type: DELETE_NEVER
-          enabled_lifetime_type: DISABLE_NEVER
-          description: 'Member ports of link aggregations (IEEE8023-LAG-MIB).'
-          master_item:
-            key: topology.walk.core
-          preprocessing:
-            - type: SNMP_WALK_TO_TOPOLOGY
-              parameters:
-                - lag
                 - empty
                 - '20'

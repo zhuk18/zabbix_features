@@ -204,14 +204,6 @@ var ItemEditPreprocessingTab = class {
 			}
 		}
 
-		const topology_source = row.querySelector('.js-preproc-param-topology-source');
-
-		if (topology_source) {
-			// The MAC limit only matters for the learned MACs (FDB) source; the input stays in the form with its value.
-			row.querySelector('.js-preproc-param-topology-mac-limit').style.display =
-				topology_source.getAttribute('value') === '<?= ZBX_PREPROC_TOPOLOGY_SOURCE_FDB ?>' ? '' : 'none';
-		}
-
 		if (this.#readonly) {
 			this.#readonlyAllInputs(row);
 		}
@@ -436,7 +428,6 @@ var ItemEditPreprocessingTab = class {
 			case '<?= ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY ?>':
 				params[0] = '<?= ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS ?>';
 				params[1] = '<?= ZBX_PREPROC_TOPOLOGY_MISSING_ERROR ?>';
-				params[2] = '<?= ZBX_PREPROC_TOPOLOGY_MAC_LIMIT_DEFAULT ?>';
 				break;
 		}
 

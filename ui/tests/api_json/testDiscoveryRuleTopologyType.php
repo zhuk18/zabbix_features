@@ -24,10 +24,12 @@ require_once __DIR__.'/../include/CAPITest.php';
  */
 class testDiscoveryRuleTopologyType extends CAPITest {
 
+	/** The topology types of release 1 (model 2.105 §5.1, 2.121): the reserved types 3 (LEARNED_MACS) and 4 (LAG) are refused by the API. */
 	private const TYPES = [
-		ZBX_TOPOLOGY_TYPE_NONE, ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS,
-		ZBX_TOPOLOGY_TYPE_LAG, ZBX_TOPOLOGY_TYPE_DEVICE
+		ZBX_TOPOLOGY_TYPE_NONE, ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_DEVICE
 	];
+
+	private const RESERVED = [ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG];
 
 	private static array $ids = [];
 
@@ -88,7 +90,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 			'name' => 'Nested {#X}',
 			'key_' => 'topo.nested[{#X}]',
 			'type' => ITEM_TYPE_TRAPPER,
-			'topology_type' => ZBX_TOPOLOGY_TYPE_LAG
+			'topology_type' => ZBX_TOPOLOGY_TYPE_DEVICE
 		])['itemids'][0];
 
 		self::$ids['hostid'] = CDataHelper::call('host.create', [
@@ -168,7 +170,27 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 					'type' => ITEM_TYPE_TRAPPER,
 					'topology_type' => 9
 				],
-				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 3, 4, 5.'
+				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 5.'
+			],
+			'Reserved topology type 3 (Learned MACs)' => [
+				'method' => 'discoveryrule.create',
+				'params' => [
+					'name' => 'Reserved 3',
+					'key_' => 'topo.reserved3',
+					'type' => ITEM_TYPE_TRAPPER,
+					'topology_type' => ZBX_TOPOLOGY_TYPE_LEARNED_MACS
+				],
+				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 5.'
+			],
+			'Reserved topology type 4 (LAG)' => [
+				'method' => 'discoveryrule.create',
+				'params' => [
+					'name' => 'Reserved 4',
+					'key_' => 'topo.reserved4',
+					'type' => ITEM_TYPE_TRAPPER,
+					'topology_type' => ZBX_TOPOLOGY_TYPE_LAG
+				],
+				'error' => 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 5.'
 			],
 			'Item does not accept topology type' => [
 				'method' => 'item.create',
@@ -223,7 +245,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 			'itemids' => self::$ids['rule_prototypeid']
 		])['result'];
 
-		$this->assertEquals(ZBX_TOPOLOGY_TYPE_LAG, $prototypes[0]['topology_type']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_DEVICE, $prototypes[0]['topology_type']);
 	}
 
 	public function testDiscoveryRuleTopologyType_Inheritance(): void {
@@ -242,7 +264,33 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 			'hostids' => self::$ids['hostid']
 		])['result'];
 
-		$this->assertEquals(ZBX_TOPOLOGY_TYPE_LAG, $prototypes[0]['topology_type']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_DEVICE, $prototypes[0]['topology_type']);
+	}
+
+	/**
+	 * Update and the prototype calls refuse the reserved types with the error of an unknown value.
+	 */
+	public function testDiscoveryRuleTopologyType_ReservedRefused(): void {
+		$error = 'Invalid parameter "/1/topology_type": value must be one of 0, 1, 2, 5.';
+
+		foreach (self::RESERVED as $reserved) {
+			$this->call('discoveryrule.update', ['itemid' => self::$ids['rules']['topo.rule[1]'], 'topology_type' => $reserved], $error);
+			$this->call('discoveryruleprototype.create', [
+				'hostid' => self::$ids['templateid'],
+				'ruleid' => self::$ids['rules']['topo.rule[0]'],
+				'name' => 'Reserved {#X}',
+				'key_' => 'topo.reserved.nested'.$reserved.'[{#X}]',
+				'type' => ITEM_TYPE_TRAPPER,
+				'topology_type' => $reserved
+			], $error);
+			$this->call('discoveryruleprototype.update', [
+				'itemid' => self::$ids['rule_prototypeid'],
+				'topology_type' => $reserved
+			], $error);
+		}
+
+		$types = $this->getTypes(self::$ids['templateid']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_PORTS, $types['topo.rule[1]'], 'a refused update changed the rule');
 	}
 
 	public function testDiscoveryRuleTopologyType_InheritedReadonly(): void {
@@ -261,11 +309,11 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 	public function testDiscoveryRuleTopologyType_Propagation(): void {
 		$this->call('discoveryrule.update', [
 			'itemid' => self::$ids['rules']['topo.rule[1]'],
-			'topology_type' => ZBX_TOPOLOGY_TYPE_LEARNED_MACS
+			'topology_type' => ZBX_TOPOLOGY_TYPE_DEVICE
 		]);
 
-		$this->assertEquals(ZBX_TOPOLOGY_TYPE_LEARNED_MACS, $this->getTypes(self::$ids['hostid'])['topo.rule[1]']);
-		$this->assertEquals(ZBX_TOPOLOGY_TYPE_LEARNED_MACS, $this->getTypes(self::$ids['template2id'])['topo.rule[1]']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_DEVICE, $this->getTypes(self::$ids['hostid'])['topo.rule[1]']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_DEVICE, $this->getTypes(self::$ids['template2id'])['topo.rule[1]']);
 
 		$audit = $this->call('auditlog.get', [
 			'output' => ['details'],
@@ -278,7 +326,7 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 			'limit' => 1
 		])['result'];
 
-		$this->assertSame(['update', (string) ZBX_TOPOLOGY_TYPE_LEARNED_MACS, (string) ZBX_TOPOLOGY_TYPE_PORTS],
+		$this->assertSame(['update', (string) ZBX_TOPOLOGY_TYPE_DEVICE, (string) ZBX_TOPOLOGY_TYPE_PORTS],
 			json_decode($audit[0]['details'], true)['discoveryrule.topology_type']
 		);
 	}
@@ -329,10 +377,12 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		$exported = $matches[1];
 		sort($exported);
 
-		// NONE rules are omitted; rule[1] may already be LEARNED_MACS if the propagation test ran first.
+		// NONE rules are omitted; rule[1] may already be DEVICE if the propagation test ran first. Release 1: no LEARNED_MACS and no LAG in the export.
 		$this->assertNotContains('NONE', $exported);
-		$this->assertContains('LAG', $exported);
-		$this->assertCount(7, $exported);
+		$this->assertNotContains('LEARNED_MACS', $exported);
+		$this->assertNotContains('LAG', $exported);
+		$this->assertContains('NEIGHBORS', $exported);
+		$this->assertCount(5, $exported);
 		$this->assertContains('DEVICE', $exported);
 
 		$yaml = str_replace("'API topology type template'", "'API topology type imported'", $yaml);
@@ -345,11 +395,14 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 			'discoveryRules' => ['createMissing' => true]
 		];
 
-		$bad_yaml = preg_replace('/topology_type: LAG/', 'topology_type: BOGUS', $yaml, 1);
-		$this->call('configuration.import', ['format' => 'yaml', 'source' => $bad_yaml, 'rules' => $rules],
-			'Invalid tag "/zabbix_export/templates/template(1)/discovery_rules/discovery_rule(2)/topology_type":'.
-				' unexpected constant "BOGUS".'
-		);
+		// the import refuses an unknown value and the reserved types with the same error (model 2.121)
+		foreach (['BOGUS', 'LAG', 'LEARNED_MACS'] as $refused) {
+			$bad_yaml = preg_replace('/topology_type: NEIGHBORS/', 'topology_type: '.$refused, $yaml, 1);
+			$this->call('configuration.import', ['format' => 'yaml', 'source' => $bad_yaml, 'rules' => $rules],
+				'Invalid tag "/zabbix_export/templates/template(1)/discovery_rules/discovery_rule(1)/topology_type":'.
+					' unexpected constant "'.$refused.'".'
+			);
+		}
 
 		$this->call('configuration.import', ['format' => 'yaml', 'source' => $yaml, 'rules' => $rules]);
 
@@ -373,16 +426,16 @@ class testDiscoveryRuleTopologyType extends CAPITest {
 		$rules = $this->call('discoveryrule.get', [
 			'output' => ['itemid', 'templateid', 'topology_type'],
 			'hostids' => self::$ids['hostid'],
-			'filter' => ['key_' => 'topo.rule[3]']
+			'filter' => ['key_' => 'topo.rule[5]']
 		])['result'];
 
 		$this->assertEquals(0, $rules[0]['templateid']);
-		$this->assertEquals(ZBX_TOPOLOGY_TYPE_LEARNED_MACS, $rules[0]['topology_type']);
+		$this->assertEquals(ZBX_TOPOLOGY_TYPE_DEVICE, $rules[0]['topology_type']);
 
-		$this->call('discoveryrule.update', ['itemid' => $rules[0]['itemid'], 'topology_type' => ZBX_TOPOLOGY_TYPE_LAG]);
+		$this->call('discoveryrule.update', ['itemid' => $rules[0]['itemid'], 'topology_type' => ZBX_TOPOLOGY_TYPE_NEIGHBORS]);
 	}
 
-	private const TOPOLOGY_TYPES = [ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG, ZBX_TOPOLOGY_TYPE_DEVICE];
+	private const TOPOLOGY_TYPES = [ZBX_TOPOLOGY_TYPE_PORTS, ZBX_TOPOLOGY_TYPE_NEIGHBORS, ZBX_TOPOLOGY_TYPE_DEVICE];
 
 	private static function heartbeatStep(): array {
 		return [

@@ -42,10 +42,8 @@ class testTopologyBySnmpTemplate extends CAPITest {
 		'topology.device' => [ZBX_TOPOLOGY_TYPE_DEVICE, 'topology.walk.core', "device\nempty\n20"],
 		'topology.ports' => [ZBX_TOPOLOGY_TYPE_PORTS, 'topology.walk.core', "ports\nerror\n20"],
 		'topology.lldp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "lldp\nempty\n20"],
-		'topology.cdp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "cdp\nempty\n20"],
-		'topology.fdb' => [ZBX_TOPOLOGY_TYPE_LEARNED_MACS, 'topology.walk.fdb', "fdb\nempty\n20"],
-		'topology.lag' => [ZBX_TOPOLOGY_TYPE_LAG, 'topology.walk.core', "lag\nempty\n20"]
-	];
+		'topology.cdp' => [ZBX_TOPOLOGY_TYPE_NEIGHBORS, 'topology.walk.core', "cdp\nempty\n20"]
+	];      // LLD spec 2.22 §5: no Learned MACs and no LAG rule in release 1; the master walks keep their tables
 
 	public static function prepareTestData(): void {
 		self::$ids['groupid'] = CDataHelper::call('templategroup.create', ['name' => 'API topology by SNMP group'])

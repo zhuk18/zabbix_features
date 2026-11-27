@@ -448,10 +448,7 @@ JAVASCRIPT;
 						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_GET_VALUE]]
 					],
 					['db item_preproc.params', 'required', 'not_empty',
-						'in' => [ZBX_PREPROC_TOPOLOGY_SOURCE_PORTS, ZBX_PREPROC_TOPOLOGY_SOURCE_LLDP,
-							ZBX_PREPROC_TOPOLOGY_SOURCE_CDP, ZBX_PREPROC_TOPOLOGY_SOURCE_FDB,
-							ZBX_PREPROC_TOPOLOGY_SOURCE_LAG
-						],
+						'in' => ZBX_PREPROC_TOPOLOGY_SOURCES_RELEASE_1,
 						'when' => ['type', 'in' => [ZBX_PREPROC_SNMP_WALK_TO_TOPOLOGY]]
 					],
 					['db item_preproc.params', 'required', 'not_empty',

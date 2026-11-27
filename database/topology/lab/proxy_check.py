@@ -120,7 +120,7 @@ try:
     check(bool(online), 'the server sees the proxy online (state 2), same major version')
     print('=== before: direct monitoring ===')
     before = snapshots()
-    check(len(before) >= 3 * 5, '%d snapshots of the three hosts (ports, lldp, cdp, lag, fdb, device)' % len(before))
+    check(len(before) >= 3 * 4, '%d snapshots of the three hosts (device, ports, lldp, cdp: release 1 has no Learned MACs and LAG rules)' % len(before))
     base_run = runner.run_ingest(SETTINGS)
     links_before = link_set()
     keyed_before = {r[0] for r in sql("select device_id from topo_identity_keys where `key` like '%:server:%'")}      # keys of the segment `server` (cdp:<segment>:..., chassis:local:<segment>:..., ip:<segment>:...)

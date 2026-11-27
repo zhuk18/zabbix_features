@@ -80,8 +80,6 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'ports' => ['ports', ZBX_TOPOLOGY_TYPE_PORTS],
 			'lldp' => ['lldp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
 			'cdp' => ['cdp', ZBX_TOPOLOGY_TYPE_NEIGHBORS],
-			'fdb' => ['fdb', ZBX_TOPOLOGY_TYPE_LEARNED_MACS],
-			'lag' => ['lag', ZBX_TOPOLOGY_TYPE_LAG],
 			'device' => ['device', ZBX_TOPOLOGY_TYPE_DEVICE]
 		];
 	}
@@ -96,10 +94,10 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'key_' => 'topo.step.'.$source,
 			'type' => ITEM_TYPE_TRAPPER,
 			'topology_type' => $topology_type,
-			'preprocessing' => self::step($source."\nempty\n50")
+			'preprocessing' => self::step($source."\nempty\n20")
 		])['result']['itemids'][0];
 
-		$this->assertSame($source."\nempty\n50", $this->getParams($itemid));
+		$this->assertSame($source."\nempty\n20", $this->getParams($itemid));
 	}
 
 	public function testDiscoveryRuleTopologyStep_DefaultsFilled(): void {
@@ -108,14 +106,15 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'name' => 'Only the source',
 			'key_' => 'topo.step.defaults',
 			'type' => ITEM_TYPE_TRAPPER,
-			'preprocessing' => self::step('fdb')
+			'preprocessing' => self::step('ports')
 		])['result']['itemids'][0];
 
-		$this->assertSame("fdb\nerror\n20", $this->getParams($itemid), 'missing_mib defaults to error, mac_limit to 20');
+		$this->assertSame("ports\nerror\n20", $this->getParams($itemid), 'missing_mib defaults to error, mac_limit to 20');
 	}
 
 	public static function getInvalidParams(): array {
-		$sources = 'value must be one of "ports", "lldp", "cdp", "fdb", "lag", "device".';
+		// release 1 (LLD spec 2.22 §4.2): the sources `fdb` and `lag` and the MAC limit are refused; the error is the one of an unknown value
+		$sources = 'value must be one of "ports", "lldp", "cdp", "device".';
 
 		return [
 			'no source' => ['', 'Invalid parameter "/1/preprocessing/1/params/1": '.$sources],
@@ -123,13 +122,18 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'unknown missing MIB action' => ["ports\nmaybe",
 				'Invalid parameter "/1/preprocessing/1/params/2": value must be one of "error", "empty".'
 			],
-			'zero MAC limit' => ["fdb\nempty\n0",
-				'Invalid parameter "/1/preprocessing/1/params/3": value must be one of 1-2147483647.'
+			'source fdb (release 3)' => ["fdb\nempty\n20", 'Invalid parameter "/1/preprocessing/1/params/1": '.$sources],
+			'source lag (release 3)' => ["lag\nempty\n20", 'Invalid parameter "/1/preprocessing/1/params/1": '.$sources],
+			'zero MAC limit' => ["ports\nempty\n0",
+				'Invalid parameter "/1/preprocessing/1/params/3": value must be 20.'
 			],
-			'MAC limit is not a number' => ["fdb\nempty\nmany",
+			'a MAC limit other than the default (release 3)' => ["ports\nempty\n7",
+				'Invalid parameter "/1/preprocessing/1/params/3": value must be 20.'
+			],
+			'MAC limit is not a number' => ["ports\nempty\nmany",
 				'Invalid parameter "/1/preprocessing/1/params/3": an integer is expected.'
 			],
-			'too many parameters' => ["fdb\nempty\n20\nx",
+			'too many parameters' => ["ports\nempty\n20\nx",
 				'Invalid parameter "/1/preprocessing/1/params": unexpected parameter "4".'
 			]
 		];
@@ -229,20 +233,20 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'name' => 'To update',
 			'key_' => 'topo.step.update',
 			'type' => ITEM_TYPE_TRAPPER,
-			'topology_type' => ZBX_TOPOLOGY_TYPE_LEARNED_MACS,
-			'preprocessing' => self::step("fdb\nempty\n20")
+			'topology_type' => ZBX_TOPOLOGY_TYPE_PORTS,
+			'preprocessing' => self::step("ports\nempty\n20")
 		])['result']['itemids'][0];
 
 		$this->call('discoveryrule.update', [
 			'itemid' => $itemid,
-			'preprocessing' => self::step("fdb\nempty\n7")
+			'preprocessing' => self::step("ports\nerror\n20")
 		]);
-		$this->assertSame("fdb\nempty\n7", $this->getParams($itemid));
+		$this->assertSame("ports\nerror\n20", $this->getParams($itemid));
 
 		$this->call('discoveryrule.update', [
 			'itemid' => $itemid,
 			'preprocessing' => self::step("nothing\nempty\n7")
-		], 'Invalid parameter "/1/preprocessing/1/params/1": value must be one of "ports", "lldp", "cdp", "fdb", "lag", "device".');
+		], 'Invalid parameter "/1/preprocessing/1/params/1": value must be one of "ports", "lldp", "cdp", "device".');
 	}
 
 	public function testDiscoveryRuleTopologyStep_Inheritance(): void {
@@ -258,7 +262,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 			'filter' => ['key_' => 'topo.step.lldp']
 		])['result'][0]['itemid'];
 
-		$this->assertSame("lldp\nempty\n50", $this->getParams($itemid));
+		$this->assertSame("lldp\nempty\n20", $this->getParams($itemid));
 	}
 
 	/**
@@ -308,7 +312,7 @@ class testDiscoveryRuleTopologyStep extends CAPITest {
 		};
 
 		$original = $read(self::$ids['templateid']);
-		$this->assertNotEmpty($original['topo.step.fdb'][1]);
+		$this->assertNotEmpty($original['topo.step.ports'][1]);
 		$this->assertEquals($original, $read($imported));
 
 	}

@@ -55,8 +55,7 @@ $indent = static function (string $text, int $spaces): string {
 $rules = [
 	['script' => 'ports', 'name' => 'Topology ports', 'type' => 'PORTS', 'master' => 'topology.walk.core'],
 	['script' => 'neighbors', 'name' => 'Topology neighbors (LLDP)', 'type' => 'NEIGHBORS', 'master' => 'topology.walk.core'],
-	['script' => 'learned_macs', 'name' => 'Topology learned MACs', 'type' => 'LEARNED_MACS', 'master' => 'topology.walk.fdb'],
-	['script' => 'lag', 'name' => 'Topology LAG membership', 'type' => 'LAG', 'master' => 'topology.walk.core'],
+	// LLD spec 2.22 (model 2.121): release 1 has no Learned MACs and LAG rules (the API refuses those topology types on import); the scripts learned_macs.js and lag.js stay for the equivalence checks
 ];
 
 $yaml = <<<YAML

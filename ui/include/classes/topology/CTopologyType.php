@@ -80,11 +80,21 @@ class CTopologyType {
 	 */
 	private const SNMPINDEX_FALLBACK = [ZBX_TOPOLOGY_TYPE_PORTS];
 
+	/**
+	 * Topology types that are reserved for release 3 (model 2.105 §5.1, 2.121; FR-B D-9, D-31; LLD spec 2.22): LEARNED_MACS and LAG. Their contract stays in TYPES (the server processes them and the
+	 * contract tables are compared with the server's), their constants stay, but in release 1 the API refuses them on create, update and import with the error of an unknown value, and the
+	 * rule form does not offer them.
+	 */
+	private const RESERVED = [ZBX_TOPOLOGY_TYPE_LEARNED_MACS, ZBX_TOPOLOGY_TYPE_LAG];
+
+	/**
+	 * The topology types that a rule may have in release 1: NONE, PORTS, NEIGHBORS, DEVICE.
+	 */
 	public static function getTypes(): array {
-		return array_merge([ZBX_TOPOLOGY_TYPE_NONE], array_keys(self::TYPES));
+		return array_merge([ZBX_TOPOLOGY_TYPE_NONE], array_values(array_diff(array_keys(self::TYPES), self::RESERVED)));
 	}
 
-	public static function getLabels(): array {
+	private static function getAllLabels(): array {
 		return [
 			ZBX_TOPOLOGY_TYPE_NONE => _('None'),
 			ZBX_TOPOLOGY_TYPE_PORTS => _('Ports'),
@@ -95,15 +105,36 @@ class CTopologyType {
 		];
 	}
 
-	public static function getLabel(int $topology_type): string {
-		return self::getLabels()[$topology_type] ?? _('Unknown');
+	/**
+	 * Labels of the topology types that the rule form offers.
+	 */
+	public static function getLabels(): array {
+		return array_intersect_key(self::getAllLabels(), array_flip(self::getTypes()));
 	}
 
 	/**
-	 * Export strings indexed by topology type value, including NONE.
+	 * Label of a topology type for display; a rule that still has a reserved type (data of an earlier build) is named.
+	 */
+	public static function getLabel(int $topology_type): string {
+		return self::getAllLabels()[$topology_type] ?? _('Unknown');
+	}
+
+	/**
+	 * Export/import strings indexed by topology type value, including NONE; the import accepts the types of release 1 only.
 	 */
 	public static function getExportStrings(): array {
-		return [ZBX_TOPOLOGY_TYPE_NONE => 'NONE'] + array_map(static fn(array $definition) => $definition['export'], self::TYPES);
+		return array_intersect_key(
+			[ZBX_TOPOLOGY_TYPE_NONE => 'NONE'] + array_map(static fn(array $definition) => $definition['export'], self::TYPES),
+			array_flip(self::getTypes())
+		);
+	}
+
+	/**
+	 * The sources of the preprocessing step "SNMP walk to topology" in release 1 (LLD spec 2.22 §4.2): the sources `fdb` and `lag` are release 3. The MAC limit (third parameter) belongs to `fdb`:
+	 * the form does not offer it and only its default is accepted.
+	 */
+	public static function getStepSources(): array {
+		return ZBX_PREPROC_TOPOLOGY_SOURCES_RELEASE_1;
 	}
 
 	/**
